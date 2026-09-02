@@ -12,6 +12,7 @@
     "coderouter:migrate-encrypted-credentials": "bun scripts/coderouter/migrate-encrypted-credentials.ts",
     "coderouter:benchmark": "bun scripts/coderouter/benchmark.ts",
     "coderouter:reconcile-billing": "bun scripts/coderouter/reconcile-billing.ts",
+    "clickhouse:migrate": "bun scripts/clickhouse-migrate.ts",
     "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
     "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",

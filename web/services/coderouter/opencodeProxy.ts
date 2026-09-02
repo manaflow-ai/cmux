@@ -8,6 +8,11 @@ import {
 } from "./observability";
 import { observeModelUsage } from "./responseUsage";
 import {
+  newLedgerRequestId,
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
+import {
   authenticateRequestRouteToken,
   VM_PLACEHOLDER_API_KEY,
   type RouteTokenAuthFailure,
@@ -80,6 +85,7 @@ export async function proxyOpenCodeRequest(
   dependencies: OpenCodeDependencies = defaultDependencies,
 ): Promise<Response> {
   const startedAt = performance.now();
+  const requestId = newLedgerRequestId();
   const authResult = await authenticateRequestRouteToken(
     request,
     dependencies.authenticate,
@@ -87,6 +93,7 @@ export async function proxyOpenCodeRequest(
   if (!authResult.ok) {
     captureAuthRejection("opencode_proxy", authResult.reason);
     captureOpenCodeHealth({
+      requestId,
       startedAt,
       status: 401,
       outcome: "unauthorized",
@@ -103,6 +110,7 @@ export async function proxyOpenCodeRequest(
   const resolved = await openCodeAccount(auth.teamId, dependencies);
   if (!resolved) {
     captureOpenCodeHealth({
+      requestId,
       identity: auth,
       startedAt,
       status: 503,
@@ -125,6 +133,7 @@ export async function proxyOpenCodeRequest(
       operation: "config",
     });
     captureOpenCodeHealth({
+      requestId,
       identity: auth,
       startedAt,
       status: 502,
@@ -142,6 +151,7 @@ export async function proxyOpenCodeRequest(
   const provider = config[providerId];
   if (!isRecord(provider)) {
     captureOpenCodeHealth({
+      requestId,
       identity: auth,
       startedAt,
       status: 404,
@@ -160,6 +170,7 @@ export async function proxyOpenCodeRequest(
   const base = isRecord(api) ? api.url : undefined;
   if (typeof base !== "string" || !safeProviderURL(base)) {
     captureOpenCodeHealth({
+      requestId,
       identity: auth,
       startedAt,
       status: 502,
@@ -203,6 +214,7 @@ export async function proxyOpenCodeRequest(
       provider: "opencode-go",
     });
     captureOpenCodeHealth({
+      requestId,
       identity: auth,
       startedAt,
       status: 502,
@@ -225,6 +237,7 @@ export async function proxyOpenCodeRequest(
   // Emit terminal health before the response body is consumed; token parsing
   // remains an independent aggregate-usage concern.
   captureOpenCodeHealth({
+    requestId,
     identity: auth,
     startedAt,
     status: upstream.status,
@@ -247,6 +260,20 @@ export async function proxyOpenCodeRequest(
         total_tokens: usage.totalTokens,
         ...vmIdProperty(auth.vmId),
       },
+    });
+    recordUsageEvent({
+      requestId,
+      teamId: auth.teamId,
+      stackUserId: auth.stackUserId,
+      vmId: auth.vmId,
+      provider: "opencode-go",
+      agent: "opencode",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      status: upstream.status,
     });
   });
   return new Response(body, {
@@ -404,6 +431,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 }
 
 function captureOpenCodeHealth(input: {
+  readonly requestId: string;
   readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
   readonly startedAt: number;
   readonly status: number;
@@ -425,6 +453,7 @@ function captureOpenCodeHealth(input: {
   readonly attempts?: number;
   readonly responseStreamed?: boolean;
 }): void {
+  const durationMs = Math.round(performance.now() - input.startedAt);
   captureCoderouterEvent({
     event: "coderouter_route_health",
     ...(input.identity ? { teamId: input.identity.teamId } : {}),
@@ -434,12 +463,26 @@ function captureOpenCodeHealth(input: {
       outcome: input.outcome,
       failure_stage: input.failureStage,
       status: input.status,
-      duration_ms: Math.round(performance.now() - input.startedAt),
+      duration_ms: durationMs,
       attempt_count: input.attempts ?? 0,
       refresh_retry_count: 0,
       response_streamed: input.responseStreamed ?? false,
       ...vmIdProperty(input.identity?.vmId ?? null),
     },
+  });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "opencode-go",
+    agent: "opencode",
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    attemptCount: input.attempts ?? 0,
+    refreshRetryCount: 0,
+    durationMs,
+    responseStreamed: input.responseStreamed ?? false,
   });
 }
 

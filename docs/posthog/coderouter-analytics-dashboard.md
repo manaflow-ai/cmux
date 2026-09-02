@@ -89,26 +89,22 @@ Any nonzero privacy/integrity card is an incident.
 - any privacy/integrity violation
 - no successful events during expected active periods
 
-Customer-facing metrics must continue to use the fixed,
-server-authorized Endpoints below. Never expose PostHog project access or
+Customer-facing usage (dashboard and `/api/coderouter/vm-usage*`) is read
+from our own ClickHouse ledger, not from PostHog; see "Usage ledger" in
+`docs/coderouter-operations.md`. Never expose PostHog project access or
 free-form HogQL to customers.
 
-## Customer Endpoints
+## Team usage Endpoint (dashboard only)
 
-| Endpoint | Source | Variables | Env override (default) |
-| --- | --- | --- | --- |
-| `coderouter-team-usage-30d` | `docs/posthog/coderouter-team-usage-30d.hogql` | `team_scope` | fixed, not configurable |
-| `coderouter-vm-usage-30d` | `docs/posthog/coderouter-vm-usage-30d.hogql` | `team_scope`, `vm_id` | `POSTHOG_CODEROUTER_VM_ENDPOINT_NAME` (`coderouter-vm-usage-30d`) |
-| `coderouter-team-machines-30d` | `docs/posthog/coderouter-team-machines-30d.hogql` | `team_scope` | `POSTHOG_CODEROUTER_MACHINES_ENDPOINT_NAME` (`coderouter-team-machines-30d`) |
+| Endpoint | Source | Variables |
+| --- | --- | --- |
+| `coderouter-team-usage-30d` | `docs/posthog/coderouter-team-usage-30d.hogql` | `team_scope` |
 
-All three share `POSTHOG_CODEROUTER_ENDPOINT_SECRET` (an `endpoint:read`
-project secret key), `POSTHOG_CODEROUTER_ENVIRONMENT_ID`,
-`POSTHOG_CODEROUTER_API_HOST`, and `CODEROUTER_ANALYTICS_SCOPE_SECRET`.
+Publish it in the CodeRouter project with a required `team_scope` string
+variable for an operator view of one pseudonymous team. The app no longer
+calls it, so no Endpoint credential is configured in the web app.
 
 `$ai_generation` events carry `coderouter_vm_id` (the cmux `cloud_vms.id`
 UUID, an opaque server-minted identifier, not personal data) only when the
 route token was bound to a Cloud VM. `coderouter_route_health` carries the
-same value as `vm_id`. Unbound `cr` CLI traffic has neither property, so the
-per-machine Endpoints never see it. The server verifies team ownership of a
-`vm_id` before querying, and drops machine rows whose id the team does not
-own before returning them.
+same value as `vm_id`. Unbound `cr` CLI traffic has neither property.

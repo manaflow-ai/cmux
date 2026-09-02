@@ -11,6 +11,11 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
+import {
+  newLedgerRequestId,
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
 import {
   authenticateRequestRouteToken,
@@ -95,6 +100,7 @@ async function proxyCodexRequestWith(
   request: Request,
 ): Promise<Response> {
   const startedAt = performance.now();
+  const requestId = newLedgerRequestId();
   const auth = await authenticateRequestRouteToken(
     request,
     dependencies.authenticate,
@@ -111,6 +117,7 @@ async function proxyCodexRequestWith(
       properties: { surface: "responses", reason: auth.reason },
     });
     captureRouteHealth({
+      requestId,
       request,
       startedAt,
       status: 401,
@@ -234,6 +241,7 @@ async function proxyCodexRequestWith(
   }
   if (!upstream) {
     captureRouteHealth({
+      requestId,
       identity,
       request,
       startedAt,
@@ -270,6 +278,7 @@ async function proxyCodexRequestWith(
   responseHeaders.set("cache-control", "no-store");
   const status = upstream.status;
   captureRouteHealth({
+    requestId,
     identity,
     request,
     startedAt,
@@ -279,8 +288,9 @@ async function proxyCodexRequestWith(
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: upstream.body !== null,
   });
+  const agent = agentFromUserAgent(request.headers.get("user-agent"));
   const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity, usage);
+    captureModelUsage(identity, usage, { requestId, agent, status });
   });
   return new Response(observedBody, {
     status: upstream.status,
@@ -480,6 +490,7 @@ function jsonError(
 }
 
 function captureRouteHealth(input: {
+  readonly requestId: string;
   readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
   readonly request: Request;
   readonly startedAt: number;
@@ -514,6 +525,13 @@ function captureRouteHealth(input: {
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
+  const failureStage = input.outcome === "success"
+    ? "none"
+    : input.outcome === "unauthorized"
+    ? "auth"
+    : input.outcome === "no_usable_account"
+    ? input.failureStage ?? "account_selection"
+    : "upstream_response";
   // Capture as soon as the terminal route result is known. This is deliberately
   // independent of response consumption and token parsing.
   captureCoderouterEvent({
@@ -523,13 +541,7 @@ function captureRouteHealth(input: {
       provider: "codex",
       agent,
       outcome: input.outcome,
-      failure_stage: input.outcome === "success"
-        ? "none"
-        : input.outcome === "unauthorized"
-        ? "auth"
-        : input.outcome === "no_usable_account"
-        ? input.failureStage ?? "account_selection"
-        : "upstream_response",
+      failure_stage: failureStage,
       status: input.status,
       attempt_count: input.attempted,
       refresh_retry_count: input.refreshRetries,
@@ -538,11 +550,30 @@ function captureRouteHealth(input: {
       ...vmIdProperty(input.identity?.vmId ?? null),
     },
   });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "codex",
+    agent,
+    outcome: input.outcome,
+    failureStage,
+    status: input.status,
+    attemptCount: input.attempted,
+    refreshRetryCount: input.refreshRetries,
+    durationMs,
+    responseStreamed: input.responseStreamed,
+  });
 }
 
 function captureModelUsage(
-  identity: Pick<RouteTokenIdentity, "teamId" | "vmId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
   usage: ModelUsage | null,
+  ledger: {
+    readonly requestId: string;
+    readonly agent: string;
+    readonly status: number;
+  },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
   captureCoderouterEvent({
@@ -557,6 +588,20 @@ function captureModelUsage(
       total_tokens: usage.totalTokens,
       ...vmIdProperty(identity.vmId),
     },
+  });
+  recordUsageEvent({
+    requestId: ledger.requestId,
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    provider: "codex",
+    agent: ledger.agent,
+    model: usage.model,
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    status: ledger.status,
   });
 }
 

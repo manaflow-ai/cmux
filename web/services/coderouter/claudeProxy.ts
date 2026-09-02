@@ -14,6 +14,11 @@ import {
 import { getClaudeUpstream, type ClaudeUpstream } from "./claudeUpstream";
 import { captureCoderouterEvent } from "./analytics";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import {
+  newLedgerRequestId,
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
 import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
 import { signAwsRequest } from "./awsSigV4";
 import {
@@ -92,7 +97,8 @@ export function createClaudeMessagesProxy(
 ): (request: Request) => Promise<Response> {
   return async (request) => {
     const startedAt = performance.now();
-    const route = await resolveRoute(dependencies, request, "messages", startedAt);
+    const requestId = newLedgerRequestId();
+    const route = await resolveRoute(dependencies, request, "messages", { startedAt, requestId });
     if (!route.ok) return route.response;
     const { identity, upstream } = route;
     let response: Response;
@@ -106,6 +112,7 @@ export function createClaudeMessagesProxy(
         upstream_kind: upstream.kind,
       });
       captureRouteHealth(dependencies, {
+        requestId,
         identity,
         request,
         startedAt,
@@ -117,6 +124,7 @@ export function createClaudeMessagesProxy(
       return anthropicError(502, "api_error", "coderouter could not reach the Claude upstream. Retry shortly.");
     }
     captureRouteHealth(dependencies, {
+      requestId,
       identity,
       request,
       startedAt,
@@ -125,8 +133,13 @@ export function createClaudeMessagesProxy(
       failureStage: response.ok ? "none" : "upstream_response",
       responseStreamed: response.body !== null,
     });
+    const agent = agentFromUserAgent(request.headers.get("user-agent"));
     const observed = observeClaudeUsage(response.body, (usage) => {
-      captureModelUsage(dependencies, identity, upstream.kind, usage);
+      captureModelUsage(dependencies, identity, upstream.kind, usage, {
+        requestId,
+        agent,
+        status: response.status,
+      });
     });
     return new Response(observed, { status: response.status, headers: response.headers });
   };
@@ -136,7 +149,7 @@ export function createClaudeCountTokensProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
-    const route = await resolveRoute(dependencies, request, "count_tokens", performance.now());
+    const route = await resolveRoute(dependencies, request, "count_tokens");
     if (!route.ok) return route.response;
     const { upstream } = route;
     try {
@@ -158,7 +171,7 @@ export function createClaudeModelsProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
-    const route = await resolveRoute(dependencies, request, "models", performance.now());
+    const route = await resolveRoute(dependencies, request, "models");
     if (!route.ok) return route.response;
     const { upstream } = route;
     if (upstream.kind === "bedrock") {
@@ -198,7 +211,8 @@ async function resolveRoute(
   dependencies: ClaudeProxyDependencies,
   request: Request,
   surface: ClaudeSurface,
-  startedAt: number,
+  /** Present only for the messages surface, which reports route health. */
+  health?: { readonly startedAt: number; readonly requestId: string },
 ): Promise<
   | { ok: true; identity: RouteTokenIdentity; upstream: ClaudeUpstream }
   | { ok: false; response: Response }
@@ -210,10 +224,11 @@ async function resolveRoute(
       event: "coderouter_auth_rejected",
       properties: { surface, reason: auth.reason },
     });
-    if (surface === "messages") {
+    if (health) {
       captureRouteHealth(dependencies, {
+        requestId: health.requestId,
         request,
-        startedAt,
+        startedAt: health.startedAt,
         status: 401,
         outcome: "unauthorized",
         failureStage: "auth",
@@ -230,11 +245,12 @@ async function resolveRoute(
   const upstream = await dependencies.upstream(identity.teamId);
   if (!upstream) {
     addCoderouterBreadcrumb("routing", "No Claude upstream configured", { surface }, "warning");
-    if (surface === "messages") {
+    if (health) {
       captureRouteHealth(dependencies, {
+        requestId: health.requestId,
         identity,
         request,
-        startedAt,
+        startedAt: health.startedAt,
         status: 503,
         outcome: "provider_unavailable",
         failureStage: "provider_config",
@@ -548,6 +564,7 @@ export function anthropicError(
 }
 
 function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: {
+  readonly requestId: string;
   readonly identity?: RouteTokenIdentity;
   readonly request: Request;
   readonly startedAt: number;
@@ -557,6 +574,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: {
   readonly responseStreamed: boolean;
 }): void {
   const durationMs = Math.round(performance.now() - input.startedAt);
+  const agent = agentFromUserAgent(input.request.headers.get("user-agent"));
   addCoderouterBreadcrumb(
     "request",
     "Model request completed",
@@ -573,7 +591,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: {
     teamId: input.identity?.teamId,
     properties: {
       provider: "claude",
-      agent: agentFromUserAgent(input.request.headers.get("user-agent")),
+      agent,
       outcome: input.outcome,
       failure_stage: input.failureStage,
       status: input.status,
@@ -584,6 +602,20 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: {
       ...(input.identity?.vmId ? { vm_id: input.identity.vmId } : {}),
     },
   });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "claude",
+    agent,
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    attemptCount: 1,
+    refreshRetryCount: 0,
+    durationMs,
+    responseStreamed: input.responseStreamed,
+  });
 }
 
 function captureModelUsage(
@@ -591,8 +623,15 @@ function captureModelUsage(
   identity: RouteTokenIdentity,
   upstreamKind: ClaudeUpstream["kind"],
   usage: ClaudeUsage | null,
+  ledger: {
+    readonly requestId: string;
+    readonly agent: string;
+    readonly status: number;
+  },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
+  const inputTokens =
+    usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
   dependencies.capture({
     event: "coderouter_model_request_completed",
     teamId: identity.teamId,
@@ -600,12 +639,27 @@ function captureModelUsage(
       provider: "claude",
       upstream_kind: upstreamKind,
       model: usage.model ?? "unknown",
-      input_tokens: usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens,
+      input_tokens: inputTokens,
       cached_input_tokens: usage.cacheReadInputTokens,
       output_tokens: usage.outputTokens,
       total_tokens: usage.totalTokens,
       ...(identity.vmId ? { vm_id: identity.vmId } : {}),
     },
+  });
+  recordUsageEvent({
+    requestId: ledger.requestId,
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    provider: "claude",
+    upstreamKind,
+    agent: ledger.agent,
+    model: usage.model,
+    inputTokens,
+    cachedInputTokens: usage.cacheReadInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    status: ledger.status,
   });
 }
 

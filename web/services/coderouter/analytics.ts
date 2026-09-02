@@ -63,17 +63,24 @@ const MAX_COUNT = 1_000_000_000_000;
 const ANALYTICS_SCHEMA_VERSION = 3;
 const ANALYTICS_SERVICE_VERSION = "coderouter-web-v1";
 
+/**
+ * Runs a best-effort telemetry task after the response is sent. Shared by the
+ * PostHog capture and the ClickHouse usage ledger so both leave the request
+ * path the same way.
+ */
+export function deferCoderouterTask(task: Promise<unknown>): void {
+  try {
+    after(task);
+  } catch {
+    // Unit tests and non-request scripts do not have a Next request scope.
+    // The promise is already running; always absorb rejection.
+    void task.catch(() => undefined);
+  }
+}
+
 const defaultDependencies: AnalyticsDependencies = {
   fetch,
-  defer: (task) => {
-    try {
-      after(task);
-    } catch {
-      // Unit tests and non-request scripts do not have a Next request scope.
-      // The promise is already running; always absorb rejection.
-      void task.catch(() => undefined);
-    }
-  },
+  defer: deferCoderouterTask,
   enabled: () =>
     process.env.VERCEL_ENV === "production" ||
     process.env.CODEROUTER_ANALYTICS_FORCE === "1",
