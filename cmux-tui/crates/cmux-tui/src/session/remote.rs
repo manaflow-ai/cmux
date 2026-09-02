@@ -2365,7 +2365,13 @@ impl RemoteSession {
                     session: agent.session.as_deref().map(Arc::from),
                     updated_at_ms,
                 };
-                self.tree.lock().unwrap().update_agent(agent);
+                {
+                    let retired_surfaces = self.retired_surfaces.lock().unwrap();
+                    if retired_surfaces.contains(&surface) {
+                        return;
+                    }
+                    self.tree.lock().unwrap().update_agent(agent);
+                }
                 self.emit(event);
             }
             Some("layout-changed") => {
@@ -3337,13 +3343,13 @@ impl RemoteSession {
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
-        self.tree.lock().unwrap().remove_agent(id);
         let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
         retired_surfaces.insert(id);
         #[cfg(test)]
         if let Some(sender) = self.retire_surface_test_marker.lock().unwrap().clone() {
             let _ = sender.send(id);
         }
+        self.tree.lock().unwrap().remove_agent(id);
         drop(retired_surfaces);
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let surface = self.surfaces.lock().unwrap().remove(&id);
@@ -3453,14 +3459,18 @@ impl RemoteSession {
             .lock()
             .unwrap()
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
+        let retired_surfaces = self.retired_surfaces.lock().unwrap();
         let tree = {
             let mut cache = self.tree.lock().unwrap();
-            let retired = self.retired_surfaces.lock().unwrap().clone();
-            tree.retain_not_retired(&retired);
+            tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation);
+            for &surface in retired_surfaces.iter() {
+                cache.remove_agent(surface);
+            }
             cache.view.clone()
         };
+        drop(retired_surfaces);
         let browser_sources = browser_sources_from_tree(&tree);
         *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
