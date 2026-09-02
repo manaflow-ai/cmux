@@ -284,6 +284,10 @@ export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
+// Old/custom images may have mountpoint but not util-linux's findmnt poller.
+// A one-second direct check keeps the durable root fallback alive without a
+// busy loop and still notices a lost backing mount promptly.
+const CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS = 1;
 
 /**
  * Runs a layout daemon with an event-driven mount watcher. A persistent mount
@@ -331,12 +335,17 @@ function cmuxTuiSupervisedDaemonInvocation(
     // The expected-state snapshot closes the race between the outer branch and
     // watcher startup. Every selected persistent mount must still be present.
     `if ${watchCondition}; then`,
-    `if ! command -v findmnt >/dev/null 2>&1 || ! findmnt --help 2>&1 | grep -q -- '--poll' || ${anyMissing}; then ${signalViewLost};`,
-    `else`,
+    `if ${anyMissing}; then ${signalViewLost};`,
+    `elif command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll'; then`,
     // findmnt --poll blocks in the kernel until a mount event. Scope each poll
     // to one relevant mount so unrelated container mounts do not wake this loop.
     pollLoops,
     pollWait,
+    `else`,
+    // A mounted backing path is still a valid durable fallback when an old image
+    // lacks findmnt. Poll mountpoint at a bounded interval instead of exiting the
+    // daemon before it can serve the user's persistent home.
+    `while :; do if ${anyMissing}; then ${signalViewLost}; break; fi; sleep ${CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS}; done;`,
     `fi;`,
     unwatchableCondition
       ? `elif ${unwatchableCondition}; then ${signalViewLost}; fi`
