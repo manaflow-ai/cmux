@@ -5647,20 +5647,26 @@ struct CMUXCLI {
                     print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
                 }
                 if let limits = response["limits"] as? [String: Any],
-                   let maxActiveVms = limits["maxActiveVms"] as? Int,
                    let planId = limits["planId"] as? String {
-                    if maxActiveVms == 1 {
+                    // Absent or null means the plan has no active-machine cap.
+                    if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
                         print(String(format: format, vms.count, planId))
-                    } else {
+                    } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
                         print(String(format: format, vms.count, maxActiveVms, planId))
+                    } else {
+                        let format = String(
+                            localized: "cli.vm.list.planMeter.unlimited",
+                            defaultValue: "%1$d machines on the %2$@ plan, no limit"
+                        )
+                        print(String(format: format, vms.count, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
