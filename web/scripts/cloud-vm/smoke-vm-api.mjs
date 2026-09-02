@@ -246,8 +246,10 @@ try {
         return JSON.parse(text);
       };
       const guestEnv = "export HOME=/root; . /etc/profile.d/mise.sh; . /etc/cmux/agent-config.sh;";
+      const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
       const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
-      const steered = /coderouter/.test(hosts.stdout ?? "");
+      const host = (originHost.stdout ?? "").trim();
+      const steered = host.length > 0 && (hosts.stdout ?? "").includes(host);
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
@@ -257,19 +259,24 @@ try {
       const modelsStatus = (models.stdout ?? "").trim();
       const codex = await exec(`${guestEnv} cd /root && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
+      // codex echoes the prompt, so only a line that is exactly the answer counts.
+      const codexPong = codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
+      // The edge delivered the token but the team has no upstream subscription:
+      // a real outcome on staging teams, reported rather than failed.
+      const codexOutcome = codexPong ? "answered" : /no_usable_account/.test(codexOut) ? "no_account" : "failed";
       edge = {
         hostsSteered: steered,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
         modelsStatus,
         codexExit: codex.exitCode,
-        codexPong: /pong/i.test(codexOut),
+        codexOutcome,
         codexTail: codexOut.slice(-400),
       };
       const problems = [];
-      if (!steered) problems.push("guest /etc/hosts is not steered to the edge for the coderouter origin");
+      if (!steered) problems.push(`guest /etc/hosts is not steered to the edge for ${host || "the coderouter origin"}`);
       if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
       if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
-      if (!edge.codexPong) problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
+      if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")}`);
     }
 
