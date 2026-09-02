@@ -392,7 +392,6 @@
       "list": {
         "title": "All Pro users",
         "description": "Every account with Pro access and why: active Stripe subscriptions from the billing mirror, manual grants found by walking the account directory, and grants waiting for a first sign-in.",
-        "load": "Load list",
         "reload": "Reload",
         "loading": "Loading…",
         "stats": {
@@ -423,7 +422,8 @@
         "detail": "Detail",
         "sourceStripe": "Stripe subscription",
         "sourceGrant": "Manual grant",
-        "seats": "{count, plural, =1 {1 seat} other {# seats}}"
+        "seats": "{count, plural, =1 {1 seat} other {# seats}}",
+        "truncated": "This list is capped at 5,000 rows per source and some rows are not shown. Use search for anything missing."
       }
     },
     "aiAccounts": {
