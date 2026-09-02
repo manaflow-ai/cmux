@@ -1287,12 +1287,14 @@ async fn run_spec(
             }, if !cancelled => {
                 cancelled = true;
                 phase = ProcessPhase::StopRequested;
-                #[cfg(unix)]
-                if !signal_process_tree(pid, false) {
-                    let _ = child.start_kill();
+                if exited.is_none() && phase.may_signal() {
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, false) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
+                    signal_process_tree(pid, false);
                 }
-                #[cfg(not(unix))]
-                signal_process_tree(pid, false);
                 kill_deadline = Some(Box::pin(tokio::time::sleep(
                     std::time::Duration::from_millis(250),
                 )));
