@@ -217,7 +217,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "getStats", () => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
-        throw new Error(`provider ${provider} does not report machine stats`);
+        // Typed, so the route answers "unsupported" (non-retryable) instead of
+        // a retryable 502 the activity panel would poll forever.
+        throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
       return impl.getStats(vmId);
     }),

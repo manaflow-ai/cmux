@@ -567,12 +567,28 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
+    // Base machines join the owner's private network exactly as ad-hoc
+    // machines do — Base is the machine most users touch first, so leaving it
+    // publicly exposed would make the default machine the least private one.
+    // finishBaseCreate receives its services as parameters (it predates the
+    // context-based composition), so hand them to the context-reading resolver
+    // explicitly instead of widening this function's environment.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+        Effect.provideService(VmRepository, repo),
+        Effect.provideService(VmProviderGateway, providers),
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
