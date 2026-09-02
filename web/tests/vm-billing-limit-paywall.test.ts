@@ -27,6 +27,18 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("founders", {})).toBe(50);
   });
 
+  test("a Team subscription gets 50 machines per paid seat", () => {
+    expect(maxActiveVmsForPlan("team", {}, { seats: 4 })).toBe(200);
+    expect(maxActiveVmsForPlan("team", {}, { seats: 1 })).toBe(50);
+    expect(maxActiveVmsForPlan("team", {}, { seats: null })).toBe(50);
+    expect(maxActiveVmsForPlan("team", {}, { seats: 0 })).toBe(50);
+    // Seats only mean something on the Team plan.
+    expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(50);
+    expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
+    // Operator brakes scale with seats too.
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(6);
+  });
+
   test("operator brakes: a plan-specific cap wins over the paid-wide cap", () => {
     expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" })).toBe(5);
     expect(maxActiveVmsForPlan("pro", {

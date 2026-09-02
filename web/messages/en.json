@@ -670,7 +670,7 @@
           "label": "Concurrent Cloud VMs",
           "free": "false",
           "pro": "50",
-          "team": "50",
+          "team": "50 per user",
           "enterprise": "Custom"
         },
         {
@@ -756,7 +756,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
         },
         {
           "q": "What is cmux Vault?",
@@ -769,7 +769,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",

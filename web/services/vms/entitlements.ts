@@ -64,7 +64,7 @@ export function resolveVmEntitlements(
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: maxActiveVmsForPlan(planId, env),
+    maxActiveVms: maxActiveVmsForPlan(planId, env, { seats: billing.billingSeats }),
   };
 }
 
@@ -79,6 +79,7 @@ function resolveBillingContext(
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string | null;
+  readonly billingSeats: number | null;
 } {
   const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
   if (requestedTeamId) {
@@ -94,6 +95,7 @@ function resolveBillingContext(
       billingCustomerType: "team",
       billingTeamId: team.id,
       billingPlanId: team.billingPlanId ?? user.userBillingPlanId,
+      billingSeats: team.billingSeats,
     };
   }
 
@@ -102,6 +104,7 @@ function resolveBillingContext(
       billingCustomerType: "team",
       billingTeamId: user.billingTeamId,
       billingPlanId: user.billingPlanId ?? user.userBillingPlanId,
+      billingSeats: user.billingSeats,
     };
   }
 
@@ -121,6 +124,7 @@ function resolveBillingContext(
     billingCustomerType: "user",
     billingTeamId: user.billingTeamId,
     billingPlanId: user.userBillingPlanId,
+    billingSeats: null,
   };
 }
 
@@ -180,14 +184,21 @@ export function defaultMemoryMbForPlan(
 /**
  * Active-machine ceiling for a plan, or null when there is none. Paid plans
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
- * per billing team. Free plans stay capped (zero unless free provisioning is
- * allowed).
+ * per billing team; a Team subscription multiplies it by its paid seats
+ * (`cmuxSeats`), so "50 per user" holds for the whole team. Free plans stay
+ * capped (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  options: { readonly seats?: number | null } = {},
 ): number | null {
-  return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
+  const normalized = normalizedPlanId(planId ?? "");
+  const limit = activeVmLimitForPlan(normalized, env);
+  if (limit === null || normalized !== TEAM_PLAN_ID) return limit;
+  const seats = options.seats;
+  const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
+  return limit * paidSeats;
 }
 
 /**

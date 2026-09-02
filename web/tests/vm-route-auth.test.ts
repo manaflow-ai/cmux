@@ -1365,7 +1365,7 @@ describe("VM REST auth", () => {
       selectedTeam: null,
       listTeams: async () => [
         { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
-        { id: "team-2", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } },
       ],
     });
     runVmWorkflow.mockResolvedValue({
@@ -1390,7 +1390,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 50,
+      maxActiveVms: 200,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
