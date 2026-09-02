@@ -409,7 +409,10 @@ final class FeedCoordinator: @unchecked Sendable {
         var hasUnknownSessions = false
 
         mutating func record(_ sessionID: String) {
-            guard !sessionID.isEmpty else { return }
+            guard !sessionID.isEmpty else {
+                hasUnknownSessions = true
+                return
+            }
             if knownSessionIDs.contains(sessionID) { return }
             guard knownSessionIDs.count < Self.maxKnownSessionIDs else {
                 hasUnknownSessions = true
