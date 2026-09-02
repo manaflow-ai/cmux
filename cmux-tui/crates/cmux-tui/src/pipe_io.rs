@@ -198,7 +198,7 @@ pub fn run(
             return Ok(PipeIoExitReason::TerminalEnded);
         }
         Ok(PipeIoSurfaceAttach::Deferred) => return Ok(PipeIoExitReason::DaemonLost),
-        Err(error) => return Ok(attach_failure_exit_reason(&error, surface)),
+        Err(error) => return Ok(pipe_io_failure_exit_reason(&error, surface)),
     };
     // The daemon resizes a terminal's PTY only for its geometry-authority
     // client (the full TUI client claims this for its active surface). The
@@ -209,6 +209,7 @@ pub fn run(
             "{}",
             serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
         );
+        return Ok(pipe_io_failure_exit_reason(&error, surface));
     }
     spawn_stdin_pump(handle, lifecycle_sender);
     let reason = pump_events_to_stdout(
@@ -257,7 +258,7 @@ impl Drop for PipeIoTapGuard<'_> {
     }
 }
 
-fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
+fn pipe_io_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
     // A rejected attach naming this exact surface means the terminal ended
     // between the tree lookup and the attach request. Every other failure is
     // reported as retryable daemon loss so the embedder receives the normal
@@ -653,12 +654,15 @@ mod tests {
     fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
         let terminal_ended =
             crate::session::test_remote_rejected_error_with_message("unknown surface 7");
-        assert_eq!(attach_failure_exit_reason(&terminal_ended, 7), PipeIoExitReason::TerminalEnded);
+        assert_eq!(
+            pipe_io_failure_exit_reason(&terminal_ended, 7),
+            PipeIoExitReason::TerminalEnded
+        );
 
         let daemon_lost = crate::session::test_remote_transport_error();
-        assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
+        assert_eq!(pipe_io_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
 
         let unexpected = anyhow::anyhow!("attach capability negotiation failed");
-        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
+        assert_eq!(pipe_io_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
     }
 }

@@ -1713,6 +1713,13 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
+            // A pipe-IO relay must always finish with a machine-readable
+            // reason. Older daemons cannot scope the event stream, so the
+            // embedder treats this as a lost daemon connection and retries
+            // after the daemon is upgraded or restarted.
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost);
+            }
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
         if let Err(error) = remote.scope_events_to_surface(surface) {

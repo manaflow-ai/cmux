@@ -4106,6 +4106,7 @@ struct PipeIoRelay {
     stdin: Option<std::process::ChildStdin>,
     stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    stderr_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
@@ -4137,8 +4138,8 @@ impl PipeIoRelay {
         let stdout_sink = stdout.clone();
         std::thread::spawn(move || drain_into(out, stdout_sink));
         let stderr_sink = stderr.clone();
-        std::thread::spawn(move || drain_into(err, stderr_sink));
-        Self { child, stdin, stdout, stderr }
+        let stderr_drain = std::thread::spawn(move || drain_into(err, stderr_sink));
+        Self { child, stdin, stdout, stderr, stderr_drain: Some(stderr_drain) }
     }
 
     fn send_input(&mut self, bytes: &[u8]) {
@@ -4188,8 +4189,11 @@ impl PipeIoRelay {
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             if let Some(status) = self.child.try_wait().unwrap() {
-                // Let the drain threads observe EOF.
-                std::thread::sleep(Duration::from_millis(100));
+                // Child EOF closes stderr. Join the drain before parsing so
+                // the final exit record is present deterministically.
+                if let Some(stderr_drain) = self.stderr_drain.take() {
+                    let _ = stderr_drain.join();
+                }
                 let stderr_text =
                     String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
                 let exit_line = stderr_text

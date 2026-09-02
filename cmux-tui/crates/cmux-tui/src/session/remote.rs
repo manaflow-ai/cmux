@@ -3271,29 +3271,38 @@ impl RemoteSession {
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
         use crossbeam_channel::TrySendError;
-        let event = event();
-        if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
-            return self.signal_pipe_io_event(Some(surface), None, event);
-        }
-        let (stalled_token, pipe_io_owned) = {
+        // Resolve ownership before invoking the closure. The output and
+        // replay call sites defer an expensive payload clone in this closure;
+        // sessions without a pipe-IO tap must not pay that cost.
+        let (stalled_token, pipe_io_owned, lifecycle_event) = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return false };
             if tap.surface != surface {
                 return false;
             }
-            let retained_bytes = event.retained_bytes();
-            if !tap.byte_budget.try_reserve(retained_bytes) {
-                (Some(tap.token.clone()), true)
+            let event = event();
+            if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
+                // Keep the token fence while releasing the lock. A stale
+                // lifecycle event must not remove a replacement relay.
+                (None, true, Some((tap.token.clone(), event)))
             } else {
-                match tap.sender.try_send(event) {
-                    Ok(()) => (None, true),
-                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                        tap.byte_budget.release(retained_bytes);
-                        (Some(tap.token.clone()), true)
+                let retained_bytes = event.retained_bytes();
+                if !tap.byte_budget.try_reserve(retained_bytes) {
+                    (Some(tap.token.clone()), true, None)
+                } else {
+                    match tap.sender.try_send(event) {
+                        Ok(()) => (None, true, None),
+                        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                            tap.byte_budget.release(retained_bytes);
+                            (Some(tap.token.clone()), true, None)
+                        }
                     }
                 }
             }
         };
+        if let Some((token, event)) = lifecycle_event {
+            return self.signal_pipe_io_event(Some(surface), Some(&token), event);
+        }
         if let Some(token) = stalled_token {
             // Signal only the tap that observed the stall. A replacement tap
             // may have been installed while this reader thread released the
