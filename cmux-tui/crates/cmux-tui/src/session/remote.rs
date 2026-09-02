@@ -3589,6 +3589,8 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     use std::ptr;
 
+    // Any extended ACL can carry non-owner grants or inheritance. Reject the
+    // directory instead of trying to interpret ACE ordering and masks.
     let descriptor = directory.as_raw_fd();
     let size = unsafe { libc::flistxattr(descriptor, ptr::null_mut(), 0, 0) };
     if size < 0 {
