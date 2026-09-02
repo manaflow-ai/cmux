@@ -220,6 +220,14 @@ hook blocks a plugin observation for 30 seconds. The plugin remains a normal
 journal producer, so replay, remote clients, and durable projections use the
 same event stream.
 
+The producer manifest's permission is enforced for journal admission. The
+current local Unix resource socket is a same-user trust boundary, so it does
+not yet enforce a per-plugin allow-list for every other resource operation.
+The reference detector declares and uses only journal append in its own
+manifest and does not call input or lifecycle mutation operations. A future
+capability-bound plugin socket must be designed as a separate host contract;
+an advisory flag here would not provide security.
+
 The reducer clamps `normalized.observed_at_ms` to the journal commit time when
 the plugin clock is ahead. Older observation times remain unchanged, so a
 delayed append cannot become fresh evidence merely because it arrived late.
@@ -330,7 +338,7 @@ application policy into cmux core.
 | Agent inventory and point lookup (`agent.list`, `agent.get`) | `agent.list` and typed SDK agent handles return the generic `AgentSnapshot`; there is no separate `agent.get` wire operation | Keep lookup terminal-scoped and catalog-independent. A client can refresh a selected opaque agent id. |
 | Agent screen and history reads (`agent.read`) | `terminal.screen.read`, `terminal.output_read`, and `terminal.history.read` provide the same data sources to any plugin | Keep reads terminal primitives. Do not add an agent-specific read endpoint. |
 | Explain (`agent.explain`) | The reference plugin exposes `explain` with rule evidence, source, version, and fallback reasons; the host does not evaluate vendor rules | Keep explain beside the replaceable manifest engine. Core receives normalized facts only. |
-| Input (`agent.send`, `agent.send_keys`) | `terminal.input.keys` and `terminal.input.write` are generic host operations | A detector has no input permission. An action plugin must request input explicitly and own its policy. |
+| Input (`agent.send`, `agent.send_keys`) | `terminal.input.keys` and `terminal.input.write` are generic host operations | The reference detector declares and uses only journal append. The current same-user socket does not enforce this per-plugin intent, so an action plugin must use a separate explicit contract and own its policy. |
 | Focus (`agent.focus`) and rename (`agent.rename`) | `terminal.input.focus` and `pane.rename` are generic host operations | Keep focus and naming in the host. Detection must not mutate presentation. |
 | Start (`agent.start`) | `pane.run`, `pane.create`, and `tab.create_terminal` can start a command, but no agent catalog or launcher is in core | Let a separate launcher plugin choose commands. A detector must not execute an agent. |
 | Prompt plus wait (`agent.prompt`) | A client can compose `terminal.input.write` or `terminal.input.keys` with `terminal.wait`; there is no atomic agent prompt operation. Herdr's latest delayed-prompt fix (`8633a398e653eee47b375c963996c78a8a14aa48`) sequences text and Enter inside its PTY actor. | Keep the detector input-free. If cmux needs atomic text-plus-Enter submission, add a generic terminal-input transaction in a separate host contract, not an agent-specific method. |
