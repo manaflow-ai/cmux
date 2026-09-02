@@ -6,9 +6,11 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type SSHEndpoint,
   type SnapshotRef,
@@ -34,17 +36,17 @@ import {
 
 // E2B sandboxes attach through the cmux-tui remote daemon (transport `cmux-remote`,
 // docs/cloud-cmux-tui-daemon.md), the machine's only session daemon — same model as
-// Blaxel. `create` installs the pinned files.cmux.com build (sha256-verified, fetched
+// the other cmux Cloud drivers. `create` installs the pinned files.cmux.com build (sha256-verified, fetched
 // by the sandbox itself) and starts the daemon as a background command; E2B
 // pause/resume snapshots memory, so the daemon survives lifecycle transitions, and
 // every attach re-verifies pin + liveness (ensureCmuxTuiRunning) exactly like the
-// Blaxel driver.
+// Freestyle driver.
 //
 // Ingress: E2B proxies `https://<port>-<sandbox-id>.e2b.app` per port. Its only
 // request auth is the `e2b-traffic-access-token` HEADER, which the cmux-tui dialer
 // cannot send (it dials the route verbatim, adding only a User-Agent), so sandboxes
 // are created with public port traffic and the daemon's Noise device enrollment is
-// the session gate — the same trust model as Blaxel's raw preview, where the route
+// the session gate — the same trust model as a raw provider preview, where the route
 // token "only gates reachability". Sandboxes created by the old cmuxd-remote driver
 // (allowPublicTraffic: false, no cmux-tui) cannot serve this transport and need
 // recreation.
@@ -163,7 +165,7 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
+  async exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult> {
     const timeoutMs = opts?.timeoutMs ?? 30_000;
     return withVmSpan(
       "cmux.vm.provider.exec",
@@ -298,7 +300,12 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
+    void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
@@ -349,7 +356,7 @@ export class E2BProvider implements VMProvider {
   }
 
   /**
-   * Attach-time heal, mirroring the Blaxel driver: a running daemon is left
+   * Attach-time heal, mirroring the other cmux-tui drivers: a running daemon is left
    * alone; a dead one is restarted, reinstalling first when the binary is
    * missing or a manifest pin change supersedes it. E2B pause/resume preserves
    * processes (memory snapshot), so this is normally a no-op.
