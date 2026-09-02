@@ -236,9 +236,9 @@ struct PendingRequest {
     kind: SubmissionKind,
 }
 
-/// Keep all create requests unread until the separate-connection probe has
-/// completed. The second barrier also prevents a create worker from draining
-/// its connection before the same-connection typing requests are submitted.
+/// Keep all create requests unread until the separate-connection probe is on
+/// the wire. The second barrier prevents a create worker from draining its
+/// connection before that probe has submitted its requests.
 struct ProbeGates {
     creates_submitted: Barrier,
     probes_submitted: Barrier,
@@ -312,12 +312,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     // Wait until every create connection has submitted its batch, then run
     // the separate-connection probe while those requests remain unread.
     let _ = gates.creates_submitted.wait();
-    run_separate_typing_probe(&socket, baseline_surface, plan.typing_probes, &report);
-
-    // Worker zero has now submitted its same-connection typing requests. Hold
-    // every worker at this barrier until both probes are on the wire.
-    let _ = gates.probes_submitted.wait();
-    let _ = gates.release_workers.wait();
+    run_separate_typing_probe(&socket, baseline_surface, plan.typing_probes, &report, &gates);
 
     for handle in handles {
         let _ = handle.join();
@@ -336,25 +331,80 @@ fn run_separate_typing_probe(
     surface: u64,
     probes: usize,
     report: &Arc<Mutex<Report>>,
+    gates: &ProbeGates,
 ) {
+    let mut setup_error = None;
     let mut conn = match Conn::open(socket) {
-        Ok(conn) => conn,
+        Ok(conn) => Some(conn),
         Err(error) => {
-            report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
-            return;
+            setup_error = Some(error);
+            None
         }
     };
-    if let Err(error) = conn.identify() {
-        report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
-        return;
+    let identify_error = conn.as_mut().and_then(|connection| connection.identify().err());
+    if let Some(error) = identify_error {
+        setup_error = Some(error);
+        conn = None;
     }
-    for _ in 0..probes {
-        let start = Instant::now();
-        match conn.request(json!({"cmd":"send","surface":surface,"text":"x"})) {
-            Ok(_) => report.lock().unwrap().typing_separate.record(start.elapsed()),
-            Err(error) => report.lock().unwrap().errors.push(format!("typing(separate): {error}")),
+
+    // Submit the entire separate-connection probe before releasing workers.
+    // Responses are drained only after the release barrier, so create response
+    // timing is not inflated by waiting for every typing probe in sequence.
+    let mut pending = Vec::new();
+    if let Some(connection) = conn.as_mut() {
+        for _ in 0..probes {
+            let sent = Instant::now();
+            match connection.send(json!({"cmd":"send","surface":surface,"text":"x"})) {
+                Ok(id) => pending.push((id, sent)),
+                Err(error) => {
+                    setup_error = Some(format!("typing(separate) send: {error}"));
+                    break;
+                }
+            }
         }
     }
+
+    let _ = gates.probes_submitted.wait();
+    let _ = gates.release_workers.wait();
+
+    if let Some(connection) = conn.as_mut() {
+        if let Err(error) = drain_separate_typing(connection, pending, report) {
+            setup_error = Some(match setup_error {
+                Some(previous) => format!("{previous}; {error}"),
+                None => error,
+            });
+        }
+    }
+    if let Some(error) = setup_error {
+        report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
+    }
+}
+
+fn drain_separate_typing(
+    conn: &mut Conn,
+    pending: Vec<(u64, Instant)>,
+    report: &Arc<Mutex<Report>>,
+) -> Result<(), String> {
+    let mut pending_by_id: HashMap<u64, Instant> = pending.into_iter().collect();
+    while !pending_by_id.is_empty() {
+        let value = conn.read_value()?;
+        if value.get("event").is_some() {
+            continue;
+        }
+        let Some(id) = value.get("id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let Some(sent) = pending_by_id.remove(&id) else {
+            continue;
+        };
+        if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            report.lock().unwrap().typing_separate.record(sent.elapsed());
+        } else {
+            let error = value.get("error").and_then(Value::as_str).unwrap_or("command failed");
+            report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
+        }
+    }
+    Ok(())
 }
 
 fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -> Value {
