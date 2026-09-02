@@ -620,10 +620,13 @@ impl Inner {
             // transport ownership check uses the same order.
             let attachments = self.attachments.lock().expect("attach lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
-            let attached = attachments.contains_key(&pty_id);
-            if attached || opening.ids.contains_key(&pty_id) {
+            let attached = attachments.get(&pty_id);
+            let closing = attached
+                .as_ref()
+                .is_some_and(|attachment| attachment.closing.load(Ordering::SeqCst));
+            if (attached.is_some() && !closing) || opening.ids.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
-            } else if attachments.len() + opening.ids.len() >= self.max_ptys {
+            } else if !closing && attachments.len() + opening.ids.len() >= self.max_ptys {
                 Err((
                     "session_limit",
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
