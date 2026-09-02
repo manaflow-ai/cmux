@@ -23,6 +23,8 @@ use sha2::{Digest, Sha256};
 
 /// Highest herdr manifest engine version whose semantics this port covers.
 pub const SCREEN_DETECT_ENGINE_VERSION: u32 = 3;
+/// Explain output used when a known agent has no matching visible rule.
+pub const DEFAULT_KNOWN_AGENT_IDLE_FALLBACK: &str = "known_agent_idle_fallback";
 
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
@@ -430,7 +432,9 @@ impl CompiledManifest {
                 rule.skip_state_update,
                 None,
             ),
-            None => (ScreenState::Idle, None, false, Some("known_agent_idle_fallback".into())),
+            None => {
+                (ScreenState::Idle, None, false, Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK.into()))
+            }
         };
         DetectionExplain {
             process_name: self.manifest.id.clone(),
