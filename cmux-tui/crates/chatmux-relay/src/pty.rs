@@ -1904,44 +1904,48 @@ impl Inner {
             return;
         }
         let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
-        let removed = {
+        let current = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments.get(pty_id).is_some_and(|current| {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let current = attachments.get(pty_id).is_some_and(|current| {
                 Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
             });
-            if !same {
-                false
-            } else {
-                // Queue the exit while this attachment still owns pty_id.
-                // The state and map locks serialize this enqueue with a
-                // replacement open, so the old exit cannot target the new
-                // generation. send_live is a bounded, non-blocking enqueue.
-                (auth.send_live)(
-                    json!({
-                        "version": PTY_PROTOCOL_VERSION,
-                        "type": "pty_exit",
-                        "ptyId": pty_id,
-                        "code": code,
-                    }),
-                    Arc::clone(&attachment.delivery_live),
-                );
+            if current {
                 // A normal PTY exit ends new publication but keeps the live
                 // token for frames already queued. The writer must preserve
                 // opened/output ordering before delivering this exit frame.
                 Self::revoke_for_exit(&attachment);
                 attachment.closing.store(true, Ordering::Release);
-                attachments.remove(pty_id).is_some()
             }
+            current
         };
-        if !removed {
+        if !current {
             return;
         }
-        // Exit publication crosses the transport boundary. Release the
-        // lifecycle state before invoking the callback.
         drop(_delivery);
         drop(_operation);
         drop(_publication);
+        // Keep the closing attachment registered during this non-blocking
+        // enqueue. A replacement open retires it and clears delivery_live,
+        // so the writer drops this old exit instead of targeting the reused
+        // pty id. No lifecycle lock crosses the external callback.
+        (auth.send_live)(
+            json!({
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "pty_exit",
+                "ptyId": pty_id,
+                "code": code,
+            }),
+            Arc::clone(&attachment.delivery_live),
+        );
+        let _state = self.tunnel_state.lock().expect("tunnel state lock");
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let same = attachments.get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        });
+        if same {
+            attachments.remove(pty_id);
+        }
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -2145,13 +2149,7 @@ impl Inner {
             })
         };
         if let Some((owner, _active_cancellation)) = opening {
-            let owner_matches = match context.transport_kind {
-                TransportKind::Legacy => context.transport_id.is_none(),
-                TransportKind::Relay | TransportKind::Tunnel => {
-                    context.transport_id.is_some()
-                        && owner.owner == TransportOwner::from_context(context)
-                }
-            };
+            let owner_matches = owner.owner == TransportOwner::from_context(context);
             let authorized = owner_matches
                 && Self::matching_trust(&auth, context).is_some()
                 && self.tunnel_authority_generation_current(context)
