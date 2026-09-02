@@ -528,6 +528,20 @@ fn enqueue_off_runtime_detach(task: DeferredDetach) -> Result<(), DeferredDetach
     sender.try_send(task).map_err(|error| error.into_inner())
 }
 
+/// Retire a detach that cannot enter the bounded worker queue. A direct
+/// `ControlHandle::send` is unsafe here: it only queues bytes, so releasing
+/// the final lease immediately afterward can call `end()` and make the
+/// control writer discard those bytes. Closing the control socket is the
+/// authoritative cleanup path when the bounded queue is saturated.
+fn release_off_runtime_detach(
+    task: DeferredDetach,
+    enqueue: impl FnOnce(DeferredDetach) -> Result<(), DeferredDetach>,
+) {
+    if let Err(task) = enqueue(task) {
+        task.lease.finish_count();
+    }
+}
+
 impl ControlLease {
     fn finish_count(&self) {
         let Some(inner) = self.inner.upgrade() else { return };
@@ -575,10 +589,7 @@ impl ControlLease {
                 lease: Arc::clone(self),
                 params,
             };
-            if let Err(task) = enqueue_off_runtime_detach(task) {
-                let _ = task.control.send("detach-attached-view", task.params);
-                task.lease.finish_count();
-            }
+            release_off_runtime_detach(task, enqueue_off_runtime_detach);
             return;
         }
         self.finish_count();
