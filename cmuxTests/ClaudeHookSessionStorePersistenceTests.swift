@@ -40,19 +40,19 @@ struct ClaudeHookSessionStorePersistenceTests {
         let result = Harness.runHookProcess(
             context: context,
             arguments: [
-                "hooks", "claude", "prompt-submit",
+                "hooks", "claude", "pre-tool-use",
                 "--workspace", Self.workspaceId,
                 "--surface", Self.surfaceId,
             ],
             environment: environment,
-            standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-1\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"\(context.root.path)\"}"
+            standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-1\",\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"cwd\":\"\(context.root.path)\"}"
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let savedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         let saved = try #require(savedRecord)
-        #expect(saved["hookEventName"] as? String == "UserPromptSubmit")
+        #expect(saved["hookEventName"] as? String == "PreToolUse")
         #expect(saved["lastSubtitle"] == nil)
         #expect(saved["lastBody"] == nil)
     }
