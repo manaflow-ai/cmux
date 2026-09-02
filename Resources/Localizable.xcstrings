@@ -127913,7 +127913,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud の読み込みに失敗 — 既知の状態を表示中"
+            "value": "Cloud の読み込みに失敗 — 最後に確認した状態を表示中"
           }
         }
       }

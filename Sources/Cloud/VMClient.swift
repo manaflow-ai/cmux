@@ -22,8 +22,7 @@ extension URLError.Code {
              .serverCertificateUntrusted,
              .clientCertificateRejected,
              .clientCertificateRequired,
-             .cannotLoadFromNetwork,
-             .resourceUnavailable,
+             .appTransportSecurityRequiresSecureConnection,
              .internationalRoamingOff,
              .callIsActive,
              .dataNotAllowed:

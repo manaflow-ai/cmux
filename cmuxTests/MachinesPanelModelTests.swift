@@ -968,6 +968,7 @@ struct MachinesPanelListProblemTests {
     func rawTransportFailuresStayUnreachable() {
         for code in [
             URLError.Code.secureConnectionFailed,
+            .appTransportSecurityRequiresSecureConnection,
             .serverCertificateUntrusted,
             .dnsLookupFailed,
             .timedOut,
@@ -981,6 +982,12 @@ struct MachinesPanelListProblemTests {
             MachinesPanelViewModel.classifyListFailure(URLError(.badURL)) == .serverError,
             "A malformed client URL is not evidence that Cloud is unreachable"
         )
+        for code in [URLError.Code.cannotLoadFromNetwork, .resourceUnavailable] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(URLError(code)) == .serverError,
+                "\(code) describes a local resource/cache failure, not transport"
+            )
+        }
     }
 
     /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no
