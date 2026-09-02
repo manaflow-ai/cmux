@@ -3496,6 +3496,8 @@ mod tests {
     struct FakeState {
         on_data: Option<DataSink>,
         on_exit: Option<ExitSink>,
+        subscribe_entered: Option<TestArc<Barrier>>,
+        subscribe_release: Option<TestArc<Barrier>>,
         subscribe_output: Option<Bytes>,
         subscribe_exit: Option<i64>,
         written: Vec<Vec<u8>>,
@@ -3562,12 +3564,23 @@ mod tests {
 
     impl PtyOutput for FakePty {
         fn subscribe(&self, on_data: DataSink, on_exit: ExitSink) {
-            let (subscribe_output, subscribe_exit) = {
+            let (subscribe_entered, subscribe_release, subscribe_output, subscribe_exit) = {
                 let mut state = self.state.lock().unwrap();
                 state.on_data = Some(on_data.clone());
                 state.on_exit = Some(on_exit.clone());
-                (state.subscribe_output.take(), state.subscribe_exit.take())
+                (
+                    state.subscribe_entered.clone(),
+                    state.subscribe_release.clone(),
+                    state.subscribe_output.take(),
+                    state.subscribe_exit.take(),
+                )
             };
+            if let Some(entered) = subscribe_entered {
+                entered.wait();
+            }
+            if let Some(release) = subscribe_release {
+                release.wait();
+            }
             if let Some(output) = subscribe_output {
                 on_data(output);
             }
@@ -3584,6 +3597,8 @@ mod tests {
         connected: Vec<PathBuf>,
         subscribe_output: Option<Bytes>,
         subscribe_exit: Option<i64>,
+        subscribe_entered: Option<TestArc<Barrier>>,
+        subscribe_release: Option<TestArc<Barrier>>,
     }
 
     struct FakeDeps {
@@ -3599,14 +3614,21 @@ mod tests {
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
-            let (subscribe_output, subscribe_exit) = {
+            let (subscribe_output, subscribe_exit, subscribe_entered, subscribe_release) = {
                 let mut recorded = self.recorded.lock().unwrap();
-                (recorded.subscribe_output.take(), recorded.subscribe_exit.take())
+                (
+                    recorded.subscribe_output.take(),
+                    recorded.subscribe_exit.take(),
+                    recorded.subscribe_entered.clone(),
+                    recorded.subscribe_release.clone(),
+                )
             };
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState {
                     subscribe_output,
                     subscribe_exit,
+                    subscribe_entered,
+                    subscribe_release,
                     ..FakeState::default()
                 })),
                 spawn_file: spec.file.clone(),
@@ -3849,6 +3871,12 @@ mod tests {
             recorded.subscribe_output =
                 output.map(|value| Bytes::copy_from_slice(value.as_bytes()));
             recorded.subscribe_exit = exit;
+        }
+
+        fn configure_subscribe_block(&self, entered: TestArc<Barrier>, release: TestArc<Barrier>) {
+            let mut recorded = self.recorded.lock().unwrap();
+            recorded.subscribe_entered = Some(entered);
+            recorded.subscribe_release = Some(release);
         }
     }
 
@@ -4486,6 +4514,43 @@ mod tests {
         }));
         assert!(sent.iter().any(|frame| ty(frame) == "pty_exit" && frame["code"] == 0));
         assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_open_before_readiness_releases_attachment() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness(Some(cmux), None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        h.configure_subscribe_block(TestArc::clone(&entered), TestArc::clone(&release));
+        let context = h.context("supervised", h.owner.clone());
+        let cancellation = context.cancellation.clone();
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "work",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        let manager = h.manager.clone();
+        let open = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
+        tokio::task::spawn_blocking(move || entered.wait()).await.expect("subscribe entered");
+
+        cancellation.cancel();
+        open.abort();
+        tokio::task::spawn_blocking(move || release.wait()).await.expect("subscribe released");
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if h.manager.attachment_count() == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("cancelled open releases attachment");
     }
 
     #[tokio::test]
