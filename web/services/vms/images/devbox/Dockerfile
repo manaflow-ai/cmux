@@ -11,7 +11,8 @@
 # (sha256-verified) onto the machine at create time and heals it on attach
 # (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
 # /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
-# and restarts the daemon; the Freestyle bake runs it from a systemd unit.
+# and restarts the daemon. The Freestyle public-platform bake runs it from a
+# systemd unit.
 #
 # Portability rules the Freestyle replay depends on (originally imposed by a
 # remote builder's restricted Dockerfile parser): no backslash escape

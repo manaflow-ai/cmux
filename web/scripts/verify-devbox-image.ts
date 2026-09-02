@@ -140,7 +140,7 @@ if (!image) {
 let pass = false;
 
 if (provider === "freestyle") {
-  console.log(`===== freestyle (snapshot ${image}, beta platform) =====`);
+  console.log(`===== freestyle (snapshot ${image}, public platform) =====`);
   const apiKey = process.env.FREESTYLE_API_KEY;
   const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
   const teamId = process.env.FREESTYLE_TEAM_ID;
