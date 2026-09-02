@@ -196,6 +196,25 @@ private struct RenderGridRevisionFixture {
     #expect(resized.emissionRevision == baseline.emissionRevision + 1)
 }
 
+@Test func cursorOnlyVisualChangeAdvancesContentRevision() throws {
+    func frame(cursor: MobileTerminalRenderGridFrame.Cursor) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "surface-a",
+            stateSeq: 7,
+            columns: 8,
+            rows: 1,
+            cursor: cursor,
+            rowSpans: [.init(row: 0, column: 0, text: "same")]
+        )
+    }
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+    let first = tracker.record(fullFrame: try frame(cursor: .init(row: 0, column: 1)))
+    let moved = tracker.record(fullFrame: try frame(cursor: .init(row: 0, column: 2)))
+
+    #expect(moved.renderRevision == first.renderRevision + 1)
+    #expect(moved.emissionRevision == first.emissionRevision + 1)
+}
+
 @Test func emissionDeltaUsesEmissionIdentityWhileContentTokenRemainsStable() throws {
     let previous = try MobileTerminalRenderGridFrame(
         surfaceID: "surface-a",

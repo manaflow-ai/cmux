@@ -189,7 +189,11 @@ extension MobileTerminalRenderGridFrame {
             }
         }
 
-        if changedRows.isEmpty, scrolled == 0, previous.stateSeq == stateSeq {
+        let cursorChanged = previous.content?.cursor != nextContent.cursor
+        if changedRows.isEmpty,
+           scrolled == 0,
+           previous.stateSeq == stateSeq,
+           !cursorChanged {
             return .none
         }
 
