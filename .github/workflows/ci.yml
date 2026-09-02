@@ -322,6 +322,12 @@ jobs:
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
+      - name: Validate CI status validator
+        run: python3 tests/test_ci_status_validator.py
+
+      - name: Validate release attestation retry guard
+        run: ./tests/test_ci_attestation_retry.sh
+
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
