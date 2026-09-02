@@ -1003,6 +1003,7 @@ enum RunOutcome {
 enum ProcessPhase {
     Running,
     StopRequested,
+    WaitUncertain,
     Waiting,
     Reaped,
     AlreadyReaped,
@@ -1016,7 +1017,7 @@ impl ProcessPhase {
         stdout_open: bool,
         stderr_open: bool,
     ) -> bool {
-        matches!(self, Self::Waiting)
+        matches!(self, Self::Waiting | Self::WaitUncertain)
             || (matches!(self, Self::Running)
                 && !timed_out
                 && !cancelled
@@ -1304,6 +1305,8 @@ async fn run_spec(
                     kill_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
+                } else if exited.is_none() && phase == ProcessPhase::WaitUncertain {
+                    let _ = child.start_kill();
                 } else if (stdout_open || stderr_open) && drain_deadline.is_none() {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
@@ -1373,6 +1376,11 @@ async fn run_spec(
                             phase = ProcessPhase::AlreadyReaped;
                             process_group_guard.armed = false;
                         } else {
+                            phase = ProcessPhase::WaitUncertain;
+                            #[cfg(unix)]
+                            {
+                                process_group_guard.armed = false;
+                            }
                             wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
                                 std::time::Duration::from_millis(10),
                             )));
@@ -1380,6 +1388,7 @@ async fn run_spec(
                         #[cfg(not(unix))]
                         {
                             let _ = error;
+                            phase = ProcessPhase::WaitUncertain;
                             wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
                                 std::time::Duration::from_millis(10),
                             )));
@@ -2398,6 +2407,8 @@ mod tests {
         assert!(!ProcessPhase::Running.may_wait(true, false, false, false));
         assert!(!ProcessPhase::StopRequested.may_wait(true, true, false, false));
         assert!(ProcessPhase::Waiting.may_wait(true, true, true, true));
+        assert!(ProcessPhase::WaitUncertain.may_wait(true, true, true, true));
+        assert!(!ProcessPhase::WaitUncertain.may_signal());
         assert!(!ProcessPhase::Reaped.may_signal());
         assert!(!ProcessPhase::AlreadyReaped.may_signal());
     }
