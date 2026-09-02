@@ -1030,6 +1030,29 @@ mod tests {
         assert_eq!(tree.active_screen().map(|screen| screen.id), Some(2));
     }
 
+    #[test]
+    fn parser_fails_closed_when_active_screen_is_malformed() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {
+                        "id": 2,
+                        "active": false,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    },
+                    {"active": true}
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert!(tree.active_screen().is_none());
+    }
+
     fn tree_with_tabs(active_tab: usize, surfaces: &[SurfaceId]) -> TreeView {
         let tabs = surfaces
             .iter()
@@ -1501,8 +1524,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(pane.tabs.len(), 1);
-        assert_eq!(pane.active_tab, 0);
-        assert_eq!(pane.active_surface(), Some(5));
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_is_out_of_range() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 9,
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
     }
 
     #[test]
