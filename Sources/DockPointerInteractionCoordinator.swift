@@ -254,12 +254,23 @@ extension DockSplitStore {
     /// callbacks do not carry a window, so the owner mapping supplies the
     /// explicit scope used to consume a pointer-origin transaction.
     func dockInteractionWindow() -> NSWindow? {
-        guard let appDelegate = AppDelegate.shared,
-              let manager = appDelegate.dockReferenceTabManager(for: self),
-              let windowId = appDelegate.windowId(for: manager) else {
+        guard let appDelegate = AppDelegate.shared else {
             return nil
         }
-        return appDelegate.mainWindow(for: windowId)
+        // A global Dock's workspaceId is the owning windowId by construction;
+        // resolve it directly so focus publication remains available while a
+        // TabManager/context is being rebuilt. Workspace-scoped Docks retain
+        // their workspace-to-window lookup because their id is not a window id.
+        switch scope {
+        case .global:
+            return appDelegate.mainWindow(for: workspaceId)
+        case .workspace:
+            guard let manager = appDelegate.dockReferenceTabManager(for: self),
+                  let windowId = appDelegate.windowId(for: manager) else {
+                return nil
+            }
+            return appDelegate.mainWindow(for: windowId)
+        }
     }
 
     /// Begins a user-originated Dock pointer transaction and publishes the
@@ -330,7 +341,14 @@ extension DockSplitStore {
             // Pane focus can legitimately land on an empty pane while a split
             // is being assembled. Keep menu validation in sync with that state.
             cancelDockPointerInteraction()
-            noteKeyboardFocusIntent(window: dockInteractionWindow())
+            // Programmatic split/restore scaffolding temporarily focuses an
+            // empty pane before its caller decides whether the new pane should
+            // own input. Do not let that intermediate callback steal focus from
+            // the main workspace; an explicit focused operation publishes the
+            // Dock transaction after the mutation completes.
+            if !isProgrammaticDockSplit {
+                noteKeyboardFocusIntent(window: dockInteractionWindow())
+            }
             refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             return

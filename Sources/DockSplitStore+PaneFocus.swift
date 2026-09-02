@@ -74,6 +74,28 @@ extension DockSplitStore {
         applyDockSelection(tabId: tabId, inPane: paneId)
     }
 
+    /// Commits a pane click as a Dock interaction, including empty panes that
+    /// have no tab callback to carry the focus transaction. Non-empty panes use
+    /// the same panel-selection path as tab clicks; an empty global pane still
+    /// publishes the owning window's Dock intent so the next creation command
+    /// cannot fall through to the main workspace.
+    func focusPaneFromDockInteraction(
+        _ paneId: PaneID,
+        window: NSWindow? = nil
+    ) {
+        guard containsPane(paneId) else { return }
+        if let tab = bonsplitController.selectedTab(inPane: paneId),
+           let panelId = surfaceIdToPanelId[tab.id] {
+            focusPanelFromDockInteraction(panelId, window: window)
+            return
+        }
+        bonsplitController.focusPane(paneId)
+        if scope == .global {
+            noteKeyboardFocusIntent(window: window)
+        }
+        refreshDockMenuCapabilities()
+    }
+
     /// Applies the complete user-interaction focus transaction for a Dock panel.
     /// Model selection, window-scoped shortcut intent, and notification
     /// dismissal move together so AppKit focus, Dock selection, and read state

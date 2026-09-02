@@ -22,7 +22,9 @@ struct DockSplitContentView: View {
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
                 onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            .onTapGesture {
+                store.focusPaneFromDockInteraction(paneId)
+            }
         }
     }
 
@@ -46,13 +48,17 @@ struct DockSplitContentView: View {
         if let panel = store.panel(for: tab.id) {
             panelView(panel: panel, tabID: tab.id, paneID: paneId)
                 .equatable()
-                .onTapGesture { store.bonsplitController.focusPane(paneId) }
+                .onTapGesture {
+                    store.focusPaneFromDockInteraction(paneId)
+                }
         } else {
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
                 onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            .onTapGesture {
+                store.focusPaneFromDockInteraction(paneId)
+            }
         }
     }
 }
