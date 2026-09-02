@@ -65,12 +65,8 @@ export function providerImageEnvKey(provider: ProviderId, kind?: VmImageKind): s
 
 function providerBaseImageEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "E2B_CMUXD_WS_TEMPLATE";
     case "freestyle":
       return "FREESTYLE_SANDBOX_SNAPSHOT";
-    case "daytona":
-      return "DAYTONA_SANDBOX_SNAPSHOT";
     default:
       return assertNever(provider);
   }
