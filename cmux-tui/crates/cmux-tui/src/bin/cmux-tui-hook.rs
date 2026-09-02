@@ -759,26 +759,51 @@ mod detach {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = super::DetachedChildGuard::new(
-            Command::new(exe)
-                .arg(DETACHED_MODE_ARG)
-                .env("CMUX_TUI_SOCKET", socket)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-                .spawn()
-                .context("spawn detached hook child")?,
-        );
-        let mut stdin =
-            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
-        let mut stdout =
-            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
-        stdin.write_all(request_id.as_bytes())?;
-        stdin.write_all(b"\n")?;
-        stdin.write_all(encoded)?;
-        stdin.flush()?;
-        drop(stdin);
+        let command = Command::new(exe)
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let request_id = request_id.to_owned();
+        let encoded = encoded.to_owned();
+        std::thread::spawn(move || {
+            let result =
+                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
+                    let mut child = super::DetachedChildGuard::new(
+                        command.spawn().context("spawn detached hook child")?,
+                    );
+                    let mut stdin = child
+                        .child_mut()
+                        .stdin
+                        .take()
+                        .context("detached hook child has no stdin")?;
+                    stdin.write_all(request_id.as_bytes())?;
+                    stdin.write_all(b"\n")?;
+                    stdin.write_all(&encoded)?;
+                    stdin.flush()?;
+                    drop(stdin);
+                    let stdout = child
+                        .child_mut()
+                        .stdout
+                        .take()
+                        .context("detached hook child has no stdout")?;
+                    Ok((child, stdout))
+                })();
+            let _ = sender.send(result);
+        });
+        let setup = match deadline {
+            Some(deadline) => receiver
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .map_err(|_| ()),
+            None => receiver.recv().map_err(|_| ()),
+        };
+        let (mut child, mut stdout) = match setup {
+            Ok(result) => result?,
+            Err(_) => return Ok(Handoff::TimedOut),
+        };
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
         let (sender, receiver) = mpsc::channel();
