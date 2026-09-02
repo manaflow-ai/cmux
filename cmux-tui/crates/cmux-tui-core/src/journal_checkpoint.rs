@@ -552,14 +552,14 @@ impl RestoreReducer {
             .and_then(Value::as_object)
             .context("checkpoint session_snapshot is not an object")?;
         let Some(cursor) = snapshot.get("cursor") else {
-            return Ok(
-                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
-            );
+            // A contiguous predecessor is not enough to anchor a chain to
+            // this checkpoint. Without durable cursor metadata, fail closed.
+            return Ok(false);
         };
         if cursor.is_null() {
-            return Ok(
-                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
-            );
+            // Null is the persisted representation of an unavailable cursor,
+            // so it has the same fail-closed behavior as an omitted cursor.
+            return Ok(false);
         }
         let Some(cursor) = cursor.as_object() else {
             anyhow::bail!("checkpoint cursor is not an object");
