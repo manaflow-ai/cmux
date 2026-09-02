@@ -1733,6 +1733,31 @@ mod tests {
     }
 
     #[test]
+    fn fish_documented_long_options_preserve_script_identity() {
+        for argv in [
+            vec!["fish", "--interactive", "/tmp/codex"],
+            vec!["fish", "--login", "/tmp/codex"],
+            vec!["fish", "--no-config", "/tmp/codex"],
+            vec!["fish", "--private", "/tmp/codex"],
+            vec!["fish", "--print-rusage-self", "/tmp/codex"],
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, "fish", &argv)] };
+            assert_eq!(
+                identify_job(ManifestSet::bundled(), &job).unwrap().0.id(),
+                "codex",
+                "documented non-exit option must preserve the script: {argv:?}",
+            );
+        }
+
+        let no_execute = ForegroundJob {
+            process_group_id: 8,
+            processes: vec![process(8, "fish", &["fish", "--no-execute", "/tmp/codex"])],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &no_execute).is_none());
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
