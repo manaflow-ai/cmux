@@ -193,6 +193,66 @@ describe("cmux-tui install and daemon commands", () => {
     }
   });
 
+  test("does not wait forever for a late persistent mount", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-mount-timeout-"));
+    const fakeBin = join(root, "fake-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", "#!/bin/sh\nexit 1\n");
+    // An implementation that omits findmnt's timeout hangs forever here. The
+    // bounded implementation receives the timeout option and exits through
+    // the daemon's restartable failure path.
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll --timeout'; exit 0 ;;",
+      "  --poll=*)",
+      "    has_timeout=0",
+      "    for argument in \"$@\"; do case \"$argument\" in --timeout=*) has_timeout=1 ;; esac; done",
+      "    if [ \"$has_timeout\" -eq 1 ]; then sleep 0.05; exit 1; fi",
+      "    while :; do sleep 1; done",
+      "    ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    const layout = {
+      user: "cmux",
+      home: join(root, "home"),
+      volumeBackingPath: join(root, "backing"),
+    } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: { ...process.env, PATH: [fakeBin, process.env.PATH || ""].join(":") },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("persistent mount wait timed out"));
+        }, 2_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("fails closed when the mount poller returns an error", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-poll-failure-"));
     const fakeBin = join(root, "fake-bin");
