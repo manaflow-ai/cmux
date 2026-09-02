@@ -43799,6 +43799,56 @@ mod tests {
     }
 
     #[test]
+    fn projection_rows_refresh_when_focus_changes_without_active_surface() {
+        let mux =
+            Mux::new("projection-focus-without-surface-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_pane
+                )
+        }));
+
+        for workspace in app.tree.workspaces_mut() {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    pane.tabs.clear();
+                }
+            }
+        }
+        app.activate_projection_target(crate::sidebar_projection::ProjectionTarget::Pane {
+            workspace: 0,
+            screen: 0,
+            pane: first_pane,
+        })
+        .unwrap();
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn projection_rows_scope_agent_revision_to_agent_views() {
         let (mux, surface) = test_mux("projection-agent-revision-scope-test", None);
         mux.report_agent(
