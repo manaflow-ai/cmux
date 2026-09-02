@@ -200,11 +200,15 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             [
                 "AuthEnvironment": "development",
                 "ApiBaseURL": "https://cmux-staging.vercel.app",
+                "STACK_PROJECT_ID_PROD": "stale-project",
+                "STACK_PUBLISHABLE_CLIENT_KEY_PROD": "stale-key",
             ],
             authEnvironment: resolved
         )
         #expect(safe["AuthEnvironment"] == "production")
         #expect(safe["ApiBaseURL"] == "https://cmux.com")
+        #expect(safe["STACK_PROJECT_ID_PROD"] == nil)
+        #expect(safe["STACK_PUBLISHABLE_CLIENT_KEY_PROD"] == nil)
     }
 
     // MARK: - Dev sign-in shortcut gating
@@ -408,14 +412,15 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func explicitPresenceOverrideStillBeatsChannelDefault() throws {
-        // Per-developer isolated workers keep working with --prod-auth.
+        // Production auth must use the production presence worker, even when
+        // a stale development override remains in the launch environment.
         #expect(PresenceClient.resolvedServiceBaseURL(
             environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
             defaults: try freshDefaults(),
             infoPlistValue: nil,
             isDebugBuild: true,
             isDevelopmentAuthChannel: false
-        ) == "https://cmux-presence-dev-alice.acct.workers.dev")
+        ) == PresenceClient.productionServiceURL)
     }
 
     @Test func productionPresenceCannotUseAStaleStagingOverride() throws {

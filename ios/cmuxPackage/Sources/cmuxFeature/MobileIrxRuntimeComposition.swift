@@ -699,7 +699,13 @@ public actor MobileIrxRuntimeComposition {
         guard isCurrent(epoch) else {
             await pilot.stop()
             await supervisor.deactivate()
-            await broker.deactivate()
+            // An epochless caller can finish after auth has been cleared
+            // before it ever published an account-owned broker. Preserve the
+            // broker's caches in that case; an authenticated replacement or
+            // the next sign-out owns deactivation for an account-bound stack.
+            if activeAccountID != nil {
+                await broker.deactivate()
+            }
             throw CancellationError()
         }
         self.identity = identity

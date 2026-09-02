@@ -285,7 +285,7 @@ public struct MobileAuthComposition {
         authEnvironment: CMUXAuthEnvironment
     ) -> [String: String] {
         guard authEnvironment == .production else { return overrides }
-        var safe = overrides
+        var safe: [String: String] = [:]
         safe[authEnvironmentOverrideKey] = "production"
         safe["ApiBaseURL"] = "https://cmux.com"
         return safe
