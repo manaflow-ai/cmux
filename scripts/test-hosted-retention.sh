@@ -47,6 +47,10 @@ mkdir "$tmp/gnu-bin"
 cat >"$tmp/gnu-bin/stat" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = "-f" ]; then exit 1; fi
+if [ "\${1:-}" = "-c" ] && [ "\${2:-}" = "%Y" ]; then
+  shift 2
+  exec "$real_stat" -f '%m' "\$@"
+fi
 exec "$real_stat" "\$@"
 EOF
 chmod +x "$tmp/gnu-bin/stat"
