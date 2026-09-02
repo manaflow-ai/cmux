@@ -82,12 +82,13 @@ derived herdr material.
 `src/process.rs` adapts herdr's `src/platform/{linux,macos}.rs` and
 `src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
 bounded traversal and `/proc` streaming, safer path candidates, attached
-runtime-mode parsing, positional-argument boundaries, direct shell-script and
-shell-word parsing, runtime-specific shell invocation-mode checks, Python
-boolean/exit/value option boundaries, and an explicit Linux child-group
-fallback. The Python option distinctions are a local correctness improvement:
-`-S` does not consume the script, and help/version/hash options cannot expose
-following tokens as agent executables. Its strict Pi package-entrypoint check includes herdr's Windows fix
+ runtime-mode parsing, positional-argument boundaries, direct shell-script and
+ shell-word parsing, runtime-specific shell invocation-mode checks, Python
+ boolean/exit/value option boundaries, and an explicit Linux child-group
+ fallback. The Python option distinctions are a local correctness improvement:
+ `-S` does not consume the script, documented help aliases (`-?`, `-VV`)
+ terminate, and help/version/hash options cannot expose following tokens as
+ agent executables. Its strict Pi package-entrypoint check includes herdr's Windows fix
 from commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the check is adapted to
 the replaceable manifest catalog. The reference package targets macOS and
 Linux because its Rust SDK transport is Unix-only. A Windows publication needs

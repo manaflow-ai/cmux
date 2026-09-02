@@ -43,8 +43,9 @@ Derived material and vendored material:
   shell invocation-mode checks, Python boolean/exit/value option boundaries,
   and bounded `/proc` streaming added by manaflow. The Python distinctions are
   a local correctness improvement over the inherited option list: `-S` is
-  boolean, and help/version/hash options cannot expose following tokens as
-  agent executables.
+  boolean, documented help aliases (`-?`, `-VV`) terminate, and
+  help/version/hash options cannot expose following tokens as agent
+  executables.
 - `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
   from herdr's `src/pane/osc.rs`. Core retains only generic bounded OSC 9
   progress metadata; it has no agent or roster policy.
