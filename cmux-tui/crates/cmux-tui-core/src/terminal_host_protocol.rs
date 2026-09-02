@@ -152,6 +152,7 @@ impl TerminalExit {
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
+<<<<<<< ours
     wait_for_native_child_status_with_reap_result(child).0
 }
 
@@ -161,6 +162,13 @@ pub(crate) fn wait_for_native_child_status(
 /// second kill against a PID that may already have been reused after a
 /// successful wait.
 pub(crate) fn wait_for_native_child_status_with_reap_result(
+=======
+    wait_for_native_child_status_with_reap(child).0
+}
+
+/// Wait for the native child and report whether the wait reaped it.
+pub(crate) fn wait_for_native_child_status_with_reap(
+>>>>>>> theirs
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;

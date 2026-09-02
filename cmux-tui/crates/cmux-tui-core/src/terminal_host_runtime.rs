@@ -33,8 +33,8 @@ use crate::terminal_host_protocol::{
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -532,6 +532,18 @@ mod unix {
 
         fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
             self.child.as_deref_mut().expect("PTY child is present")
+        }
+
+        fn wait_and_disarm(&mut self) -> TerminalExit {
+            let (exit, reaped) = wait_for_native_child_status_with_reap(self.child_mut());
+            if reaped {
+                self.disarm();
+            }
+            exit
+        }
+
+        fn disarm(&mut self) {
+            let _ = self.child.take();
         }
     }
 
@@ -5173,7 +5185,7 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.child_mut());
+                        let exit = child.wait_and_disarm();
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
                         *child_host.child_exit.0.lock().unwrap() = Some(exit);
@@ -5196,7 +5208,7 @@ mod unix {
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.child_mut());
+                let exit = child.wait_and_disarm();
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
@@ -6191,6 +6203,7 @@ mod unix {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use cmux_pty::Child;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6289,7 +6302,7 @@ mod unix {
             let kills = Arc::new(AtomicUsize::new(0));
             let child = GuardTestChild { kills: Arc::clone(&kills) };
             let mut guard = SpawnedPtyChild::new(Box::new(child));
-            guard.disarm();
+            let _ = guard.wait_and_disarm();
             drop(guard);
             assert_eq!(kills.load(Ordering::Relaxed), 0);
         }
