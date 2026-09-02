@@ -570,6 +570,8 @@ mod tests {
             r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
             // A blank terminal identity cannot be addressed by later events.
             r#"{"entries":{"":{"state":"working","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            // Snapshot keys must use the canonical TerminalPublicId format.
+            r#"{"entries":{"term_a":{"state":"working","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
         ];
 
         for snapshot in invalid_snapshots {
