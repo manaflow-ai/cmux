@@ -27432,6 +27432,85 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_scroll_resets_selection_click_repeat() {
+        let (mut app, mux, surface, content) = selection_fixture(
+            "horizontal-scroll-resets-selection-click-repeat-test",
+            b"alpha beta gamma",
+        );
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        assert!(app.selection_click_sequence.is_some());
+
+        app.content_area = content;
+        app.viewport_virtual_width = u64::from(content.width) * 2;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollRight,
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.selection_click_sequence.is_none());
+        assert!(app.viewport_states[&app.active_screen_id().unwrap()].target > 0.0);
+
+        app.handle_mouse(click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Cell);
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn pty_owned_click_resets_selection_click_repeat() {
+        let (mut app, mux, surface, content) = selection_fixture(
+            "pty-owned-click-resets-selection-click-repeat-test",
+            b"alpha beta gamma",
+        );
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        assert!(app.selection_click_sequence.is_some());
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.encode_buf.clear();
+        app.handle_mouse(click).unwrap();
+        assert!(app.selection_click_sequence.is_none());
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+        assert_eq!(app.encode_buf, b"\x1b[<0;2;1M");
+
+        // Let the stored PTY release reservation finish before turning mouse
+        // tracking off, matching the normal terminal ownership transition.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
+        app.encode_buf.clear();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Cell);
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn shift_double_click_selects_a_complete_word() {
         let (mut app, mux, surface, content) =
             selection_fixture("shift-double-click-word-selection-test", b"alpha beta gamma");
