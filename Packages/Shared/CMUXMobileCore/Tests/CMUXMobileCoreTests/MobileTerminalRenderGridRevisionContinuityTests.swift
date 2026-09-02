@@ -210,6 +210,24 @@ private func chainFrame(
     #expect(MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: delivered))
 }
 
+@Test func revisionContinuityRejectsEpochlessEmissionOnlyDelta() throws {
+    let epochlessDelta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 8,
+        renderEpoch: "",
+        renderRevision: 8,
+        emissionRevision: 2,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "legacy")],
+        deltaBaseEmissionRevision: 1
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
+}
+
 @Test func revisionContinuityRoundTripsThroughCoding() throws {
     let delta = try chainFrame(revision: 8, baseRevision: 7)
 

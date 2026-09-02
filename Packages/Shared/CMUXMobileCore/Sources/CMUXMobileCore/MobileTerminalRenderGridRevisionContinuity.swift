@@ -59,15 +59,21 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         delivered: Self?
     ) -> Bool {
         guard !frame.full else { return true }
-        if let emissionBase = frame.deltaBaseEmissionRevision,
-           !frame.renderEpoch.isEmpty {
-            // Epochful emission identities are exact and require a delivered
-            // emitted frame from the same producer lifetime.
-            guard frame.emissionRevision > emissionBase,
-                  let delivered,
-                  delivered.emissionIdentityAvailable else { return false }
-            return delivered.renderEpoch == frame.renderEpoch
-                && delivered.emissionRevision == emissionBase
+        if let emissionBase = frame.deltaBaseEmissionRevision {
+            if frame.renderEpoch.isEmpty {
+                // An epochless compatibility frame may fall through only when
+                // it also carries the legacy render base. An emission-only
+                // base has no producer-lifetime proof and must fail closed.
+                guard frame.deltaBaseRenderRevision != nil else { return false }
+            } else {
+                // Epochful emission identities are exact and require a
+                // delivered emitted frame from the same producer lifetime.
+                guard frame.emissionRevision > emissionBase,
+                      let delivered,
+                      delivered.emissionIdentityAvailable else { return false }
+                return delivered.renderEpoch == frame.renderEpoch
+                    && delivered.emissionRevision == emissionBase
+            }
         }
         guard let base = frame.deltaBaseRenderRevision else { return true }
         guard !frame.renderEpoch.isEmpty else { return true }

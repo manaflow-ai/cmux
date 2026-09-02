@@ -65,7 +65,9 @@ changes should compare `render_epoch` + `render_revision`; clients validating a
 delta should compare the emission identity and its base. An epochful
 legacy/connection-projected frame with no emission identity cannot establish an
 emission-delta baseline; a consumer must request a full replay in that case.
-Epochless legacy deltas use the older render-revision/history chain instead.
+Epochless legacy deltas use the older render-revision/history chain when they
+also carry the legacy render base; an epochless emission-only delta is
+malformed and is rejected in favor of a full replay.
 
 The content revision advances once per visible rendered batch, not once per raw
 PTY chunk. A resize is a content change even when no bytes were received.
