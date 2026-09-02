@@ -105,6 +105,11 @@ extension CMUXCLI {
         defaultValue: "Usage: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
     )
 
+    static let terminalViewportCommandLine = String(
+        localized: "cli.terminal.viewport.commandLine",
+        defaultValue: "terminal viewport <columns> <rows> [--surface <id>] | reset"
+    )
+
     static let terminalViewportResetUsage = String(
         localized: "cli.terminal.viewport.resetUsage",
         defaultValue: "terminal viewport reset does not accept dimensions or additional arguments"

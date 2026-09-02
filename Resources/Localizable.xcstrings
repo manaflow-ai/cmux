@@ -36011,6 +36011,23 @@
         }
       }
     },
+    "cli.terminal.viewport.commandLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        }
+      }
+    },
     "cli.terminal.viewport.resetUsage": {
       "extractionState": "manual",
       "localizations": {
