@@ -98,7 +98,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
-| `agents.plugin.id` | string | unset | Stable journal producer ID for the selected userland agent plugin |
+| `agents.plugin.id` | string | required when `agents.plugin` is present | Stable journal producer ID for the selected userland agent plugin; a missing ID disables the entry |
 | `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |

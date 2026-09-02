@@ -149,17 +149,19 @@ The selected plugin is stored in `~/.config/cmux/cmux-tui.json`:
 }
 ```
 
-`id` is the stable producer identity and must match
+`id` is the stable producer identity and is required. It must match
 `[a-z0-9][a-z0-9_-]*` (maximum 64 bytes). `command[0]` and `cwd` must be absolute.
 The built-in `cmux_agent` hook producer ID is reserved and cannot be used by a
-userland plugin.
+userland plugin. Core ignores an agent plugin entry without an explicit ID and
+never invents a namespace for it.
 `revision` is optional for hand-written configuration, but the plugin manager
 writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
 the previous child instead of leaving stale detection active.
 
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
-`CMUX_TUI_SESSION_ID`, `CMUX_PLUGIN_ID`, `CMUX_PLUGIN_REVISION`,
+`CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
+`CMUX_PLUGIN_REVISION`,
 `CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_PROTOCOL_VERSION=1`,
 `CMUX_PLUGIN_KIND=journal`, `CMUX_JOURNAL_PLUGIN=1`, and the compatibility
 hint `CMUX_AGENT_PLUGIN=1`. The socket is already bound before the child

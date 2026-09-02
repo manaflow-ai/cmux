@@ -47,7 +47,7 @@
 //!   },
 //!   "agents": {
 //!     "plugin": {
-//!       "id": "agent_screen_detection",
+//!       "id": "example_agent_screen_detection",
 //!       "command": ["/path/to/agent-plugin"],
 //!       "cwd": "/optional",
 //!       "revision": "sha256-..."
@@ -3461,30 +3461,36 @@ pub fn load() -> Config {
         }
     }
     if let Some(plugin) = raw.agents.plugin {
-        let id = plugin.id.unwrap_or_else(|| "agent_screen_detection".to_string());
-        // Do not filter later argv entries. An empty value can be meaningful
-        // to a plugin, while an empty executable must still disable config.
-        let command = plugin.command.unwrap_or_default();
-        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring agents.plugin with empty command"
-            );
-        } else {
-            let options = cmux_tui_core::JournalPluginOptions {
-                id,
-                command,
-                cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
-                revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
-            };
-            if let Err(error) = options.validate() {
+        if let Some(id) = plugin.id {
+            // Do not filter later argv entries. An empty value can be meaningful
+            // to a plugin, while an empty executable must still disable config.
+            let command = plugin.command.unwrap_or_default();
+            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring invalid agents.plugin: {error}"
+                    "cmux-tui: ignoring agents.plugin with empty command"
                 );
             } else {
-                config.agents.plugin = Some(options);
+                let options = cmux_tui_core::JournalPluginOptions {
+                    id,
+                    command,
+                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+                };
+                if let Err(error) = options.validate() {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid agents.plugin: {error}"
+                    );
+                } else {
+                    config.agents.plugin = Some(options);
+                }
             }
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents.plugin without an explicit id"
+            );
         }
     }
     if let Some(enabled) = raw.machine_sidebar.enabled {

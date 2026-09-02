@@ -33,13 +33,26 @@ fn main() -> ExitCode {
         }
     };
     let session = env::var("CMUX_TUI_SESSION_ID").unwrap_or_else(|_| "main".into());
-    let plugin_id = env::var("CMUX_PLUGIN_ID").unwrap_or_else(|_| "agent_screen_detection".into());
+    let plugin_id = match required_plugin_id(env::var("CMUX_PLUGIN_ID").ok()) {
+        Ok(value) => value,
+        _ => {
+            eprintln!("cmux-agent-screen-detection: CMUX_PLUGIN_ID is required");
+            return ExitCode::FAILURE;
+        }
+    };
     match cmux_agent_screen_detection::scanner::run(&socket, &session, &plugin_id) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-agent-screen-detection: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn required_plugin_id(value: Option<String>) -> Result<String, &'static str> {
+    match value {
+        Some(value) if !value.trim().is_empty() => Ok(value),
+        _ => Err("CMUX_PLUGIN_ID is required"),
     }
 }
 
@@ -209,4 +222,17 @@ fn print_help() {
     eprintln!(
         "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::required_plugin_id;
+
+    #[test]
+    fn plugin_id_requires_a_nonblank_supervisor_namespace() {
+        assert!(required_plugin_id(None).is_err());
+        assert!(required_plugin_id(Some(String::new())).is_err());
+        assert!(required_plugin_id(Some("  ".into())).is_err());
+        assert_eq!(required_plugin_id(Some("agent-screen".into())).unwrap(), "agent-screen");
+    }
 }
