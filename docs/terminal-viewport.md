@@ -50,10 +50,11 @@ report `viewport_override:false` when a render-grid frame is unavailable.
 
 ## `terminal.render_grid` revisions
 
-`render_grid.render_revision` is a content polling token. It advances when the
+`render_grid.render_revision` is a content polling token for one surface,
+producer epoch, and row anchor (`viewport` or `screen`). It advances when the
 canonical rendered grid, cursor/style state, active screen, retained-history
-position, or grid size changes. It does not advance for transport
-sequence/state metadata, non-visual mode metadata, an unchanged
+position, or grid size changes for that anchor. It does not advance for
+transport sequence/state metadata, non-visual mode metadata, an unchanged
 replay/re-emission, or a replay that merely asks for a different scrollback
 depth. This keeps request-specific history budgets from making a polling
 client appear dirty. A replay returns the same content revision it re-emits.
@@ -63,8 +64,8 @@ advances for every emitted frame, including unchanged replays, and is used only
 for delta-chain continuity. A delta carries
 `delta_base_emission_revision` (and the legacy
 `delta_base_render_revision` field for compatibility). Clients polling for
-changes should compare `render_epoch` + `render_revision`; clients validating a
-delta should compare the emission identity and its base. An epochful
+changes should compare `anchor` + `render_epoch` + `render_revision`; clients
+validating a delta should compare the emission identity and its base. An epochful
 legacy/connection-projected frame with no emission identity cannot establish an
 emission-delta baseline; a consumer must request a full replay in that case.
 Epochless legacy deltas use the older render-revision/history chain when they

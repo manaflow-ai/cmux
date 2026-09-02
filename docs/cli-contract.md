@@ -431,11 +431,11 @@ Viewport overrides are connection-local and are cleared on disconnect. See
 `render_grid` content/emission revision contract.
 
 For `terminal.render_grid`, `render_revision` is stable across unchanged
-replays and transport-only metadata changes, and advances only for visible
-content or size changes. The separate
+replays and transport-only metadata changes for a fixed `anchor`, and advances
+only for visible content or size changes at that anchor. The separate
 `emission_revision` advances for every emitted frame; deltas identify their
 exact predecessor with `delta_base_emission_revision`. A polling client should
-compare `render_epoch` + `render_revision`, not the emission counter.
+compare `anchor` + `render_epoch` + `render_revision`, not the emission counter.
 
 Hook subcommands:
 
