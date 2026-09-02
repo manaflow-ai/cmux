@@ -243,9 +243,11 @@ a userland `plugin.<id>` namespace.
 The generic `terminal.screen.read` result may include `revision` and
 `osc_progress`. Either field may be absent or null when the server cannot
 provide it. `revision` is a coalesced PTY output counter. `osc_progress` is
-bounded OSC 9 payload text captured by the terminal protocol layer. Core does
-not interpret either field as an agent signal. A plugin may combine them with
-the screen text, OSC title, and process metadata.
+bounded OSC 9 payload text captured by the terminal protocol layer. The
+protocol parser validates lead-specific UTF-8 continuation ranges and
+reprocesses malformed bytes as framing, so invalid text cannot swallow a C1
+string terminator. Core does not interpret either field as an agent signal. A
+plugin may combine them with the screen text, OSC title, and process metadata.
 
 The process result includes the PTY foreground executable. Native process-group
 inspection remains a plugin concern, so a plugin can add wrapped runtime

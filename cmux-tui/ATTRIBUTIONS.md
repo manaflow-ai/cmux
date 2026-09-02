@@ -50,8 +50,10 @@ Derived material and vendored material:
   executables. Unsupported attached long options fail closed before they can
   consume a later runtime mode flag.
 - `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
-  from herdr's `src/pane/osc.rs`. Core retains only generic bounded OSC 9
-  progress metadata; it has no agent or roster policy.
+  from herdr's `src/pane/osc.rs`. Manaflow adds lead-specific UTF-8
+  continuation validation and malformed-sequence recovery before C1 framing.
+  Core retains only generic bounded OSC 9 progress metadata; it has no agent
+  or roster policy.
 - `bindings/examples/rust-agent-screen-detection/src/manifest_update.rs`:
   explicit catalog and cache status concepts derived from herdr's update
   surface. Network access, URL validation, atomic writes, and version policy
