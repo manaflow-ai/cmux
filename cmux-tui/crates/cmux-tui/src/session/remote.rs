@@ -1071,12 +1071,16 @@ impl PendingRemoteRequests {
         self.requests.insert(id, request);
     }
 
-    fn remove(&mut self, id: u64) -> Option<PendingRemoteRequest> {
-        let request = self.requests.remove(&id)?;
+    fn get(&self, id: &u64) -> Option<&PendingRemoteRequest> {
+        self.requests.get(id)
+    }
+
+    fn remove(&mut self, id: &u64) -> Option<PendingRemoteRequest> {
+        let request = self.requests.remove(id)?;
         if let Some(surface) = request.attach_surface {
             let mut remove_surface = false;
             if let Some(ids) = self.attach_surface_requests.get_mut(&surface) {
-                ids.remove(&id);
+                ids.remove(id);
                 remove_surface = ids.is_empty();
             }
             if remove_surface {
@@ -6611,7 +6615,7 @@ mod tests {
         assert_eq!(matching_progress.load(Ordering::Acquire), 1);
         assert_eq!(unrelated_progress.load(Ordering::Acquire), 0);
 
-        let removed = pending.remove(1_000).expect("matching request is pending");
+        let removed = pending.remove(&1_000).expect("matching request is pending");
         drop(removed);
         assert!(!pending.progress_for_attach_surface(7));
         assert_eq!(matching_progress.load(Ordering::Acquire), 1);
