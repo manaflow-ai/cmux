@@ -46,7 +46,8 @@ struct ClaudeHookSessionStorePersistenceTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-        let saved = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        let savedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let saved = try #require(savedRecord)
         #expect(saved["hookEventName"] as? String == "UserPromptSubmit")
         #expect(saved["lastSubtitle"] == nil)
         #expect(saved["lastBody"] == nil)
@@ -94,7 +95,8 @@ struct ClaudeHookSessionStorePersistenceTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-        let decoded = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        let decodedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let decoded = try #require(decodedRecord)
         #expect(decoded["hookEventName"] as? String == "UserPromptSubmit")
         #expect(decoded["sessionId"] as? String == sessionId)
     }
