@@ -265,10 +265,10 @@ describe("Pro roster", () => {
     expect(committed).toBe(2);
   });
 
-  test("later reads get only the remaining deadline as their statement timeout", async () => {
+  test("each read's statement timeout is capped by the remaining deadline", async () => {
     const executed: string[] = [];
     const base = fakeDb(new Map());
-    let now = 1_000_000;
+    const now = 1_000_000;
     const db: ProListDb = {
       ...base,
       transaction: async (operation) => {
@@ -276,20 +276,19 @@ describe("Pro roster", () => {
           select: base.select,
           execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
             executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
-            // Each read consumes 2 seconds of an 8 second deadline.
-            now += 2000;
           }) as never,
         });
         return result;
       },
     };
     const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
+    // Reads start together, so each sees the full budget when there is time
+    // left; a read that starts with 3 seconds left gets 3 seconds.
     await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, clock });
-    expect(executed).toEqual([
-      "set local statement_timeout = 8000",
-      "set local statement_timeout = 6000",
-      "set local statement_timeout = 4000",
-    ]);
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 8000"));
+    executed.length = 0;
+    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 3000, clock });
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 3000"));
   });
 
   test("team name lookups stop once the deadline has passed", async () => {
@@ -344,7 +343,10 @@ describe("Pro roster", () => {
     };
     const snapshot = await loadProListSnapshot({ db, app, statementTimeoutMs: 1000 });
     expect(snapshot.teamSubscriptions[0]?.displayName).toBe("Acme");
-    expect(order).toEqual(["begin", "commit", "begin", "commit", "lookup t1", "begin", "commit"]);
+    // All three transactions have committed before the first name lookup.
+    const lookupAt = order.indexOf("lookup t1");
+    expect(order.slice(0, lookupAt).filter((step) => step === "commit")).toHaveLength(3);
+    expect(order.slice(lookupAt)).toEqual(["lookup t1"]);
   });
 
   test("a missing database config becomes ProListDatabaseUnavailableError, a timeout stays a timeout", async () => {

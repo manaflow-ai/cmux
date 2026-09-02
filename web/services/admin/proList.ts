@@ -480,21 +480,31 @@ export async function loadProListSnapshot(
     // Each read gets its own short transaction, so a failed optional read
     // (missing admin_plan_grants table) aborts only its own transaction and
     // the catch below still yields an empty pending list.
-    // guard() runs both before acquiring a transaction and again inside it,
-    // after SET LOCAL, so a slow acquisition cannot start a read past the
-    // deadline either.
+    // The three database reads are independent: run them concurrently, each
+    // in its own short statement-timeout transaction (a failed optional read
+    // on a missing admin_plan_grants table aborts only its own). guard()
+    // runs before acquiring each transaction and again inside it, after SET
+    // LOCAL, so a slow acquisition cannot start a read past the deadline.
     guard();
-    const subscribers = await withStatementTimeout(db, budgetFor(), async (scoped) => {
-      guard();
-      return await listStripeProSubscribers({ db: scoped });
-    });
-    guard();
-    // Query inside the timeout scope, names outside it: the transaction ends
-    // before any Stack request starts.
-    const teamRows = await withStatementTimeout(db, budgetFor(), async (scoped) => {
-      guard();
-      return await listStripeTeamSubscriptionRows({ db: scoped });
-    });
+    const [subscribers, teamRows, pendingGrants] = await Promise.all([
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listStripeProSubscribers({ db: scoped });
+      }),
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listStripeTeamSubscriptionRows({ db: scoped });
+      }),
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listAllPendingEmailGrants({ db: scoped });
+      }).catch((error: unknown) => {
+        if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
+        throw error;
+      }),
+    ]);
+    // Names resolve only after every transaction has ended, outside any of
+    // them, so a slow provider never holds a database connection.
     guard();
     const teamSubscriptions: CappedList<StripeTeamSubscription> = {
       truncated: teamRows.truncated,
@@ -504,14 +514,6 @@ export async function loadProListSnapshot(
         clock,
       }),
     };
-    guard();
-    const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) => {
-      guard();
-      return await listAllPendingEmailGrants({ db: scoped });
-    }).catch((error: unknown) => {
-      if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
-      throw error;
-    });
     return {
       subscribers: subscribers.rows,
       teamSubscriptions: teamSubscriptions.rows,
