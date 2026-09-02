@@ -11,8 +11,11 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["iroh-transport"]
+default = ["iroh-transport", "wireguard-transport"]
 iroh-transport = ["dep:iroh", "dep:socket2"]
+# Dial `ws://` routes through an in-process WireGuard tunnel (cmux-wg) when
+# the target sits inside the tunnel's routes.
+wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
 anyhow.workspace = true
@@ -23,6 +26,7 @@ bytes.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
+cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
@@ -56,6 +60,7 @@ cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+cmux-wg = { workspace = true, features = ["test-support"] }
 rcgen = "0.14"
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
