@@ -54,6 +54,14 @@ pub mod transport {
         pub fn accept_with_wake(&self, wake: &ListenerWake) -> io::Result<Option<Box<dyn Stream>>> {
             self.inner.accept_with_wake(&wake.inner)
         }
+
+        /// Compare the pathname with this listener's bound object.
+        ///
+        /// `Some(false)` means the path names a different object. `None` means
+        /// this platform cannot expose a stable listener identity.
+        pub fn matches_path(&self, path: &Path) -> io::Result<Option<bool>> {
+            self.inner.matches_path(path)
+        }
     }
 
     impl ListenerWake {
@@ -106,6 +114,32 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn matches_path(&self, path: &Path) -> io::Result<Option<bool>> {
+                use std::mem::MaybeUninit;
+                use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+                let mut stat = MaybeUninit::<libc::stat>::uninit();
+                // SAFETY: `stat` points to writable storage and the listener
+                // owns a valid file descriptor for the duration of this call.
+                if unsafe { libc::fstat(self.inner.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: `fstat` initialized `stat` on success.
+                let stat = unsafe { stat.assume_init() };
+                let metadata = match std::fs::symlink_metadata(path) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        return Ok(Some(false));
+                    }
+                    Err(error) => return Err(error),
+                };
+                Ok(Some(
+                    metadata.file_type().is_socket()
+                        && metadata.dev() == stat.st_dev as u64
+                        && metadata.ino() == stat.st_ino as u64,
+                ))
             }
 
             pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
@@ -252,6 +286,13 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn matches_path(&self, _path: &Path) -> io::Result<Option<bool>> {
+                // Winsock does not expose a stable filesystem identity for an
+                // AF_UNIX listener handle. Path identity checks remain the
+                // available fallback on Windows.
+                Ok(None)
             }
 
             pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
