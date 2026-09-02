@@ -16972,6 +16972,18 @@ impl App {
         Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
     }
 
+    fn canonical_selection_cell(&self, surface: SurfaceId, cell: (u16, u64)) -> (u16, u64) {
+        let Some(point) = Self::selection_point(cell) else { return cell };
+        self.session
+            .surface(surface)
+            .and_then(|handle| {
+                handle.with_terminal(|terminal| terminal.normalize_selection_point_screen(point))
+            })
+            .flatten()
+            .map(|point| (point.column, u64::from(point.row)))
+            .unwrap_or(cell)
+    }
+
     fn selection_from_range(surface: SurfaceId, range: SelectionRange) -> Selection {
         Selection {
             surface,
@@ -22554,7 +22566,10 @@ impl App {
                     let offset = self.surface_scroll_offset(area.surface);
                     let source_x = area.content_source_x();
                     let col = source_x.saturating_add(x - content.x);
-                    let cell = (col, offset + (y - content.y) as u64);
+                    let cell = self.canonical_selection_cell(
+                        area.surface,
+                        (col, offset + (y - content.y) as u64),
+                    );
                     let mode = self.begin_selection_click(
                         area.surface,
                         cell,
