@@ -1560,6 +1560,26 @@ mod tests {
     }
 
     #[test]
+    fn shell_non_script_modes_do_not_identify_following_arguments() {
+        for (name, argv) in [
+            ("bash", vec!["bash", "-s", "codex"]),
+            ("bash", vec!["bash", "-n", "/tmp/codex"]),
+            ("sh", vec!["sh", "-t", "claude"]),
+            ("bash", vec!["bash", "--help", "codex"]),
+            // `-C` is a case-sensitive shell option. It is not `-c`.
+            ("bash", vec!["bash", "-C", "codex"]),
+            ("fish", vec!["fish", "-C", "claude"]),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "non-script shell mode must not identify an argument: {argv:?}",
+            );
+        }
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
