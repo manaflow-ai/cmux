@@ -14,6 +14,7 @@ EOF
 }
 
 APP=""
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app) APP="${2:-}"; shift 2 ;;
@@ -29,7 +30,7 @@ PLIST="$APP/Info.plist"
 
 read_plist() {
   local key="$1"
-  /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
+  "$PLISTBUDDY" -c "Print :$key" "$PLIST" 2>/dev/null || true
 }
 
 require_exact() {
