@@ -112,6 +112,7 @@ mock.module("../app/lib/stack", () => ({
 let pendingGrantRows: Array<Record<string, unknown>> = [];
 let grantsTableMissing = false;
 let subscriptionRows: Array<{ id: string }> = [];
+let subscriptionListRows: Array<Record<string, unknown>> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
   id,
@@ -127,6 +128,13 @@ function adminDbMock() {
   const base = {
       select: () => ({
         from: (table: unknown) => ({
+          leftJoin: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: async () => (table === stripeSubscriptions ? subscriptionListRows : []),
+              }),
+            }),
+          }),
           where: () => ({
             limit: async () => (table === stripeSubscriptions ? [] : []),
             orderBy: () => ({
@@ -205,6 +213,8 @@ const { POST: POST_EMAIL_GRANTS, DELETE: DELETE_EMAIL_GRANTS } = await import(
   "../app/api/admin/email-grants/route"
 );
 const { POST: POST_SUBSCRIPTIONS } = await import("../app/api/admin/subscriptions/route");
+const { GET: GET_PRO_USERS } = await import("../app/api/admin/pro-users/route");
+const { GET: GET_PRO_SCAN } = await import("../app/api/admin/pro-users/scan/route");
 
 const adminUser = () =>
   stackUser({ id: "admin-1", primaryEmail: "lawrence@manaflow.ai" });
@@ -522,5 +532,52 @@ describe("admin subscriptions route", () => {
     currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
     expect((await POST_SUBSCRIPTIONS(postRequest({ scope: "user", ownerId: "u1", action: "cancel" }, {}, "/api/admin/subscriptions"))).status).toBe(403);
     expect(stripeSubscriptionUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin pro-users routes", () => {
+  beforeEach(() => {
+    currentUser = adminUser();
+    subscriptionListRows = [
+      { userId: "u1", subscriptionId: "sub_1", status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: null, email: "pat@example.com" },
+    ];
+    directory = [stackUser({ id: "u9", primaryEmail: "granted@example.com", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } })];
+    listUsers.mockClear();
+  });
+
+  test("the roster and the scan are admin-only and never cacheable", async () => {
+    for (const user of [
+      null,
+      stackUser({ id: "user", primaryEmail: "pat@example.com" }),
+      stackUser({ id: "impostor", primaryEmail: "x@manaflow.ai", primaryEmailVerified: false }),
+      stackUser({ id: "anon", primaryEmail: "a@cmux.com", isAnonymous: true }),
+    ]) {
+      currentUser = user;
+      const expected = user === null || user.isAnonymous ? 401 : 403;
+      expect((await GET_PRO_USERS(new NextRequest("https://cmux.com/api/admin/pro-users"))).status).toBe(expected);
+      expect((await GET_PRO_SCAN(new NextRequest("https://cmux.com/api/admin/pro-users/scan?kind=users"))).status).toBe(expected);
+    }
+    expect(listUsers).not.toHaveBeenCalled();
+    currentUser = adminUser();
+    const response = await GET_PRO_USERS(new NextRequest("https://cmux.com/api/admin/pro-users"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as { subscribers: Array<Record<string, unknown>>; truncated: Record<string, boolean> };
+    expect(body.subscribers).toEqual([
+      { userId: "u1", email: "pat@example.com", subscriptionId: "sub_1", status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: null },
+    ]);
+    expect(body.truncated).toEqual({ subscribers: false, teamSubscriptions: false, pendingGrants: false });
+  });
+
+  test("the scan validates its query and returns paid manual overrides", async () => {
+    expect((await GET_PRO_SCAN(new NextRequest("https://cmux.com/api/admin/pro-users/scan"))).status).toBe(400);
+    expect((await GET_PRO_SCAN(new NextRequest("https://cmux.com/api/admin/pro-users/scan?kind=nope"))).status).toBe(400);
+    expect((await GET_PRO_SCAN(new NextRequest("https://cmux.com/api/admin/pro-users/scan?kind=users&cursor=a%20b"))).status).toBe(400);
+    const response = await GET_PRO_SCAN(new NextRequest("https://cmux.com/api/admin/pro-users/scan?kind=users"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as { rows: Array<Record<string, unknown>>; nextCursor: string | null };
+    expect(body.rows.map((row) => [row.userId, row.plan])).toEqual([["u9", "pro"]]);
+    expect(body.nextCursor).toBeNull();
   });
 });

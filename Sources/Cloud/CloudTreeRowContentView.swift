@@ -321,8 +321,11 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     }
 
     private var titleColor: AnyShapeStyle {
-        if titleIsLink { return AnyShapeStyle(Color.accentColor) }
-        return titleDimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+        // Underlined-but-primary, not accent-tinted: a port link sits among
+        // plain-text rows in the same tree, and the accent color read as an
+        // unrelated highlight rather than "this text is a link" the way the
+        // underline alone already says.
+        titleDimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
     }
 
     private func detailText(_ text: String) -> some View {
