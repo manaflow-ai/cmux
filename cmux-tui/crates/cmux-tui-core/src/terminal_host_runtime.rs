@@ -6307,6 +6307,18 @@ mod unix {
             assert_eq!(kills.load(Ordering::Relaxed), 0);
         }
 
+        #[test]
+        fn startup_child_cleanup_excludes_host_process_group() {
+            let host_group = unsafe { libc::getpgrp() };
+            assert_eq!(
+                validated_process_groups(
+                    [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
+                    host_group,
+                ),
+                vec![host_group + 1]
+            );
+        }
+
         fn exited_host_fixture_with_parser_at(
             exit_record_parent: PathBuf,
         ) -> (Arc<HostShared>, Receiver<ParserCommand>) {
