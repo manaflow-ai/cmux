@@ -81,6 +81,45 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut) == .accepted(shortcut))
     }
 
+    @Test func systemWideResolutionDoesNotReenterGlobalSearchReservation() {
+        let showHideShortcut = StoredShortcut(
+            key: "f13",
+            command: true,
+            shift: true,
+            option: true,
+            control: true,
+            keyCode: 105
+        )
+        let globalSearchShortcut = StoredShortcut(
+            key: "f14",
+            command: true,
+            shift: true,
+            option: true,
+            control: true,
+            keyCode: 107
+        )
+
+        SystemWideHotkeySettings.setShortcut(showHideShortcut)
+        KeyboardShortcutSettings.setShortcut(
+            globalSearchShortcut,
+            for: .globalSearch
+        )
+
+        // Resolving the opt-in system-wide binding walks every other shortcut.
+        // Global Search yields to it and must not recursively initialize that
+        // same reservation walk.
+        #expect(
+            KeyboardShortcutSettings.shortcut(
+                for: .showHideAllWindows
+            ) == showHideShortcut
+        )
+        #expect(
+            KeyboardShortcutSettings.shortcut(
+                for: .globalSearch
+            ) == globalSearchShortcut
+        )
+    }
+
     @Test func nonRegistrableShowHideDoesNotReserveGlobalSearch() throws {
         let commandPeriod = StoredShortcut(
             key: ".",

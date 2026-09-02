@@ -825,8 +825,18 @@ enum KeyboardShortcutSettings {
         guard shortcut.hasPrimaryModifier else {
             return .rejected(.systemWideHotkeyRequiresModifier)
         }
+        // Global Search intentionally yields to the opt-in system-wide binding.
+        // Excluding it here keeps the reservation walk acyclic: resolving the
+        // system-wide default must not resolve Global Search, which asks for
+        // this same reservation list again while its static state initializes.
         guard shortcut.carbonHotKeyRegistration != nil,
-              !checkingConflicts || !systemWideHotkeyConflicts(with: shortcut, excluding: action) else {
+              !checkingConflicts || !systemWideHotkeyConflicts(
+                  with: shortcut,
+                  excluding: action,
+                  alsoExcluding: action == .showHideAllWindows
+                      ? [.globalSearch]
+                      : []
+              ) else {
             return .rejected(.reservedBySystem)
         }
         return .accepted(shortcut)
