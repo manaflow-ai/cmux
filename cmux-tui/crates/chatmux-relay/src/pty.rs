@@ -1057,6 +1057,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
@@ -1085,7 +1086,7 @@ impl Inner {
             );
             return;
         }
-        (auth.send)(json!({
+        (context.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
             "ptyId": pty_id,
