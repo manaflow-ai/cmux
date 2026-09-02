@@ -263,6 +263,126 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime(surface) {}
     }
 
+    /// The outer pane must follow a live window-resize tick, but the inner
+    /// Ghostty layer stays on its last committed drawable until resize end.
+    /// This is the ordering invariant that makes an asynchronous old present
+    /// harmless: the pane's view-level clip contains it for the whole drag.
+    @MainActor
+    func testLiveResizeKeepsRendererFrameAtCommittedSizeUntilEnd() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable]
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        let committedRendererSize = surface.hostedView.surfaceView.frame.size
+        XCTAssertGreaterThan(committedRendererSize.width, 1)
+        XCTAssertGreaterThan(committedRendererSize.height, 1)
+
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        let liveTarget = NSSize(
+            width: max(32, committedRendererSize.width - 80),
+            height: max(24, committedRendererSize.height - 50)
+        )
+        anchor.setFrameSize(liveTarget)
+        portal.synchronizeHostedViewForAnchor(anchor)
+
+        XCTAssertEqual(
+            surface.hostedView.frame.size,
+            liveTarget,
+            "The pane boundary must track the live resize immediately"
+        )
+        XCTAssertEqual(
+            surface.hostedView.surfaceView.frame.size,
+            committedRendererSize,
+            "The renderer frame must not advance to an uncommitted live-resize drawable"
+        )
+
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        let finalTarget = NSSize(
+            width: max(24, liveTarget.width - 24),
+            height: max(20, liveTarget.height - 20)
+        )
+        anchor.setFrameSize(finalTarget)
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(surface.hostedView.frame.size, finalTarget)
+        XCTAssertNotEqual(
+            surface.hostedView.surfaceView.frame.size,
+            committedRendererSize,
+            "Resize end must commit the final renderer frame"
+        )
+        withExtendedLifetime(surface) {}
+    }
+
+    /// A resize-end notification can race portal teardown. Even when the
+    /// target hierarchy is unavailable, the renderer phase must close so a
+    /// later reattachment can resize the surface again.
+    @MainActor
+    func testLiveResizeEndClearsDeferredPhaseWhenPortalInstallationFails() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable]
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        anchor.setFrameSize(NSSize(width: 200, height: 140))
+        portal.synchronizeHostedViewForAnchor(anchor)
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+
+        // Force the end pass through ensureInstalled's unavailable-target path.
+        portal.window = nil
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        drainMainQueue()
+        drainMainQueue()
+
+        // Reattach the same window. A stale deferred phase would keep this
+        // geometry write from reaching the terminal surface.
+        portal.window = window
+        anchor.setFrameSize(NSSize(width: 220, height: 150))
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertEqual(surface.hostedView.frame.size, NSSize(width: 220, height: 150))
+        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, NSSize(width: 220, height: 150))
+        withExtendedLifetime(surface) {}
+    }
+
     /// Regression: switching a pane's tab from a terminal to a browser hides
     /// the terminal only through its registry entry — the SwiftUI update that
     /// carries visible=false is dropped by the portal-host ownership gate
