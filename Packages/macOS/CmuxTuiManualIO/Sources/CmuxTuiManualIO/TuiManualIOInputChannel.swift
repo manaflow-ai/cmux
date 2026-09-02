@@ -40,9 +40,9 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
         // relay, then close it. Without this, every reconnect can leak one
         // pipe descriptor and the old child may never observe stdin EOF.
         if let oldHandle, oldHandle !== newHandle {
-            // Close independently of queued writes so teardown can unblock a
-            // writer that is waiting on a full pipe.
-            try? oldHandle.close()
+            queue.async {
+                try? oldHandle.close()
+            }
         }
     }
 
@@ -111,8 +111,9 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
         handle = nil
         lock.unlock()
         guard let target else { return }
-        // Do not queue close behind a potentially blocked write.
-        try? target.close()
+        queue.async {
+            try? target.close()
+        }
     }
 
     deinit {
