@@ -111,7 +111,7 @@ extension CMUXCLI {
         Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
         Subcommands:
-          doctor|check|validate [--path <path>]   Validate JSONC syntax for cmux config files.
+          doctor|check|validate [--path <path>]   \(String(localized: "config.doctor.validationHelp", defaultValue: "Validate JSONC syntax and configuration entries in cmux config files."))
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
@@ -370,14 +370,14 @@ extension CMUXCLI {
         let paths: [String]
     }
 
-    private struct ConfigDoctorTarget {
+    struct ConfigDoctorTarget {
         let label: String
         let displayPath: String
         let path: String
         let missingIsError: Bool
     }
 
-    private struct ConfigDoctorFinding {
+    struct ConfigDoctorFinding {
         let label: String
         let displayPath: String
         let path: String
@@ -610,15 +610,7 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
-            return ConfigDoctorFinding(
-                label: target.label,
-                displayPath: target.displayPath,
-                path: target.path,
-                status: "ok",
-                message: "JSONC syntax is valid",
-                keys: dictionary.keys.sorted(),
-                byteCount: data.count
-            )
+            return configDoctorDecodedFinding(target: target, dictionary: dictionary, byteCount: data.count)
         } catch {
             return ConfigDoctorFinding(
                 label: target.label,

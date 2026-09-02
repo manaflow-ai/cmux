@@ -1593,18 +1593,18 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Decoding errors
 
-    func testDecodeInvalidLayoutNodeThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "bad",
-            "workspace": {
-              "layout": { "invalid": true }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    private func assertCommandEntryIsSkipped(
+        _ json: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let config = try decode(json)
+        XCTAssertTrue(config.commands.isEmpty, file: file, line: line)
+        XCTAssertEqual(config.commandDecodingIssues.count, 1, file: file, line: line)
+    }
+
+    func testDecodeInvalidLayoutNodeIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"bad","workspace":{"layout":{"invalid":true}}}]}"#)
     }
 
     func testDecodeMissingCommandsKeyAllowsActionOnlyConfig() throws {
@@ -1629,175 +1629,56 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.terminalCommand, "codex")
     }
 
-    func testDecodeInvalidSurfaceTypeThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "test",
-            "workspace": {
-              "layout": {
-                "pane": {
-                  "surfaces": [{ "type": "invalidType" }]
-                }
-              }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
-    }
-
     // MARK: Command validation
 
-    func testDecodeCommandWithNeitherWorkspaceNorCommandThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "empty"
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeInvalidSurfaceTypeIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[{"type":"invalidType"}]}}}}]}"#)
     }
 
-    func testDecodeCommandWithBothWorkspaceAndCommandThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "hybrid",
-            "command": "echo hi",
-            "workspace": { "name": "ws" }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeCommandWithNeitherWorkspaceNorCommandIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"empty"}]}"#)
+    }
+
+    func testDecodeCommandWithBothWorkspaceAndCommandUsesCommandVariant() throws {
+        let config = try decode(#"{"commands":[{"name":"hybrid","command":"echo hi","workspace":{"name":"ws"}}]}"#)
+        XCTAssertEqual(config.commands.count, 1)
+        XCTAssertEqual(config.commands[0].command, "echo hi")
+        XCTAssertNil(config.commands[0].workspace)
+        XCTAssertTrue(config.commandDecodingIssues.isEmpty)
     }
 
     // MARK: Layout validation
 
-    func testDecodeLayoutNodeWithBothPaneAndDirectionThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "ambiguous",
-            "workspace": {
-              "layout": {
-                "pane": { "surfaces": [{ "type": "terminal" }] },
-                "direction": "horizontal",
-                "children": [
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
-                ]
-              }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeLayoutNodeWithBothPaneAndDirectionIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"ambiguous","workspace":{"layout":{"pane":{"surfaces":[{"type":"terminal"}]},"direction":"horizontal","children":[{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#)
     }
 
-    func testDecodeSplitWithWrongChildrenCountThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "bad-split",
-            "workspace": {
-              "layout": {
-                "direction": "horizontal",
-                "children": [
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
-                ]
-              }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeSplitWithWrongChildrenCountIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"bad-split","workspace":{"layout":{"direction":"horizontal","children":[{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#)
     }
 
-    func testDecodeSplitWithThreeChildrenThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "bad-split",
-            "workspace": {
-              "layout": {
-                "direction": "vertical",
-                "children": [
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
-                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
-                ]
-              }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeSplitWithThreeChildrenIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"bad-split","workspace":{"layout":{"direction":"vertical","children":[{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#)
     }
 
-    func testDecodePaneWithEmptySurfacesThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "empty-pane",
-            "workspace": {
-              "layout": {
-                "pane": { "surfaces": [] }
-              }
-            }
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodePaneWithEmptySurfacesIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"empty-pane","workspace":{"layout":{"pane":{"surfaces":[]}}}}]}"#)
     }
 
-    func testDecodeBlankNameThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "",
-            "command": "echo hi"
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeBlankNameIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"","command":"echo hi"}]}"#)
     }
 
-    func testDecodeWhitespaceOnlyNameThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "   ",
-            "command": "echo hi"
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeWhitespaceOnlyNameIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"   ","command":"echo hi"}]}"#)
     }
 
-    func testDecodeBlankCommandThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "test",
-            "command": ""
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeBlankCommandIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"test","command":""}]}"#)
     }
 
-    func testDecodeWhitespaceOnlyCommandThrows() {
-        let json = """
-        {
-          "commands": [{
-            "name": "test",
-            "command": "   "
-          }]
-        }
-        """
-        XCTAssertThrowsError(try decode(json))
+    func testDecodeWhitespaceOnlyCommandIsReportedAndSkipped() throws {
+        try assertCommandEntryIsSkipped(#"{"commands":[{"name":"test","command":"   "}]}"#)
     }
 
     func testDecodeBlankNewWorkspaceCommandThrows() {
@@ -1846,26 +1727,26 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
 final class CmuxCommandIdentityTests: XCTestCase {
 
-    func testCommandIdIsDeterministic() {
-        let cmd = CmuxCommandDefinition(name: "Run tests", command: "test")
+    func testCommandIdIsDeterministic() throws {
+        let cmd = try XCTUnwrap(CmuxCommandDefinition(name: "Run tests", command: "test"))
         XCTAssertEqual(cmd.id, "cmux.config.command.Run%20tests")
     }
 
-    func testCommandIdEncodesSpecialCharacters() {
-        let cmd = CmuxCommandDefinition(name: "build & deploy", command: "make")
+    func testCommandIdEncodesSpecialCharacters() throws {
+        let cmd = try XCTUnwrap(CmuxCommandDefinition(name: "build & deploy", command: "make"))
         XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertFalse(cmd.id.contains("&"))
         XCTAssertFalse(cmd.id.contains(" "))
     }
 
-    func testCommandIdIsUniqueForDifferentNames() {
-        let cmd1 = CmuxCommandDefinition(name: "build", command: "make build")
-        let cmd2 = CmuxCommandDefinition(name: "test", command: "make test")
+    func testCommandIdIsUniqueForDifferentNames() throws {
+        let cmd1 = try XCTUnwrap(CmuxCommandDefinition(name: "build", command: "make build"))
+        let cmd2 = try XCTUnwrap(CmuxCommandDefinition(name: "test", command: "make test"))
         XCTAssertNotEqual(cmd1.id, cmd2.id)
     }
 
-    func testCommandIdDoesNotCollideWithBuiltinPrefix() {
-        let cmd = CmuxCommandDefinition(name: "palette.newWorkspace", command: "echo")
+    func testCommandIdDoesNotCollideWithBuiltinPrefix() throws {
+        let cmd = try XCTUnwrap(CmuxCommandDefinition(name: "palette.newWorkspace", command: "echo"))
         XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertNotEqual(cmd.id, "palette.newWorkspace")
     }
@@ -1876,15 +1757,15 @@ final class CmuxCommandIdentityTests: XCTestCase {
 @MainActor
 final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
 
-    func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
+    func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() throws {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
 
-        let command = CmuxCommandDefinition(
+        let command = try XCTUnwrap(CmuxCommandDefinition(
             name: "Dev command",
             workspace: CmuxWorkspaceDefinition(name: "Dev")
-        )
+        ))
 
         XCTAssertTrue(CmuxConfigExecutor.execute(
             command: command,
@@ -1900,16 +1781,16 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
     }
 
-    func testWorkspaceCommandHonorsExplicitNewRestartPolicy() {
+    func testWorkspaceCommandHonorsExplicitNewRestartPolicy() throws {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
 
-        let command = CmuxCommandDefinition(
+        let command = try XCTUnwrap(CmuxCommandDefinition(
             name: "Dev command",
             restart: .new,
             workspace: CmuxWorkspaceDefinition(name: "Dev")
-        )
+        ))
 
         XCTAssertTrue(CmuxConfigExecutor.execute(
             command: command,
@@ -1925,16 +1806,16 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
     }
 
-    func testWorkspaceCommandHonorsIgnoreRestartPolicy() {
+    func testWorkspaceCommandHonorsIgnoreRestartPolicy() throws {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
 
-        let command = CmuxCommandDefinition(
+        let command = try XCTUnwrap(CmuxCommandDefinition(
             name: "Dev command",
             restart: .ignore,
             workspace: CmuxWorkspaceDefinition(name: "Dev")
-        )
+        ))
 
         XCTAssertTrue(CmuxConfigExecutor.execute(
             command: command,
@@ -1948,16 +1829,16 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.id, existingWorkspace.id)
     }
 
-    func testWorkspaceCommandHonorsRecreateRestartPolicy() {
+    func testWorkspaceCommandHonorsRecreateRestartPolicy() throws {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
 
-        let command = CmuxCommandDefinition(
+        let command = try XCTUnwrap(CmuxCommandDefinition(
             name: "Dev command",
             restart: .recreate,
             workspace: CmuxWorkspaceDefinition(name: "Dev")
-        )
+        ))
 
         XCTAssertTrue(CmuxConfigExecutor.execute(
             command: command,

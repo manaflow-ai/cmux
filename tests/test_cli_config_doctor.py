@@ -103,6 +103,14 @@ def main() -> int:
               "app": {
                 "appearance": "system",
               },
+              "commands": [
+                {
+                  "name": "Saved layout",
+                  "cwd": "/tmp",
+                  "layout": { "pane": { "surfaces": [{ "type": "terminal" }] } },
+                },
+                { "name": "Run tests", "command": "echo tests" },
+              ],
             }
             """,
             encoding="utf-8",
@@ -162,6 +170,36 @@ def main() -> int:
             if "cmux config doctor found 1 error(s)" not in bad_result.stderr:
                 failures.append(f"invalid JSON stderr was unexpected: {bad_result.stderr}")
 
+        config_path.write_text(
+            '{"commands": [{"name": "missing-definition"}, {"name": "ok", "command": "echo ok"}]}\n',
+            encoding="utf-8",
+        )
+        type_result = run_cli(cli_path, ["--json", "config", "check", "--path", str(config_path)], home)
+        if type_result.returncode == 0:
+            failures.append("type-invalid config returned success")
+        else:
+            payload = parse_json_output(type_result.stdout, "type-invalid config", failures)
+            if payload is not None:
+                finding = first_finding(payload, "type-invalid config", type_result.stdout, failures)
+                if finding is not None:
+                    message = str(finding.get("message", ""))
+                    if finding.get("status") != "error" or "commands[0]" not in message:
+                        failures.append(f"type-invalid config did not report commands entry: {type_result.stdout}")
+
+        config_path.write_text(
+            '{"commands": [{"name": "bad-color", "workspace": {"color": "Definitely Not A Palette Color"}}]}\n',
+            encoding="utf-8",
+        )
+        color_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home)
+        if color_result.returncode == 0:
+            failures.append("unknown named workspace color returned success")
+        else:
+            payload = parse_json_output(color_result.stdout, "unknown named workspace color", failures)
+            if payload is not None:
+                finding = first_finding(payload, "unknown named workspace color", color_result.stdout, failures)
+                if finding is not None and finding.get("status") != "error":
+                    failures.append(f"unknown named workspace color did not report an error: {color_result.stdout}")
+
         directory_path = home / "config-directory"
         directory_path.mkdir()
         directory_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(directory_path)], home)
@@ -188,7 +226,7 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    print("PASS: cmux config doctor validates JSONC and reports syntax errors")
+    print("PASS: cmux config doctor validates JSONC and command-entry types")
     return 0
 
 

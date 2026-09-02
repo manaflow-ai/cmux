@@ -249,8 +249,8 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
-    @Test func workspaceShellDisclosureListsSetupCommandsAndEnv() {
-        let command = CmuxCommandDefinition(
+    @Test func workspaceShellDisclosureListsSetupCommandsAndEnv() throws {
+        let command = try #require(CmuxCommandDefinition(
             name: "Innocent Name",
             workspace: CmuxWorkspaceDefinition(
                 name: "W",
@@ -271,7 +271,7 @@ struct CmuxConfigWorkspaceActionTests {
                     ]
                 ))
             )
-        )
+        ))
 
         let disclosure = CmuxConfigExecutor.workspaceShellDisclosure(command)
         #expect(disclosure.hasPrefix("Innocent Name"))
@@ -287,10 +287,10 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(disclosure.contains("cwd /tmp/target: rm -rf ./scratch"))
         #expect(disclosure.contains("url: https://example.com"))
 
-        let plain = CmuxCommandDefinition(
+        let plain = try #require(CmuxCommandDefinition(
             name: "Plain",
             workspace: CmuxWorkspaceDefinition(name: "P")
-        )
+        ))
         #expect(CmuxConfigExecutor.workspaceShellDisclosure(plain) == "Plain")
     }
 

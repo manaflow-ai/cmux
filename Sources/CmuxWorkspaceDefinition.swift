@@ -29,6 +29,10 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
     }
 
     init(from decoder: Decoder) throws {
+        try self.init(from: decoder, layoutMode: .strict)
+    }
+
+    init(from decoder: Decoder, layoutMode: CmuxLayoutDecodingMode) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
@@ -39,15 +43,32 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         } else {
             setup = nil
         }
-        layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
+        if container.contains(.layout), !((try? container.decodeNil(forKey: .layout)) ?? false) {
+            let layoutDecoder = try container.superDecoder(forKey: .layout)
+            layout = try CmuxLayoutNode.decode(from: layoutDecoder, mode: layoutMode)
+        } else {
+            layout = nil
+        }
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
-            guard let normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, defaults: defaults) else {
+            let normalized: String?
+            if let palette = decoder.userInfo[.cmuxWorkspaceColorPalette] as? [String: String] {
+                normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, palette: palette)
+            } else {
+                let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
+                normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, defaults: defaults)
+            }
+            guard let normalized else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,
                     in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format (#RRGGBB) or a workspace color name"
+                    debugDescription: String(
+                        format: String(
+                            localized: "config.validation.invalidColor",
+                            defaultValue: "Invalid color \"%@\". Expected 6-digit hex format (#RRGGBB) or a workspace color name"
+                        ),
+                        rawColor
+                    )
                 )
             }
             color = normalized

@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,7 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
-final class CmuxConfigNamedColorTests: XCTestCase {
+struct CmuxConfigNamedColorTests {
     private func decode(_ json: String, colorDefaults: UserDefaults? = nil) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
         let decoder = JSONDecoder()
@@ -16,7 +17,7 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         return try decoder.decode(CmuxConfigFile.self, from: data)
     }
 
-    func testDecodeWorkspaceCommandAcceptsNamedColor() throws {
+    @Test func decodeWorkspaceCommandAcceptsNamedColor() throws {
         let suiteName = "cmux-config-named-color-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -34,10 +35,10 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         }
         """
         let config = try decode(json, colorDefaults: defaults)
-        XCTAssertEqual(config.commands[0].workspace?.color, "#283593")
+        #expect(config.commands[0].workspace?.color == "#283593")
     }
 
-    func testDecodeWorkspaceCommandRejectsUnknownNamedColor() {
+    @Test func decodeWorkspaceCommandReportsUnknownNamedColorAndSkipsEntry() throws {
         let suiteName = "cmux-config-unknown-color-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -53,26 +54,23 @@ final class CmuxConfigNamedColorTests: XCTestCase {
           }]
         }
         """
-        XCTAssertThrowsError(try decode(json, colorDefaults: defaults))
+        let config = try decode(json, colorDefaults: defaults)
+        #expect(config.commands.isEmpty)
+        #expect(config.commandDecodingIssues.count == 1)
     }
 
     @MainActor
-    func testConfigParseCacheInvalidatesWhenWorkspaceColorPaletteChanges() throws {
+    @Test func configParseCacheInvalidatesWhenWorkspaceColorPaletteChanges() throws {
+        let defaultsSuite = "cmux-config-store-colors-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-
-        let previousPalette = UserDefaults.standard.dictionary(forKey: WorkspaceTabColorSettings.paletteKey)
-        defer {
-            if let previousPalette {
-                UserDefaults.standard.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: WorkspaceTabColorSettings.paletteKey)
-            }
-        }
 
         let configURL = root.appendingPathComponent("cmux.json")
         let json = """
@@ -88,13 +86,17 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         """
         try json.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
-        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#111111"])
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false,
+            workspaceColorDefaults: defaults
+        )
+        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#111111"], defaults: defaults)
         store.loadAll()
-        XCTAssertEqual(store.loadedCommands.first?.workspace?.color, "#111111")
+        #expect(store.loadedCommands.first?.workspace?.color == "#111111")
 
-        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#222222"])
+        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#222222"], defaults: defaults)
         store.loadAll()
-        XCTAssertEqual(store.loadedCommands.first?.workspace?.color, "#222222")
+        #expect(store.loadedCommands.first?.workspace?.color == "#222222")
     }
 }
