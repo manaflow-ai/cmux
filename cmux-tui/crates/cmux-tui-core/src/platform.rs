@@ -80,6 +80,7 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io::{self, Write};
+        use std::os::fd::AsRawFd;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
         use std::sync::{Arc, Mutex};
