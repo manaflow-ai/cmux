@@ -128,7 +128,10 @@ fn agent_report_operation_error(mux: &Mux, error: anyhow::Error) -> ResourceErro
         return public;
     }
 
-    mux.report_internal_diagnostic(format!("agent.report internal failure: {detail}"));
+    mux.report_coalesced_internal_diagnostic(
+        &detail,
+        format!("agent.report internal failure: {detail}"),
+    );
     ResourceError::operation_failed("agent.report", "could not read agent state", json!({}))
 }
 

@@ -8,8 +8,9 @@ mod resource_topology;
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -1991,6 +1992,8 @@ struct ClientFocusRecord {
 
 /// Bounded size of the per-client focus memory.
 const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
+const COALESCED_DIAGNOSTIC_WINDOW: Duration = Duration::from_secs(60);
+const COALESCED_DIAGNOSTIC_LIMIT: usize = 128;
 
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
@@ -2117,6 +2120,7 @@ pub struct Mux {
     /// in a per-mux slot until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
     pending_diagnostic: Mutex<Option<String>>,
+    coalesced_diagnostic_keys: Mutex<HashMap<u64, Instant>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2482,6 +2486,7 @@ impl Mux {
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
+            coalesced_diagnostic_keys: Mutex::new(HashMap::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -5703,6 +5708,37 @@ impl Mux {
         } else {
             *pending = Some(message);
         }
+    }
+
+    /// Reports a diagnostic once per key during a bounded interval. Keys are
+    /// hashed and retained in a capped map so repeated failures cannot flood
+    /// the sink or grow memory without bound.
+    pub(crate) fn report_coalesced_internal_diagnostic(
+        &self,
+        key: &str,
+        message: impl Into<String>,
+    ) {
+        let now = Instant::now();
+        let mut keys = self.coalesced_diagnostic_keys.lock().unwrap();
+        keys.retain(|_, reported_at| {
+            now.duration_since(*reported_at) < COALESCED_DIAGNOSTIC_WINDOW
+        });
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        let key = hasher.finish();
+        if keys.contains_key(&key) {
+            return;
+        }
+        if keys.len() >= COALESCED_DIAGNOSTIC_LIMIT {
+            if let Some(oldest) =
+                keys.iter().min_by_key(|(_, reported_at)| *reported_at).map(|(key, _)| *key)
+            {
+                keys.remove(&oldest);
+            }
+        }
+        keys.insert(key, now);
+        drop(keys);
+        self.report_internal_diagnostic(message);
     }
 
     /// Logs a skipped terminal-host reconnect checkpoint at most once
