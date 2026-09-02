@@ -234,7 +234,10 @@ extension DockSplitStore {
             localized: "alert.renameTab.message",
             defaultValue: "Enter a custom name for this tab."
         )
-        let input = NSTextField(string: tab.title)
+        let input = NSTextField(
+            string: stableDockTerminalTabTitle(panelId: panel.id)?.title
+                ?? tab.title
+        )
         input.placeholderString = String(
             localized: "alert.renameTab.placeholder",
             defaultValue: "Tab name"
@@ -281,6 +284,11 @@ extension DockSplitStore {
         let customTitle = title?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ) ?? ""
+        if var transfer = detachedSurfaceTransfersByPanelId[panelId] {
+            transfer.customTitle = customTitle.isEmpty ? nil : customTitle
+            transfer.customTitleSource = customTitle.isEmpty ? nil : .user
+            setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        }
         bonsplitController.updateTab(
             tabId,
             title: customTitle.isEmpty
