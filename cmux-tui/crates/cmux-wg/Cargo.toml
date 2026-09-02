@@ -1,0 +1,31 @@
+[package]
+name = "cmux-wg"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "In-process WireGuard transport for cmux clients: boringtun plus a userspace TCP stack"
+
+[lints]
+workspace = true
+
+[features]
+# Deterministic two-peer loopback harness for tests in other crates.
+test-support = ["dep:getrandom"]
+
+[dependencies]
+base64.workspace = true
+boringtun.workspace = true
+bytes.workspace = true
+getrandom = { workspace = true, optional = true }
+ip_network.workspace = true
+smoltcp.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["sync"] }
+x25519-dalek.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+cmux-wg = { path = ".", features = ["test-support"] }
+tokio = { workspace = true, features = ["test-util"] }

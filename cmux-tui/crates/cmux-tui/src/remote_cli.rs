@@ -208,6 +208,7 @@ struct ConnectFlags {
     relay_credentials: Vec<ClientRelayCredentialArg>,
     routing: BTreeMap<String, String>,
     iroh_path: IrohPathMode,
+    wireguard_config: Option<PathBuf>,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -431,6 +432,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     )
                 })?;
             }
+            "--wireguard-config" => {
+                let path = PathBuf::from(value("--wireguard-config")?);
+                if flags.wireguard_config.replace(path).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--wireguard-config")));
+                }
+            }
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -593,6 +600,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    let wireguard = flags
+        .wireguard_config
+        .take()
+        .map(|path| start_wireguard(&async_runtime, &path))
+        .transpose()?;
     let mut relay_routes = client_relay_options(
         flags.route.as_deref(),
         std::mem::take(&mut flags.relay_routes),
@@ -632,7 +644,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
+    let providers =
+        Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path, wireguard)?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
@@ -1619,6 +1632,34 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
         .with_context(|| format!("could not read relay ticket file {}", path.display()))?
         .trim()
         .to_string())
+}
+
+/// A wg-quick file is small; anything larger is not one.
+const MAX_WIREGUARD_CONFIG_BYTES: usize = 16 * 1024;
+
+/// Bring up the in-process WireGuard tunnel named by `--wireguard-config`.
+///
+/// The file holds a private key, so it must be owner-only like an invitation
+/// file. The tunnel lives as long as the provider registry that holds it, which
+/// is the life of this `remote connect` process.
+fn start_wireguard(
+    runtime: &tokio::runtime::Runtime,
+    path: &Path,
+) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+    let text = cmux_remote::secret_file::read_owner_only_string(path, MAX_WIREGUARD_CONFIG_BYTES)
+        .map_err(|error| {
+            anyhow!(
+                catalog()
+                    .remote_client
+                    .wireguard_config_unreadable(&path.display().to_string(), &error.to_string())
+            )
+        })?;
+    let config = cmux_wg::WgConfig::parse_wg_quick(&text)
+        .map_err(|error| anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string())))?;
+    let net = runtime
+        .block_on(cmux_wg::WgNet::start_with_new_socket(config))
+        .map_err(|error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())))?;
+    Ok(Arc::new(net))
 }
 
 fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
@@ -2619,6 +2660,7 @@ mod tests {
                 SshProviderConfig::default(),
                 BTreeMap::new(),
                 IrohPathMode::Auto,
+                None,
             )
             .unwrap(),
         )
