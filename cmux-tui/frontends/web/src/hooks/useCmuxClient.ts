@@ -376,7 +376,11 @@ export function useCmuxClient() {
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
     await runMutation(async (client) => {
       await client.selectTab({ pane, index: BigInt(index) });
-      if (client instanceof MacRuntimeClient) {
+      // The Mac adapter applies tab selection locally and emits no event, so
+      // the tree must be refetched for the new active tab to render. Use the
+      // connection's declared runtime as the source of truth rather than a
+      // concrete-class identity check on the structural client adapter.
+      if (config?.runtime === "mac") {
         await refreshRef.current?.();
       }
       setUnread((current) => {
@@ -385,7 +389,7 @@ export function useCmuxClient() {
         return next;
       });
     });
-  }, [runMutation]);
+  }, [config?.runtime, runMutation]);
 
   // Creation responses carry only the new surface id; selection is local, so
   // follow the creation by locating that surface in a fresh tree and

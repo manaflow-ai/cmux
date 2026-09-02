@@ -226,6 +226,62 @@ struct WebClientBridgeTests {
         await session.close(reason: "revoked subscription test complete")
     }
 
+    @Test func mobileSubscriptionNormalizesAndValidatesSurfaceID() async {
+        let surfaceID = UUID()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: GrantTestTransport(),
+            usesWebEventEncoding: true,
+            webGrantAdmission: WebClientGrantAdmission(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+
+        let valid = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "valid-surface",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "surface-stream",
+                    "topics": ["terminal.bytes"],
+                    "surface_id": surfaceID.uuidString.lowercased(),
+                ],
+                auth: nil
+            )
+        )
+        guard case .ok? = valid else {
+            Issue.record("Expected a valid UUID surface subscription")
+            await session.close(reason: "surface normalization test failed")
+            return
+        }
+        #expect(
+            await session.debugSubscriptionSurfaceIDForTesting(streamID: "surface-stream")
+                == surfaceID.uuidString
+        )
+
+        let invalid = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "invalid-surface",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "invalid-stream",
+                    "topics": ["terminal.bytes"],
+                    "surface_id": "not-a-uuid",
+                ],
+                auth: nil
+            )
+        )
+        guard case let .failure(error)? = invalid else {
+            Issue.record("Expected an invalid UUID surface subscription to fail")
+            await session.close(reason: "surface validation test failed")
+            return
+        }
+        #expect(error.code == "invalid_params")
+        await session.close(reason: "surface normalization test complete")
+    }
+
     @Test(arguments: [
         "mobile.host.status",
         "mobile.workspace.list",
@@ -252,6 +308,48 @@ struct WebClientBridgeTests {
     ])
     func browserGrantRejectsBroaderControlMethods(_ method: String) {
         #expect(!TerminalController.webBridgeAllows(method: method))
+    }
+
+    @Test func browserRequestScopesViewportIdentityToServerConnection() {
+        let connectionID = UUID()
+        let viewport = TerminalController.webClientBridgeScopedRequest(
+            MobileHostRPCRequest(
+                id: "viewport",
+                method: "terminal.replay",
+                params: [
+                    "client_id": "attacker-owned-client",
+                    "viewport_columns": 120,
+                    "viewport_rows": 40,
+                ],
+                auth: nil
+            ),
+            connectionID: connectionID
+        )
+        #expect(viewport.params["client_id"] as? String == "web:\(connectionID.uuidString)")
+        #expect(viewport.params["viewport_columns"] as? Int == 120)
+        #expect(viewport.params["viewport_rows"] as? Int == 40)
+
+        let plainReplay = TerminalController.webClientBridgeScopedRequest(
+            MobileHostRPCRequest(
+                id: "plain",
+                method: "terminal.replay",
+                params: ["client_id": "attacker-owned-client"],
+                auth: nil
+            ),
+            connectionID: connectionID
+        )
+        #expect(plainReplay.params["client_id"] == nil)
+
+        let viewportReport = TerminalController.webClientBridgeScopedRequest(
+            MobileHostRPCRequest(
+                id: "report",
+                method: "terminal.viewport",
+                params: ["client_id": "attacker-owned-client", "clear": true],
+                auth: nil
+            ),
+            connectionID: connectionID
+        )
+        #expect(viewportReport.params["client_id"] as? String == "web:\(connectionID.uuidString)")
     }
 
     @Test func browserGrantAuthorizationRunsForEveryRequest() async {

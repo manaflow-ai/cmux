@@ -28,6 +28,10 @@ actor WebClientWebSocketTransport: CmxByteTransport {
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
     private let grantStore: WebClientGrantStore
+    /// The connection identity allocated by the host before the handshake.
+    /// The ready acknowledgement and the admitted MobileHostConnection must
+    /// expose the same value so viewport cleanup cannot split across IDs.
+    private let connectionID: UUID
     private let handshakeTimeoutSleep: @Sendable () async throws -> Void
     private let sendTimeoutSleep: @Sendable () async throws -> Void
     private var state: State = .idle
@@ -66,6 +70,7 @@ actor WebClientWebSocketTransport: CmxByteTransport {
     init(
         connection: NWConnection,
         grantStore: WebClientGrantStore,
+        connectionID: UUID = UUID(),
         handshakeTimeoutSleep: @escaping @Sendable () async throws -> Void = {
             try await ContinuousClock().sleep(for: .seconds(10))
         },
@@ -75,6 +80,7 @@ actor WebClientWebSocketTransport: CmxByteTransport {
     ) {
         self.connection = connection
         self.grantStore = grantStore
+        self.connectionID = connectionID
         self.handshakeTimeoutSleep = handshakeTimeoutSleep
         self.sendTimeoutSleep = sendTimeoutSleep
         self.callbackQueue = DispatchQueue(
@@ -124,7 +130,7 @@ actor WebClientWebSocketTransport: CmxByteTransport {
             "type": "cmux.web.ready",
             "protocol": Self.protocolIdentifier,
             "protocol_version": Self.protocolVersion,
-            "connection_id": UUID().uuidString,
+            "connection_id": connectionID.uuidString,
             "grant_id": grantID.uuidString,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: acknowledgement) else {

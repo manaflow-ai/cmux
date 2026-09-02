@@ -52,6 +52,11 @@ WebSocketメッセージで送信され、再接続のためにブラウザの�
 信頼できるこのフロントエンドのコピーだけに貼り付けてください。ブラウザごとに
 独立した許可を取り消せます。
 
+人間向けのコマンド出力では、一度だけのトークンをstderrの保護された受け渡し経路に
+表示します。JSON出力ではBearer情報を既定で隠します。管理された自動化パイプラインで
+明示的にトークンが必要な場合だけ`--show-token`を使用してください（例:
+`cmux serve-web start --json --show-token`）。
+
 ```bash
 cmux serve-web grants
 cmux serve-web revoke <grant-id>

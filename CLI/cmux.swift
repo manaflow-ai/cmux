@@ -20233,13 +20233,14 @@ struct CMUXCLI {
                 Usage: cmux serve-web [start|status|pair|grants|revoke|stop] [options]
 
                 Start the opt-in Mac browser bridge on an explicit loopback or
-                Tailscale address. start prints a one-time per-client grant token;
-                tokens are never put in a URL.
+                Tailscale address. start prints a single-display per-client grant token
+                on the protected handoff channel; tokens are never put in a URL.
 
                 Options:
-                  --bind <127.0.0.1|100.64.x.x>  Explicit listener address
+                  --bind <127.0.0.1|100.64.0.0/10>  Explicit listener address
                   --port <n>                     TCP port (default: 7683)
                   --label <name>                 Label for a new grant
+                  --show-token                  Include the token in --json output
                 """
             )
         case "open": return openSubcommandUsage()
@@ -40631,7 +40632,7 @@ export default CMUXSessionRestore;
           version
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
-          serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.x.x>] [--port <n>] [--label <name>]
+          serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())

@@ -269,75 +269,96 @@ actor WebClientBridgeService {
             return
         }
         let handshakeID = UUID()
+        // Allocate the authoritative host connection identity before the
+        // handshake so the ready acknowledgement and the admitted session
+        // share one UUID for viewport scoping and cleanup.
+        let connectionID = UUID()
         let transport = WebClientWebSocketTransport(
             connection: connection,
-            grantStore: grantStore
+            grantStore: grantStore,
+            connectionID: connectionID
         )
         let grantStore = self.grantStore
         let task = Task(priority: .userInitiated) { [weak self, grantStore] in
-            defer {
-                Task { [weak self] in
-                    await self?.finishPendingHandshake(handshakeID)
-                    await self?.finishGrantAdmission(handshakeID)
-                }
-            }
-            do {
-                try await transport.prepare()
-                guard let grantID = await transport.authenticatedGrantID() else {
-                    await transport.close()
-                    return
-                }
-                guard let admission = await self?.beginGrantAdmission(
-                    handshakeID: handshakeID,
-                    grantID: grantID,
-                    listenerGeneration: generation
-                ) else {
-                    await transport.close()
-                    return
-                }
-                await self?.finishPendingHandshake(handshakeID)
-                guard !Task.isCancelled else {
-                    await transport.close()
-                    return
-                }
-                _ = await MobileHostService.acceptTransport(
-                    transport,
-                    authorization: .webGrant(grantID),
-                    webGrantAdmission: admission,
-                    webGrantAuthorization: { requestedGrantID, _ in
-                        guard MobileRemoteControlPolicy.isEnabled,
-                              requestedGrantID == grantID,
-                              await grantStore.isActive(requestedGrantID) else {
-                            return .failure(MobileHostRPCError(
-                                code: MobileRemoteControlPolicy.isDisabled
-                                    ? "remote_control_disabled"
-                                    : "revoked",
-                                message: String(
-                                    localized: MobileRemoteControlPolicy.isDisabled
-                                        ? "webClientBridge.error.remoteControlDisabled"
-                                        : "webClientBridge.error.grantRevoked",
-                                    defaultValue: MobileRemoteControlPolicy.isDisabled
-                                        ? "Remote control is disabled by managed policy."
-                                        : "Browser grant has been revoked"
-                                )
-                            ))
-                        }
-                        return nil
-                    },
-                    isCurrent: {
-                        await grantStore.isActive(grantID)
-                    }
-                )
-            } catch {
-                if !Task.isCancelled {
-                    webClientBridgeLog.error(
-                        "web client handshake rejected: \(String(describing: error), privacy: .public)"
-                    )
-                }
-                await transport.close()
-            }
+            guard let self else { return }
+            await self.runHandshake(
+                handshakeID: handshakeID,
+                connectionID: connectionID,
+                generation: generation,
+                transport: transport,
+                grantStore: grantStore
+            )
+            // The stored task owns cleanup, so no detached defer task can outlive
+            // the handshake and race the service's stop/revoke path.
+            await self.finishPendingHandshake(handshakeID)
+            await self.finishGrantAdmission(handshakeID)
         }
         pendingHandshakeTasks[handshakeID] = task
+    }
+
+    private func runHandshake(
+        handshakeID: UUID,
+        connectionID: UUID,
+        generation: UUID,
+        transport: WebClientWebSocketTransport,
+        grantStore: WebClientGrantStore
+    ) async {
+        do {
+            try await transport.prepare()
+            guard let grantID = await transport.authenticatedGrantID() else {
+                await transport.close()
+                return
+            }
+            guard let admission = await beginGrantAdmission(
+                handshakeID: handshakeID,
+                grantID: grantID,
+                listenerGeneration: generation
+            ) else {
+                await transport.close()
+                return
+            }
+            finishPendingHandshake(handshakeID)
+            guard !Task.isCancelled else {
+                await transport.close()
+                return
+            }
+            _ = await MobileHostService.acceptTransport(
+                transport,
+                authorization: .webGrant(grantID),
+                connectionID: connectionID,
+                webGrantAdmission: admission,
+                webGrantAuthorization: { requestedGrantID, _ in
+                    guard MobileRemoteControlPolicy.isEnabled,
+                          requestedGrantID == grantID,
+                          await grantStore.isActive(requestedGrantID) else {
+                        return .failure(MobileHostRPCError(
+                            code: MobileRemoteControlPolicy.isDisabled
+                                ? "remote_control_disabled"
+                                : "revoked",
+                            message: String(
+                                localized: MobileRemoteControlPolicy.isDisabled
+                                    ? "webClientBridge.error.remoteControlDisabled"
+                                    : "webClientBridge.error.grantRevoked",
+                                defaultValue: MobileRemoteControlPolicy.isDisabled
+                                    ? "Remote control is disabled by managed policy."
+                                    : "Browser grant has been revoked"
+                            )
+                        ))
+                    }
+                    return nil
+                },
+                isCurrent: {
+                    await grantStore.isActive(grantID)
+                }
+            )
+        } catch {
+            if !Task.isCancelled {
+                webClientBridgeLog.error(
+                    "web client handshake rejected: \(String(describing: error), privacy: .public)"
+                )
+            }
+            await transport.close()
+        }
     }
 
     private func finishPendingHandshake(_ id: UUID) {

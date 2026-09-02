@@ -28,6 +28,12 @@ import Foundation
 enum MobileHostEventTopicPolicy {
     static let renderGridTopic = "terminal.render_grid"
     static let simulatorFrameTopic = "simulator.frame"
+    /// Topics whose payloads carry a surface key and therefore can be scoped
+    /// to one terminal attachment in a connection's queue.
+    static let surfaceFilterableTopics: Set<String> = [
+        "terminal.bytes",
+        renderGridTopic,
+    ]
 
     static func isDroppable(topic: String, coalesceKey: String?) -> Bool {
         switch topic {

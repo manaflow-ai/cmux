@@ -52,6 +52,11 @@ relaunching cmux invalidates them. A grant can read and type into the Mac
 terminals listed by the client, so paste it only into a trusted copy of this
 frontend. Each browser gets an independent revocable grant:
 
+The human-readable command prints the one-time token on stderr as a protected
+handoff. JSON output redacts bearer material by default; use
+`--show-token` only when a controlled automation pipeline explicitly needs the
+token (for example, `cmux serve-web start --json --show-token`).
+
 ```bash
 cmux serve-web grants
 cmux serve-web revoke <grant-id>

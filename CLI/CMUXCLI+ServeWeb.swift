@@ -9,6 +9,29 @@ extension CMUXCLI {
         jsonOutput: Bool
     ) throws {
         var args = rawArgs
+        // Bearer material is a credential, not ordinary command output. Keep
+        // it on the protected stderr handoff for humans; JSON callers must
+        // opt in explicitly before the token is included in stdout.
+        var showToken = false
+        var filteredArgs: [String] = []
+        var argumentIndex = 0
+        while argumentIndex < args.count {
+            let argument = args[argumentIndex]
+            if argument == "--show-token" {
+                showToken = true
+                argumentIndex += 1
+                continue
+            }
+            filteredArgs.append(argument)
+            if ["--bind", "--address", "--port", "--label"].contains(argument),
+               argumentIndex + 1 < args.count {
+                filteredArgs.append(args[argumentIndex + 1])
+                argumentIndex += 2
+            } else {
+                argumentIndex += 1
+            }
+        }
+        args = filteredArgs
         let subcommand: String
         if let first = args.first, !first.hasPrefix("--") {
             subcommand = first.lowercased()
@@ -34,7 +57,9 @@ extension CMUXCLI {
             )
             var payload = start
             payload["grant"] = grant["grant"] ?? NSNull()
-            payload["token"] = grant["token"] ?? NSNull()
+            if showToken {
+                payload["token"] = grant["token"] ?? NSNull()
+            }
             if jsonOutput {
                 print(jsonString(payload))
                 return
@@ -54,7 +79,8 @@ extension CMUXCLI {
             ))
             print("  \(String(localized: "cli.serveWeb.endpointLabel", defaultValue: "endpoint")): ws://\(endpointHost):\(boundPort)/cmux")
             print("  \(String(localized: "cli.serveWeb.protocolLabel", defaultValue: "protocol")): cmux.web/1")
-            print("  \(String(localized: "cli.serveWeb.tokenLabel", defaultValue: "token")):    \(grant["token"] as? String ?? unavailable)")
+            let tokenLabel = String(localized: "cli.serveWeb.tokenLabel", defaultValue: "token")
+            cliWriteStderr("  \(tokenLabel):    \(grant["token"] as? String ?? unavailable)\n")
             let grantID = (grant["grant"] as? [String: Any])?["id"] as? String ?? "<grant-id>"
             print("  \(String(localized: "cli.serveWeb.revokeLabel", defaultValue: "revoke")):   cmux serve-web revoke \(grantID)")
             print(String(
@@ -64,7 +90,7 @@ extension CMUXCLI {
             if address.hasPrefix("100.") {
                 print(String(
                     localized: "cli.serveWeb.secureProxyHint",
-                    defaultValue: "  secure:   HTTPS-hosted pages need a private TLS proxy (for example: tailscale serve)"
+                    defaultValue: "  secure:   Configure a private TLS proxy before connecting"
                 ))
             }
 
@@ -118,13 +144,16 @@ extension CMUXCLI {
                 params: label.map { ["label": $0] } ?? [:]
             )
             if jsonOutput {
-                print(jsonString(response))
+                var redacted = response
+                if !showToken { redacted.removeValue(forKey: "token") }
+                print(jsonString(redacted))
             } else {
                 let unavailable = String(
                     localized: "cli.serveWeb.unavailable",
                     defaultValue: "(unavailable)"
                 )
-                print("\(String(localized: "cli.serveWeb.tokenLabel", defaultValue: "token")): \(response["token"] as? String ?? unavailable)")
+                let tokenLabel = String(localized: "cli.serveWeb.tokenLabel", defaultValue: "token")
+                cliWriteStderr("\(tokenLabel): \(response["token"] as? String ?? unavailable)\n")
                 if let grant = response["grant"] as? [String: Any],
                    let id = grant["id"] as? String {
                     print("\(String(localized: "cli.serveWeb.grantLabel", defaultValue: "grant")): \(id)")

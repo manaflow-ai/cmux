@@ -123,6 +123,74 @@ describe("MacRuntimeClient", () => {
     await client.close();
   });
 
+  it("rejects a version-mismatched ready frame and closes the socket", async () => {
+    const client = new MacRuntimeClient("ws://127.0.0.1:7683/cmux", "cmux_web_test");
+    const socket = FakeWebSocket.current;
+    if (!socket) throw new Error("Expected a WebSocket instance");
+    socket.open();
+    const pending = client.listWorkspaces();
+    socket.receive({
+      type: "cmux.web.ready",
+      protocol: "cmux.web/2",
+      protocol_version: 2,
+      connection_id: "connection-1",
+    });
+
+    const rejected = expect(pending).rejects.toThrow();
+    await rejected;
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it("rejects a malformed ready frame without a connection id", async () => {
+    const client = new MacRuntimeClient("ws://127.0.0.1:7683/cmux", "cmux_web_test");
+    const socket = FakeWebSocket.current;
+    if (!socket) throw new Error("Expected a WebSocket instance");
+    socket.open();
+    const pending = client.listWorkspaces();
+    socket.receive({
+      type: "cmux.web.ready",
+      protocol: "cmux.web/1",
+      protocol_version: 1,
+      connection_id: "",
+    });
+
+    const rejected = expect(pending).rejects.toThrow();
+    await rejected;
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it("closes the socket when the handshake never completes", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new MacRuntimeClient("ws://127.0.0.1:7683/cmux", "cmux_web_test");
+      const socket = FakeWebSocket.current;
+      if (!socket) throw new Error("Expected a WebSocket instance");
+      socket.open();
+      const pending = client.listWorkspaces();
+      const rejected = expect(pending).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await rejected;
+      expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces a server error response on the requesting call", async () => {
+    const { client, socket } = await connectedClient();
+    const listing = client.listWorkspaces();
+    const request = await waitForRequest(socket, "mobile.workspace.list");
+    socket.receive({
+      id: request.id,
+      ok: false,
+      error: { code: "revoked", message: "Browser grant has been revoked" },
+    });
+
+    await expect(listing).rejects.toThrow("Browser grant has been revoked");
+    await client.close();
+  });
+
   it("delivers live terminal bytes that begin at the replay boundary", async () => {
     const { client, socket } = await connectedClient();
     const attaching = client.attachSurface(42n);

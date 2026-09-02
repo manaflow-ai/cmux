@@ -3,7 +3,7 @@
 ///
 /// Associated strings are safe to return in a WebSocket close reason and never
 /// contain the presented bearer token.
-enum WebClientWebSocketTransportError: Error, Equatable, Sendable {
+nonisolated enum WebClientWebSocketTransportError: Error, Equatable, Sendable {
     case timedOut
     case protocolMismatch(expected: String, received: String?)
     case invalidHello

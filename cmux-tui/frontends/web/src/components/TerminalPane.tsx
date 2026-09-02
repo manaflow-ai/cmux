@@ -261,7 +261,7 @@ function PaneLeaf({
       </div>
       <div className="pane-bottom">
         <span className="pane-corner" aria-hidden="true">└</span>
-        {clientSummary && (
+        {clientSummary && supportsMutations ? (
           <button
             aria-expanded={clientMenu.open && clientMenu.surface === clientSummary.surface}
             aria-haspopup="menu"
@@ -279,7 +279,11 @@ function PaneLeaf({
           >
             {clientSummary.label}
           </button>
-        )}
+        ) : clientSummary ? (
+          <span className="pane-clients-label" aria-label={clientSummary.label}>
+            {clientSummary.label}
+          </span>
+        ) : null}
         <span className="pane-rule" />
         <span className="pane-corner" aria-hidden="true">┘</span>
       </div>

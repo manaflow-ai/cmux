@@ -66,10 +66,13 @@ function screenView(ratio: number, zoomedPane: bigint | null = null): ScreenView
   };
 }
 
-function terminalPaneProps(onSetSplitRatio: (split: bigint, ratio: number) => Promise<boolean>) {
+function terminalPaneProps(
+  onSetSplitRatio: (split: bigint, ratio: number) => Promise<boolean>,
+  clients: ClientInfo[] = [],
+) {
   return {
     client: null as CmuxClient | null,
-    clients: [] as ClientInfo[],
+    clients,
     onRefreshClients: vi.fn(),
     onSetClientSizing: vi.fn(),
     onUseOnlyClientSizing: vi.fn(),
@@ -85,6 +88,24 @@ function terminalPaneProps(onSetSplitRatio: (split: bigint, ratio: number) => Pr
     onCloseSurface: vi.fn(),
     onRenamePane: vi.fn(),
     onRenameSurface: vi.fn(),
+  };
+}
+
+function clientInfo(client: bigint, self: boolean): ClientInfo {
+  return {
+    client,
+    transport: "ws",
+    name: self ? "browser" : "peer",
+    kind: "web",
+    connected_seconds: 1n,
+    attached: [7n],
+    sizes: [{
+      surface: 7n,
+      cols: self ? 100 : 80,
+      rows: self ? 30 : 24,
+      size_participating: true,
+    }],
+    self,
   };
 }
 
@@ -110,6 +131,22 @@ function terminalScreenView(): ScreenView {
 }
 
 describe("TerminalPane split dividers", () => {
+  it("renders the client sizing summary as a label in read-only mode", () => {
+    const props = terminalPaneProps(
+      vi.fn(async () => true),
+      [clientInfo(1n, true), clientInfo(2n, false)],
+    );
+    const { container, getByLabelText } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={terminalScreenView()} />,
+    );
+
+    const label = getByLabelText(/clients/i);
+    expect(label.tagName).toBe("SPAN");
+    expect(label).toHaveClass("pane-clients-label");
+    expect(container.querySelector(".pane-clients-label button")).toBeNull();
+    expect(container.querySelector("button.pane-clients-trigger")).toBeNull();
+  });
+
   it("renders a divider for a split and hides it while zoomed", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
     const { queryByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
@@ -133,6 +170,11 @@ describe("TerminalPane split dividers", () => {
     fireEvent.pointerDown(divider, {
       button: 0,
       clientX: 200,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerMove(divider, {
+      clientX: 300,
       pointerId: 1,
       pointerType: "mouse",
     });

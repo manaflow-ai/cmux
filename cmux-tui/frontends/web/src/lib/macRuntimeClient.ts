@@ -210,9 +210,11 @@ class MacRuntimeWebSocket {
         })), rejectReady);
         return;
       }
-      this.connectionID = typeof value.connection_id === "string"
-        ? value.connection_id
-        : (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "web-client");
+      if (typeof value.connection_id !== "string" || value.connection_id.trim().length === 0) {
+        this.failProtocol(new Error(t("macBridgeInvalidResponse")), rejectReady);
+        return;
+      }
+      this.connectionID = value.connection_id;
       if (!this.readySettled) {
         this.readySettled = true;
         if (this.readyTimer !== undefined) clearTimeout(this.readyTimer);
@@ -406,6 +408,7 @@ export class MacRuntimeClient {
   private readonly transport: MacRuntimeWebSocket;
   private readonly uuidByID = new Map<Id, string>();
   private readonly idByUUID = new Map<string, Id>();
+  private nextTreeID: Id = 1n;
   private readonly paneTabs = new Map<Id, Id[]>();
   private readonly activeSurfaceByPane = new Map<Id, Id>();
   private readonly surfaceReplayHandlers = new Map<string, (payload: Record<string, unknown>) => void>();
@@ -827,15 +830,17 @@ export class MacRuntimeClient {
     const normalized = uuid.trim() || "empty";
     const existing = this.idByUUID.get(normalized);
     if (existing !== undefined) return existing;
-    let hash = 1469598103934665603n;
-    for (const char of normalized) {
-      hash ^= BigInt(char.codePointAt(0) ?? 0);
-      hash = (hash * 1099511628211n) & 0x7fffffffffffffffn;
-    }
-    let id = hash === 0n ? 1n : hash;
-    while (this.uuidByID.has(id) && this.uuidByID.get(id) !== normalized) {
-      id = (id + 1n) & 0x7fffffffffffffffn;
-      if (id === 0n) id = 1n;
+    // IDs are opaque handles. A monotonic allocator avoids hash collisions
+    // while the two maps preserve stability for UUIDs that remain mounted.
+    let id: Id;
+    while (true) {
+      const candidate = this.nextTreeID;
+      this.nextTreeID += 1n;
+      if (this.nextTreeID === 0n) this.nextTreeID = 1n;
+      if (candidate !== 0n && !this.uuidByID.has(candidate)) {
+        id = candidate;
+        break;
+      }
     }
     this.uuidByID.set(id, normalized);
     this.idByUUID.set(normalized, id);

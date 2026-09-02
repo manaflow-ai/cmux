@@ -23,6 +23,8 @@ describe("WebSocket URL defaults", () => {
       .toBe("wss://my-mac.tailnet.ts.net/cmux");
     expect(defaultMacWebSocketUrl("my-mac.tailnet.ts.net", "8443"))
       .toBe("wss://my-mac.tailnet.ts.net:8443/cmux");
+    expect(defaultMacWebSocketUrl("my-mac.tailnet.ts.net", "443"))
+      .toBe("wss://my-mac.tailnet.ts.net/cmux");
   });
 
   it("takes the socket URL from the query and the token only from the fragment", () => {

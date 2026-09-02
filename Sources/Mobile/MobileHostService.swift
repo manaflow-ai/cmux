@@ -30,17 +30,12 @@ extension Notification.Name {
 }
 
 private enum MobileHostEventSubscriptionTracker {
-    private static let surfaceFilterableTopics: Set<String> = [
-        "terminal.bytes",
-        "terminal.render_grid",
-    ]
     // Ghostty's synchronous PTY tee cannot await an actor. This existing lock
     // protects a tiny, bounded subscription snapshot; network I/O and event
     // delivery never occur while it is held.
     private static let lock = NSLock()
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
     private nonisolated(unsafe) static var unfilteredTopicCounts: [String: Int] = [:]
-    private nonisolated(unsafe) static var surfaceTopicCounts: [String: [String: Int]] = [:]
     private nonisolated(unsafe) static var surfaceTopicUUIDCounts: [String: [UUID: Int]] = [:]
 
     static func hasSubscribers(topic: String) -> Bool {
@@ -52,7 +47,7 @@ private enum MobileHostEventSubscriptionTracker {
     static func hasSubscribers(topic: String, surfaceID: UUID) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard surfaceFilterableTopics.contains(topic) else {
+        guard MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) else {
             return (topicCounts[topic] ?? 0) > 0
         }
         return (unfilteredTopicCounts[topic] ?? 0) > 0
@@ -131,7 +126,9 @@ private enum MobileHostEventSubscriptionTracker {
         // need a notification so they can discard the old surface's pending
         // work and schedule the new scope.
         if previousSurfaceID != nextSurfaceID {
-            changedTopics.formUnion(allTopics.filter { surfaceFilterableTopics.contains($0) })
+            changedTopics.formUnion(allTopics.filter {
+                MobileHostEventTopicPolicy.surfaceFilterableTopics.contains($0)
+            })
         }
 
         for topic in allTopics {
@@ -145,16 +142,12 @@ private enum MobileHostEventSubscriptionTracker {
     }
 
     private static func updateScopeCount(topic: String, surfaceID: String?, delta: Int) {
-        guard surfaceFilterableTopics.contains(topic) else { return }
+        guard MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) else { return }
         guard let surfaceID else {
             let count = max(0, (unfilteredTopicCounts[topic] ?? 0) + delta)
             unfilteredTopicCounts[topic] = count == 0 ? nil : count
             return
         }
-        var counts = surfaceTopicCounts[topic] ?? [:]
-        let count = max(0, (counts[surfaceID] ?? 0) + delta)
-        counts[surfaceID] = count == 0 ? nil : count
-        surfaceTopicCounts[topic] = counts.isEmpty ? nil : counts
         if let uuid = UUID(uuidString: surfaceID) {
             var uuidCounts = surfaceTopicUUIDCounts[topic] ?? [:]
             let uuidCount = max(0, (uuidCounts[uuid] ?? 0) + delta)
@@ -167,7 +160,6 @@ private enum MobileHostEventSubscriptionTracker {
         lock.lock()
         topicCounts.removeAll()
         unfilteredTopicCounts.removeAll()
-        surfaceTopicCounts.removeAll()
         surfaceTopicUUIDCounts.removeAll()
         lock.unlock()
         NotificationCenter.default.post(
@@ -763,7 +755,12 @@ final class MobileHostService {
                    let browserPayload = webTerminalBytePayload(payload) {
                     browserFrame = encodedEventFrame(topic: topic, payload: browserPayload)
                 }
-                guard let browserFrame else { return nil }
+                guard let browserFrame else {
+                    mobileHostLog.error(
+                        "mobile host dropped browser terminal.bytes event: unexpected seq encoding"
+                    )
+                    return nil
+                }
                 return (browserFrame, isFullRenderGridFrame)
             }
             if frame == nil {
@@ -1513,6 +1510,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        connectionID: UUID? = nil,
         webGrantAdmission: WebClientGrantAdmission? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
@@ -1559,7 +1557,7 @@ final class MobileHostService {
             return expectedExit
         }
 
-        let id = UUID()
+        let id = connectionID ?? UUID()
         let session = MobileHostConnection(
             id: id,
             transport: transport,
@@ -1621,7 +1619,7 @@ final class MobileHostService {
                             )
                         ))
                     }
-                    return await TerminalController.shared.webClientBridgeHandleRPC(
+                    return await TerminalController.shared.webClientBridgeHandleRPCAsync(
                         request,
                         admission: webGrantAdmission,
                         connectionID: id
@@ -3015,7 +3013,21 @@ actor MobileHostConnection {
                 surfaceID = nil
             default:
                 topicsArray = (request.params["topics"] as? [String]) ?? []
-                surfaceID = request.params["surface_id"] as? String
+                if let rawSurfaceID = request.params["surface_id"] {
+                    guard let rawSurfaceID = rawSurfaceID as? String,
+                          let parsedSurfaceID = UUID(uuidString: rawSurfaceID) else {
+                        return .failure(MobileHostRPCError(
+                            code: "invalid_params",
+                            message: String(
+                                localized: "webClientBridge.error.surfaceIDRequired",
+                                defaultValue: "surface_id must be a UUID"
+                            )
+                        ))
+                    }
+                    surfaceID = parsedSurfaceID.uuidString
+                } else {
+                    surfaceID = nil
+                }
             }
             let topics = Set(topicsArray.filter { !$0.isEmpty })
             guard !topics.isEmpty else {
@@ -3413,7 +3425,8 @@ actor MobileHostConnection {
                 unfilteredTopics.formUnion(subscription.topics)
                 continue
             }
-            for topic in subscription.topics where topic == "terminal.bytes" || topic == "terminal.render_grid" {
+            for topic in subscription.topics
+            where MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) {
                 allowedSurfaceIDsByTopic[topic, default: []].insert(surfaceID)
             }
         }
@@ -3766,6 +3779,10 @@ extension MobileHostConnection {
         streamID: String
     ) -> MobileHostEventTransport? {
         subscriptions[streamID]?.transport
+    }
+
+    func debugSubscriptionSurfaceIDForTesting(streamID: String) -> String? {
+        subscriptions[streamID]?.surfaceID
     }
 
     func debugQueuedEventCountForTesting() -> Int {

@@ -4026,6 +4026,24 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
+    /// Main-actor state captured before an asynchronous browser replay export.
+    struct MobileTerminalReplayPreparation {
+        let workspaceID: UUID
+        let surfaceID: UUID
+        let terminalTarget: ControlTerminalSocketTarget
+        let stateData: Data
+        let sequence: UInt64
+        let hasState: Bool
+        let expectedViewport: (columns: Int, rows: Int)?
+        let renderGrid: MobileTerminalRenderGridFrame?
+    }
+
+    /// Result of preparing the common mobile replay state.
+    enum MobileTerminalReplayPreparationOutcome {
+        case ready(MobileTerminalReplayPreparation)
+        case failure(V2CallResult)
+    }
+
     nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
@@ -5981,6 +5999,58 @@ class TerminalController {
                 return .err(code: "internal_error", message: error.message, data: nil)
             }
         }
+    }
+
+    /// Captures the path written by Ghostty's synchronous VT export binding.
+    /// The binding itself must run on the main actor; callers may hand the
+    /// returned path to an off-main reader after this method returns.
+    private func captureTerminalVTExportPath(
+        terminalTarget: ControlTerminalSocketTarget,
+        bindingAction: String
+    ) -> String? {
+        var actionSucceeded = false
+        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            let ok = terminalTarget.performInternalBindingAction(bindingAction)
+            actionSucceeded = ok
+            return ok
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.vtExport async action=\(bindingAction) succeeded=\(actionSucceeded) hasPath=\(exportedPath != nil)"
+        )
+        #endif
+        guard actionSucceeded else { return nil }
+        return Self.normalizedExportedScreenPath(exportedPath)
+    }
+
+    /// Reads and encodes one captured VT export without touching AppKit or the
+    /// main actor. The temporary export is removed before returning.
+    private nonisolated static func readVTExportBase64ForWebReplay(path: String) -> String? {
+        let fileURL = URL(fileURLWithPath: path)
+        defer {
+            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
+                try? FileManager.default.removeItem(at: fileURL)
+                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
+                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+                }
+            }
+        }
+        // Keep the detached work bounded below the WebSocket/server envelope
+        // limit so a malformed or unexpectedly large export cannot allocate an
+        // unbounded string/base64 pair.
+        let maximumExportByteCount = 12 * 1024 * 1024
+        guard let data = try? Data(contentsOf: fileURL),
+              data.count <= maximumExportByteCount,
+              let rawOutput = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let output = Self.normalizedMobileVTExportText(rawOutput)
+        guard let outputData = output.data(using: .utf8) else { return nil }
+        let encoded = outputData.base64EncodedString()
+        // Leave room for the JSON envelope and sync-frame header under the
+        // transport's 16 MiB server-message ceiling.
+        guard encoded.utf8.count <= 15 * 1024 * 1024 else { return nil }
+        return encoded
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
@@ -15422,44 +15492,53 @@ class TerminalController {
         )
     }
 
-    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+    private func prepareMobileTerminalReplay(
+        params: [String: Any]
+    ) -> MobileTerminalReplayPreparationOutcome {
         if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+            return .failure(error)
         }
         if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+            return .failure(error)
         }
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             #if DEBUG
             cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
             #endif
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+            return .failure(.err(code: "not_found", message: "Terminal surface not found", data: nil))
         }
-        let surfaceId = resolved.surfaceID
-        let terminalTarget = resolved.target
-        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
-        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
-            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        let hasViewportReportFields = params["client_id"] != nil
+            || params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+        if hasViewportReportFields,
+           v2String(params, "client_id") == nil
+            || v2Int(params, "viewport_columns") == nil
+            || v2Int(params, "viewport_rows") == nil {
+            return .failure(.err(
+                code: "invalid_params",
+                message: "Invalid mobile viewport report",
+                data: nil
+            ))
         }
         let expectedViewport = applyMobileViewportReport(
             params: params,
-            terminalTarget: terminalTarget,
+            terminalTarget: resolved.target,
             reason: "mobile.terminal.replay"
         )
         if hasViewportReportFields, expectedViewport == nil {
             #if DEBUG
             cmuxDebugLog(
-                "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) expected=unavailable"
+                "mobile.terminal.replay VIEWPORT_PENDING surface=\(resolved.surfaceID.uuidString.prefix(8)) expected=unavailable"
             )
             #endif
-            return .err(
+            return .failure(.err(
                 code: "viewport_transition",
                 message: "Terminal viewport is still resizing",
                 data: nil
-            )
+            ))
         }
-        let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
-        let seq = state?.seq ?? 0
+        let state = MobileTerminalByteTee.shared.replayState(surfaceID: resolved.surfaceID)
+        let sequence = state?.seq ?? 0
         // Screen-anchored replays hydrate the phone's local scrollback: honor
         // the client's requested history depth up to the shared budget so the
         // replay reset does not truncate what the phone can scroll through.
@@ -15476,9 +15555,9 @@ class TerminalController {
             scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
         }
         let renderGrid = mobileTerminalRenderGridFrame(
-            terminalTarget: terminalTarget,
-            surfaceID: surfaceId,
-            seq: seq,
+            terminalTarget: resolved.target,
+            surfaceID: resolved.surfaceID,
+            seq: sequence,
             scrollbackLines: scrollbackLines,
             anchor: anchor
         )
@@ -15492,12 +15571,12 @@ class TerminalController {
            ) {
             #if DEBUG
             cmuxDebugLog(
-                "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) " +
+                "mobile.terminal.replay VIEWPORT_PENDING surface=\(resolved.surfaceID.uuidString.prefix(8)) " +
                 "expected=\(expectedViewport.columns)x\(expectedViewport.rows) " +
                 "captured=\(renderGrid.columns)x\(renderGrid.rows)"
             )
             #endif
-            return .err(
+            return .failure(.err(
                 code: "viewport_transition",
                 message: "Terminal viewport is still resizing",
                 data: [
@@ -15506,26 +15585,49 @@ class TerminalController {
                     "captured_columns": renderGrid.columns,
                     "captured_rows": renderGrid.rows,
                 ]
-            )
+            ))
         }
-        #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
-        #endif
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-            "seq": seq,
-            "seq_decimal": String(seq),
-        ]
-        let preferByteReplay = v2Bool(params, "prefer_bytes") == true
-        if !preferByteReplay, let renderGrid,
-           let renderGridObject = try? renderGrid.jsonObject() {
-            payload["columns"] = renderGrid.columns
-            payload["rows"] = renderGrid.rows
-            payload["render_grid"] = renderGridObject
-        } else {
-            if let expectedViewport {
-                guard let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
+        return .ready(MobileTerminalReplayPreparation(
+            workspaceID: resolved.workspace.id,
+            surfaceID: resolved.surfaceID,
+            terminalTarget: resolved.target,
+            stateData: state?.data ?? Data(),
+            sequence: sequence,
+            hasState: state != nil,
+            expectedViewport: expectedViewport,
+            renderGrid: renderGrid
+        ))
+    }
+
+    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        switch prepareMobileTerminalReplay(params: params) {
+        case .failure(let result):
+            return result
+        case .ready(let preparation):
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.terminal.replay surface=\(preparation.surfaceID.uuidString.prefix(8)) " +
+                "renderGrid=\(preparation.renderGrid != nil) seq=\(preparation.sequence) " +
+                "hasState=\(preparation.hasState)"
+            )
+            #endif
+            var payload: [String: Any] = [
+                "workspace_id": preparation.workspaceID.uuidString,
+                "surface_id": preparation.surfaceID.uuidString,
+                "seq": preparation.sequence,
+                "seq_decimal": String(preparation.sequence),
+            ]
+            let preferByteReplay = v2Bool(params, "prefer_bytes") == true
+            if !preferByteReplay, let renderGrid = preparation.renderGrid,
+               let renderGridObject = try? renderGrid.jsonObject() {
+                payload["columns"] = renderGrid.columns
+                payload["rows"] = renderGrid.rows
+                payload["render_grid"] = renderGridObject
+                return .ok(payload)
+            }
+
+            if let expectedViewport = preparation.expectedViewport {
+                guard let surface = preparation.terminalTarget.surface.liveSurfaceForGhosttyAccess(
                     reason: "mobileTerminalReplay.viewportFence"
                 ) else {
                     return .err(
@@ -15545,7 +15647,7 @@ class TerminalController {
                 ) else {
                     #if DEBUG
                     cmuxDebugLog(
-                        "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) " +
+                        "mobile.terminal.replay VIEWPORT_PENDING surface=\(preparation.surfaceID.uuidString.prefix(8)) " +
                         "expected=\(expectedViewport.columns)x\(expectedViewport.rows) " +
                         "captured=\(capturedColumns)x\(capturedRows) fallback=1"
                     )
@@ -15562,14 +15664,21 @@ class TerminalController {
                     )
                 }
             }
+            if let renderGrid = preparation.renderGrid {
+                // Keep the captured geometry even if the live Ghostty surface
+                // disappears between replay preparation and the byte export.
+                payload["columns"] = renderGrid.columns
+                payload["rows"] = renderGrid.rows
+            }
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalTarget: terminalTarget,
+                terminalTarget: preparation.terminalTarget,
                 bindingAction: "write_active_file:copy,vt",
                 lineLimit: nil,
                 normalizeLineEndings: false
             )?.data(using: .utf8) ?? Data()
-            let data = state?.data ?? Data()
-            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
+            if let surface = preparation.terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalReplay"
+            ) {
                 let size = ghostty_surface_size(surface)
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
@@ -15577,11 +15686,109 @@ class TerminalController {
             if !snapshotData.isEmpty {
                 payload["snapshot_format"] = "ghostty.active.vt"
                 payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
-            } else if !data.isEmpty {
-                payload["data_b64"] = data.base64EncodedString()
+            } else if !preparation.stateData.isEmpty {
+                payload["data_b64"] = preparation.stateData.base64EncodedString()
             }
+            return .ok(payload)
         }
-        return .ok(payload)
+    }
+
+    /// Builds a browser byte replay while keeping VT file I/O off the main
+    /// actor. Ghostty capture and viewport inspection remain main-actor work;
+    /// the detached portion only reads and encodes the captured file.
+    func v2MobileTerminalReplayForWeb(
+        params: [String: Any],
+        preparation outcome: MobileTerminalReplayPreparationOutcome
+    ) async -> V2CallResult {
+        switch outcome {
+        case .failure(let result):
+            return result
+        case .ready(let preparation):
+            var payload: [String: Any] = [
+                "workspace_id": preparation.workspaceID.uuidString,
+                "surface_id": preparation.surfaceID.uuidString,
+                "seq": preparation.sequence,
+                "seq_decimal": String(preparation.sequence),
+            ]
+            if let renderGrid = preparation.renderGrid {
+                payload["columns"] = renderGrid.columns
+                payload["rows"] = renderGrid.rows
+                if v2Bool(params, "prefer_bytes") != true,
+                   let renderGridObject = try? renderGrid.jsonObject() {
+                    payload["render_grid"] = renderGridObject
+                    return .ok(payload)
+                }
+            }
+            if let expectedViewport = preparation.expectedViewport,
+               let surface = preparation.terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                   reason: "mobileTerminalReplay.webViewportFence"
+               ) {
+                let size = ghostty_surface_size(surface)
+                let capturedColumns = max(Int(size.columns), 1)
+                let capturedRows = max(Int(size.rows), 1)
+                guard MobileTerminalReplayViewportFence.accepts(
+                    capturedColumns: capturedColumns,
+                    capturedRows: capturedRows,
+                    expectedColumns: expectedViewport.columns,
+                    expectedRows: expectedViewport.rows
+                ) else {
+                    return .err(
+                        code: "viewport_transition",
+                        message: "Terminal viewport is still resizing",
+                        data: [
+                            "expected_columns": expectedViewport.columns,
+                            "expected_rows": expectedViewport.rows,
+                            "captured_columns": capturedColumns,
+                            "captured_rows": capturedRows,
+                        ]
+                    )
+                }
+                payload["columns"] = capturedColumns
+                payload["rows"] = capturedRows
+            } else if preparation.expectedViewport != nil,
+                      preparation.renderGrid == nil {
+                return .err(
+                    code: "viewport_transition",
+                    message: "Terminal viewport is still resizing",
+                    data: nil
+                )
+            }
+
+            let exportPath = captureTerminalVTExportPath(
+                terminalTarget: preparation.terminalTarget,
+                bindingAction: "write_active_file:copy,vt"
+            )
+            let fallbackData = preparation.stateData
+            let replay = await Task.detached(priority: .userInitiated) {
+                if let exportPath,
+                   let snapshotBase64 = Self.readVTExportBase64ForWebReplay(path: exportPath) {
+                    return (base64: snapshotBase64, isSnapshot: true)
+                }
+                guard !fallbackData.isEmpty else {
+                    return (base64: nil, isSnapshot: false)
+                }
+                return (
+                    base64: fallbackData.base64EncodedString(),
+                    isSnapshot: false
+                )
+            }.value
+            if let surface = preparation.terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalReplay.webFinalGeometry"
+            ) {
+                let size = ghostty_surface_size(surface)
+                payload["columns"] = max(Int(size.columns), 1)
+                payload["rows"] = max(Int(size.rows), 1)
+            }
+            if let replayBase64 = replay.base64 {
+                if replay.isSnapshot {
+                    payload["snapshot_format"] = "ghostty.active.vt"
+                    payload["snapshot_data_b64"] = replayBase64
+                } else {
+                    payload["data_b64"] = replayBase64
+                }
+            }
+            return .ok(payload)
+        }
     }
 
     /// Record (or clear) a paired device's reported terminal grid, recompute

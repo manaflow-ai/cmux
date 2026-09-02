@@ -18,6 +18,34 @@ extension TerminalController {
         }
     }
 
+    /// Returns the browser-scoped request that reaches the terminal handlers.
+    /// Caller-supplied viewport identities are always discarded; only requests
+    /// carrying dimensions receive the authoritative connection-scoped id.
+    nonisolated static func webClientBridgeScopedRequest(
+        _ request: MobileHostRPCRequest,
+        connectionID: UUID
+    ) -> MobileHostRPCRequest {
+        guard request.method == "terminal.replay"
+            || request.method == "terminal.viewport"
+            || request.method == "terminal.input" else {
+            return request
+        }
+        var params = request.params
+        let carriesViewport = params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+            || request.method == "terminal.viewport"
+        params.removeValue(forKey: "client_id")
+        if carriesViewport {
+            params["client_id"] = "web:\(connectionID.uuidString)"
+        }
+        return MobileHostRPCRequest(
+            id: request.id,
+            method: request.method,
+            params: params,
+            auth: request.auth
+        )
+    }
+
     /// Applies one browser-allowed RPC while holding its synchronous
     /// revocation fence. The v2 terminal bodies are intentionally synchronous
     /// at this boundary, so a grant revocation cannot overtake a mutation
@@ -28,35 +56,21 @@ extension TerminalController {
         admission: WebClientGrantAdmission,
         connectionID: UUID
     ) -> MobileHostRPCResult {
-        // Viewport reports are shared across every mobile viewer. Scope the
-        // browser's report to the server-owned connection identity instead of
-        // trusting a caller-supplied client_id that could clear or pin another
-        // viewer's dimensions. The same canonical id is recorded on close by
-        // MobileHostService.
-        let scopedRequest: MobileHostRPCRequest
-        switch request.method {
-        case "terminal.replay", "terminal.viewport", "terminal.input":
-            var params = request.params
-            // `terminal.replay` treats a client_id as a complete viewport
-            // report and requires dimensions alongside it. Only attach the
-            // server-owned identity when the request actually carries those
-            // dimensions; a plain replay must remain a plain replay.
-            let carriesViewport = params["viewport_columns"] != nil
-                || params["viewport_rows"] != nil
-                || request.method == "terminal.viewport"
-            params.removeValue(forKey: "client_id")
-            if carriesViewport {
-                params["client_id"] = "web:\(connectionID.uuidString)"
-            }
-            scopedRequest = MobileHostRPCRequest(
-                id: request.id,
-                method: request.method,
-                params: params,
-                auth: request.auth
-            )
-        default:
-            scopedRequest = request
-        }
+        let scopedRequest = Self.webClientBridgeScopedRequest(
+            request,
+            connectionID: connectionID
+        )
+        return webClientBridgeHandleScopedRPC(scopedRequest, admission: admission)
+    }
+
+    /// Handles browser RPCs that can complete synchronously on the main actor.
+    /// Byte replay uses ``webClientBridgeHandleRPCAsync`` so its export read is
+    /// never performed while the admission lock is held.
+    @MainActor
+    private func webClientBridgeHandleScopedRPC(
+        _ scopedRequest: MobileHostRPCRequest,
+        admission: WebClientGrantAdmission
+    ) -> MobileHostRPCResult {
         guard let result = admission.withValidAdmission({ () -> V2CallResult in
             switch scopedRequest.method {
             case "mobile.workspace.list":
@@ -93,6 +107,49 @@ extension TerminalController {
         case let .err(code, message, data):
             return .failure(MobileHostRPCError(code: code, message: message, data: data))
         }
+    }
+
+    /// Handles a browser request with an asynchronous byte-replay path. The
+    /// admission fence is sampled before and after the detached export read,
+    /// never held across its suspension point.
+    @MainActor
+    func webClientBridgeHandleRPCAsync(
+        _ request: MobileHostRPCRequest,
+        admission: WebClientGrantAdmission,
+        connectionID: UUID
+    ) async -> MobileHostRPCResult {
+        let scopedRequest = Self.webClientBridgeScopedRequest(
+            request,
+            connectionID: connectionID
+        )
+        guard scopedRequest.method == "terminal.replay" else {
+            return webClientBridgeHandleScopedRPC(scopedRequest, admission: admission)
+        }
+        guard let preparation = admission.withValidAdmission({
+            self.prepareMobileTerminalReplay(params: scopedRequest.params)
+        }) else {
+            return .failure(MobileHostRPCError(
+                code: "revoked",
+                message: String(
+                    localized: "webClientBridge.error.grantRevoked",
+                    defaultValue: "Browser grant has been revoked"
+                )
+            ))
+        }
+        let result = await v2MobileTerminalReplayForWeb(
+            params: scopedRequest.params,
+            preparation: preparation
+        )
+        guard admission.withValidAdmission({ true }) != nil else {
+            return .failure(MobileHostRPCError(
+                code: "revoked",
+                message: String(
+                    localized: "webClientBridge.error.grantRevoked",
+                    defaultValue: "Browser grant has been revoked"
+                )
+            ))
+        }
+        return Self.webBridgeV2Result(result)
     }
 
     nonisolated func webClientBridgeSocketResponse(
