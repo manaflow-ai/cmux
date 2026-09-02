@@ -1,9 +1,10 @@
 public import Foundation
 
-/// One incoming item of a `workspace.todo.set` atomic replace, as parsed by
-/// the coordinator. State/origin cross the seam as raw wire strings (the app
-/// validates them, like `workspace.todo.add`); the id is parsed to a UUID in
-/// the coordinator because item ids are plain UUIDs, never `kind:N` refs.
+/// One incoming item of a `workspace.todo.set` or
+/// `workspace.todo.reconcile` atomic mutation, as parsed by the coordinator.
+/// State/origin cross the seam as raw wire strings (the app validates them,
+/// like `workspace.todo.add`); the id is parsed to a UUID in the coordinator
+/// because item ids are plain UUIDs, never `kind:N` refs.
 public struct ControlWorkspaceTodoSetItemParam: Sendable, Equatable {
     /// The identity to keep or assign, or `nil` to mint a fresh one.
     public let id: UUID?
@@ -24,8 +25,8 @@ public struct ControlWorkspaceTodoSetItemParam: Sendable, Equatable {
     }
 }
 
-/// The app-side resolution of `workspace.todo.set` (atomic replace; error
-/// cases mean nothing was mutated).
+/// The app-side resolution of a workspace-todo batch mutation (error cases
+/// mean nothing was mutated).
 public enum ControlWorkspaceTodoSetResolution: Sendable {
     /// No TabManager resolved from the routing selectors.
     case tabManagerUnavailable

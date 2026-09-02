@@ -246199,6 +246199,256 @@
         }
       }
     },
+    "socket.workspace.todo.reconcile.invalidOwnerIDLength": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يتراوح طول owner_id بين 1 و500 حرف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id mora imati od 1 do 500 znakova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id skal være mellem 1 og 500 tegn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id muss 1 bis 500 Zeichen lang sein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id must be between 1 and 500 characters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id debe tener entre 1 y 500 caracteres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id doit comporter entre 1 et 500 caractères."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id deve contenere da 1 a 500 caratteri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id は1〜500文字で指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id ត្រូវមានពី 1 ដល់ 500 តួអក្សរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id는 1~500자여야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id må være mellom 1 og 500 tegn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id musi mieć od 1 do 500 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id deve ter entre 1 e 500 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Длина owner_id должна составлять от 1 до 500 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id ต้องมีความยาว 1–500 อักขระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id 1 ile 500 karakter arasında olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довжина owner_id має становити від 1 до 500 символів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id 必须包含 1 到 500 个字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id 必須包含 1 到 500 個字元。"
+          }
+        }
+      }
+    },
+    "socket.workspace.todo.reconcile.missingOwnerID": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id مفقود أو غير صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id nedostaje ili je nevažeći"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id mangler eller er ugyldigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id fehlt oder ist ungültig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid owner_id"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta owner_id o no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id est manquant ou non valide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id mancante o non valido"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id が指定されていないか無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាត់ owner_id ឬ owner_id មិនត្រឹមត្រូវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id가 없거나 유효하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id mangler eller er ugyldig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak owner_id lub wartość jest nieprawidłowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id ausente ou inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id отсутствует или имеет недопустимое значение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มี owner_id หรือ owner_id ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id eksik veya geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id відсутній або має недійсне значення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id 缺失或无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id 缺失或無效"
+          }
+        }
+      }
+    },
     "socket.workspace.unsupportedWindowParam": {
       "extractionState": "manual",
       "localizations": {

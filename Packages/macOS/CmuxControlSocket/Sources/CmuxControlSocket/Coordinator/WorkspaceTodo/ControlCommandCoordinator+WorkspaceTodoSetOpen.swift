@@ -1,10 +1,10 @@
 internal import Foundation
 
-/// Workspace-todo set/open verbs extracted from the primary workspace-todo coordinator file, which sits at its file-length budget.
+/// Workspace-todo batch/open verbs extracted from the primary workspace-todo coordinator file, which sits at its file-length budget.
 extension ControlCommandCoordinator {
-    /// The up-front parse of `workspace.todo.set`'s `items` array: either
-    /// every element parsed, or the error to reply with (atomicity: nothing
-    /// crosses the seam on a malformed request).
+    /// The up-front parse of a batch mutation's `items` array: either every
+    /// element parsed, or the error to reply with (atomicity: nothing crosses
+    /// the seam on a malformed request).
     private enum WorkspaceTodoSetItemsParse {
         case items([ControlWorkspaceTodoSetItemParam])
         case invalid(ControlCallResult)
@@ -55,21 +55,9 @@ extension ControlCommandCoordinator {
         return .items(items)
     }
 
-    /// `workspace.todo.set` — atomic identity-preserving replace; replies
-    /// with the resulting list payload.
-    func workspaceTodoSet(_ params: [String: JSONValue]) -> ControlCallResult {
-        let items: [ControlWorkspaceTodoSetItemParam]
-        switch workspaceTodoSetItems(params) {
-        case .invalid(let error):
-            return error
-        case .items(let parsed):
-            items = parsed
-        }
-        let resolution = context?.controlWorkspaceTodoSet(
-            routing: routingSelectors(params),
-            workspaceID: uuid(params, "workspace_id"),
-            items: items
-        ) ?? .tabManagerUnavailable
+    private func workspaceTodoSetResult(
+        _ resolution: ControlWorkspaceTodoSetResolution
+    ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -108,6 +96,149 @@ extension ControlCommandCoordinator {
         case .resolved(let windowID, let checklist):
             return .ok(workspaceTodoListPayload(windowID: windowID, checklist: checklist))
         }
+    }
+
+    /// `workspace.todo.set` — atomic identity-preserving replace; replies
+    /// with the resulting list payload.
+    func workspaceTodoSet(_ params: [String: JSONValue]) -> ControlCallResult {
+        let items: [ControlWorkspaceTodoSetItemParam]
+        switch workspaceTodoSetItems(params) {
+        case .invalid(let error):
+            return error
+        case .items(let parsed):
+            items = parsed
+        }
+        return workspaceTodoSetResult(context?.controlWorkspaceTodoSet(
+            routing: routingSelectors(params),
+            workspaceID: uuid(params, "workspace_id"),
+            items: items
+        ) ?? .tabManagerUnavailable)
+    }
+
+    /// `workspace.todo.reconcile` — atomically replaces one owner's items
+    /// while preserving user entries and other owners' entries. A
+    /// `workspace_ids` array batches up to 64 destinations into one socket
+    /// round trip and reports each workspace independently. `validate_only`
+    /// performs the same validation against a candidate copy without mutating
+    /// any checklist, allowing callers to avoid publishing a paired snapshot
+    /// that the checklist cap would reject.
+    func workspaceTodoReconcile(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let context else {
+            return workspaceTodoSetResult(.tabManagerUnavailable)
+        }
+        let strings = context.controlWorkspaceTodoStrings()
+        guard case .string(let rawOwnerID)? = params["owner_id"] else {
+            return .err(
+                code: "invalid_params",
+                message: strings.missingOwnerID,
+                data: nil
+            )
+        }
+        let ownerID = rawOwnerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ownerID.isEmpty, ownerID.count <= 500 else {
+            return .err(
+                code: "invalid_params",
+                message: strings.invalidOwnerIDLength,
+                data: nil
+            )
+        }
+        let items: [ControlWorkspaceTodoSetItemParam]
+        switch workspaceTodoSetItems(params) {
+        case .invalid(let error):
+            return error
+        case .items(let parsed):
+            items = parsed
+        }
+        let validateOnly = bool(params, "validate_only") ?? false
+        if hasNonNull(params, "workspace_ids") {
+            let workspaceStrings = context.controlWorkspaceStrings()
+            guard case .array(let rawWorkspaceIDs)? = params["workspace_ids"],
+                  (1...64).contains(rawWorkspaceIDs.count) else {
+                return .err(
+                    code: "invalid_params",
+                    message: workspaceStrings.reorderManyInvalidWorkspace,
+                    data: nil
+                )
+            }
+            var destinations: [(rawID: String, workspaceID: UUID)] = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            destinations.reserveCapacity(rawWorkspaceIDs.count)
+            for rawWorkspaceID in rawWorkspaceIDs {
+                guard case .string(let rawID) = rawWorkspaceID else {
+                    return .err(
+                        code: "invalid_params",
+                        message: workspaceStrings.reorderManyInvalidWorkspace,
+                        data: nil
+                    )
+                }
+                let trimmedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let workspaceID = uuid(
+                    ["workspace_id": .string(trimmedID)],
+                    "workspace_id"
+                ) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: workspaceStrings.reorderManyInvalidWorkspace,
+                        data: nil
+                    )
+                }
+                guard seenWorkspaceIDs.insert(workspaceID).inserted else { continue }
+                destinations.append((trimmedID, workspaceID))
+            }
+            let routing = routingSelectors(params)
+            let results = destinations.map { destination -> JSONValue in
+                let resolution = validateOnly
+                    ? context.controlWorkspaceTodoReconcilePreview(
+                        routing: routing,
+                        workspaceID: destination.workspaceID,
+                        ownerID: ownerID,
+                        items: items
+                    )
+                    : context.controlWorkspaceTodoReconcile(
+                        routing: routing,
+                        workspaceID: destination.workspaceID,
+                        ownerID: ownerID,
+                        items: items
+                    )
+                let result = workspaceTodoSetResult(resolution)
+                var payload: [String: JSONValue] = [
+                    "workspace_id": .string(destination.rawID),
+                ]
+                switch result {
+                case .ok:
+                    payload["ok"] = .bool(true)
+                case .err("not_found", _, _) where validateOnly:
+                    // A preview is only a capacity/validation gate. A closed
+                    // destination is harmless here; the real reconciliation
+                    // below will report it and retire that workspace proof.
+                    payload["ok"] = .bool(true)
+                case .err(let code, let message, let data):
+                    var error: [String: JSONValue] = [
+                        "code": .string(code),
+                        "message": .string(message),
+                    ]
+                    if let data { error["data"] = data }
+                    payload["ok"] = .bool(false)
+                    payload["error"] = .object(error)
+                }
+                return .object(payload)
+            }
+            return .ok(.object(["results": .array(results)]))
+        }
+        let resolution = validateOnly
+            ? context.controlWorkspaceTodoReconcilePreview(
+                routing: routingSelectors(params),
+                workspaceID: uuid(params, "workspace_id"),
+                ownerID: ownerID,
+                items: items
+            )
+            : context.controlWorkspaceTodoReconcile(
+                routing: routingSelectors(params),
+                workspaceID: uuid(params, "workspace_id"),
+                ownerID: ownerID,
+                items: items
+            )
+        return workspaceTodoSetResult(resolution)
     }
 
     /// `workspace.todo.open` — open (or focus) the workspace's todo pane.

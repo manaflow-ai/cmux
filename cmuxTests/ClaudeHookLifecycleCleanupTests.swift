@@ -15,6 +15,60 @@ struct ClaudeHookLifecycleCleanupTests {
     private static let otherSurfaceId = "55555555-5555-5555-5555-555555555555"
     private static let fallbackSurfaceId = "44444444-4444-4444-4444-444444444444"
 
+    /// A normal, current SessionEnd must clear the visible lifecycle state
+    /// after its record is consumed. The consumed record is intentionally
+    /// tombstoned before the visible-mutation gate runs, so this covers the
+    /// post-consume path that used to classify every teardown as stale.
+    @Test func sessionEndClearsCurrentPaneAfterConsumingRecord() throws {
+        let context = try Harness.makeContext(name: "session-end-current-pane")
+        defer { context.cleanup() }
+        let sessionId = "session-end-current-pane-session"
+        let pid = 43219
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: pid,
+            markActive: true
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context, surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId))
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = String(pid)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SessionEnd","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code ")
+                    && $0.contains("--tab=\(Self.liveWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "SessionEnd must clear the current pane after consuming its record; saw \(commands)"
+        )
+        #expect(
+            commands.contains(
+                "clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"
+            ),
+            "SessionEnd must clear pane-scoped notifications for the current record; saw \(commands)"
+        )
+    }
+
     /// The session record was polluted to ANOTHER agent's pane (#7391) whose
     /// own session is active there. SessionEnd's staleness gate must judge the
     /// pane being CLEANED (the live pid target), not the polluted record

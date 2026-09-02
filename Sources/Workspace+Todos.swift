@@ -187,8 +187,8 @@ extension Workspace {
         todoState.checklist.clearChecklist()
     }
 
-    /// Atomically replaces the checklist, preserving identity (and origin)
-    /// for incoming items whose id matches an existing item. See
+    /// Atomically replaces the checklist, preserving identity, origin, and
+    /// external ownership for items whose id matches an existing item. See
     /// `Array.replaceChecklist(with:)` in CmuxWorkspaces for the merge rules.
     ///
     /// - Parameter items: The full desired checklist.
@@ -200,6 +200,23 @@ extension Workspace {
     ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
         notifyingChecklistCompletion {
             todoState.checklist.replaceChecklist(with: items)
+        }
+    }
+
+    /// Atomically reconciles only the checklist items owned by one external
+    /// source, preserving user items and other sources' items.
+    ///
+    /// - Parameters:
+    ///   - ownerID: The stable ownership key for the source snapshot.
+    ///   - items: The complete desired checklist for that owner.
+    /// - Returns: The resulting combined checklist, or the rejection reason.
+    @discardableResult
+    func reconcileChecklist(
+        ownerID: String,
+        with items: [WorkspaceChecklistReplacementItem]
+    ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
+        notifyingChecklistCompletion {
+            todoState.checklist.reconcileChecklist(ownerID: ownerID, with: items)
         }
     }
 

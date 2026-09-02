@@ -146,7 +146,7 @@ public final class WorkstreamStore {
         let item = makeItem(from: event)
         insert(item)
         updateContextIndex(with: item)
-        if let persistence {
+        if let persistence, !event.isTransient {
             Task { [persistence, item] in
                 try? await persistence.append(item)
             }
@@ -470,7 +470,6 @@ public final class WorkstreamStore {
         }
         return nil
     }
-
     private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
         let rawTodos: [Any]
         if let dict = jsonObject(from: json) as? [String: Any] {
@@ -500,6 +499,7 @@ public final class WorkstreamStore {
             return WorkstreamTaskTodo(
                 id: (dict["id"] as? String) ?? "todo\(idx)",
                 content: content,
+                activeForm: dict["activeForm"] as? String,
                 state: state
             )
         }

@@ -572,7 +572,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "TaskCompleted", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -624,6 +624,40 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
+    task_sync_groups = [
+        group
+        for group in post_tool_use_groups
+        if group.get("matcher") == "TaskCreate|TaskUpdate|TeamDelete"
+    ]
+    expect(
+        task_sync_groups,
+        f"PostToolUse should install a Claude task snapshot bridge, got {post_tool_use_groups}",
+        failures,
+    )
+    if task_sync_groups:
+        task_sync_hooks = task_sync_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude task-sync'
+                and h.get("async") is True
+                for h in task_sync_hooks
+            ),
+            f"Claude task snapshot bridge should asynchronously call hooks claude task-sync, got {task_sync_hooks}",
+            failures,
+        )
+
+    task_completed_hooks = hooks.get("TaskCompleted", [{}])[0].get("hooks", [])
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude task-sync'
+            and h.get("async") is not True
+            and h.get("timeout") == 10
+            for h in task_completed_hooks
+        ),
+        f"TaskCompleted should synchronously call hooks claude task-sync, got {task_completed_hooks}",
+        failures,
+    )
+
     # General PreToolUse telemetry should remain async to avoid blocking tool execution.
     pre_tool_use_hooks = [
         hook
@@ -657,11 +691,12 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
+    # SessionEnd stays bounded while allowing the complete eight-second
+    # task-sync lease plus process/setup margin below Ghostty's grace period.
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
-        f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        any(h.get("timeout") == 11 for h in session_end_hooks),
+        f"SessionEnd hook should have an 11-second timeout, got {session_end_hooks}",
         failures,
     )
 
@@ -717,7 +752,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "TaskCompleted", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

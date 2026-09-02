@@ -72,12 +72,35 @@ public struct WorkstreamTaskTodo: Codable, Sendable, Equatable {
 
     public let id: String
     public let content: String
+    /// Present-tense task text used while this item is actively running.
+    public let activeForm: String?
     public let state: State
 
-    public init(id: String, content: String, state: State) {
+    /// Creates a canonical workstream task entry.
+    ///
+    /// - Parameters:
+    ///   - id: The task system's stable identifier.
+    ///   - content: The task's subject text.
+    ///   - activeForm: Present-tense text used while the task is running.
+    ///   - state: The task's canonical lifecycle state.
+    public init(
+        id: String,
+        content: String,
+        activeForm: String? = nil,
+        state: State
+    ) {
         self.id = id
         self.content = content
+        self.activeForm = activeForm
         self.state = state
+    }
+
+    /// The task text best suited to a current-progress summary.
+    public var displayContent: String {
+        guard state == .inProgress,
+              let activeForm,
+              !activeForm.isEmpty else { return content }
+        return activeForm
     }
 }
 

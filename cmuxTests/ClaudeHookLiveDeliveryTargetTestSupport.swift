@@ -7,6 +7,27 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
+    /// File-manager seam used to prove that unrelated hook writes do not
+    /// rewrite the task-sync sidecar.
+    final class TaskSyncCountingFileManager: FileManager {
+        private(set) var taskSyncSidecarCreateCount = 0
+
+        func resetTaskSyncSidecarCreateCount() {
+            taskSyncSidecarCreateCount = 0
+        }
+
+        override func createFile(
+            atPath path: String,
+            contents data: Data?,
+            attributes attr: [FileAttributeKey: Any]? = nil
+        ) -> Bool {
+            if path.contains(".task-sync.json") {
+                taskSyncSidecarCreateCount += 1
+            }
+            return super.createFile(atPath: path, contents: data, attributes: attr)
+        }
+    }
+
     struct Context {
         let cliPath: String
         let socketPath: String
@@ -45,6 +66,12 @@ enum ClaudeHookLiveDeliveryHarness {
         let stdout: String
         let stderr: String
         let timedOut: Bool
+    }
+
+    struct TaskSyncDeliverySignals {
+        let feed = DispatchSemaphore(value: 0)
+        let reconciliation = DispatchSemaphore(value: 0)
+        let validation = DispatchSemaphore(value: 0)
     }
 
     static func makeContext(name: String) throws -> Context {
@@ -165,6 +192,179 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
+    /// Mock server for the task-sync hook's routing, Feed, and checklist calls.
+    static func startTaskSyncServer(
+        context: Context,
+        workspaceId: String,
+        surfaceId: String,
+        workspaceIDsBySurface: [String: String] = [:],
+        missingWorkspaceIDs: Set<String> = [],
+        feedPushSucceeds: Bool = true,
+        rejectsEmptyFeedSnapshots: Bool = false
+    ) -> TaskSyncDeliverySignals {
+        let deliveries = TaskSyncDeliverySignals()
+        _ = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = jsonObject(line),
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            if method == "feed.push" {
+                deliveries.feed.signal()
+                let params = payload["params"] as? [String: Any]
+                let event = params?["event"] as? [String: Any]
+                let toolInput = event?["tool_input"] as? [String: Any]
+                let todos = toolInput?["todos"] as? [[String: Any]]
+                let rejectsSnapshot = rejectsEmptyFeedSnapshots && todos?.isEmpty == true
+                guard feedPushSucceeds, !rejectsSnapshot else {
+                    guard let id = payload["id"] as? String else {
+                        return "ERROR: injected Feed rejection"
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "delivery_failed", "message": "injected Feed rejection"]
+                    )
+                }
+                if let id = payload["id"] as? String {
+                    return v2Response(id: id, ok: true, result: [:])
+                }
+                return "OK"
+            }
+            guard let id = payload["id"] as? String else {
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "agent.resolve_delivery_target":
+                let requestedSurfaceID = params["surface_id"] as? String
+                let resolvedWorkspaceID = requestedSurfaceID.flatMap {
+                    workspaceIDsBySurface[$0]
+                } ?? workspaceId
+                return v2Response(id: id, ok: true, result: [
+                    "workspace_id": resolvedWorkspaceID,
+                    "surface_id": requestedSurfaceID ?? surfaceId,
+                    "source": "surface",
+                ])
+            case "surface.list":
+                let requestedWorkspaceID = params["workspace_id"] as? String
+                let resolvedSurfaceID = workspaceIDsBySurface.first {
+                    $0.value == requestedWorkspaceID
+                }?.key ?? surfaceId
+                return v2Response(id: id, ok: true, result: [
+                    "surfaces": [["id": resolvedSurfaceID, "ref": "surface:1", "focused": true]],
+                ])
+            case "workspace.todo.reconcile":
+                let items = params["items"] as? [[String: Any]] ?? []
+                let validateOnly = params["validate_only"] as? Bool == true
+                if items.count > 50 {
+                    let destinationCount = (params["workspace_ids"] as? [String])?.count ?? 1
+                    for _ in 0..<destinationCount {
+                        if validateOnly {
+                            deliveries.validation.signal()
+                        } else {
+                            deliveries.reconciliation.signal()
+                        }
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "invalid_params", "message": "checklist cap exceeded"]
+                    )
+                }
+                if let destinationWorkspaceIDs = params["workspace_ids"] as? [String] {
+                    let results: [[String: Any]] = destinationWorkspaceIDs.map { workspaceID in
+                        if validateOnly {
+                            deliveries.validation.signal()
+                        } else {
+                            deliveries.reconciliation.signal()
+                        }
+                        if missingWorkspaceIDs.contains(workspaceID) {
+                            if validateOnly {
+                                return ["workspace_id": workspaceID, "ok": true]
+                            }
+                            return [
+                                "workspace_id": workspaceID,
+                                "ok": false,
+                                "error": ["code": "not_found", "message": "workspace closed"],
+                            ]
+                        }
+                        return ["workspace_id": workspaceID, "ok": true]
+                    }
+                    return v2Response(id: id, ok: true, result: ["results": results])
+                }
+                if validateOnly {
+                    deliveries.validation.signal()
+                } else {
+                    deliveries.reconciliation.signal()
+                }
+                if let destinationWorkspaceID = params["workspace_id"] as? String,
+                   missingWorkspaceIDs.contains(destinationWorkspaceID) {
+                    if validateOnly {
+                        return v2Response(id: id, ok: true, result: [:])
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "not_found", "message": "workspace closed"]
+                    )
+                }
+                return v2Response(id: id, ok: true, result: [:])
+            default:
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+        return deliveries
+    }
+
+    static func taskSyncReconcileRequests(in context: Context) -> [[String: Any]] {
+        context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "workspace.todo.reconcile" else {
+                return nil
+            }
+            guard let params = request["params"] as? [String: Any],
+                  params["validate_only"] as? Bool != true else {
+                return nil
+            }
+            return params
+        }.flatMap { params -> [[String: Any]] in
+            guard let workspaceIDs = params["workspace_ids"] as? [String] else {
+                return [params]
+            }
+            return workspaceIDs.map { workspaceID in
+                var expanded = params
+                expanded.removeValue(forKey: "workspace_ids")
+                expanded["workspace_id"] = workspaceID
+                return expanded
+            }
+        }
+    }
+
+    static func taskSyncReconcileValidationRequests(in context: Context) -> [[String: Any]] {
+        context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "workspace.todo.reconcile",
+                  let params = request["params"] as? [String: Any],
+                  params["validate_only"] as? Bool == true else {
+                return nil
+            }
+            return params
+        }.flatMap { params -> [[String: Any]] in
+            if let workspaceIDs = params["workspace_ids"] as? [String] {
+                return workspaceIDs.map { workspaceID in
+                    var copy = params
+                    copy["workspace_id"] = workspaceID
+                    return copy
+                }
+            }
+            return [params]
+        }
+    }
+
     static func resumeBindingParams(in context: Context) -> [[String: Any]] {
         context.state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -181,7 +381,10 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        claudeTaskDirectoryName: String? = nil,
+        claudeTaskStoreID: String? = nil,
+        markActive: Bool = false
     ) throws {
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
@@ -194,10 +397,24 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
-        let store: [String: Any] = [
+        if let claudeTaskDirectoryName {
+            record["claudeTaskDirectoryName"] = claudeTaskDirectoryName
+        }
+        if let claudeTaskStoreID {
+            record["claudeTaskStoreID"] = claudeTaskStoreID
+        }
+        var store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
         ]
+        if markActive {
+            let active: [String: Any] = [
+                "sessionId": sessionId,
+                "updatedAt": now,
+            ]
+            store["activeSessionsByWorkspace"] = [workspaceId: active]
+            store["activeSessionsBySurface"] = [surfaceId: active]
+        }
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL)
     }
@@ -368,7 +585,7 @@ enum ClaudeHookLiveDeliveryHarness {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }

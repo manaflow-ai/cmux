@@ -13,6 +13,9 @@ public import Foundation
 /// cross.
 @MainActor
 public protocol ControlWorkspaceTodoContext: AnyObject {
+    /// The localized workspace-todo messages resolved against the app bundle.
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings
+
     /// Reads the todo status for `workspace.status.get` (reconciling an
     /// expired override first).
     ///
@@ -180,6 +183,36 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
     func controlWorkspaceTodoSet(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution
+
+    /// Atomically replaces only the checklist items owned by one external
+    /// source, preserving all unrelated checklist entries.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - ownerID: The stable source-scoped ownership key.
+    ///   - items: The complete desired checklist for that owner, in order.
+    /// - Returns: The reconcile resolution.
+    func controlWorkspaceTodoReconcile(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution
+
+    /// Validates an owner-scoped checklist reconciliation without mutating the
+    /// workspace. The returned success snapshot is the candidate checklist;
+    /// failures use the same atomic validation errors as the real mutation.
+    ///
+    /// This preview lets callers coordinate a durable/telemetry projection
+    /// before committing either side when the checklist cap could reject it.
+    func controlWorkspaceTodoReconcilePreview(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
         items: [ControlWorkspaceTodoSetItemParam]
     ) -> ControlWorkspaceTodoSetResolution
 
