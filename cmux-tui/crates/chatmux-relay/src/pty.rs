@@ -1328,13 +1328,11 @@ impl Inner {
             publication_gate: Arc::clone(&publication_gate),
             state: AtomicUsize::new(0),
         });
-        let start_cleanup_for_thread = Arc::clone(&start_cleanup);
         let _start_owner = StartOwner(Arc::clone(&start_cleanup));
         let start_result = std::thread::Builder::new()
             .name("chatmux-relay-pty-start".to_owned())
             .spawn(move || {
                 start(Box::new(move || {
-                    start_cleanup_for_thread.mark_ready();
                     let _ = started_tx.send(());
                 }));
             });
@@ -1359,7 +1357,13 @@ impl Inner {
                 send_pty_error(context, &pty_id, "failed", "PTY output start cancelled");
             }
             result = tokio::time::timeout(PTY_START_TIMEOUT, started_rx) => {
-                if result.is_err() {
+                if result.is_ok() {
+                    // Commit readiness only after this task receives the
+                    // signal. If cancellation wins before that point,
+                    // StartOwner::drop retains ownership and retires the
+                    // attachment instead of accepting a late signal.
+                    start_cleanup.mark_ready();
+                } else {
                     // The cleanup owner handles the gated retirement. Keep
                     // the timeout path independent from that gate so a stuck
                     // output callback cannot strand the opening request.
