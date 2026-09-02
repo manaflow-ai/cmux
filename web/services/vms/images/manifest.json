@@ -79,7 +79,7 @@
       },
       "validationStatus": "passed",
       "notes": "cmux devbox epoch 2026-09-01-r3, exec-replay bake of the shared devbox on the Freestyle public platform (api.freestyle.sh, slug cmux-devbox-20260902c) from main 2526fbf0f2. Validated 2026-09-02 with scripts/verify-devbox-image.ts freestyle: agent pins, mise toolchain, Chrome + cua-driver, ble.sh ghost text and quiet marks, byte-identical baked files, explicit Codex supports_websockets=false config, cmux-tui daemon bootstrap (session answering, [::]:1337 listening, cmux-tui-daemon systemd unit active). cmux-tui transport over the VM public IPv6.",
-      "defaultForKind": true
+      "defaultForKind": false
     },
     {
       "provider": "freestyle",
@@ -404,6 +404,29 @@
         "storageMb": 131072,
         "freestyleBase": "freestyle/ubuntu-2xl"
       }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-20260902e",
+      "imageId": "sh-e4dc9393a82e4dfaaa8f90b01b0d247c",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "6a1243bfd75b8c7cd9037bac2fb58ea105334cfc",
+      "builtAt": "2026-09-02T13:28:06.557Z",
+      "builderScriptVersion": "c0e51343f367d460f76fee47ce1de50d344132200243f7247caf3b88e17cb988",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.252",
+        "@openai/codex": "0.151.0",
+        "opencode-ai": "1.18.25",
+        "@earendil-works/pi-coding-agent": "0.84.4",
+        "agent-browser": "0.35.2"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-01-r3 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ubuntu (uid 1000, NOPASSWD sudo) is the work user; baked cmux-tui daemon f277fe6f46, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-02 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract).",
+      "cmuxTuiCommit": "f277fe6f467225f82294298964ca8cb95d2f4dae",
+      "cmuxTuiSha256": "cab5af6915128889f1ee512cbae9bc9f63914bcc724efbe3d9bfba12326370b7",
+      "defaultForKind": true
     }
   ]
 }
