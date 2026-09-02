@@ -431,7 +431,7 @@ struct WorkstreamTaskToolTodoTests {
             isError: false
         )
 
-        #expect(accumulator.ownedIDList == ["pending-1", "pending-2"])
+        #expect(accumulator.ownedIDList == ["pending-1", "pending-2", "42"])
     }
 
     @Test("A failed TaskUpdate restores the pre-tool checklist")
