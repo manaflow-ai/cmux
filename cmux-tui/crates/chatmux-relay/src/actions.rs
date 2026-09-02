@@ -2159,6 +2159,31 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_fifo_returns_path_forbidden_without_hanging() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let root = scratch("read-fifo");
+        let fifo = root.join("blocked.fifo");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            perform_action(
+                &json!({ "verb": "read", "actionId": "read-fifo", "allowedRoots": roots,
+                         "args": { "path": "blocked.fifo" } }),
+                &context,
+            ),
+        )
+        .await
+        .expect("FIFO reads must not block");
+        assert_eq!(read["code"], "path_forbidden", "{read}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[tokio::test]
     async fn file_action_capacity_is_bounded_across_connections() {
         let root = scratch("file-capacity");
