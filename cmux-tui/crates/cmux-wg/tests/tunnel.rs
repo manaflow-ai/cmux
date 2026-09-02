@@ -126,6 +126,24 @@ async fn a_closed_port_is_refused_and_routes_are_reported() {
 }
 
 #[tokio::test]
+async fn outbound_connect_rejects_target_outside_allowed_ips() {
+    let LoopbackPair { client, server, client_socket, server_socket, .. } =
+        loopback_pair().await.unwrap();
+    let server = WgNet::start(server, server_socket).await.unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+    let target = SocketAddr::new("10.201.0.1".parse().unwrap(), 1337);
+
+    let error = within(client.connect(target)).await.unwrap_err();
+    assert!(
+        matches!(error, WgError::RouteNotAllowed(address) if address == target.ip()),
+        "{error}"
+    );
+
+    client.shutdown().await;
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn dropping_the_tunnel_ends_its_streams() {
     let LoopbackPair { client, server, client_socket, server_socket, server_v4, .. } =
         loopback_pair().await.unwrap();
