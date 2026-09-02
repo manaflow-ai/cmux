@@ -2070,6 +2070,109 @@ mod tests {
         assert_eq!(control.requests.load(AtomicOrdering::SeqCst), 1);
     }
 
+    struct ConcurrentAttachControl {
+        attach_requests: AtomicUsize,
+        attach_started: Notify,
+        ends: AtomicUsize,
+    }
+
+    impl ControlHandle for ConcurrentAttachControl {
+        fn request(
+            &self,
+            cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            match cmd {
+                "identify" => Box::pin(async {
+                    Some(json!({
+                        "ok": true,
+                        "data": { "protocol": CONTROL_MIN_PROTOCOL, "capabilities": [] },
+                    }))
+                }),
+                "attach-surface" => {
+                    let request = self.attach_requests.fetch_add(1, AtomicOrdering::SeqCst);
+                    self.attach_started.notify_waiters();
+                    if request == 0 {
+                        Box::pin(std::future::pending())
+                    } else {
+                        Box::pin(async { Some(json!({ "ok": true })) })
+                    }
+                }
+                _ => Box::pin(async { Some(json!({ "ok": true })) }),
+            }
+        }
+
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ends.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn canceled_attachment_does_not_end_control_for_concurrent_attachment() {
+        let control = TestArc::new(ConcurrentAttachControl {
+            attach_requests: AtomicUsize::new(0),
+            attach_started: Notify::new(),
+            ends: AtomicUsize::new(0),
+        });
+        let h = harness_with_control(
+            Some(CmuxTui { file: "/bin/cmux-tui".to_owned(), prefix: Vec::new() }),
+            None,
+            None,
+            Some(control.clone()),
+        );
+        let first_frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "surface": "7",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        let first_context = h.context("supervised", h.owner.clone());
+        let first_cancellation = first_context.cancellation.clone();
+        let first_started = control.attach_started.notified();
+        let first_task = tokio::spawn({
+            let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+            async move { manager.handle_frame(&first_frame, &first_context).await }
+        });
+        first_started.await;
+        first_cancellation.cancel();
+
+        let second_frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p2",
+            "session": "main",
+            "surface": "8",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        let second_context = h.context("supervised", h.owner.clone());
+        let second_task = tokio::spawn({
+            let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+            async move { manager.handle_frame(&second_frame, &second_context).await }
+        });
+        first_task.await.expect("canceled attach task must not panic");
+        second_task.await.expect("concurrent attach task must not panic");
+
+        assert_eq!(control.ends.load(AtomicOrdering::SeqCst), 0);
+        let sent = h.sent();
+        assert!(sent.iter().any(|frame| frame["ptyId"] == "p1" && frame["type"] == "pty_error"));
+        assert!(sent.iter().any(|frame| frame["ptyId"] == "p2" && frame["type"] == "pty_opened"));
+    }
+
     /// A unique, real directory for tests that exercise cwd canonicalization.
     /// Do not reuse a process-id-only path: tests run in parallel and a stale
     /// path from an interrupted run must never be removed or reused.
