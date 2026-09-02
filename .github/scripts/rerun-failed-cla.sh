@@ -34,6 +34,11 @@ if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign 
   fail "The signing comment did not result in a persisted signature"
 fi
 [[ "${CLA_GENERATION}" =~ ^v[0-9]+\.[0-9]+-action-[0-9a-f]{7,40}$ ]] || fail "Invalid CLA generation marker"
+[[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid trusted workflow revision"
+checked_out_sha="$(git rev-parse HEAD 2>/dev/null)" || fail "Could not verify the trusted workflow checkout"
+[[ "${checked_out_sha}" == "${WORKFLOW_SHA}" ]] || fail "The checkout is not the immutable workflow revision"
+[[ "${WORKFLOW_PATH}" == ".github/workflows/cla.yml" ]] || fail "Unexpected CLA workflow path"
+[[ -f .github/scripts/rerun-failed-cla.sh ]] || fail "The trusted CLA rerun helper is missing"
 
 # These values are part of the trusted workflow contract. They are deliberately
 # constants, not event or comment input, so a contributor cannot redirect this
@@ -41,15 +46,62 @@ fi
 readonly SIGNATURES_BRANCH='cla-signatures'
 readonly SIGNATURES_PATH='signatures/version2/cla.json'
 readonly MAX_RUN_PAGES=10
+# Keep every GitHub JSON response below a fixed byte budget before it enters a
+# shell variable. GitHub's pagination limits bound item counts, not the size of
+# individual fields, so a response-size guard is still required.
+readonly MAX_API_RESPONSE_BYTES=2000000
+readonly MAX_API_ERROR_BYTES=65536
 readonly MAX_LEDGER_BYTES=1000000
 readonly MAX_LEDGER_SIGNATURES=10000
 # GitHub wraps Contents API Base64 responses with newlines. Allow that
 # transport overhead while bounding the raw field before normalization.
 readonly MAX_LEDGER_RAW_BYTES=2000000
+# These rendered job names are part of the v3 workflow contract. Keep them
+# fixed here so a workflow edit cannot make this actions:write helper rerun an
+# arbitrary failed job. The writer and compatibility jobs are optional failed
+# members because a recheck can target a result-only failure; when either is
+# failed, rerun-failed-jobs refreshes every failed v3 context together.
+readonly CLA_ASSISTANT_JOB='CLA Assistant v3'
+readonly CLA_WRITER_JOB='CLA ledger writer'
+readonly CLA_COMPATIBILITY_JOB='CLA Assistant'
+
+# Capture one byte past the limit in a temporary file. This keeps an oversized
+# response out of shell memory and bounds disk use before command substitution
+# can expose the response to jq. Bound stderr separately because GitHub can
+# include response text in gh diagnostics.
+gh_api_bounded() {
+  local temp_dir body_file response_bytes gh_status head_status cat_status
+  local -a pipeline_status
+  temp_dir="$(mktemp -d)" || return 1
+  body_file="${temp_dir}/body"
+  set +e
+  gh api "$@" 2> >(head -c "${MAX_API_ERROR_BYTES}" >&2) |
+    head -c "$((MAX_API_RESPONSE_BYTES + 1))" >"${body_file}"
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  gh_status="${pipeline_status[0]:-1}"
+  head_status="${pipeline_status[1]:-1}"
+  response_bytes="$(LC_ALL=C wc -c <"${body_file}" | tr -d '[:space:]')"
+  if [[ ! "${response_bytes}" =~ ^[0-9]+$ ]] || (( response_bytes > MAX_API_RESPONSE_BYTES )); then
+    rm -rf -- "${temp_dir}"
+    return 2
+  fi
+  if (( head_status != 0 )); then
+    rm -rf -- "${temp_dir}"
+    return 1
+  fi
+  cat "${body_file}"
+  cat_status=$?
+  rm -rf -- "${temp_dir}"
+  if (( gh_status != 0 )); then
+    return "${gh_status}"
+  fi
+  return "${cat_status}"
+}
 
 validate_triggering_signature_record() {
   local ledger_response ledger_content ledger_content_compact ledger_json ledger_raw_bytes ledger_encoded_bytes ledger_decoded_bytes
-  ledger_response="$(gh api \
+  ledger_response="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field ref="${SIGNATURES_BRANCH}" \
@@ -104,19 +156,42 @@ validate_triggering_signature_record() {
      )' <<<"${ledger_json}" >/dev/null || fail "The signing comment was not the signature persisted by the CLA action"
 }
 
-issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
+issue_json="$(gh_api_bounded "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
 issue_state="$(jq -r '.state // empty' <<<"${issue_json}")"
 issue_pr_url="$(jq -r '.pull_request.url // empty' <<<"${issue_json}")"
 [[ "${issue_state}" == "open" ]] || fail "The issue is not an open pull request"
 [[ "${issue_pr_url}" == "https://api.github.com/repos/${GH_REPO}/pulls/${PR_NUMBER}" ]] || fail "The issue is not the exact repository pull request"
 
-pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the pull request"
+# Re-fetch the triggering comment immediately before using its ledger entry.
+# A comment can be edited or deleted after the writer records a signature; a
+# stale event payload must never authorize a rerun of the failed check.
+comment_json="$(gh_api_bounded "repos/${GH_REPO}/issues/comments/${COMMENT_ID}" 2>/dev/null)" || fail "Could not query the triggering comment"
+jq -e \
+  --arg issue_url "https://api.github.com/repos/${GH_REPO}/issues/${PR_NUMBER}" \
+  --arg body "${COMMENT_BODY}" \
+  --arg author_id "${COMMENT_AUTHOR_ID}" \
+  --arg author_login "${COMMENT_AUTHOR_LOGIN}" \
+  --arg author_type "${COMMENT_AUTHOR_TYPE}" \
+  --arg created_at "${COMMENT_CREATED_AT}" \
+  '.issue_url == $issue_url and
+   .body == $body and
+   (.user | type == "object") and
+   (.user.id | type == "number") and
+   (.user.id | tostring) == $author_id and
+   .user.login == $author_login and
+   .user.type == $author_type and
+   .created_at == $created_at and
+   .updated_at == $created_at' <<<"${comment_json}" >/dev/null || fail "The triggering CLA comment was edited, deleted, or moved"
+
+pr_json="$(gh_api_bounded "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the pull request"
 jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg base "${TARGET_BASE_REF}" '
   .number == $number and
   .state == "open" and
   .base.ref == $base and
   (.base.repo.id | type == "number") and
   .base.repo.full_name == $repo and
+  (.base.sha | type == "string") and
+  (.base.sha | test("^[0-9a-f]{40}$")) and
   (.head.sha | type == "string") and
   (.head.sha | test("^[0-9a-f]{40}$")) and
   (.head.repo.id | type == "number") and
@@ -128,11 +203,13 @@ head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
 head_ref="$(jq -r '.head.ref // empty' <<<"${pr_json}")"
 head_repo="$(jq -r '.head.repo.full_name // empty' <<<"${pr_json}")"
 head_repo_id="$(jq -r '.head.repo.id // empty' <<<"${pr_json}")"
+base_sha="$(jq -r '.base.sha // empty' <<<"${pr_json}")"
 repo_id="$(jq -r '.base.repo.id // empty' <<<"${pr_json}")"
 pr_author_login="$(jq -r '.user.login // empty' <<<"${pr_json}")"
 pr_author_id="$(jq -r '.user.id // empty' <<<"${pr_json}")"
 [[ "${head_ref}" != "" && "${head_repo}" != "" ]] || fail "The pull request head repository is missing"
 [[ "${head_repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request head repository ID is missing"
+[[ "${base_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The pull request base SHA is missing"
 [[ "${repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request base repository ID is missing"
 [[ "${pr_author_login}" != "" ]] || fail "The pull request author is missing"
 [[ "${pr_author_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request author ID is missing"
@@ -150,83 +227,96 @@ if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_ID}" != "${pr_author_i
 fi
 
 # The workflow-run list can omit pull_requests for pull_request_target runs.
-# The exact live PR plus the run head_repository/head_branch binding below is
-# used for populated source-head runs. Empty associations are accepted only
-# when the run execution SHA equals the live PR head SHA; a base or merge SHA
-# is not sufficient evidence for a privileged rerun.
-# GitHub may return a not-found or validation response when the source commit
-# exists only in a fork. Treat only that documented missing-commit response as
-# an empty association list; every other API failure remains fatal.
-commit_prs_json=""
-commit_association_error=""
-commit_association_stderr_file="$(mktemp)"
-cleanup_commit_association_stderr() {
-  rm -f -- "${commit_association_stderr_file}"
-}
-trap cleanup_commit_association_stderr EXIT
-if commit_prs_json="$(gh api \
-  --method GET \
-  --header 'Accept: application/vnd.github+json' \
-  --raw-field per_page=100 \
-  --raw-field page=1 \
-  "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>"${commit_association_stderr_file}")"; then
-  :
-else
-  commit_association_error="${commit_prs_json}"$'\n'"$(cat "${commit_association_stderr_file}")"
-  if jq -e '
-    ((.status == 404 or .status == "404") and
-      (.message == "Not Found" or .message == "Resource not found")) or
-    ((.status == 422 or .status == "422") and
-      (.message | type == "string" and startswith("No commit found for SHA: ")))
-  ' <<<"${commit_prs_json}" >/dev/null 2>&1 ||
-     { grep -Eq 'HTTP 404' <<<"${commit_association_error}" &&
-       grep -Eq 'Not Found|Resource not found' <<<"${commit_association_error}"; } ||
-     { grep -Eq 'HTTP 422' <<<"${commit_association_error}" &&
-       grep -Eq 'No commit found for SHA: [0-9a-f]{40}' <<<"${commit_association_error}"; }; then
-    commit_prs_json='[]'
-  else
-    fail "Could not query pull request associations"
-  fi
-fi
-cleanup_commit_association_stderr
-trap - EXIT
-jq -e 'type == "array"' <<<"${commit_prs_json}" >/dev/null || fail "Could not validate pull request associations"
-association_count="$(jq -r 'length' <<<"${commit_prs_json}")"
-[[ "${association_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations"
-(( association_count <= 100 )) || fail "The pull request association page is oversized"
-if (( association_count == 100 )); then
-  commit_prs_page2="$(gh api \
+# Fetch the source-head associations once, allowing only GitHub's documented
+# fork-only missing-commit response to fall through to the live PR check.
+fetch_commit_associations() {
+  local commit_sha="$1"
+  local allow_missing="$2"
+  local response error_text stderr_file page_count page2_count page2
+  stderr_file="$(mktemp)" || return 1
+  if response="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field per_page=100 \
-    --raw-field page=2 \
-    "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)" || fail "Could not query pull request associations page 2"
-  jq -e 'type == "array"' <<<"${commit_prs_page2}" >/dev/null || fail "Could not validate pull request associations page 2"
-  commit_prs_page2_count="$(jq -r 'length' <<<"${commit_prs_page2}")"
-  [[ "${commit_prs_page2_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations page 2"
-  (( commit_prs_page2_count <= 100 )) || fail "The pull request association page is oversized"
-  commit_prs_json="$(jq -c --argjson page2 "${commit_prs_page2}" '. + $page2' <<<"${commit_prs_json}")"
-  association_count=$((association_count + commit_prs_page2_count))
-  (( commit_prs_page2_count < 100 )) || fail "Too many pull request associations for this head after two pages; ask an administrator to resolve the association before requesting a rerun"
-fi
-if (( association_count > 0 )); then
+    --raw-field page=1 \
+    "repos/${GH_REPO}/commits/${commit_sha}/pulls" 2>"${stderr_file}")"; then
+    :
+  else
+    error_text="${response}"$'\n'"$(head -c "${MAX_API_ERROR_BYTES}" "${stderr_file}" 2>/dev/null || true)"
+    if [[ "${allow_missing}" == true ]] && (jq -e '
+      ((.status == 404 or .status == "404") and
+        (.message == "Not Found" or .message == "Resource not found")) or
+      ((.status == 422 or .status == "422") and
+        (.message | type == "string" and startswith("No commit found for SHA: ")))
+    ' <<<"${response}" >/dev/null 2>&1 ||
+      { grep -Eq 'HTTP 404' <<<"${error_text}" &&
+        grep -Eq 'Not Found|Resource not found' <<<"${error_text}"; } ||
+      { grep -Eq 'HTTP 422' <<<"${error_text}" &&
+        grep -Eq 'No commit found for SHA: [0-9a-f]{40}' <<<"${error_text}"; }); then
+      response='[]'
+    else
+      rm -f -- "${stderr_file}"
+      return 1
+    fi
+  fi
+  rm -f -- "${stderr_file}"
+  jq -e 'type == "array"' <<<"${response}" >/dev/null || return 1
+  page_count="$(jq -r 'length' <<<"${response}")"
+  [[ "${page_count}" =~ ^[0-9]+$ ]] || return 1
+  (( page_count <= 100 )) || return 1
+  if (( page_count == 100 )); then
+    page2="$(gh_api_bounded \
+      --method GET \
+      --header 'Accept: application/vnd.github+json' \
+      --raw-field per_page=100 \
+      --raw-field page=2 \
+      "repos/${GH_REPO}/commits/${commit_sha}/pulls" 2>/dev/null)" || return 1
+    jq -e 'type == "array"' <<<"${page2}" >/dev/null || return 1
+    page2_count="$(jq -r 'length' <<<"${page2}")"
+    [[ "${page2_count}" =~ ^[0-9]+$ ]] || return 1
+    (( page2_count <= 100 )) || return 1
+    response="$(jq -c --argjson page2 "${page2}" '. + $page2' <<<"${response}")"
+    if (( page2_count == 100 )); then
+      echo "::error::Too many pull request associations for this head after two pages" >&2
+      return 1
+    fi
+  fi
+  printf '%s\n' "${response}"
+}
+
+assert_exact_pr_association() {
+  local associations="$1"
+  local expected_sha="$2"
   jq -e \
     --arg repo "${GH_REPO}" \
     --arg pr "${PR_NUMBER}" \
-    --arg sha "${head_sha}" \
+    --arg sha "${expected_sha}" \
     --arg base "${TARGET_BASE_REF}" \
     --arg head_ref "${head_ref}" \
-    --argjson head_repo_id "${head_repo_id}" '
+    --arg head_repo "${head_repo}" \
+    --argjson head_repo_id "${head_repo_id}" \
+    --argjson repo_id "${repo_id}" '
       any(.[]?;
+        (.number | type == "number") and
         (.number | tostring) == $pr and
         .base.ref == $base and
         .base.repo.full_name == $repo and
+        (.base.repo.id | type == "number") and
+        .base.repo.id == $repo_id and
         .head.ref == $head_ref and
         .head.sha == $sha and
+        .head.repo.full_name == $head_repo and
         (.head.repo.id | type == "number") and
         .head.repo.id == $head_repo_id
       )
-    ' <<<"${commit_prs_json}" >/dev/null || fail "The current head is not associated with this pull request"
+    ' <<<"${associations}" >/dev/null
+}
+
+if ! commit_prs_json="$(fetch_commit_associations "${head_sha}" true)"; then
+  fail "Could not query pull request associations"
+fi
+if [[ "$(jq -r 'length' <<<"${commit_prs_json}")" != 0 ]]; then
+  assert_exact_pr_association "${commit_prs_json}" "${head_sha}" || fail "The current head is not associated with this pull request"
 elif [[ "${head_repo}" == "${GH_REPO}" ]]; then
   fail "The base-repository head has no pull request association"
 fi
@@ -243,7 +333,7 @@ validate_live_open_head_association() {
   head_owner="${head_repo%%/*}"
   head_name="${head_repo#*/}"
   [[ -n "${head_owner}" && -n "${head_name}" ]] || fail "The pull request head repository name is invalid"
-  open_prs_page="$(gh api \
+  open_prs_page="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field state=open \
@@ -257,7 +347,7 @@ validate_live_open_head_association() {
   [[ "${open_pr_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull requests"
   (( open_pr_count <= 100 )) || fail "The live open pull request page is oversized"
   if (( open_pr_count == 100 )); then
-    open_prs_page2="$(gh api \
+    open_prs_page2="$(gh_api_bounded \
       --method GET \
       --header 'Accept: application/vnd.github+json' \
       --raw-field state=open \
@@ -278,6 +368,7 @@ validate_live_open_head_association() {
   if ! matching_open_prs_json="$(jq -c \
       --arg repo "${GH_REPO}" \
       --arg sha "${head_sha}" \
+      --arg base_sha "${base_sha}" \
       --arg base "${TARGET_BASE_REF}" \
       --arg head_ref "${head_ref}" \
       --arg head_repo "${head_repo}" \
@@ -291,6 +382,8 @@ validate_live_open_head_association() {
               .base.repo.full_name == $repo and
               (.base.repo.id | type == "number") and
               .base.repo.id == $repo_id and
+              (.base.sha | type == "string") and
+              .base.sha == $base_sha and
               .head.ref == $head_ref and
               .head.sha == $sha and
               .head.repo.full_name == $head_repo and
@@ -309,7 +402,38 @@ validate_live_open_head_association() {
 }
 validate_live_open_head_association
 
-workflow_page="$(gh api \
+# Use one immutable PR predicate for each re-read. Keeping base and source
+# identity in one helper prevents a late check from validating fewer fields
+# than the initial snapshot.
+validate_exact_pr_snapshot() {
+  local payload="$1"
+  jq -e \
+    --arg repo "${GH_REPO}" \
+    --argjson number "${PR_NUMBER}" \
+    --arg sha "${head_sha}" \
+    --arg base_sha "${base_sha}" \
+    --arg base "${TARGET_BASE_REF}" \
+    --arg head_ref "${head_ref}" \
+    --arg head_repo "${head_repo}" \
+    --argjson head_repo_id "${head_repo_id}" \
+    --argjson base_repo_id "${repo_id}" \
+    --arg opener "${pr_author_login}" '
+      .number == $number and
+      .state == "open" and
+      .base.ref == $base and
+      .base.repo.full_name == $repo and
+      .base.repo.id == $base_repo_id and
+      (.base.sha | type == "string") and
+      .base.sha == $base_sha and
+      .head.sha == $sha and
+      .head.ref == $head_ref and
+      .head.repo.full_name == $head_repo and
+      .head.repo.id == $head_repo_id and
+      .user.login == $opener
+    ' <<<"${payload}" >/dev/null
+}
+
+workflow_page="$(gh_api_bounded \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
   --raw-field per_page=100 \
@@ -320,7 +444,7 @@ workflow_count="$(jq -r '.workflows | length' <<<"${workflow_page}")"
 [[ "${workflow_count}" =~ ^[0-9]+$ ]] || fail "Could not count repository workflows"
 (( workflow_count <= 100 )) || fail "The repository workflow page is oversized"
 if (( workflow_count == 100 )); then
-  workflow_page2="$(gh api \
+  workflow_page2="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field per_page=100 \
@@ -342,15 +466,14 @@ workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | selec
 # failure created no later than this comment. Edited, reopened, and
 # synchronize events can leave several eligible failures for one
 # exact head, so sort by creation time and run ID and select the
-# newest one. Every candidate is tied to the exact workflow path,
-# event, and PR association. When GitHub includes pull_requests on a
-# run, bind the candidate to the exact PR object, including its
-# source head SHA.
-# GitHub can return an empty array for fork pull_request_target runs,
-# so those candidates are retained only when the run's execution SHA equals
-# the live PR source SHA. Populated pull_requests records may bind a different
-# execution SHA to the exact source PR object.
-runs_page="$(gh api \
+# newest one. Every candidate is tied to the exact workflow path and event.
+# When GitHub includes pull_requests on a run, bind the candidate to the exact
+# PR object, including its source head SHA. GitHub can return an empty array for
+# pull_request_target runs. Those candidates are retained when their branch and
+# repository identity matches the live PR, then independently bound below by
+# the live base SHA or an exact failed check on the source head. Populated
+# records may bind a different execution SHA directly.
+runs_page="$(gh_api_bounded \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
   --raw-field event="${TARGET_EVENT}" \
@@ -377,7 +500,7 @@ runs_json="$(jq -c '[.]' <<<"${runs_page}")"
 page_count="${run_count}"
 page_number=2
 while (( page_count == 100 && page_number <= MAX_RUN_PAGES )); do
-  next_runs_page="$(gh api \
+  next_runs_page="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field event="${TARGET_EVENT}" \
@@ -412,6 +535,7 @@ if ! candidate_list_json="$(jq -c \
     --arg path "${WORKFLOW_PATH}" \
     --arg event "${TARGET_EVENT}" \
     --arg sha "${head_sha}" \
+    --arg base_sha "${base_sha}" \
     --arg workflow_id "${workflow_id}" \
     --arg pr "${PR_NUMBER}" \
     --arg repo "${GH_REPO}" \
@@ -428,20 +552,18 @@ if ! candidate_list_json="$(jq -c \
            else null end) as $prs
         | if $prs == null then false
           elif ($prs | length) == 0 then
-            .head_sha == $sha and
             .head_branch == $head_ref and
             (
               ((.head_repository | type) == "object" and
                .head_repository.full_name == $head_repo and
                (.head_repository.id | type == "number") and
                .head_repository.id == $head_repo_id) or
-              (.head_repository == null and
-               $head_repo == $repo and
-               $head_repo_id == $repo_id)
+              .head_repository == null
             )
-            # Empty associations are eligible only for the exact current
-            # source SHA. A base or merge SHA must never shadow an older
-            # eligible run for this pull request.
+            # Empty associations are discovery candidates only. Source and
+            # repository binding is proved after the exact run and job are
+            # re-read; the sort rank keeps an exact source run ahead of an
+            # unrelated execution while preserving the base-SHA preference.
           else any($prs[]?;
             (.number | type == "number") and
             (.number | tostring) == $pr and
@@ -477,7 +599,14 @@ if ! candidate_list_json="$(jq -c \
             run_binds_to_pr
           )
       ]
-      | sort_by([.created_at, .id])
+      | sort_by([
+          if ((.pull_requests | type) == "array" and (.pull_requests | length) > 0) then 3
+          elif (.head_repository | type) == "object" and .head_sha == $base_sha then 2
+          elif .head_sha == $sha then 1
+          else 0 end,
+          .created_at,
+          .id
+        ])
     ' <<<"${runs_json}")"; then
   fail "Could not validate CLA workflow run data"
 fi
@@ -486,59 +615,6 @@ candidate_count="$(jq -r 'length' <<<"${candidate_list_json}")"
 if [[ "${candidate_count}" == "0" ]]; then
   if [[ "${run_window_full}" == true ]]; then
     fail "The GitHub workflow-run result window is full after ${MAX_RUN_PAGES} pages and contains no matching failed CLA run; push a new commit or ask an administrator to prune old runs before requesting a rerun"
-  fi
-  # Do not silently treat a failed run with an empty association and a
-  # different execution SHA as a successful no-op. It is not eligible for a
-  # rerun, but it still needs an explicit fail-closed migration/error path.
-  # Runs with the exact source SHA are handled by the candidate query above;
-  # this count therefore only catches mismatched runs that would otherwise be
-  # indistinguishable from an absent check.
-  empty_execution_mismatch_count="$(jq -r \
-    --arg path "${WORKFLOW_PATH}" \
-    --arg event "${TARGET_EVENT}" \
-    --arg sha "${head_sha}" \
-    --arg workflow_id "${workflow_id}" \
-    --arg repo "${GH_REPO}" \
-    --arg head_repo "${head_repo}" \
-    --argjson head_repo_id "${head_repo_id}" \
-    --argjson repo_id "${repo_id}" \
-    --arg head_ref "${head_ref}" \
-    --arg before "${COMMENT_CREATED_AT}" \
-    '[ .[] | .workflow_runs[]?
-      | select(
-          (.path == $path or
-           ((.path | startswith($path + "@")) and
-            ((.path | length) > (($path | length) + 1)))) and
-          .event == $event and
-          (.workflow_id | type == "number") and
-          .workflow_id == ($workflow_id | tonumber) and
-          (.head_sha | type == "string") and
-          (.head_sha | test("^[0-9a-f]{40}$")) and
-          .head_sha != $sha and
-          (.id | type == "number") and
-          .id > 0 and
-          .status == "completed" and
-          .conclusion == "failure" and
-          (.created_at | type == "string") and
-          .created_at <= $before and
-          .head_branch == $head_ref and
-          (.pull_requests == null or
-           ((.pull_requests | type) == "array" and
-            (.pull_requests | length) == 0)) and
-          (
-            ((.head_repository | type) == "object" and
-             .head_repository.full_name == $head_repo and
-             (.head_repository.id | type == "number") and
-             .head_repository.id == $head_repo_id) or
-            (.head_repository == null and
-             $head_repo == $repo and
-             $head_repo_id == $repo_id)
-          )
-        )
-    ] | length' <<<"${runs_json}")"
-  [[ "${empty_execution_mismatch_count}" =~ ^[0-9]+$ ]] || fail "Could not count unbound CLA workflow runs"
-  if (( empty_execution_mismatch_count > 0 )); then
-    fail "The workflow run has no pull request association and its execution SHA does not match the current pull request head"
   fi
   # A run from before this workflow generation cannot be safely
   # rerun: GitHub reruns the old workflow revision, which could
@@ -572,9 +648,7 @@ if [[ "${candidate_count}" == "0" ]]; then
               .head_repository.full_name == $head_repo and
               (.head_repository.id | type == "number") and
               .head_repository.id == $head_repo_id) or
-             (.head_repository == null and
-              $head_repo == $repo and
-              $head_repo_id == $repo_id)
+             .head_repository == null
            )
          else any($prs[]?;
            (.number | type == "number") and
@@ -632,14 +706,82 @@ run_head_branch="$(jq -r '.head_branch // empty' <<<"${candidate_json}")"
 [[ -n "${run_head_branch}" && "${run_head_branch}" != *$'\n'* && "${run_head_branch}" != *$'\r'* ]] || fail "The selected CLA run head branch is invalid"
 
 # A run with a populated pull_requests array already carries an
-# authenticated source-PR association. Some GitHub API responses
-# omit that array, so prove a differing execution SHA through the
-# commit association endpoint before allowing the fallback. A bare
-# branch/repository match is not enough because a branch can be
-# reused after a push.
+# authenticated source-PR association. Some GitHub API responses omit that
+# array. For the fallback, the run must match the live PR source branch and
+# either use the live base SHA or carry a failed check on the exact source head
+# whose details URL names this run and job. A bare branch/repository match is
+# not enough because a branch can be reused after a push.
+RUN_REQUIRES_CHECK_BINDING=false
+
+fetch_check_runs_for_head() {
+  local commit_sha="$1"
+  local response page_count page2 page2_count
+  response="$(gh_api_bounded \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field filter=all \
+    --raw-field per_page=100 \
+    --raw-field page=1 \
+    "repos/${GH_REPO}/commits/${commit_sha}/check-runs" 2>/dev/null)" || return 1
+  jq -e 'type == "object" and (.check_runs | type == "array")' <<<"${response}" >/dev/null || return 1
+  page_count="$(jq -r '.check_runs | length' <<<"${response}")"
+  [[ "${page_count}" =~ ^[0-9]+$ ]] || return 1
+  (( page_count <= 100 )) || return 1
+  if (( page_count == 100 )); then
+    page2="$(gh_api_bounded \
+      --method GET \
+      --header 'Accept: application/vnd.github+json' \
+      --raw-field filter=all \
+      --raw-field per_page=100 \
+      --raw-field page=2 \
+      "repos/${GH_REPO}/commits/${commit_sha}/check-runs" 2>/dev/null)" || return 1
+    jq -e 'type == "object" and (.check_runs | type == "array")' <<<"${page2}" >/dev/null || return 1
+    page2_count="$(jq -r '.check_runs | length' <<<"${page2}")"
+    [[ "${page2_count}" =~ ^[0-9]+$ ]] || return 1
+    (( page2_count <= 100 )) || return 1
+    response="$(jq -c --argjson page2 "${page2}" '.check_runs += $page2.check_runs' <<<"${response}")"
+    (( page2_count < 100 )) || return 1
+  fi
+  printf '%s\n' "${response}"
+}
+
+assert_failed_check_binding() {
+  local checks="$1"
+  local expected_run_id="$2"
+  local expected_job_id="$3"
+  local details_url="https://github.com/${GH_REPO}/actions/runs/${expected_run_id}/job/${expected_job_id}"
+  jq -e \
+    --arg job "${CLA_ASSISTANT_JOB}" \
+    --arg sha "${head_sha}" \
+    --arg url "${details_url}" '
+      any(.check_runs[]?;
+        .name == $job and
+        .status == "completed" and
+        .conclusion == "failure" and
+        (.head_sha | type == "string") and
+        .head_sha == $sha and
+        (.app.slug? == "github-actions") and
+        (.details_url | type == "string") and
+        (.details_url == $url or
+         (.details_url | startswith($url + "?") or startswith($url + "#")))
+      )
+    ' <<<"${checks}" >/dev/null
+}
+
+validate_failed_check_binding() {
+  local expected_run_id="$1"
+  local expected_job_id="$2"
+  local checks
+  checks="$(fetch_check_runs_for_head "${head_sha}")" ||
+    fail "Could not query checks for the exact pull request head"
+  assert_failed_check_binding "${checks}" "${expected_run_id}" "${expected_job_id}" ||
+    fail "No failed CLA check is bound to the exact pull request head and selected job"
+}
+
 validate_run_source_binding() {
   local run_payload="$1"
-  local execution_sha pull_requests_type pull_request_count
+  local execution_sha pull_requests_type pull_request_count head_repository_type
+  RUN_REQUIRES_CHECK_BINDING=false
   execution_sha="$(jq -r '.head_sha // empty' <<<"${run_payload}")"
   [[ "${execution_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The workflow run execution SHA is invalid"
   pull_requests_type="$(jq -r 'if .pull_requests == null then "null" else (.pull_requests | type) end' <<<"${run_payload}")"
@@ -650,164 +792,107 @@ validate_run_source_binding() {
   esac
   [[ "${pull_request_count}" =~ ^[0-9]+$ ]] || fail "The workflow run pull request association count is invalid"
   if (( pull_request_count == 0 )); then
-    # GitHub may omit pull_requests on a pull_request_target run. Without an
-    # authenticated PR object, accept only the source-head form. A base or
-    # merge execution SHA cannot be proved to belong to this PR, so fail
-    # closed instead of querying commit associations that may describe an
-    # ancestor or another pull request.
-    [[ "${execution_sha}" == "${head_sha}" ]] || fail "The workflow run has no pull request association and its execution SHA does not match the current pull request head"
+    # GitHub may omit pull_requests on a pull_request_target run. Its documented
+    # execution SHA is the last commit on the base branch, so accept the empty
+    # association form without a check only when the repository identity is
+    # complete and that SHA equals the live PR base SHA. A source SHA, a null
+    # repository, or any other execution SHA needs an exact failed check on the
+    # source head after the job ID is known.
+    head_repository_type="$(jq -r 'if .head_repository == null then "null" else (.head_repository | type) end' <<<"${run_payload}")"
+    if [[ "${execution_sha}" == "${base_sha}" && "${head_repository_type}" == object ]]; then
+      validate_live_open_head_association
+      return 0
+    fi
+    RUN_REQUIRES_CHECK_BINDING=true
+    # The check binding is validated after the exact job ID is selected.
+    # Keep the live source check here so the run cannot pass on a stale branch.
+    validate_live_open_head_association
   fi
 }
 
-# Re-read the individual run. The list response is only a discovery
-# result, not authorization to rerun it.
-run_json="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not query the selected CLA run"
-jq -e \
-  --arg run_id "${run_id}" \
-  --arg path "${WORKFLOW_PATH}" \
-  --arg event "${TARGET_EVENT}" \
-  --arg sha "${head_sha}" \
-  --arg run_sha "${run_execution_sha}" \
-  --arg run_head_branch "${run_head_branch}" \
-  --arg pr "${PR_NUMBER}" \
-  --arg repo "${GH_REPO}" \
-  --arg head_repo "${head_repo}" \
-  --argjson head_repo_id "${head_repo_id}" \
-  --argjson repo_id "${repo_id}" \
-  --arg head_ref "${head_ref}" \
-  --arg workflow_id "${workflow_id}" \
-  --arg base "${TARGET_BASE_REF}" \
-  --arg before "${COMMENT_CREATED_AT}" '
-    def run_binds_to_pr:
-      (.pull_requests) as $raw_prs
-      | (if $raw_prs == null then []
-         elif ($raw_prs | type) == "array" then $raw_prs
-         else null end) as $prs
-      | if $prs == null then false
-        elif ($prs | length) == 0 then
-          .head_branch == $head_ref and
-          (
-            ((.head_repository | type) == "object" and
-             .head_repository.full_name == $head_repo and
-             (.head_repository.id | type == "number") and
-             .head_repository.id == $head_repo_id) or
-            (.head_repository == null and
-             $head_repo == $repo and
-             $head_repo_id == $repo_id)
+# Keep one exact run predicate for discovery rechecks and the final TOCTOU
+# re-read. The list response is discovery only, never authorization.
+validate_exact_run_payload() {
+  local payload="$1"
+  jq -e \
+    --arg run_id "${run_id}" \
+    --arg path "${WORKFLOW_PATH}" \
+    --arg event "${TARGET_EVENT}" \
+    --arg sha "${head_sha}" \
+    --arg run_sha "${run_execution_sha}" \
+    --arg run_head_branch "${run_head_branch}" \
+    --arg pr "${PR_NUMBER}" \
+    --arg repo "${GH_REPO}" \
+    --arg head_repo "${head_repo}" \
+    --argjson head_repo_id "${head_repo_id}" \
+    --argjson repo_id "${repo_id}" \
+    --arg head_ref "${head_ref}" \
+    --arg workflow_id "${workflow_id}" \
+    --arg base "${TARGET_BASE_REF}" \
+    --arg before "${COMMENT_CREATED_AT}" '
+      def run_binds_to_pr:
+        (.pull_requests) as $raw_prs
+        | (if $raw_prs == null then []
+           elif ($raw_prs | type) == "array" then $raw_prs
+           else null end) as $prs
+        | if $prs == null then false
+          elif ($prs | length) == 0 then
+            .head_branch == $head_ref and
+            (
+              ((.head_repository | type) == "object" and
+               .head_repository.full_name == $head_repo and
+               (.head_repository.id | type == "number") and
+               .head_repository.id == $head_repo_id) or
+              .head_repository == null
+            )
+          else any($prs[]?;
+            (.number | type == "number") and
+            (.number | tostring) == $pr and
+            .base.ref == $base and
+            ((.base.repo.full_name // "") == "" or
+             .base.repo.full_name == $repo) and
+            (.base.repo.id | type == "number") and
+            .base.repo.id == $repo_id and
+            .head.ref == $head_ref and
+            .head.sha == $sha and
+            (.head.repo.id | type == "number") and
+            .head.repo.id == $head_repo_id and
+            ((.head.repo.full_name // "") == "" or
+             .head.repo.full_name == $head_repo)
           )
-        else any($prs[]?;
-          (.number | type == "number") and
-          (.number | tostring) == $pr and
-          .base.ref == $base and
-          ((.base.repo.full_name // "") == "" or
-           .base.repo.full_name == $repo) and
-          (.base.repo.id | type == "number") and
-          .base.repo.id == $repo_id and
-          .head.ref == $head_ref and
-          .head.sha == $sha and
-          (.head.repo.id | type == "number") and
-          .head.repo.id == $head_repo_id and
-          ((.head.repo.full_name // "") == "" or
-           .head.repo.full_name == $head_repo)
-        )
-        end;
-    .id == ($run_id | tonumber) and
-    .workflow_id == ($workflow_id | tonumber) and
-    (.path == $path or
-     ((.path | startswith($path + "@")) and
-      ((.path | length) > (($path | length) + 1)))) and
-    .event == $event and
-    .status == "completed" and
-    .conclusion == "failure" and
-    .head_sha == $run_sha and
-    .head_branch == $run_head_branch and
-    (.created_at | type == "string") and
-    .created_at <= $before and
-    run_binds_to_pr
-  ' <<<"${run_json}" >/dev/null || fail "The selected run no longer matches the exact failed CLA check"
+          end;
+      (.id | type == "number") and
+      .id == ($run_id | tonumber) and
+      (.workflow_id | type == "number") and
+      .workflow_id == ($workflow_id | tonumber) and
+      (.path | type == "string") and
+      (.path == $path or
+       ((.path | startswith($path + "@")) and
+        ((.path | length) > (($path | length) + 1)))) and
+      .event == $event and
+      .status == "completed" and
+      .conclusion == "failure" and
+      .head_sha == $run_sha and
+      .head_branch == $run_head_branch and
+      (.created_at | type == "string") and
+      .created_at <= $before and
+      run_binds_to_pr
+    ' <<<"${payload}" >/dev/null
+}
+
+# Re-read the individual run. The list response is only a discovery result.
+run_json="$(gh_api_bounded "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not query the selected CLA run"
+validate_exact_run_payload "${run_json}" || fail "The selected run no longer matches the exact failed CLA check"
 validate_run_source_binding "${run_json}"
 
 # Close the main TOCTOU window. A push, close, or another rerun can
 # happen while the API calls above run. Never rerun a stale head.
-latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request"
-jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_ref "${head_ref}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" --argjson base_repo_id "${repo_id}" --arg opener "${pr_author_login}" '
-  .number == $number and
-  .state == "open" and
-  .base.ref == $base and
-  .base.repo.full_name == $repo and
-  .base.repo.id == $base_repo_id and
-  .head.sha == $sha and
-  .head.ref == $head_ref and
-  .head.repo.full_name == $head_repo and
-  .head.repo.id == $head_repo_id and
-  .user.login == $opener
-' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA run"
+latest_pr_json="$(gh_api_bounded "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request"
+validate_exact_pr_snapshot "${latest_pr_json}" || fail "The pull request changed while selecting the CLA run"
 
 # Ensure another queued invocation did not already rerun this run.
-final_run_json="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA run"
-jq -e \
-  --arg path "${WORKFLOW_PATH}" \
-  --arg event "${TARGET_EVENT}" \
-  --arg sha "${head_sha}" \
-  --arg run_sha "${run_execution_sha}" \
-  --arg run_head_branch "${run_head_branch}" \
-  --arg pr "${PR_NUMBER}" \
-  --arg repo "${GH_REPO}" \
-  --arg head_repo "${head_repo}" \
-  --argjson head_repo_id "${head_repo_id}" \
-  --argjson repo_id "${repo_id}" \
-  --arg head_ref "${head_ref}" \
-  --arg workflow_id "${workflow_id}" \
-  --arg run_id "${run_id}" \
-  --arg base "${TARGET_BASE_REF}" \
-  --arg before "${COMMENT_CREATED_AT}" '
-    def run_binds_to_pr:
-      (.pull_requests) as $raw_prs
-      | (if $raw_prs == null then []
-         elif ($raw_prs | type) == "array" then $raw_prs
-         else null end) as $prs
-      | if $prs == null then false
-        elif ($prs | length) == 0 then
-          .head_branch == $head_ref and
-          (
-            ((.head_repository | type) == "object" and
-             .head_repository.full_name == $head_repo and
-             (.head_repository.id | type == "number") and
-             .head_repository.id == $head_repo_id) or
-            (.head_repository == null and
-             $head_repo == $repo and
-             $head_repo_id == $repo_id)
-          )
-        else any($prs[]?;
-          (.number | type == "number") and
-          (.number | tostring) == $pr and
-          .base.ref == $base and
-          ((.base.repo.full_name // "") == "" or
-           .base.repo.full_name == $repo) and
-          (.base.repo.id | type == "number") and
-          .base.repo.id == $repo_id and
-          .head.ref == $head_ref and
-          .head.sha == $sha and
-          (.head.repo.id | type == "number") and
-          .head.repo.id == $head_repo_id and
-          ((.head.repo.full_name // "") == "" or
-           .head.repo.full_name == $head_repo)
-        )
-        end;
-    .id == ($run_id | tonumber) and
-    .workflow_id == ($workflow_id | tonumber) and
-    (.path == $path or
-     ((.path | startswith($path + "@")) and
-      ((.path | length) > (($path | length) + 1)))) and
-    .event == $event and
-    .status == "completed" and
-    .conclusion == "failure" and
-    .head_sha == $run_sha and
-    .head_branch == $run_head_branch and
-    (.created_at | type == "string") and
-    .created_at <= $before and
-    run_binds_to_pr
-' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
+final_run_json="$(gh_api_bounded "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA run"
+validate_exact_run_payload "${final_run_json}" || fail "The exact failed CLA run is no longer eligible"
 validate_run_source_binding "${final_run_json}"
 
 # Fetch the complete bounded job set for one exact run. The rerun endpoint
@@ -820,7 +905,7 @@ validate_run_source_binding "${final_run_json}"
 fetch_jobs_for_run() {
   local target_run_id="$1"
   local page_json page_count page2_json page2_count
-  page_json="$(gh api \
+  page_json="$(gh_api_bounded \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field per_page=100 \
@@ -831,7 +916,7 @@ fetch_jobs_for_run() {
   [[ "${page_count}" =~ ^[0-9]+$ ]] || return 1
   (( page_count <= 100 )) || return 1
   if (( page_count == 100 )); then
-    page2_json="$(gh api \
+    page2_json="$(gh_api_bounded \
       --method GET \
       --header 'Accept: application/vnd.github+json' \
       --raw-field per_page=100 \
@@ -850,14 +935,16 @@ fetch_jobs_for_run() {
 jobs_json="$(fetch_jobs_for_run "${run_id}")" || fail "Could not query and validate jobs for the selected CLA run"
 
 # Validate every failed job before granting the state-changing API call. The
-# old compatibility check is an intentional dependent of the v2 job. When it
-# is also failed, use the failed-jobs endpoint so GitHub refreshes both
-# head-bound check contexts. Any extra failure, cancellation, malformed job,
-# or stale source identity aborts the request.
+# v3 writer, required result, and migration compatibility jobs are the only
+# failures this helper may replay. If the writer or compatibility job failed,
+# use the failed-jobs endpoint so GitHub refreshes every head-bound context;
+# otherwise replay only the required result job. Any extra failure,
+# cancellation, malformed job, or stale source identity aborts the request.
 validate_failed_job_set() {
   local payload="$1"
   local all_jobs_json failed_jobs_json failed_count nonfailure_count
-  local unexpected_count v2_count v2_valid_count compatibility_count compatibility_valid_count
+  local unexpected_count assistant_count assistant_valid_count writer_count writer_valid_count
+  local compatibility_count compatibility_valid_count
   if ! all_jobs_json="$(jq -c '[.[] | .jobs[]?]' <<<"${payload}")"; then
     fail "Could not flatten jobs for the selected CLA run"
   fi
@@ -878,18 +965,26 @@ validate_failed_job_set() {
   [[ "${failed_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed jobs for the selected CLA run"
   nonfailure_count="$(jq -r '[.[] | select(.conclusion != "failure")] | length' <<<"${failed_jobs_json}")"
   (( nonfailure_count == 0 )) || fail "The selected CLA run contains a cancelled or non-failure job; refusing to rerun it"
-  unexpected_count="$(jq -r '[.[] | select(.name != "CLA Assistant v2" and .name != "CLA Assistant")] | length' <<<"${failed_jobs_json}")"
+  unexpected_count="$(jq -r \
+    --arg assistant_job "${CLA_ASSISTANT_JOB}" \
+    --arg writer_job "${CLA_WRITER_JOB}" \
+    --arg compatibility_job "${CLA_COMPATIBILITY_JOB}" \
+    '[.[] | select(.name != $assistant_job and .name != $writer_job and .name != $compatibility_job)] | length' \
+    <<<"${failed_jobs_json}")"
   (( unexpected_count == 0 )) || fail "The selected CLA run contains an unexpected failed job; refusing to rerun it"
 
-  if ! v2_count="$(jq -r '[.[] | select(.name == "CLA Assistant v2")] | length' <<<"${failed_jobs_json}")" ||
-     ! v2_valid_count="$(jq -r \
+  if ! assistant_count="$(jq -r \
+      --arg assistant_job "${CLA_ASSISTANT_JOB}" \
+      '[.[] | select(.name == $assistant_job)] | length' <<<"${failed_jobs_json}")" ||
+     ! assistant_valid_count="$(jq -r \
        --arg run_id "${run_id}" \
        --arg run_sha "${run_execution_sha}" \
        --arg head_repo "${head_repo}" \
        --argjson head_repo_id "${head_repo_id}" \
-       --arg cla_generation "${CLA_GENERATION}" \
+       --arg assistant_job "${CLA_ASSISTANT_JOB}" \
+       --arg generation_step "CLA generation ${CLA_GENERATION}" \
        '[.[] | select(
-          .name == "CLA Assistant v2" and
+          .name == $assistant_job and
           .run_id == ($run_id | tonumber) and
           (.head_sha | type == "string") and
           .head_sha == $run_sha and
@@ -899,25 +994,51 @@ validate_failed_job_set() {
              .head_repository.full_name == $head_repo and
              .head_repository.id == $head_repo_id))) and
           any(.steps[]?;
-            .name == ("CLA generation " + $cla_generation) and
-            .status == "completed" and
-            .conclusion == "success"
+            .name == $generation_step and
+            .status == "completed"
           )
        )] | length' <<<"${failed_jobs_json}")"; then
-    fail "Could not validate failed CLA Assistant v2 jobs"
+    fail "Could not validate failed CLA Assistant v3 jobs"
   fi
-  [[ "${v2_count}" =~ ^[0-9]+$ && "${v2_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA Assistant v2 jobs"
-  (( v2_count == 1 )) || fail "Expected exactly one failed CLA Assistant v2 job"
-  (( v2_valid_count == 1 )) || fail "The selected failed CLA check was created by an older workflow generation. Push a new commit or close and reopen this pull request to create a current-generation CLA check, then post the exact signing declaration again."
+  [[ "${assistant_count}" =~ ^[0-9]+$ && "${assistant_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA Assistant v3 jobs"
+  (( assistant_count == 1 )) || fail "Expected exactly one failed CLA Assistant v3 job"
+  (( assistant_valid_count == 1 )) || fail "The selected failed CLA check was created by an older workflow generation. Push a new commit or close and reopen this pull request to create a current-generation CLA check, then post the exact signing declaration again."
 
-  compatibility_count="$(jq -r '[.[] | select(.name == "CLA Assistant")] | length' <<<"${failed_jobs_json}")"
+  if ! writer_count="$(jq -r \
+      --arg writer_job "${CLA_WRITER_JOB}" \
+      '[.[] | select(.name == $writer_job)] | length' <<<"${failed_jobs_json}")" ||
+     ! writer_valid_count="$(jq -r \
+       --arg run_id "${run_id}" \
+       --arg run_sha "${run_execution_sha}" \
+       --arg head_repo "${head_repo}" \
+       --argjson head_repo_id "${head_repo_id}" \
+       --arg writer_job "${CLA_WRITER_JOB}" \
+       '[.[] | select(
+          .name == $writer_job and
+          .run_id == ($run_id | tonumber) and
+          (.head_sha | type == "string") and
+          .head_sha == $run_sha and
+          ((has("head_repository") | not) or
+           (.head_repository == null or
+            ((.head_repository | type) == "object" and
+             .head_repository.full_name == $head_repo and
+             .head_repository.id == $head_repo_id)))
+       )] | length' <<<"${failed_jobs_json}")"; then
+    fail "Could not validate failed CLA ledger writer jobs"
+  fi
+  [[ "${writer_count}" =~ ^[0-9]+$ && "${writer_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA ledger writer jobs"
+  (( writer_count <= 1 )) || fail "The selected CLA run contains multiple failed CLA ledger writer jobs"
+  (( writer_valid_count == writer_count )) || fail "The failed CLA ledger writer job is malformed or bound to a different source"
+
+  compatibility_count="$(jq -r --arg compatibility_job "${CLA_COMPATIBILITY_JOB}" '[.[] | select(.name == $compatibility_job)] | length' <<<"${failed_jobs_json}")"
   if ! compatibility_valid_count="$(jq -r \
       --arg run_id "${run_id}" \
       --arg run_sha "${run_execution_sha}" \
       --arg head_repo "${head_repo}" \
       --argjson head_repo_id "${head_repo_id}" \
+      --arg compatibility_job "${CLA_COMPATIBILITY_JOB}" \
       '[.[] | select(
-         .name == "CLA Assistant" and
+         .name == $compatibility_job and
          .run_id == ($run_id | tonumber) and
          (.head_sha | type == "string") and
          .head_sha == $run_sha and
@@ -932,23 +1053,27 @@ validate_failed_job_set() {
   [[ "${compatibility_count}" =~ ^[0-9]+$ && "${compatibility_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA compatibility jobs"
   (( compatibility_count <= 1 )) || fail "The selected CLA run contains multiple failed compatibility jobs"
   (( compatibility_valid_count == compatibility_count )) || fail "The failed CLA compatibility job is malformed or bound to a different source"
-  if (( compatibility_count == 1 )); then
+  if (( writer_count == 1 || compatibility_count == 1 )); then
     RERUN_FAILED_JOBS=true
   else
     RERUN_FAILED_JOBS=false
   fi
 }
 validate_failed_job_set "${jobs_json}"
-if ! cla_job_json="$(jq -c \
+# Select the sole current-generation assistant job from a validated job set.
+select_cla_job() {
+  local payload="$1"
+  jq -c \
     --arg run_id "${run_id}" \
     --arg run_sha "${run_execution_sha}" \
-    --arg cla_generation "${CLA_GENERATION}" \
+    --arg assistant_job "${CLA_ASSISTANT_JOB}" \
+    --arg generation_step "CLA generation ${CLA_GENERATION}" \
     --arg head_repo "${head_repo}" \
     --argjson head_repo_id "${head_repo_id}" \
     '[.[] | .jobs[]?
       | select(
           (.run_id | tostring) == $run_id and
-          .name == "CLA Assistant v2" and
+          .name == $assistant_job and
           .status == "completed" and
           .conclusion == "failure" and
           (.head_sha | type == "string") and
@@ -959,15 +1084,51 @@ if ! cla_job_json="$(jq -c \
              .head_repository.id == $head_repo_id)
           ) and
           any(.steps[]?;
-            .name == ("CLA generation " + $cla_generation) and
-            .status == "completed" and
-            .conclusion == "success"
+            .name == $generation_step and
+            .status == "completed"
           )
         )
     ]
     | if length == 1 then .[0] else empty end
-  ' <<<"${jobs_json}")"; then
-  fail "Could not validate CLA job data"
+  ' <<<"${payload}"
+}
+
+# Validate one exact assistant job for every discovery and final re-read.
+validate_exact_job_payload() {
+  local payload="$1"
+  jq -e \
+    --arg job_id "${job_id}" \
+    --arg run_id "${run_id}" \
+    --arg run_sha "${run_execution_sha}" \
+    --arg assistant_job "${CLA_ASSISTANT_JOB}" \
+    --arg generation_step "CLA generation ${CLA_GENERATION}" \
+    --arg head_repo "${head_repo}" \
+    --argjson head_repo_id "${head_repo_id}" '
+      (.id | type == "number") and
+      .id == ($job_id | tonumber) and
+      (.run_id | type == "number") and
+      .run_id == ($run_id | tonumber) and
+      .name == $assistant_job and
+      .status == "completed" and
+      .conclusion == "failure" and
+      (.head_sha | type == "string") and
+      .head_sha == $run_sha and
+      (
+        (has("head_repository") | not) or
+        .head_repository == null or
+        ((.head_repository | type) == "object" and
+         .head_repository.full_name == $head_repo and
+         .head_repository.id == $head_repo_id)
+      ) and
+      any(.steps[]?;
+        .name == $generation_step and
+        .status == "completed"
+      )
+    ' <<<"${payload}" >/dev/null
+}
+
+if ! cla_job_json="$(select_cla_job "${jobs_json}")"; then
+  fail "Could not validate CLA Assistant v3 job data"
 fi
 if [[ -z "${cla_job_json}" ]]; then
   # The run matched the current PR and failed, but no job carried
@@ -977,123 +1138,55 @@ if [[ -z "${cla_job_json}" ]]; then
 fi
 job_id="$(jq -r '.id // empty' <<<"${cla_job_json}")"
 [[ "${job_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA job ID is invalid"
+if [[ "${RUN_REQUIRES_CHECK_BINDING}" == true ]]; then
+  validate_failed_check_binding "${run_id}" "${job_id}"
+fi
 
 # Re-read the individual job. The jobs list is discovery only, just
 # like the workflow-run list above.
-job_json="$(gh api "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not query the selected CLA job"
-jq -e \
-  --arg job_id "${job_id}" \
-  --arg run_id "${run_id}" \
-  --arg run_sha "${run_execution_sha}" \
-  --arg cla_generation "${CLA_GENERATION}" \
-  --arg head_repo "${head_repo}" \
-  --argjson head_repo_id "${head_repo_id}" '
-    .id == ($job_id | tonumber) and
-    .run_id == ($run_id | tonumber) and
-    .name == "CLA Assistant v2" and
-    .status == "completed" and
-    .conclusion == "failure" and
-    (.head_sha | type == "string") and
-    .head_sha == $run_sha and
-    (
-      (has("head_repository") | not) or
-      .head_repository == null or
-      ((.head_repository | type) == "object" and
-       .head_repository.full_name == $head_repo and
-       .head_repository.id == $head_repo_id)
-    ) and
-    any(.steps[]?;
-      .name == ("CLA generation " + $cla_generation) and
-      .status == "completed" and
-      .conclusion == "success"
-    )
-  ' <<<"${job_json}" >/dev/null || fail "The selected CLA job no longer matches the failed job in this run"
+job_json="$(gh_api_bounded "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not query the selected CLA Assistant v3 job"
+validate_exact_job_payload "${job_json}" || fail "The selected CLA Assistant v3 job no longer matches the failed job in this run"
 
 # Recheck both resources immediately before the state-changing call.
 # This prevents a push or a concurrent rerun from making the job
 # stale while the preceding API requests were in flight.
-latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request before rerun"
-jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_ref "${head_ref}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" --argjson base_repo_id "${repo_id}" --arg opener "${pr_author_login}" '
-  .number == $number and
-  .state == "open" and
-  .base.ref == $base and
-  .base.repo.full_name == $repo and
-  .base.repo.id == $base_repo_id and
-  .head.sha == $sha and
-  .head.ref == $head_ref and
-  .head.repo.full_name == $head_repo and
-  .head.repo.id == $head_repo_id and
-  .user.login == $opener
-' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA job"
-final_job_json="$(gh api "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA job"
-jq -e \
-  --arg job_id "${job_id}" \
-  --arg run_id "${run_id}" \
-  --arg run_sha "${run_execution_sha}" \
-  --arg cla_generation "${CLA_GENERATION}" \
-  --arg head_repo "${head_repo}" \
-  --argjson head_repo_id "${head_repo_id}" '
-    .id == ($job_id | tonumber) and
-    .run_id == ($run_id | tonumber) and
-    .name == "CLA Assistant v2" and
-    .status == "completed" and
-    .conclusion == "failure" and
-    (.head_sha | type == "string") and
-    .head_sha == $run_sha and
-    (
-      (has("head_repository") | not) or
-      .head_repository == null or
-      ((.head_repository | type) == "object" and
-       .head_repository.full_name == $head_repo and
-       .head_repository.id == $head_repo_id)
-    ) and
-    any(.steps[]?;
-      .name == ("CLA generation " + $cla_generation) and
-      .status == "completed" and
-      .conclusion == "success"
-    )
-' <<<"${final_job_json}" >/dev/null || fail "The exact failed CLA job is no longer eligible"
+latest_pr_json="$(gh_api_bounded "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request before rerun"
+validate_exact_pr_snapshot "${latest_pr_json}" || fail "The pull request changed while selecting the CLA job"
+final_job_json="$(gh_api_bounded "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA job"
+validate_exact_job_payload "${final_job_json}" || fail "The exact failed CLA Assistant v3 job is no longer eligible"
 
 # Re-fetch the whole job set immediately before the state-changing call. This
 # catches a newly cancelled or unrelated failed job that could otherwise be
 # pulled into a failed-jobs rerun after the first validation.
 final_jobs_json="$(fetch_jobs_for_run "${run_id}")" || fail "Could not recheck and validate jobs for the selected CLA run"
 validate_failed_job_set "${final_jobs_json}"
-final_job_id="$(jq -r \
-  --arg run_id "${run_id}" \
-  --arg run_sha "${run_execution_sha}" \
-  --arg head_repo "${head_repo}" \
-  --argjson head_repo_id "${head_repo_id}" \
-  --arg cla_generation "${CLA_GENERATION}" \
-  '[.[] | .jobs[]? | select(
-      .run_id == ($run_id | tonumber) and
-      .name == "CLA Assistant v2" and
-      .status == "completed" and
-      .conclusion == "failure" and
-      (.head_sha | type == "string") and
-      .head_sha == $run_sha and
-      ((has("head_repository") | not) or
-       (.head_repository == null or
-        ((.head_repository | type) == "object" and
-         .head_repository.full_name == $head_repo and
-         .head_repository.id == $head_repo_id))) and
-      any(.steps[]?;
-        .name == ("CLA generation " + $cla_generation) and
-        .status == "completed" and
-        .conclusion == "success"
-      )
-    )]
-    | if length == 1 then .[0].id else empty end' <<<"${final_jobs_json}")"
+if ! final_cla_job_json="$(select_cla_job "${final_jobs_json}")"; then
+  fail "Could not validate the final CLA Assistant v3 job data"
+fi
+final_job_id="$(jq -r '.id // empty' <<<"${final_cla_job_json}")"
 [[ "${final_job_id}" == "${job_id}" ]] || fail "The selected CLA job changed while preparing the rerun"
 
-# Repeat the positive live-PR association check after all discovery
-# calls. A second open PR for the same fork ref and SHA must stop the
-# rerun even if it appeared while the earlier checks were running.
+# Re-read the live PR, run, and job as one final authorization set. A source
+# push, branch retarget, job replacement, or concurrent rerun must invalidate
+# the request before the state-changing call. For fallback runs, the failed
+# check is fetched last and must bind both the exact source SHA and this job.
+final_pr_json="$(gh_api_bounded "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request before rerun"
+validate_exact_pr_snapshot "${final_pr_json}" || fail "The pull request changed before rerun"
+# The individual PR response does not enumerate duplicate fork references.
+# Recheck the filtered open-PR association at the same final boundary.
 validate_live_open_head_association
+final_run_json="$(gh_api_bounded "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA run before rerun"
+validate_exact_run_payload "${final_run_json}" || fail "The selected CLA run changed before rerun"
+validate_run_source_binding "${final_run_json}"
+final_job_json="$(gh_api_bounded "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA job before rerun"
+validate_exact_job_payload "${final_job_json}" || fail "The selected CLA job changed before rerun"
+if [[ "${RUN_REQUIRES_CHECK_BINDING}" == true ]]; then
+  validate_failed_check_binding "${run_id}" "${job_id}"
+fi
 
 if [[ "${RERUN_FAILED_JOBS}" == true ]]; then
   rerun_endpoint="repos/${GH_REPO}/actions/runs/${run_id}/rerun-failed-jobs"
-  rerun_description="failed CLA jobs (v2 and compatibility)"
+  rerun_description="failed CLA v3 jobs (writer, assistant, and compatibility)"
 else
   rerun_endpoint="repos/${GH_REPO}/actions/jobs/${job_id}/rerun"
   rerun_description="CLA job ${job_id}"
