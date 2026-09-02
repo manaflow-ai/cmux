@@ -43,6 +43,9 @@
       <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalClient">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
