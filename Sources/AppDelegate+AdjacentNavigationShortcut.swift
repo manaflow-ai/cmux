@@ -76,7 +76,7 @@ extension AppDelegate {
             )
         case .previous, .next:
             guard !shortcut.hasChord else { return false }
-            return matchShortcutStroke(event, stroke: shortcut.firstStroke)
+            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
         }
     }
 
