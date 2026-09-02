@@ -355,7 +355,7 @@ fn runtime_path_arguments<'a>(runtime: &str, argv: &'a [String]) -> Vec<&'a str>
         if is_eval_flag(runtime, argument) {
             break;
         }
-        if is_python_runtime(runtime) && argument == "-m" {
+        if is_python_runtime(runtime) && runtime_flag_matches(argument, "-m") {
             // Python module mode consumes the following token as a module
             // name. Remaining tokens are module arguments, not executables.
             break;
@@ -377,10 +377,23 @@ fn is_eval_flag(runtime: &str, argument: &str) -> bool {
     match runtime {
         "node" | "bun" => ["-e", "--eval", "-p", "--print"]
             .iter()
-            .any(|flag| argument == *flag || argument.starts_with(&format!("{flag}="))),
-        name if is_python_runtime(name) => argument == "-c" || argument.starts_with("-c"),
+            .any(|flag| runtime_flag_matches(argument, flag)),
+        name if is_python_runtime(name) => runtime_flag_matches(argument, "-c"),
         _ => false,
     }
+}
+
+/// Match a runtime mode flag in either its separate-argument form or its
+/// attached short/long value form. This follows herdr's conservative parser:
+/// an attached short value is treated as script text, never as a later path.
+fn runtime_flag_matches(argument: &str, flag: &str) -> bool {
+    argument == flag
+        || (flag.starts_with('-')
+            && !flag.starts_with("--")
+            && argument.starts_with(flag)
+            && argument.len() > flag.len())
+        || (flag.starts_with("--")
+            && argument.strip_prefix(flag).is_some_and(|rest| rest.starts_with('=')))
 }
 
 fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
@@ -401,16 +414,30 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
 }
 
 fn is_eval_invocation(runtime: &str, argv: &[String]) -> bool {
-    let flags: &[&str] = match runtime {
-        "node" | "bun" => &["-e", "--eval", "-p", "--print"],
-        name if is_python_runtime(name) => &["-c"],
-        _ => &[],
-    };
-    argv.iter().skip(1).any(|argument| {
-        flags
-            .iter()
-            .any(|flag| argument == flag || argument.strip_prefix(&format!("{flag}=")).is_some())
-    })
+    let mut index = 1;
+    while let Some(argument) = argv.get(index) {
+        if argument == "--" {
+            return false;
+        }
+        if is_eval_flag(runtime, argument) {
+            return true;
+        }
+        if is_python_runtime(runtime) && runtime_flag_matches(argument, "-m") {
+            return false;
+        }
+        if argument.starts_with('-') {
+            if runtime_option_takes_value(runtime, argument) {
+                index += 1;
+            }
+            index += 1;
+            continue;
+        }
+        // The first positional argument is the script/module entrypoint. Any
+        // later flags belong to that program and cannot change the runtime
+        // invocation mode.
+        break;
+    }
+    false
 }
 
 fn path_candidates(token: &str) -> Vec<String> {
@@ -461,6 +488,12 @@ fn path_candidates(token: &str) -> Vec<String> {
 fn known_package_agent(effective: &str, argv: &[String]) -> Option<String> {
     let runtime = normalized_name(effective);
     if runtime != "node" && runtime != "bun" {
+        return None;
+    }
+    // A package-shaped path can be script text in an attached eval flag.
+    // Check the runtime grammar before applying the path-specific launcher
+    // exception, or eval text could claim an agent identity.
+    if is_eval_invocation(&runtime, argv) {
         return None;
     }
     argv.get(1).and_then(|script| known_package_path_agent(script))
@@ -1445,6 +1478,24 @@ mod tests {
             )],
         };
         assert!(identify_job(ManifestSet::bundled(), &job).is_none());
+    }
+
+    #[test]
+    fn runtime_flags_after_the_script_do_not_hide_the_script_identity() {
+        for (name, argv, expected) in [
+            ("node", vec!["node", "/tmp/codex", "--eval"], "codex"),
+            ("python3.12", vec!["python3.12", "/tmp/claude", "-c"], "claude"),
+            ("node", vec!["node", "--", "/tmp/codex", "--eval"], "codex"),
+            ("node", vec!["node", "--require", "preload.js", "/tmp/codex"], "codex"),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
+            assert_eq!(
+                identify_job(ManifestSet::bundled(), &job).map(|(manifest, _)| manifest.id()),
+                Some(expected),
+                "script identity must survive trailing runtime-looking arguments: {argv:?}",
+            );
+        }
     }
 
     #[test]
