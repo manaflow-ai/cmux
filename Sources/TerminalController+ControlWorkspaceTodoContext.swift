@@ -512,13 +512,13 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         let workspaces = app.allWorkspacesForAgentTodoRetirement
         let workspacesByID = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let items = workspaces.flatMap { workspace -> [ControlWorkspaceTaskQueueItem] in
-            let windowID = app.tabManagerFor(tabId: workspace.id).flatMap { app.windowId(for: $0) }
+            let workspaceWindowID = app.tabManagerFor(tabId: workspace.id).flatMap { app.windowId(for: $0) }
             return workspace.todoState.checklist.compactMap { item in
                 guard statusRaw == nil || item.state.rawValue == statusRaw else { return nil }
                 let projected = queueItem(
                     item,
                     workspace: workspace,
-                    windowID: windowID,
+                    windowID: workspaceWindowID,
                     boundWorkspace: item.boundWorkspaceID.flatMap { workspacesByID[$0] }
                 )
                 guard workspaceID == nil || projected.workspaceID == workspaceID,
