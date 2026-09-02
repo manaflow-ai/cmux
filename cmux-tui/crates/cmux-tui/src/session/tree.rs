@@ -1000,6 +1000,37 @@ mod tests {
     }
 
     #[test]
+    fn indexed_lookup_fails_closed_after_direct_public_topology_mutation() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 7, "title": "first"},
+                            {"surface": 8, "title": "retained"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        let duplicate = tree.workspaces[0].screens[0].panes[0].tabs[1].clone();
+        tree.workspaces[0].screens[0].panes[0].tabs.insert(0, duplicate);
+
+        assert!(tree.surface(8).is_none());
+        assert!(!tree.select_surface(8));
+    }
+
+    #[test]
     fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
         let tree = parse_tree(&json!({
             "workspaces": [{
