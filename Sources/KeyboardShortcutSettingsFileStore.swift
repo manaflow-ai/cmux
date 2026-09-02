@@ -1637,7 +1637,6 @@ final class CmuxSettingsFileStore {
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
             var adaptiveDefaultThemeDidChange = false
-            var linksSettingsDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1697,9 +1696,6 @@ final class CmuxSettingsFileStore {
                 TerminalAdaptiveDefaultThemeSettings.notifyDidChange(
                     notificationCenter: notificationCenter
                 )
-            }
-            if linksSettingsDidChange {
-                TerminalLinkCaptureGate.refreshFromUserDefaults()
             }
         }
         if Thread.isMainThread {
