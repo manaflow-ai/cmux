@@ -91,8 +91,23 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         }
     }
 
-    let mut contents = Vec::new();
-    let read_result = file.read_to_end(&mut contents);
+    let mut contents =
+        Vec::with_capacity(metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1) as usize);
+    // Read through a fixed buffer so the `Take` limit bounds both I/O and
+    // allocation. `Take::read_to_end` may delegate to the underlying reader's
+    // unbounded implementation before applying its own limit.
+    let read_result = {
+        let mut limited = Read::by_ref(&mut file).take((MAX_ENROLLMENT_BYTES as u64) + 1);
+        let mut chunk = [0_u8; 8192];
+        loop {
+            match limited.read(&mut chunk) {
+                Ok(0) => break Ok(()),
+                Ok(read) => contents.extend_from_slice(&chunk[..read]),
+                Err(error) => break Err(error),
+            }
+        }
+    };
+    let oversized = contents.len() > MAX_ENROLLMENT_BYTES;
 
     // Reopen for writing only after validation and reading. The second open
     // is still O_NOFOLLOW and must resolve to the descriptor's inode before it
@@ -135,6 +150,9 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         return Err(validation_error);
     }
     read_result.map_err(|_| error("Managed enrollment file is unavailable."))?;
+    if oversized {
+        return Err(error("Managed enrollment file is invalid."));
+    }
     String::from_utf8(contents).map_err(|_| error("Managed enrollment file is unavailable."))
 }
 
