@@ -2954,7 +2954,6 @@ impl Mux {
                 &terminal_id,
                 TerminalLifecycle::Adopting,
                 Some(&record.incarnation),
-                None,
             ) {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
@@ -3354,7 +3353,6 @@ impl Mux {
                                 &terminal_id,
                                 TerminalLifecycle::Adopting,
                                 Some(&record.incarnation),
-                                None,
                             )
                             .is_err()
                         {
@@ -6339,7 +6337,6 @@ impl Mux {
         terminal_id: &str,
         lifecycle: TerminalLifecycle,
         incarnation: Option<&str>,
-        exit: Option<Value>,
     ) -> anyhow::Result<(RegistryTerminal, u64)> {
         anyhow::ensure!(
             lifecycle != TerminalLifecycle::Exited,
@@ -6353,7 +6350,7 @@ impl Mux {
             terminal_id,
             lifecycle,
             incarnation,
-            exit,
+            None,
         )?;
         self.emit_terminal_registry_changed(&registry, result.1);
         Ok(result)
@@ -6902,17 +6899,13 @@ impl Mux {
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.transition_terminal_lifecycle(
-                            "terminal-exited",
-                            "terminal-cell-pixel-reconcile-failed",
+                        let _ = self.persist_terminal_exit(
                             &terminal_hex,
-                            TerminalLifecycle::Exited,
                             Some(&identity.incarnation),
-                            Some(serde_json::json!({
-                                "reason":"cell-pixel-reconcile-failed",
-                                "error":error.to_string(),
-                                "ready_revision":ready_revision,
-                            })),
+                            &TerminalExit::unknown(format!(
+                                "cell-pixel-reconcile-failed at terminal revision \
+                                 {ready_revision}: {error}"
+                            )),
                         );
                         surface.kill();
                         return Err(error);
@@ -27713,7 +27706,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Adopting,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
@@ -27814,7 +27806,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Running,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
 
