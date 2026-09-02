@@ -26,8 +26,10 @@ import {
   isVmLimitExceededError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
+  isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
+  isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
   type VmOperationUnsupportedError,
 } from "./errors";
@@ -170,6 +172,7 @@ export type VmLifecyclePhase =
   | "resume"
   | "attach"
   | "ssh"
+  | "network"
   | "exec"
   | "destroy"
   | "status"
@@ -518,6 +521,35 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
+  if (isVmPrivateNetworkUnavailableError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_private_network_unavailable",
+      status: 409,
+      message: "Cloud VM private networking is not available in this environment.",
+      action:
+        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
+        "Stop offering to set one up; retrying will not change this.",
+      reason: workflowError.reason,
+      phase: "network",
+      // Not retryable on purpose: this is how the deployment is configured, so
+      // a client that backs off and retries would loop forever.
+      retryable: false,
+      details: { provider: workflowError.provider },
+    });
+  }
+
+  if (isVmTunnelNotFoundError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({
       error: "vm_create_disabled",
@@ -739,6 +771,10 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("openAttach")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
+  // Before the "create" check: createTunnel/createNetwork are network setup,
+  // not machine creation, and a client that read them as "create" would show
+  // machine-provisioning errors for a tunnel problem.
+  if (operation.includes("Network") || operation.includes("Tunnel")) return "network";
   if (operation.includes("create")) return "create";
   if (operation.includes("restore")) return "restore";
   if (operation.includes("fork")) return "fork";
