@@ -34282,8 +34282,12 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
 
         app.replace_tree(notify_tree(41, false));
+        assert!(app.tree.pane(2).is_some());
+        let index_before = app.tree.location_index.get().unwrap() as *const _;
         assert!(app.mux_titles.push(41, "live-title".to_string()));
         app.handle(AppEvent::MuxTitlesReady).unwrap();
+        let index_after = app.tree.location_index.get().unwrap() as *const _;
+        assert!(std::ptr::eq(index_before, index_after));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
 
         app.replace_tree(notify_tree(41, false));
