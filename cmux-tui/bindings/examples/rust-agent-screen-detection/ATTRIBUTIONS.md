@@ -18,8 +18,13 @@ The files under `manifests/` are derived from the herdr project:
 * Changes: cmux pins the files locally and validates them with its own
   bounded manifest engine. It does not use herdr's network update path.
 
-The attribution and capability audit was rerun against herdr revision
-`18e69891dca486d669a584facd80644bb51f54a2` after the pinned snapshot. It found
+The checked-in manifests/SHA256SUMS record is verified before bundled
+compilation. It detects accidental drift, not a cryptographic release
+signature for remote updates.
+
+The attribution and capability audit was rerun against the current herdr
+revision `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6` after the pinned snapshot.
+It found
 the first-acquisition OSC retention fix in
 `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
 with a local revision fence because the generic host API cannot clear OSC
@@ -35,10 +40,14 @@ herdr-specific CWD code is copied. Later upstream commits
 `18e69891dca486d669a584facd80644bb51f54a2` change Windows launch, process
 environment, process-job, input handling, remote multiline paste, OpenSSH
 mouse input, or the application/client shell rendering architecture. The
-shell-render refactor and the Windows input and paste fixes are not detector
-logic and are not copied. This package has no Windows SDK transport, native
-process backend, launch path, or input path, so those files are not copied.
-Recheck them before publishing a Windows package.
+current tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6` adds stable client
+endpoint compatibility outside the detector and changes no detector or
+manifest path. These changes are not detector logic and are not copied. This
+package has no Windows SDK transport, native process backend, launch path, or
+input path, so those files are not copied. A standalone release must define
+and test SDK endpoint-generation compatibility before it promises upgrades
+across host versions. Recheck these upstream areas before publishing a
+Windows package.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is

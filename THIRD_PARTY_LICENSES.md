@@ -94,7 +94,7 @@ manifests and adapted detector sources live under
 - **Pi bundled-launcher correction:** commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
-- **Latest capability audit:** commit `18e69891dca486d669a584facd80644bb51f54a2`. The first-acquisition OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker. The foreground group-leader CWD fix from `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's generic `foreground_cwd` resource. The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` is application/client architecture and is not copied. The Windows remote multiline paste fix at `0032c3b42751b6da9c5b1a91546b3c1a425d67f1` and OpenSSH mouse-input fix at `18e69891dca486d669a584facd80644bb51f54a2` are outside detector behavior and are not copied. Later Windows launch, process, job, input, and paste fixes remain outside this Unix-only package.
+- **Latest capability audit:** commit `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`. The first-acquisition OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker. The foreground group-leader CWD fix from `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's generic `foreground_cwd` resource. The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` is application/client architecture and is not copied. The Windows remote multiline paste fix at `0032c3b42751b6da9c5b1a91546b3c1a425d67f1` and OpenSSH mouse-input fix at `18e69891dca486d669a584facd80644bb51f54a2` are outside detector behavior and are not copied. The current tip adds stable client endpoint compatibility in herdr's transport and client layers, with no detector or manifest changes. SDK endpoint-generation compatibility remains a standalone-release requirement. Later Windows launch, process, job, input, and paste fixes remain outside this Unix-only package.
 
 Twenty manifests are unchanged from the manifest snapshot. `grok.toml` is
 based on the snapshot file and contains one documented cmux precedence
@@ -102,6 +102,9 @@ correction. The manifest engine, process discovery, state detector, and update
 logic are adapted for the cmux userland plugin contract. The source paths,
 commits, license, and adaptations are recorded in
 `cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`.
+The SHA256SUMS file is a checked-in byte-provenance record verified before the
+bundled manifests are compiled. It detects accidental drift, but it is not a
+cryptographic release signature for remote updates.
 
 ---
 

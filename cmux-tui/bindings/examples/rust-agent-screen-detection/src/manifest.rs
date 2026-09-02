@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 /// Highest herdr manifest engine version whose semantics this port covers.
 pub const SCREEN_DETECT_ENGINE_VERSION: u32 = 3;
@@ -720,6 +721,34 @@ const BUNDLED_MANIFESTS: &[(&str, &str)] = &[
     ("copilot", include_str!("../manifests/github-copilot.toml")),
 ];
 
+/// The source filename for each embedded manifest. Labels above are canonical
+/// adapter ids; two upstream filenames use compatibility names.
+const BUNDLED_MANIFEST_FILES: &[(&str, &str)] = &[
+    ("amp", "amp.toml"),
+    ("agy", "antigravity.toml"),
+    ("claude", "claude.toml"),
+    ("cline", "cline.toml"),
+    ("codex", "codex.toml"),
+    ("cursor", "cursor.toml"),
+    ("devin", "devin.toml"),
+    ("droid", "droid.toml"),
+    ("gemini", "gemini.toml"),
+    ("grok", "grok.toml"),
+    ("hermes", "hermes.toml"),
+    ("kilo", "kilo.toml"),
+    ("kimi", "kimi.toml"),
+    ("kiro", "kiro.toml"),
+    ("maki", "maki.toml"),
+    ("muse", "muse.toml"),
+    ("opencode", "opencode.toml"),
+    ("pi", "pi.toml"),
+    ("qodercli", "qodercli.toml"),
+    ("qwen", "qwen.toml"),
+    ("copilot", "github-copilot.toml"),
+];
+
+const BUNDLED_MANIFEST_CHECKSUMS: &str = include_str!("../manifests/SHA256SUMS");
+
 static BUNDLED_SET: OnceLock<ManifestSet> = OnceLock::new();
 
 impl ManifestSet {
@@ -727,6 +756,8 @@ impl ManifestSet {
     /// so a compile failure here is a vendoring bug, not a runtime input.
     pub fn bundled() -> &'static ManifestSet {
         BUNDLED_SET.get_or_init(|| {
+            verify_bundled_manifest_checksums()
+                .expect("bundled screen-detection manifest provenance is invalid");
             Self::from_sources(BUNDLED_MANIFESTS)
                 .expect("bundled screen-detection manifests are pinned valid by tests")
         })
@@ -939,6 +970,73 @@ impl ManifestSet {
         explanation.process_name = process_name.to_string();
         explanation
     }
+}
+
+/// Verify embedded bytes against the checked-in provenance record. This catches
+/// accidental edits to vendored files. It is source integrity, not a release
+/// signature, because the checksum file is in the same artifact.
+pub fn verify_bundled_manifest_checksums() -> Result<(), String> {
+    if BUNDLED_MANIFESTS.len() != BUNDLED_MANIFEST_FILES.len() {
+        return Err(format!(
+            "bundled manifest mapping has {} ids for {} sources",
+            BUNDLED_MANIFEST_FILES.len(),
+            BUNDLED_MANIFESTS.len()
+        ));
+    }
+
+    let mut expected = HashMap::new();
+    for (line_number, line) in BUNDLED_MANIFEST_CHECKSUMS.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((digest, filename)) = line.split_once("  ") else {
+            return Err(format!(
+                "manifest checksum line {} must use '<sha256>  <filename>'",
+                line_number + 1
+            ));
+        };
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!(
+                "manifest checksum for {filename:?} is not a 64-character hexadecimal digest"
+            ));
+        }
+        if filename.is_empty()
+            || !filename.ends_with(".toml")
+            || expected.insert(filename, digest).is_some()
+        {
+            return Err(format!(
+                "manifest checksum filename {filename:?} is duplicated or invalid"
+            ));
+        }
+    }
+
+    if expected.len() != BUNDLED_MANIFEST_FILES.len() {
+        return Err(format!(
+            "manifest checksum record has {} files for {} bundled manifests",
+            expected.len(),
+            BUNDLED_MANIFEST_FILES.len()
+        ));
+    }
+
+    for ((id, content), (mapped_id, filename)) in
+        BUNDLED_MANIFESTS.iter().zip(BUNDLED_MANIFEST_FILES.iter())
+    {
+        if id != mapped_id {
+            return Err(format!("manifest checksum mapping disagrees for adapter {id:?}"));
+        }
+        let Some(expected_digest) = expected.get(filename) else {
+            return Err(format!("manifest checksum record has no entry for {filename}"));
+        };
+        let actual_digest = format!("{:x}", Sha256::digest(content.as_bytes()));
+        if !actual_digest.eq_ignore_ascii_case(expected_digest) {
+            return Err(format!(
+                "bundled manifest {filename} checksum {actual_digest} does not match {expected_digest}"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 pub fn compile_manifest_source(content: &str) -> Result<CompiledManifest, String> {
@@ -1605,6 +1703,11 @@ mod tests {
                 "{expected} identifies itself"
             );
         }
+    }
+
+    #[test]
+    fn screen_detect_bundled_manifest_provenance_matches_checked_hashes() {
+        verify_bundled_manifest_checksums().expect("bundled manifest hashes should match");
     }
 
     #[test]

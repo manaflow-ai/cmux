@@ -53,9 +53,12 @@ Derived material and vendored material:
 - `bindings/examples/rust-agent-screen-detection/manifests/grok.toml`: the
   local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
   generic custom title and keeps explicit braille-spinner activity stronger.
+- The plugin's `manifests/SHA256SUMS` record is checked before bundled
+  compilation to catch accidental drift. It is not a cryptographic release
+  signature for remote updates.
 
-The capability audit was rerun against herdr revision
-`18e69891dca486d669a584facd80644bb51f54a2`. The first-acquisition OSC
+The capability audit was rerun against the current herdr revision
+`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`. The first-acquisition OSC
 retention fix in `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the
 userland tracker with a local revision fence. The foreground group-leader CWD
 fix in `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the
@@ -69,8 +72,13 @@ not detector behavior, and is not copied. Later upstream commits
 `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`, and
 `18e69891dca486d669a584facd80644bb51f54a2` are Windows launch, process
 environment, process-job, input, remote multiline paste, or OpenSSH mouse
-input changes. They are outside this Unix-only reference package and must be
-reviewed before Windows support is published.
+input changes. The current tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`
+adds stable client endpoint compatibility in herdr's transport and client
+layers, but changes no detector source, detector manifest, or
+`src/pane/agent_detection.rs` path. That transport work is outside this
+package. A standalone release must define and test SDK endpoint-generation
+compatibility before it promises binary upgrades across host versions. These
+upstream changes must be reviewed before Windows support is published.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

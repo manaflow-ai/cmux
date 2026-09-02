@@ -47,6 +47,10 @@ detector engine follows source reference commit
 `7b675f42af35508eab66ac42fe1598628597a893`. See
 `manifests/LICENSE`, `manifests/README.md`, and `ATTRIBUTIONS.md`. The
 Manaflow portions use MIT; the package includes that text in `LICENSE-MIT`.
+The checked-in `manifests/SHA256SUMS` record is verified before the bundled
+rules compile. It catches accidental edits to vendored bytes. It is not a
+release signature, so an explicit remote update still needs signed catalog
+verification before remote content is trusted.
 
 The host gives each plugin generation an owned process boundary. Keep any
 helper processes in the inherited Unix process group, or they may outlive the

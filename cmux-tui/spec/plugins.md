@@ -310,14 +310,27 @@ application policy into cmux core.
 | State-change sounds and desktop notifications | Native cmux notification path; no herdr sound asset is copied | Do not duplicate audio policy in a detector. |
 | Agent launch, prompt, and resume | Native terminal and agent CLI paths | A detector observes a terminal. It must not gain input or process-launch authority. |
 | Hook integrations and session identity | Existing cmux hook adapter | Keep hook authority in one reducer. A detector cannot safely replace a hook contract. |
-| Agent socket API and wait operations | Generic cmux resource API and journal stream | Expose generic resources, not a herdr-specific API server. |
 | Remote persistence and session restore | cmux journal and session persistence | The plugin has no private durable state to merge with host snapshots. |
 | Plugin panes, actions, and link handlers | Sidebar and resource plugin contracts | These are separate plugin kinds. Do not couple them to agent detection. |
 | Windows foreground process-group inspection | Not supported by this reference package | The Rust SDK transport and native process backend are Unix-only. A Windows package must add both before publication. |
 | OMP and Mastracode screen manifests | Not present at the manifest snapshot revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
+| Agent inventory and point lookup (`agent.list`, `agent.get`) | `agent.list` and typed SDK agent handles return the generic `AgentSnapshot`; there is no separate `agent.get` wire operation | Keep lookup terminal-scoped and catalog-independent. A client can refresh a selected opaque agent id. |
+| Agent screen and history reads (`agent.read`) | `terminal.screen.read`, `terminal.output_read`, and `terminal.history.read` provide the same data sources to any plugin | Keep reads terminal primitives. Do not add an agent-specific read endpoint. |
+| Explain (`agent.explain`) | The reference plugin exposes `explain` with rule evidence, source, version, and fallback reasons; the host does not evaluate vendor rules | Keep explain beside the replaceable manifest engine. Core receives normalized facts only. |
+| Input (`agent.send`, `agent.send_keys`) | `terminal.input.keys` and `terminal.input.write` are generic host operations | A detector has no input permission. An action plugin must request input explicitly and own its policy. |
+| Focus (`agent.focus`) and rename (`agent.rename`) | `terminal.input.focus` and `pane.rename` are generic host operations | Keep focus and naming in the host. Detection must not mutate presentation. |
+| Start (`agent.start`) | `pane.run`, `pane.create`, and `tab.create_terminal` can start a command, but no agent catalog or launcher is in core | Let a separate launcher plugin choose commands. A detector must not execute an agent. |
+| Prompt plus wait (`agent.prompt`) | A client can compose `terminal.input.write` or `terminal.input.keys` with `terminal.wait`; there is no atomic agent prompt operation | Do not add a vendor-specific compound call. Add a generic transaction only if a measured race requires it. |
+| Semantic wait (`agent.wait`) | `terminal.wait` handles screen patterns, `terminal.wait_exit` handles process exit, and `session.journal.subscribe` exposes state events; no agent-specific wait helper exists | Filter the generic journal in userland. This keeps wait semantics replaceable and avoids a core agent catalog. |
+| Declarative agent view (`agent.view.set`, `agent.view.clear`) | `frontend_projection.put` is generic; native agents-view filters and sort grammar remain host-owned | Keep client-owned presentation state, including the seen bit, out of shared journal state. |
+| Lifecycle report (`pane.report_agent`) | `agent.report` and the `cmux.agent-plugin.v1` journal envelope accept generic state facts | Use one reducer with hook, plugin, legacy replay, and socket precedence. |
+| Native session report (`pane.report_agent_session`) | Native hook integrations can retain opaque session references; the userland screen plugin does not report or resume them | Do not let an untrusted screen guess authorize a resume command. Add a generic opaque reference only with an explicit host resume contract. |
+| Presentation metadata (`pane.report_metadata`) and state labels/tokens | Generic journal `native` and `extra` data can be retained, but it does not override host lifecycle or labels | Keep display metadata in host projections. Do not let plugin payloads change semantic state by side effect. |
+| Child-agent topology and rollups | A screen plugin reports one terminal observation. Core has no vendor child graph or rollup policy | Require explicit parent references and a generic graph contract before adding topology. |
+| Remote client endpoint compatibility | Current herdr tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6` changes its transport endpoint generation, not detection | Define and test SDK endpoint-generation compatibility before a standalone binary promises daemon upgrades. Do not import herdr's transport implementation into the detector. |
 
-This inventory was rechecked against herdr revision
-`18e69891dca486d669a584facd80644bb51f54a2`. It ported the first-acquisition
+This inventory was rechecked against the current herdr revision
+`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`. It ported the first-acquisition
 OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` inside the
 userland tracker. The foreground group-leader CWD fix from
 `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's
@@ -330,10 +343,13 @@ The reference package has no Windows SDK transport or native process backend
 and does not own launch, input, or remote paste handling, so those changes
 remain outside this plugin. Review them before publishing Windows support.
 
-The latest audited commits, `0032c3b42751b6da9c5b1a91546b3c1a425d67f1` and
-`18e69891dca486d669a584facd80644bb51f54a2`, fix remote multiline paste and
-OpenSSH mouse input on Windows. They are outside detector behavior and are not
-copied.
+The latest audited Windows commits, `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`
+and `18e69891dca486d669a584facd80644bb51f54a2`, fix remote multiline paste
+and OpenSSH mouse input. The current tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`
+adds stable client endpoint compatibility in herdr's transport and client
+layers, with no detector or manifest changes. These changes are outside the
+userland detector. Before publishing a standalone binary, define and test SDK
+endpoint-generation compatibility across host versions.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
