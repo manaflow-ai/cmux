@@ -621,11 +621,12 @@ pub(super) fn parse_tree_with_capabilities(
             active_screen: 0,
         };
         if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
-            for (s, screen) in screens.iter().enumerate() {
-                if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
-                    view.active_screen = s;
-                }
+            for screen in screens {
                 if let Some(parsed) = parse_screen(screen, capabilities) {
+                    let parsed_index = view.screens.len();
+                    if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
+                        view.active_screen = parsed_index;
+                    }
                     view.screens.push(parsed);
                 }
             }
