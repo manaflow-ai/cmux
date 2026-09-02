@@ -34,6 +34,8 @@ struct TerminalColorSchemeProtocolTests {
         let outputURL: URL
         let scriptURL: URL
         let commandURL: URL
+        let previousAppearanceMode: String?
+        let previousApplicationAppearance: NSAppearance?
     }
     @Test("CSI 996 reports the effective dark and light schemes")
     func queryReportsEffectiveColorScheme() throws {
@@ -102,9 +104,10 @@ struct TerminalColorSchemeProtocolTests {
         try setAppearance(.light, terminals: [first, second])
         #expect(try waitForReport("transition=1b5b3f3939373b326e", from: first))
         #expect(try waitForReport("transition-reports=1b5b3f3939373b326e", from: first))
-        let secondLines = try String(contentsOf: second.outputURL, encoding: .utf8)
-            .split(whereSeparator: \.isNewline)
-        #expect(secondLines == ["ready"])
+        // Drain the sibling PTY so a leaked report would be observed.
+        try sendProbe("await-disabled-transition", to: second)
+        #expect(try waitForReport("await-disabled-transition=ready", from: second))
+        #expect(try waitForReport("disabled=none", from: second))
     }
     @Test("Manual-mirror surfaces suppress parser protocol responses")
     func manualMirrorSuppressesParserResponses() throws {
@@ -143,7 +146,10 @@ struct TerminalColorSchemeProtocolTests {
         ioMode: TerminalSurfaceIOMode = .exec,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil
     ) throws -> HostedTerminal {
-        _ = NSApplication.shared
+        let application = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let previousAppearanceMode = defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+        let previousApplicationAppearance = application.appearance
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-color-scheme-protocol-\(UUID().uuidString).txt")
         let scriptURL = FileManager.default.temporaryDirectory
@@ -165,7 +171,6 @@ struct TerminalColorSchemeProtocolTests {
         tty.setraw(fd)
         pending = bytearray()
         report_pattern = re.compile(b'\\x1b\\[\\?997;[12]n')
-
         def read_report(timeout):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -227,7 +232,6 @@ struct TerminalColorSchemeProtocolTests {
                     quiet_deadline = time.monotonic() + quiet_timeout
             return reports
         command_index = 0
-
         def read_command():
             global command_index
             while True:
@@ -246,7 +250,6 @@ struct TerminalColorSchemeProtocolTests {
                 handle.write(value + '\\n')
                 handle.flush()
         record('ready')
-
         try:
             while True:
                 command = read_command()
@@ -308,7 +311,6 @@ struct TerminalColorSchemeProtocolTests {
                 }
             }
         }
-
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try Data().write(to: outputURL)
         try Data().write(to: commandURL)
@@ -356,7 +358,9 @@ struct TerminalColorSchemeProtocolTests {
             window: window,
             outputURL: outputURL,
             scriptURL: scriptURL,
-            commandURL: commandURL
+            commandURL: commandURL,
+            previousAppearanceMode: previousAppearanceMode,
+            previousApplicationAppearance: previousApplicationAppearance
         )
         hostedTerminal = terminal
         if ioMode == .exec {
@@ -379,7 +383,6 @@ struct TerminalColorSchemeProtocolTests {
         ownershipTransferred = true
         return terminal
     }
-
     private func setAppearance(
         _ mode: AppearanceMode,
         terminals: [HostedTerminal]
@@ -421,13 +424,11 @@ struct TerminalColorSchemeProtocolTests {
             ghostty_surface_set_color_scheme(surface, scheme)
         }
     }
-
     private func sendProbe(_ command: String, to terminal: HostedTerminal) throws {
         let existing = (try? Data(contentsOf: terminal.commandURL)) ?? Data()
         let next = existing + Data("\(command)\n".utf8)
         try next.write(to: terminal.commandURL, options: .atomic)
     }
-
     private func waitForManualWrite(
         _ expected: Data,
         in capture: ManualWriteCapture,
@@ -440,7 +441,6 @@ struct TerminalColorSchemeProtocolTests {
         } while Date() < deadline
         return capture.snapshot.contains(expected)
     }
-
     private func waitForReport(
         _ report: String,
         from terminal: HostedTerminal,
@@ -458,7 +458,6 @@ struct TerminalColorSchemeProtocolTests {
         print("color-scheme fixture timeout expected=\(report) actual=\(finalOutput.debugDescription)")
         return false
     }
-
     private func waitForLiveSurface(
         _ surface: TerminalSurface,
         timeout: TimeInterval
@@ -470,7 +469,6 @@ struct TerminalColorSchemeProtocolTests {
         } while Date() < deadline
         return surface.hasLiveSurface
     }
-
     private func processOutput(_ value: String, on surface: ghostty_surface_t) {
         Data(value.utf8).withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
@@ -479,20 +477,22 @@ struct TerminalColorSchemeProtocolTests {
             ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
-
     private func tearDown(_ terminal: HostedTerminal) {
-        terminal.surface.releaseSurfaceForTesting()
         terminal.window.contentView = nil
         terminal.window.close()
+        terminal.surface.releaseSurfaceForTesting()
         try? FileManager.default.removeItem(at: terminal.outputURL)
         try? FileManager.default.removeItem(at: terminal.scriptURL)
         try? FileManager.default.removeItem(at: terminal.commandURL)
+        let defaults = UserDefaults.standard
+        if let mode = terminal.previousAppearanceMode {
+            defaults.set(mode, forKey: AppearanceSettings.appearanceModeKey)
+        } else {
+            defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
+        }
+        NSApp.appearance = terminal.previousApplicationAppearance
     }
-
-    private enum ProbeError: Error {
-        case notReady
-    }
-
+    private enum ProbeError: Error { case notReady }
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
