@@ -56,6 +56,11 @@ type Snapshot = {
   readonly subscribers: readonly Subscriber[];
   readonly teamSubscriptions: readonly TeamSubscription[];
   readonly pendingGrants: readonly PendingGrant[];
+  readonly truncated: {
+    readonly subscribers: boolean;
+    readonly teamSubscriptions: boolean;
+    readonly pendingGrants: boolean;
+  };
 };
 
 type ScanState = {
@@ -121,6 +126,11 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
         subscribers: snapshot.subscribers ?? [],
         teamSubscriptions: snapshot.teamSubscriptions ?? [],
         pendingGrants: snapshot.pendingGrants ?? [],
+        truncated: {
+          subscribers: snapshot.truncated?.subscribers === true,
+          teamSubscriptions: snapshot.truncated?.teamSubscriptions === true,
+          pendingGrants: snapshot.truncated?.pendingGrants === true,
+        },
       },
       userGrants: [],
       teamGrants: [],
@@ -146,19 +156,19 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
       try {
         response = await fetch(`/api/admin/pro-users/scan?${params}`, { headers: { accept: "application/json" } });
       } catch {
-        patchScan(kind, { status: "error", scanned, pages, message: t("errors.network") });
+        patchScan(kind, seq, { status: "error", scanned, pages, message: t("errors.network") });
         return;
       }
       if (seq !== runSeq.current) return;
       if (!response.ok) {
-        patchScan(kind, { status: "error", scanned, pages, message: errorMessage(t, response.status) });
+        patchScan(kind, seq, { status: "error", scanned, pages, message: errorMessage(t, response.status) });
         return;
       }
       let page: { rows: unknown[]; scanned: number; nextCursor: string | null };
       try {
         page = (await response.json()) as typeof page;
       } catch {
-        patchScan(kind, { status: "error", scanned, pages, message: t("errors.generic") });
+        patchScan(kind, seq, { status: "error", scanned, pages, message: t("errors.generic") });
         return;
       }
       if (seq !== runSeq.current) return;
@@ -176,7 +186,7 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
       cursor = page.nextCursor;
       if (!cursor) break;
     }
-    patchScan(kind, {
+    patchScan(kind, seq, {
       status: pages >= MAX_SCAN_PAGES && cursor ? "error" : "done",
       scanned,
       pages,
@@ -184,7 +194,10 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
     });
   }
 
-  function patchScan(kind: "users" | "teams", scan: ScanState) {
+  // Only the run that started this scan may update it; a reload starts a new
+  // sequence and results from the old fetches are dropped.
+  function patchScan(kind: "users" | "teams", seq: number, scan: ScanState) {
+    if (seq !== runSeq.current) return;
     setState((current) => {
       if (current.kind !== "loaded") return current;
       return kind === "users" ? { ...current, userScan: scan } : { ...current, teamScan: scan };
@@ -248,6 +261,9 @@ function LoadedList({
 
       <ScanNote t={t} scan={userScan} label={t("list.scanUsers")} />
       <ScanNote t={t} scan={teamScan} label={t("list.scanTeams")} />
+      {snapshot.truncated.subscribers || snapshot.truncated.teamSubscriptions || snapshot.truncated.pendingGrants ? (
+        <p className="border border-border p-2 text-xs text-muted" role="alert">{t("list.truncated")}</p>
+      ) : null}
 
       <Block title={t("list.sections.subscribers", { count: snapshot.subscribers.length })}>
         {snapshot.subscribers.length === 0 ? (
