@@ -4,12 +4,14 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
-mod bench;
 mod command;
 mod diag;
+mod internal;
 mod lifecycle;
 mod raw;
 mod wire;
+
+use internal::bench;
 
 use std::borrow::Cow;
 use std::io::{self, Write};
