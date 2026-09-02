@@ -752,11 +752,11 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 }
 
 pub(crate) fn middle_truncate(input: &str, max_width: usize) -> String {
-    if usize::from(input.cell_width()) <= max_width {
-        return input.to_string();
-    }
     if max_width == 0 {
         return String::new();
+    }
+    if usize::from(input.cell_width()) <= max_width {
+        return input.to_string();
     }
     if max_width <= 3 {
         return ".".repeat(max_width);
