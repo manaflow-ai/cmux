@@ -275,7 +275,7 @@ pub struct FrameContext {
     pub owner_user_id: Option<String>,
     /// Read current trust and owner for an attachment. Session transports
     /// update this closure's backing state after trust acknowledgements.
-    pub live_auth: Arc<dyn Fn() -> (String, Option<String>) + Send + Sync>,
+    pub live_auth: Arc<dyn Fn() -> LiveAuth + Send + Sync>,
     /// Identity of the transport this frame arrived on. The PtyManager is
     /// shared between the relay WebSocket and the managed tunnel listener;
     /// an attachment may only be written to, resized, flow-controlled, or
@@ -287,10 +287,25 @@ pub struct FrameContext {
     pub cancellation: CancellationToken,
 }
 
+/// Reconciled machine authority at a single route decision.
+///
+/// The version makes a route snapshot explicit. Roots are checked again for
+/// every output/control operation, so a root rotation cannot leave an old PTY
+/// usable merely because its trust level stayed unchanged.
+#[derive(Clone, Debug, Default)]
+pub struct LiveAuth {
+    pub trust: String,
+    pub roots: Option<Vec<String>>,
+    pub owner_user_id: Option<String>,
+    pub version: u64,
+}
+
 #[derive(Clone)]
 struct AuthSnapshot {
     trust: String,
+    roots: Option<Vec<String>>,
     owner_user_id: Option<String>,
+    version: u64,
     send: Arc<dyn Fn(Value) + Send + Sync>,
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
@@ -399,6 +414,8 @@ struct Attachment {
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
     actor_id: String,
+    cwd: PathBuf,
+    auth_version: u64,
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
     generation: u64,
@@ -419,7 +436,6 @@ struct Inner {
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
     next_generation: AtomicU64,
-    next_opening_generation: AtomicU64,
 }
 
 #[derive(Default)]
@@ -489,7 +505,6 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 next_generation: AtomicU64::new(1),
-                next_opening_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -515,7 +530,6 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 next_generation: AtomicU64::new(1),
-                next_opening_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -699,10 +713,12 @@ fn send_typed_pty_error(
 
 impl Inner {
     fn auth_snapshot(context: &FrameContext) -> AuthSnapshot {
-        let (trust, owner_user_id) = (context.live_auth)();
+        let live = (context.live_auth)();
         AuthSnapshot {
-            trust,
-            owner_user_id,
+            trust: live.trust,
+            roots: live.roots,
+            owner_user_id: live.owner_user_id,
+            version: live.version,
             send: Arc::clone(&context.send),
             buffered_amount: Arc::clone(&context.buffered_amount),
         }
@@ -714,7 +730,10 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        let opening_generation = self.next_opening_generation.fetch_add(1, Ordering::Relaxed);
+        // One monotonic domain spans reservation and attachment publication.
+        // A generation can therefore never be mistaken for a different phase
+        // of the same PTY id.
+        let opening_generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         // Do not inspect the route gate while holding the attachment map. The
         // normal publication path takes RouteGate -> attachments, so this
         // preflight must run before the reservation's opening_state ->
@@ -864,6 +883,7 @@ impl Inner {
                     &env,
                     &pty_id,
                     server_roots.as_deref(),
+                    opening_generation,
                     context,
                 )
                 .await
@@ -892,6 +912,7 @@ impl Inner {
                             &env,
                             &pty_id,
                             server_roots.as_deref(),
+                            opening_generation,
                             context,
                         )
                         .await
@@ -905,6 +926,7 @@ impl Inner {
                             &env,
                             &pty_id,
                             server_roots.as_deref(),
+                            opening_generation,
                             context,
                         )
                         .await
@@ -919,6 +941,14 @@ impl Inner {
             }
         };
 
+        // A provider may ignore the cancellation token while opening. Never
+        // publish a PTY after its transport has gone away; `Opened::drop`
+        // closes the provider handle and `OpeningReservation::drop` releases
+        // the id reservation.
+        if context.cancellation.is_cancelled() {
+            return;
+        }
+
         // Keep both locks held until the attachment is installed. `close`
         // takes opening_state first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.
@@ -930,7 +960,6 @@ impl Inner {
             opening.ids.remove(&pty_id);
             drop(opening);
             drop(attachments);
-            reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
             return;
@@ -971,10 +1000,6 @@ impl Inner {
                 && (live_auth.owner_user_id.is_none()
                     || Some(actor) != live_auth.owner_user_id.as_deref()))
         {
-            opening.ids.remove(&pty_id);
-            if opening.cancelled.get(&pty_id) == Some(&opening_generation) {
-                opening.cancelled.remove(&pty_id);
-            }
             drop(opening);
             drop(attachments);
             reservation.active = false;
@@ -987,8 +1012,10 @@ impl Inner {
             pty_id.clone(),
             Attachment {
                 closing: opened.closing,
-                control: opened.control,
+                control: Arc::clone(&opened.control),
                 actor_id: actor.to_owned(),
+                cwd: cwd.clone(),
+                auth_version: live_auth.version,
                 transport_id: context.transport_id.clone(),
                 generation: opened.generation,
                 publication_gate: Arc::clone(&opened.publication_gate),
@@ -1001,6 +1028,9 @@ impl Inner {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
+        // Ownership transferred to the attachment. The guard remains on the
+        // Opened value only to keep the deferred start closure alive.
+        opened.cleanup_claimed.store(true, Ordering::Release);
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -1106,7 +1136,7 @@ impl Inner {
             }
             current.clone()
         };
-        if !Self::auth_allows(&live_auth, &attachment) {
+        if !self.auth_allows(&live_auth, &attachment) {
             drop(_publication);
             self.emit_error_for_generation(
                 context,
@@ -1193,7 +1223,7 @@ impl Inner {
         // after acquiring the generation gate, then publish using this live
         // snapshot. The trust read is the exit frame's linearization point.
         let live_auth = Self::auth_snapshot(context);
-        if !Self::auth_allows(&live_auth, &attachment) {
+        if !self.auth_allows(&live_auth, &attachment) {
             drop(_publication);
             self.emit_error_for_generation(
                 context,
@@ -1367,9 +1397,15 @@ impl Inner {
         self.authorize_snapshot(pty_id, &auth, context, action)
     }
 
-    fn auth_allows(auth: &AuthSnapshot, attachment: &Attachment) -> bool {
+    fn auth_allows(&self, auth: &AuthSnapshot, attachment: &Attachment) -> bool {
         let owner = auth.owner_user_id.as_deref();
-        !auth.trust.is_empty()
+        let roots_allow_cwd = auth.roots.as_deref().is_none_or(|roots| {
+            roots.is_empty()
+                || scoped_cwd(attachment.cwd.to_str(), &self.home, Some(roots), None).is_ok()
+        });
+        auth.version >= attachment.auth_version
+            && roots_allow_cwd
+            && !auth.trust.is_empty()
             && (auth.trust != "observe"
                 || (owner.is_some() && owner == Some(attachment.actor_id.as_str())))
     }
@@ -1404,7 +1440,7 @@ impl Inner {
             }
         }
         let live_auth = Self::auth_snapshot(context);
-        if !Self::auth_allows(&live_auth, attachment) {
+        if !self.auth_allows(&live_auth, attachment) {
             drop(_publication);
             self.emit_error_for_generation(
                 context,
@@ -1427,7 +1463,26 @@ impl Inner {
         action: &str,
         generation: u64,
     ) -> Option<Attachment> {
-        self.authorize_snapshot_for_generation_mode(pty_id, auth, context, action, generation, true)
+        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        if generation != 0 && attachment.generation != generation {
+            return None;
+        }
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return None;
+        }
+        if self.auth_allows(auth, &attachment) {
+            Some(attachment)
+        } else {
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                attachment.generation,
+                &attachment.publication_gate,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
+            None
+        }
     }
 
     /// Authorization failures for an explicit CLOSE are non-terminal. The
@@ -1454,7 +1509,7 @@ impl Inner {
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
             return Err(NonterminalAuthorizationFailure::Missing);
         }
-        if Self::auth_allows(auth, &attachment) {
+        if self.auth_allows(auth, &attachment) {
             Ok(attachment)
         } else {
             send_pty_error(
@@ -1464,45 +1519,6 @@ impl Inner {
                 &format!("PTY {action} refused after trust change"),
             );
             Err(NonterminalAuthorizationFailure::Denied)
-        }
-    }
-
-    fn authorize_snapshot_for_generation_mode(
-        &self,
-        pty_id: &str,
-        auth: &AuthSnapshot,
-        context: &FrameContext,
-        action: &str,
-        generation: u64,
-        retire_on_denial: bool,
-    ) -> Option<Attachment> {
-        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
-        if generation != 0 && attachment.generation != generation {
-            return None;
-        }
-        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
-            return None;
-        }
-        if Self::auth_allows(auth, &attachment) {
-            Some(attachment)
-        } else if !retire_on_denial {
-            send_pty_error(
-                context,
-                pty_id,
-                "trust_revoked",
-                &format!("PTY {action} refused after trust change"),
-            );
-            None
-        } else {
-            self.emit_error_for_generation(
-                context,
-                pty_id,
-                attachment.generation,
-                &attachment.publication_gate,
-                "trust_revoked",
-                &format!("PTY {action} refused after trust change"),
-            );
-            None
         }
     }
 
@@ -1556,7 +1572,7 @@ impl Inner {
             current.clone()
         };
         let live_auth = Self::auth_snapshot(context);
-        if !Self::auth_allows(&live_auth, &current) {
+        if !self.auth_allows(&live_auth, &current) {
             drop(_publication);
             self.emit_error_for_generation(
                 context,
@@ -1637,7 +1653,18 @@ struct Opened {
     closing: Arc<AtomicBool>,
     generation: u64,
     publication_gate: Arc<RouteGate>,
+    cleanup_claimed: Arc<AtomicBool>,
     start: Box<dyn FnOnce() + Send>,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if !self.cleanup_claimed.swap(true, Ordering::AcqRel) {
+            // Any open that never reaches publication still owns a live PTY.
+            // Drop is the cancellation-safe fallback for every early return.
+            self.control.kill();
+        }
+    }
 }
 
 /// Own a control connection while an OPEN operation performs cancellable
@@ -1709,6 +1736,7 @@ impl Inner {
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
+        generation: u64,
         context: &FrameContext,
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
@@ -1815,7 +1843,6 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let publication_gate = Arc::new(RouteGate::new());
         let (on_data, on_exit) =
             self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
@@ -1826,6 +1853,7 @@ impl Inner {
             closing: Arc::new(AtomicBool::new(false)),
             generation,
             publication_gate,
+            cleanup_claimed: Arc::new(AtomicBool::new(false)),
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
         })
     }
@@ -1842,6 +1870,7 @@ impl Inner {
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
+        generation: u64,
         context: &FrameContext,
     ) -> Result<Opened, String> {
         let mut created = false;
@@ -1965,7 +1994,6 @@ impl Inner {
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let publication_gate = Arc::new(RouteGate::new());
         let (on_data, on_exit) =
             self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
@@ -2014,6 +2042,7 @@ impl Inner {
             closing,
             generation,
             publication_gate,
+            cleanup_claimed: Arc::new(AtomicBool::new(false)),
             start,
         })
     }
@@ -2404,6 +2433,7 @@ impl Inner {
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
+        generation: u64,
         context: &FrameContext,
     ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
@@ -2556,7 +2586,6 @@ impl Inner {
 
         let proxy =
             Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
-        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let publication_gate = Arc::new(RouteGate::new());
         let (on_data, _) = self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
         let relay = Arc::clone(&self);
@@ -2592,6 +2621,7 @@ impl Inner {
             closing: Arc::new(AtomicBool::new(false)),
             generation,
             publication_gate,
+            cleanup_claimed: Arc::new(AtomicBool::new(false)),
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
         }))
     }
@@ -3027,7 +3057,11 @@ mod tests {
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
-                live_auth: Arc::new(move || (live_trust.clone(), live_owner.clone())),
+                live_auth: Arc::new(move || LiveAuth {
+                    trust: live_trust.clone(),
+                    owner_user_id: live_owner.clone(),
+                    ..Default::default()
+                }),
                 transport_id: None,
                 cancellation: CancellationToken::new(),
             }
@@ -3181,8 +3215,7 @@ mod tests {
     #[tokio::test]
     async fn stale_cancellation_marker_cannot_cancel_a_reused_open_generation() {
         let h = harness(None, None);
-        let stale_generation =
-            h.manager.inner.next_opening_generation.fetch_add(1, Ordering::Relaxed);
+        let stale_generation = h.manager.inner.next_generation.fetch_add(1, Ordering::Relaxed);
         h.manager
             .inner
             .opening_state
@@ -3198,7 +3231,7 @@ mod tests {
     #[test]
     fn legacy_close_cancels_a_transport_owned_pending_open() {
         let h = harness(None, None);
-        let generation = h.manager.inner.next_opening_generation.fetch_add(1, Ordering::Relaxed);
+        let generation = h.manager.inner.next_generation.fetch_add(1, Ordering::Relaxed);
         h.manager.inner.opening_state.lock().unwrap().ids.insert(
             "p1".to_owned(),
             OpeningEntry { transport_id: Some("transport-a".to_owned()), generation },
@@ -3296,7 +3329,11 @@ mod tests {
     #[tokio::test]
     async fn output_after_live_trust_downgrade_is_not_forwarded() {
         let h = harness(None, None);
-        let live_auth = Arc::new(StdMutex::new(("supervised".to_owned(), h.owner.clone())));
+        let live_auth = Arc::new(StdMutex::new(LiveAuth {
+            trust: "supervised".to_owned(),
+            owner_user_id: h.owner.clone(),
+            ..Default::default()
+        }));
         let mut context = h.context("supervised", h.owner.clone());
         let live_auth_for_context = Arc::clone(&live_auth);
         context.live_auth = Arc::new(move || live_auth_for_context.lock().unwrap().clone());
@@ -3328,9 +3365,17 @@ mod tests {
         context.live_auth = Arc::new(move || {
             let call = calls_for_context.fetch_add(1, Ordering::SeqCst);
             if call >= 2 {
-                ("observe".to_owned(), owner.clone())
+                LiveAuth {
+                    trust: "observe".to_owned(),
+                    owner_user_id: owner.clone(),
+                    ..Default::default()
+                }
             } else {
-                ("supervised".to_owned(), owner.clone())
+                LiveAuth {
+                    trust: "supervised".to_owned(),
+                    owner_user_id: owner.clone(),
+                    ..Default::default()
+                }
             }
         });
         let frame = serde_json::json!({
@@ -3353,7 +3398,11 @@ mod tests {
     async fn live_trust_rejection_clears_open_reservation() {
         let h = harness(None, None);
         let mut context = h.context("supervised", h.owner.clone());
-        context.live_auth = Arc::new(|| ("observe".to_owned(), Some("user_owner".to_owned())));
+        context.live_auth = Arc::new(|| LiveAuth {
+            trust: "observe".to_owned(),
+            owner_user_id: Some("user_owner".to_owned()),
+            ..Default::default()
+        });
         let frame = serde_json::json!({
             "version": 4,
             "type": "pty_open",
