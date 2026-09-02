@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Shared by verify-cmux-tui-hosted.sh and the behavior-level retention tests.
-# The function runs in a subshell so its EXIT trap cannot change the caller's
-# cleanup policy.
+# The public wrapper captures the caller PID before entering a subshell. Bash
+# 3.2 keeps $$ bound to the parent shell in a subshell, so capturing it inside
+# the implementation would make stale-lock recovery observe the wrong owner.
 
 cmux_hosted_retention_cleanup_scratch_dir=""
 cmux_hosted_retention_cleanup_quarantine_root=""
@@ -81,6 +82,142 @@ cmux_hosted_retention_hash_file() {
   printf '%s\n' "$digest"
 }
 
+cmux_hosted_retention_pid_state() {
+  local pid="$1"
+  local ps_output
+
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+  if ! cmux_hosted_retention_command_available ps; then
+    return 2
+  fi
+  ps_output="$(ps -p "$pid" -o pid= 2>/dev/null || true)"
+  if [[ "$ps_output" =~ (^|[[:space:]])$pid([[:space:]]|$) ]]; then
+    return 0
+  fi
+  if [[ -n "$ps_output" ]]; then
+    return 2
+  fi
+  return 1
+}
+
+cmux_hosted_retention_reclaim_lock() {
+  local lock_dir="$1"
+  local lock_marker="$2"
+  local now="$3"
+  local stale_after="$4"
+  local lock_line
+  local lock_pid
+  local lock_timestamp
+  local lock_token
+  local lock_extra
+  local lock_age
+  local owner_state
+  local recovery_dir
+
+  if [[ ! -d "$lock_dir" || -L "$lock_dir" || ! -O "$lock_dir" ||
+    ! -f "$lock_marker" || -L "$lock_marker" || ! -O "$lock_marker" ]]; then
+    return 1
+  fi
+  lock_line="$(<"$lock_marker")" || return 1
+  lock_pid=""
+  lock_timestamp=""
+  lock_token=""
+  lock_extra=""
+  IFS=$'\t' read -r lock_pid lock_timestamp lock_token lock_extra <<< "$lock_line"
+  if [[ "$lock_line" != "$lock_pid"$'\t'"$lock_timestamp"$'\t'"$lock_token" ||
+    -z "$lock_token" || -n "$lock_extra" ||
+    ! "$lock_pid" =~ ^[1-9][0-9]*$ || ! "$lock_timestamp" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if ! lock_age="$(awk -v now="$now" -v timestamp="$lock_timestamp" \
+    'BEGIN { if (timestamp > now) exit 2; print now - timestamp }')"; then
+    return 1
+  fi
+  [[ "$lock_age" =~ ^[0-9]+$ ]] || return 1
+  if (( lock_age < stale_after )); then
+    return 1
+  fi
+  if cmux_hosted_retention_pid_state "$lock_pid"; then
+    owner_state=0
+  else
+    owner_state=$?
+  fi
+  [[ "$owner_state" -eq 1 ]] || return 1
+
+  recovery_dir="$lock_dir.$$.$RANDOM.reclaim"
+  if [[ -e "$recovery_dir" || -L "$recovery_dir" ]]; then
+    return 2
+  fi
+  if ! mv -- "$lock_dir" "$recovery_dir"; then
+    return 2
+  fi
+  if [[ ! -d "$recovery_dir" || -L "$recovery_dir" || ! -O "$recovery_dir" ||
+    ! -f "$recovery_dir/owner" || -L "$recovery_dir/owner" ||
+    ! -O "$recovery_dir/owner" ||
+    "$(<"$recovery_dir/owner")" != "$lock_line" ]]; then
+    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
+      -d "$recovery_dir" && ! -L "$recovery_dir" ]]; then
+      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+    fi
+    return 2
+  fi
+  if ! rm -f -- "$recovery_dir/owner" >/dev/null 2>&1; then
+    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" ]]; then
+      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+    fi
+    return 2
+  fi
+  if ! rmdir -- "$recovery_dir" >/dev/null 2>&1; then
+    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
+      -d "$recovery_dir" && ! -L "$recovery_dir" ]]; then
+      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+    fi
+    return 2
+  fi
+  return 0
+}
+
+cmux_hosted_retention_recover_quarantines() {
+  local artifact_root="$1"
+  local now="$2"
+  local stale_after="$3"
+  local quarantine_root
+  local quarantine_mtime
+  local quarantine_age
+  local candidate_dir
+  local candidate_commit
+  local restore_dir
+  local root_count=0
+  local entry_count=0
+  local max_entries=10000
+
+  shopt -s nullglob
+  for quarantine_root in "$artifact_root"/.retention-quarantine.*; do
+    root_count=$((root_count + 1))
+    (( root_count <= max_entries )) || break
+    [[ -d "$quarantine_root" && ! -L "$quarantine_root" && -O "$quarantine_root" ]] || continue
+    quarantine_mtime="$(cmux_hosted_retention_mtime "$quarantine_root")" || continue
+    [[ "$quarantine_mtime" =~ ^[0-9]+$ && "$quarantine_mtime" -le "$now" ]] || continue
+    quarantine_age=$((now - quarantine_mtime))
+    (( quarantine_age >= stale_after )) || continue
+    for candidate_dir in "$quarantine_root"/*; do
+      entry_count=$((entry_count + 1))
+      (( entry_count <= max_entries )) || break
+      [[ -d "$candidate_dir" && ! -L "$candidate_dir" && -O "$candidate_dir" ]] || continue
+      candidate_commit="${candidate_dir##*/}"
+      [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
+      [[ -f "$candidate_dir/cmux-tui" && ! -L "$candidate_dir/cmux-tui" && -O "$candidate_dir/cmux-tui" ]] || continue
+      restore_dir="$artifact_root/$candidate_commit"
+      [[ ! -e "$restore_dir" && ! -L "$restore_dir" ]] || continue
+      mv -- "$candidate_dir" "$restore_dir" >/dev/null 2>&1 || true
+    done
+    rmdir -- "$quarantine_root" >/dev/null 2>&1 || true
+  done
+  shopt -u nullglob
+}
+
 cmux_hosted_retention_lsof_state() {
   local lsof_command="$1"
   local target_path="$2"
@@ -90,6 +227,7 @@ cmux_hosted_retention_lsof_state() {
   local lsof_record
   local lsof_name
   local saw_name=0
+  local record_count=0
 
   if "$lsof_command" -F n -- "$target_path" > "$output_file" 2> "$error_file"; then
     lsof_status=0
@@ -101,6 +239,8 @@ cmux_hosted_retention_lsof_state() {
   fi
 
   while IFS= read -r lsof_record; do
+    record_count=$((record_count + 1))
+    (( record_count <= 1024 )) || return 2
     case "$lsof_record" in
       n*)
         saw_name=1
@@ -129,7 +269,13 @@ cmux_hosted_retention_lsof_state() {
   return 1
 }
 
-cmux_hosted_retention_run() (
+cmux_hosted_retention_run() {
+  local owner_pid="$$"
+  CMUX_TUI_HOSTED_RETENTION_OWNER_PID="$owner_pid" \
+    cmux_hosted_retention_run_impl "$@"
+}
+
+cmux_hosted_retention_run_impl() (
   if [[ $# -ne 2 ]]; then
     cmux_hosted_retention_error "expected current artifact directory and current commit"
     exit $?
@@ -143,11 +289,17 @@ cmux_hosted_retention_run() (
   local retention_confirmed="${CMUX_TUI_HOSTED_RETENTION_CONFIRM:-0}"
   local max_candidates_limit=10000
   local max_candidates="${CMUX_TUI_HOSTED_RETENTION_MAX_CANDIDATES:-$max_candidates_limit}"
-  local uid
   local scratch_dir
   local preview_file
   local preview_tmp
   local candidate_paths_file
+  local candidate_scan_error_file
+  local candidate_scan_status_file
+  local candidate_scan_find_status
+  local candidate_scan_filter_status
+  local candidate_scan_limit
+  local candidate_relative
+  local candidate_scan_error=0
   local candidate_order_file
   local plan_file
   local preview_hash
@@ -158,7 +310,6 @@ cmux_hosted_retention_run() (
   local candidate_dir
   local candidate_commit
   local candidate_mtime
-  local candidate_count=0
   local candidate_action
   local retained=0
   local lsof_command="${CMUX_TUI_HOSTED_RETENTION_LSOF:-lsof}"
@@ -169,6 +320,7 @@ cmux_hosted_retention_run() (
   local lsof_target_count=0
   local lsof_output_file
   local lsof_error_file
+  local lsof_record_count=0
   local active_commits_file
   local cleanup_commits_file
   local decision_file
@@ -180,6 +332,12 @@ cmux_hosted_retention_run() (
   local lock_dir=""
   local lock_marker=""
   local lock_token=""
+  # A dead owner is reclaimable only after one day. This bounds crash residue
+  # while protecting a long-running cleanup from a premature takeover.
+  local lock_stale_after_seconds=86400
+  local lock_owner_pid="${CMUX_TUI_HOSTED_RETENTION_OWNER_PID:-$$}"
+  local lock_reclaim_status
+  local lock_timestamp
   local quarantine_root=""
   local quarantine_dir=""
   local quarantine_binary=""
@@ -192,6 +350,10 @@ cmux_hosted_retention_run() (
   if [[ -z "$retention_count" ]]; then
     echo "Hosted artifact retention disabled (set a positive retention count to enable)" >&2
     exit 0
+  fi
+  if [[ ! "$lock_owner_pid" =~ ^[1-9][0-9]*$ ]]; then
+    cmux_hosted_retention_error "retention cleanup owner is invalid"
+    exit $?
   fi
   if ! cmux_hosted_retention_bounded_integer "$max_candidates" "$max_candidates_limit"; then
     cmux_hosted_retention_error "candidate scan limit must be a positive integer no greater than $max_candidates_limit"
@@ -236,11 +398,6 @@ cmux_hosted_retention_run() (
     cmux_hosted_retention_error "artifact root is not owned by the current user"
     exit $?
   fi
-  if ! uid="$(id -u)"; then
-    cmux_hosted_retention_error "cannot resolve the current user"
-    exit $?
-  fi
-
   old_umask="$(umask)"
   umask 077
   if ! scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-hosted-retention.XXXXXX")"; then
@@ -257,6 +414,10 @@ cmux_hosted_retention_run() (
   cmux_hosted_retention_cleanup_lock_acquired=0
   # shellcheck disable=SC2329 # invoked by the EXIT trap below
   cmux_hosted_retention_cleanup() {
+    if [[ -n "$quarantine_dir" && -d "$quarantine_dir" && ! -L "$quarantine_dir" && -O "$quarantine_dir" &&
+      -n "$candidate_dir" && ! -e "$candidate_dir" && ! -L "$candidate_dir" ]]; then
+      mv -- "$quarantine_dir" "$candidate_dir" >/dev/null 2>&1 || true
+    fi
     if [[ -n "$cmux_hosted_retention_cleanup_quarantine_root" && -d "$cmux_hosted_retention_cleanup_quarantine_root" && ! -L "$cmux_hosted_retention_cleanup_quarantine_root" ]]; then
       rmdir -- "$cmux_hosted_retention_cleanup_quarantine_root" >/dev/null 2>&1 || true
     fi
@@ -272,32 +433,99 @@ cmux_hosted_retention_run() (
   }
   trap cmux_hosted_retention_cleanup EXIT
 
+  now="$(date +%s)" || {
+    cmux_hosted_retention_error "cannot read the current time"
+    exit $?
+  }
+  cmux_hosted_retention_recover_quarantines "$artifact_root" "$now" 86400
+
   preview_file="$artifact_root/.retention-preview"
   candidate_paths_file="$scratch_dir/candidate-paths"
+  candidate_scan_error_file="$scratch_dir/candidate-find-error"
+  candidate_scan_status_file="$scratch_dir/candidate-find-status"
   candidate_order_file="$scratch_dir/candidate-order"
   plan_file="$scratch_dir/plan"
 
-  if ! find "$artifact_root" \
-    -mindepth 1 -maxdepth 1 -type d -user "$uid" -print0 > "$candidate_paths_file"; then
+  if ! cmux_hosted_retention_command_available find; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories because find is unavailable"
+    exit $?
+  fi
+  if ! cmux_hosted_retention_command_available awk; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories because awk is unavailable"
+    exit $?
+  fi
+  candidate_scan_limit=$((max_candidates + 1))
+  (
+    if ! cd "$artifact_root"; then
+      exit 1
+    fi
+    set +e
+    find . -type d \( -name . -o -prune -print \) 2> "$candidate_scan_error_file" \
+      | awk -v limit="$candidate_scan_limit" \
+        'substr($0, 1, 2) == "./" {
+           candidate = substr($0, 3)
+           if (length(candidate) == 40 && candidate !~ /[^0-9a-f]/) {
+             count++
+             if (count <= limit) print
+           }
+         }
+         END { if (count >= limit) exit 3 }' > "$candidate_paths_file"
+    candidate_scan_pipeline_status=("${PIPESTATUS[@]}")
+    candidate_scan_find_status="${candidate_scan_pipeline_status[0]}"
+    candidate_scan_filter_status="${candidate_scan_pipeline_status[1]}"
+    set -e
+    printf '%s\t%s\n' "$candidate_scan_find_status" "$candidate_scan_filter_status" > "$candidate_scan_status_file"
+  ) || {
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  }
+
+  hosted_artifact_order=()
+  while IFS= read -r candidate_relative; do
+    [[ "$candidate_relative" == ./* ]] || continue
+    candidate_commit="${candidate_relative#./}"
+    [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
+    candidate_dir="$artifact_root/$candidate_commit"
+    [[ -d "$candidate_dir" && ! -L "$candidate_dir" && -O "$candidate_dir" ]] || continue
+    if ! candidate_mtime="$(cmux_hosted_retention_mtime "$candidate_dir")"; then
+      candidate_scan_error=1
+      continue
+    fi
+    hosted_artifact_order+=("$candidate_mtime"$'\t'"$candidate_commit")
+  done < "$candidate_paths_file"
+  if [[ ! -f "$candidate_scan_status_file" ]]; then
     cmux_hosted_retention_error "cannot enumerate artifact directories"
     exit $?
   fi
-
-  hosted_artifact_order=()
-  while IFS= read -r -d '' candidate_dir; do
-    candidate_commit="${candidate_dir##*/}"
-    [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
-    candidate_count=$((candidate_count + 1))
-    if (( candidate_count > max_candidates )); then
-      cmux_hosted_retention_error "candidate scan exceeded the bounded limit of $max_candidates"
-      exit $?
-    fi
-    candidate_mtime="$(cmux_hosted_retention_mtime "$artifact_root/$candidate_commit")" || {
-      cmux_hosted_retention_error "cannot read an artifact modification time"
-      exit $?
-    }
-    hosted_artifact_order+=("$candidate_mtime"$'\t'"$candidate_commit")
-  done < "$candidate_paths_file"
+  IFS=$'\t' read -r candidate_scan_find_status candidate_scan_filter_status < "$candidate_scan_status_file" || {
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  }
+  if [[ ! "$candidate_scan_find_status" =~ ^[0-9]+$ ||
+    ! "$candidate_scan_filter_status" =~ ^[0-9]+$ ]]; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  fi
+  if [[ -s "$candidate_scan_error_file" ]]; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  fi
+  if [[ "$candidate_scan_filter_status" -eq 3 ]]; then
+    cmux_hosted_retention_error "candidate scan exceeded the bounded limit of $max_candidates"
+    exit $?
+  fi
+  if [[ "$candidate_scan_filter_status" -ne 0 ]]; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  fi
+  if [[ "$candidate_scan_find_status" -ne 0 ]]; then
+    cmux_hosted_retention_error "cannot enumerate artifact directories"
+    exit $?
+  fi
+  if (( candidate_scan_error )); then
+    cmux_hosted_retention_error "cannot read an artifact modification time"
+    exit $?
+  fi
 
   hosted_artifact_commits=()
   if ((${#hosted_artifact_order[@]} > 0)); then
@@ -438,11 +666,25 @@ cmux_hosted_retention_run() (
 
   lock_dir="$artifact_root/.retention.lock"
   lock_marker="$lock_dir/owner"
-  lock_token="$(printf '%s:%s' "$$" "$scratch_dir")"
+  lock_timestamp="$now"
+  lock_token="$(printf '%s\t%s\t%s' "$lock_owner_pid" "$lock_timestamp" "$scratch_dir")"
   cmux_hosted_retention_cleanup_lock_dir="$lock_dir"
   cmux_hosted_retention_cleanup_lock_marker="$lock_marker"
   cmux_hosted_retention_cleanup_lock_token="$lock_token"
-  if [[ -e "$lock_dir" || -L "$lock_dir" ]] || ! (umask 077 && mkdir "$lock_dir"); then
+  if [[ -e "$lock_dir" || -L "$lock_dir" ]]; then
+    if cmux_hosted_retention_reclaim_lock "$lock_dir" "$lock_marker" "$now" "$lock_stale_after_seconds"; then
+      :
+    else
+      lock_reclaim_status=$?
+      if [[ "$lock_reclaim_status" -eq 1 ]]; then
+        cmux_hosted_retention_error "another retention cleanup is already running"
+      else
+        cmux_hosted_retention_error "cannot recover the previous retention cleanup lock"
+      fi
+      exit $?
+    fi
+  fi
+  if ! (umask 077 && mkdir "$lock_dir"); then
     cmux_hosted_retention_error "another retention cleanup is already running"
     exit $?
   fi
@@ -489,6 +731,11 @@ cmux_hosted_retention_run() (
       exit $?
     fi
     while IFS= read -r lsof_record; do
+      lsof_record_count=$((lsof_record_count + 1))
+      (( lsof_record_count <= max_candidates * 4 )) || {
+        cmux_hosted_retention_error "lsof returned too many activity records"
+        exit $?
+      }
       case "$lsof_record" in
         n*)
           active_path="${lsof_record#n}"
