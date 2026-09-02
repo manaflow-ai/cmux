@@ -482,6 +482,15 @@ gh() {
             {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
             {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:"Mirror CLA Assistant compatibility result",status:"completed",conclusion:"failure"}]}
           ]}'
+      elif [[ "${FAKE_MODE}" == recheck-stale-writer ]]; then
+        # The Jobs API does not expose workflow outputs. A successful writer
+        # followed by a failed v3 result is the observable shape of a
+        # historical run whose writer output was cla_passed=false.
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:505,run_id:$run_id,name:"CLA ledger writer",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]},
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]}
+          ]}'
       elif [[ "${FAKE_MODE}" == writer-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
@@ -691,6 +700,8 @@ run_case late-ambiguous 0 "Requested rerun for CLA job 500 in workflow run 400" 
 run_case external-signer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case signing-stale-writer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
+run_case recheck-stale-writer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
