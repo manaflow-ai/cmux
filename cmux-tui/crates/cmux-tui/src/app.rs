@@ -24869,6 +24869,63 @@ mod tests {
         assert_eq!((poll_calls, read_calls), (2, 2));
     }
 
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 {
+                    start
+                } else {
+                    start + Duration::from_millis(11)
+                }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
+    }
+
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
