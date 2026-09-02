@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f03fae7d0d`, a published descendant of
+The submodule pinned by this branch is `b39533bc59`, a published descendant of
 fork `origin/main` `abd40f6e4` (which contains cmux's current compatibility
 pins) on
 https://github.com/manaflow-ai/ghostty/tree/fix/5490-color-scheme-protocol. It
@@ -25,8 +25,8 @@ formatter cursor restoration, VT stream-boundary visibility, and Hangul
 canonical font resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f03fae7d0d953ae0abec91a7be4ea0e1cfb6dd6c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-with SHA-256 `f32f7cda56ac2584db7e4c20034478341ea1130e292ffa9afc3c1162bb3d62cb`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b39533bc59a9cb820024a57c85f99dc904b6c14e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `87c0e320917fdd0803f81b085b1d5773d0ff1ea31e94f645b67d4384e0470158`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Kitty color-scheme Mode 2031 reporting
@@ -38,6 +38,7 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - `04a10e6727` (merge current fork main while retaining the protocol fix)
   - `d59b673a7` (serialize the initial report across queued config updates)
   - `f03fae7d0` (merge current fork main `abd40f6e4` normally)
+  - `b39533bc5` (suppress one stale same-theme config report after enable)
 - Files:
   - `src/termio/stream_handler.zig`
   - `src/Surface.zig`
@@ -65,8 +66,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     conditional-state assignment with `Surface.updateConfig` when that method
     is reconciled again.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f03fae7d0d953ae0abec91a7be4ea0e1cfb6dd6c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-  - SHA-256 `f32f7cda56ac2584db7e4c20034478341ea1130e292ffa9afc3c1162bb3d62cb`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b39533bc59a9cb820024a57c85f99dc904b6c14e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `87c0e320917fdd0803f81b085b1d5773d0ff1ea31e94f645b67d4384e0470158`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal

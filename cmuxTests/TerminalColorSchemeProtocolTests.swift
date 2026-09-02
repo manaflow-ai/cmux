@@ -280,9 +280,9 @@ struct TerminalColorSchemeProtocolTests {
                     record('await-disabled-transition=ready')
                     record('disabled=' + read_report(0.35))
                 elif command == 'reset':
-                    os.write(1, b'\x1bc')
-                    os.write(1, b'\x1b[?2031$p')
-                    reset = read_until(b'\x1b[?2031;2$y', 1.0)
+                    os.write(1, b'\\x1bc')
+                    os.write(1, b'\\x1b[?2031$p')
+                    reset = read_until(b'\\x1b[?2031;2$y', 1.0)
                     record('reset-status=' + ('ready' if reset else 'none'))
                 elif command == 'await-reset-transition':
                     record('await-reset-transition=ready')
