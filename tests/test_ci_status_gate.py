@@ -256,6 +256,24 @@ def test_workflow_run_with_multiple_pull_requests_fails_closed() -> None:
         raise AssertionError("ambiguous workflow run was accepted")
 
 
+def test_workflow_run_duplicate_association_is_deduplicated() -> None:
+    class DuplicateAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if endpoint.endswith("/actions/runs/900"):
+                return {"pull_requests": [{"number": 1}, {"number": 1}]}
+            return super().get(endpoint, paginate=paginate)
+
+    pull, head, number, workflow_run_id = module._event_target(
+        DuplicateAPI(complete_checks()),
+        "workflow_run",
+        {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+    )
+    assert pull["number"] == 1
+    assert head == HEAD_SHA
+    assert number == 1
+    assert workflow_run_id == 900
+
+
 def test_external_fork_workflow_run_fallback_keeps_empty_association() -> None:
     class ForkRunAPI(FakeAPI):
         def get(self, endpoint: str, *, paginate: bool = False) -> object:
