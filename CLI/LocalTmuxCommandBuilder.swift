@@ -53,7 +53,11 @@ struct LocalTmuxCommandBuilder {
     }
 
     func sessionBindingArguments(sessionName: String) -> [String] {
-        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), sessionBindingFormat]
+        // `display-message` needs a pane/window target to populate session
+        // format variables on current tmux releases; anchor the exact session
+        // target to its first window without weakening exact-name matching.
+        let target = "\(exactTarget(sessionName)):0"
+        return ["-S", socketPath, "display-message", "-p", "-t", target, sessionBindingFormat]
     }
 
     func sessionBindingArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
