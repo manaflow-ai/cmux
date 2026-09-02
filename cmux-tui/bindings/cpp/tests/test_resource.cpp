@@ -710,6 +710,62 @@ TEST("journal subject decoder enforces lowercase component grammar") {
     CHECK_EQ(decoded.error().code, cmux::ErrorCode::decode);
 }
 
+TEST("journal producer decoders reject oversized arrays before item parsing") {
+    const auto repeated = [](std::string_view item, std::size_t count) {
+        std::string result = "[";
+        for (std::size_t index = 0; index < count; ++index) {
+            if (index != 0) result += ',';
+            result += item;
+        }
+        result += ']';
+        return result;
+    };
+    const std::string event =
+        R"({"kind":"plugin.screen-detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{}})";
+    const std::string manifest =
+        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen-detector"],"events":)";
+
+    // Put an invalid item first. The size guard must win before the decoder
+    // attempts to parse that item.
+    auto oversized_permissions = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":[1,"journal.append.plugin.screen-detector"] ,"events":[])})");
+    CHECK(oversized_permissions);
+    auto permissions = oversized_permissions.value().find("permissions");
+    CHECK(permissions != nullptr);
+    auto permission_array = permissions->as_array();
+    CHECK(permission_array);
+    permission_array.value()->insert(
+        permission_array.value()->end(), 31, cmux::Json("journal.append.plugin.screen-detector"));
+    auto decoded_permissions = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        oversized_permissions.value());
+    CHECK(!decoded_permissions);
+    CHECK(
+        decoded_permissions.error().message.find("more than 32") !=
+        std::string::npos);
+
+    const auto event_array = repeated(event, 64);
+    auto oversized_events = cmux::Json::parse(
+        manifest + "[1," + event_array.substr(1) + "}");
+    CHECK(oversized_events);
+    auto decoded_events = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        oversized_events.value());
+    CHECK(!decoded_events);
+    CHECK(
+        decoded_events.error().message.find("more than 64") !=
+        std::string::npos);
+
+    const auto producer_array = repeated(manifest + event_array + "}", 1024);
+    auto oversized_producers = cmux::Json::parse(
+        "{\"producers\":[1," + producer_array.substr(1) + "}");
+    CHECK(oversized_producers);
+    auto decoded_producers = cmux::detail::decode_value<cmux::JournalProducerListResult>(
+        oversized_producers.value());
+    CHECK(!decoded_producers);
+    CHECK(
+        decoded_producers.error().message.find("more than 1024") !=
+        std::string::npos);
+}
+
 TEST("session auxiliary options reject invalid values before I/O") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
