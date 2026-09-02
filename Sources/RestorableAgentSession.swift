@@ -1417,6 +1417,30 @@ struct RestorableAgentSessionIndex: Sendable {
             }
     }
 
+    /// True when any panel's entry reports a live process for `(kind, sessionId)`,
+    /// regardless of which panel that process is bound to. The panel-scoped
+    /// `entry(workspaceId:panelId:)` cannot see a duplicate panel's live
+    /// process for the same session (#8446).
+    func hasLiveProcessForSession(kind: RestorableAgentKind, sessionId: String) -> Bool {
+        entriesByPanel.values.contains {
+            !$0.processIDs.isEmpty && $0.snapshot.kind == kind && $0.snapshot.sessionId == sessionId
+        } || entriesByPanelId.values.contains {
+            !$0.processIDs.isEmpty && $0.snapshot.kind == kind && $0.snapshot.sessionId == sessionId
+        }
+    }
+
+    /// True when the hook store still holds a restorable record for
+    /// `(kind, sessionId)`. A deliberate exit delivers SessionEnd and marks
+    /// the record non-restorable, so it does not count; a session whose
+    /// process died with a crashed cmux keeps its restorable record.
+    func hasRestorableEntryForSession(kind: RestorableAgentKind, sessionId: String) -> Bool {
+        entriesByPanel.values.contains {
+            $0.snapshot.kind == kind && $0.snapshot.sessionId == sessionId
+        } || entriesByPanelId.values.contains {
+            $0.snapshot.kind == kind && $0.snapshot.sessionId == sessionId
+        }
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
