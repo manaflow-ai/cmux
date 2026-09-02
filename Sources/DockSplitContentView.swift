@@ -151,16 +151,12 @@ final class DockPointerInteractionHostView: NSView {
     private let teardownBox = DockPointerTeardownBox()
 
     deinit {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                teardownBox.perform()
-            }
-        } else {
-            // SwiftUI normally calls `dismantleNSView` on the MainActor. If a
-            // host is released elsewhere, request the same lifecycle cleanup
-            // without reading actor-isolated handles from this deinit.
-            teardownBox.request()
-        }
+        // `deinit` is not guaranteed to run on the MainActor, even when the
+        // object happens to be released on the process' main thread. Always
+        // marshal cleanup through the box instead of using
+        // `MainActor.assumeIsolated`, whose executor check traps for a main
+        // thread that is not currently running the MainActor.
+        teardownBox.request()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -194,9 +190,11 @@ final class DockPointerInteractionHostView: NSView {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            // `.main` delivers this AppKit lifecycle callback on the same
-            // executor that owns the Dock store.
-            MainActor.assumeIsolated {
+            // Foundation's operation-queue delivery is not a proof that the
+            // callback is running on the MainActor. Hop explicitly so a
+            // notification posted during teardown cannot trip the executor
+            // precondition.
+            Task { @MainActor in
                 self?.store?.cancelDockPointerInteraction(window: window)
             }
         }
@@ -205,9 +203,7 @@ final class DockPointerInteractionHostView: NSView {
             object: NSApp,
             queue: .main
         ) { [weak self, weak window] _ in
-            // `.main` delivers this AppKit lifecycle callback on the same
-            // executor that owns the Dock store.
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.store?.cancelDockPointerInteraction(window: window)
             }
         }
