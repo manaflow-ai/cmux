@@ -53,8 +53,8 @@ final class WorkspaceTaskQueueModel {
     @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
     var statusFilter: StatusFilter = .all { didSet { refresh() } }
-    var workspaceFilter: UUID? { didSet { refresh() } }
-    var sortKey: SortKey = .activity { didSet { rows = sortedRows(for: sortKey) } }
+    var workspaceFilter: UUID? { didSet { rows = displayedRows() } }
+    var sortKey: SortKey = .activity { didSet { rows = displayedRows() } }
     var selectedRowID: UUID?
 
     init() {
@@ -74,7 +74,7 @@ final class WorkspaceTaskQueueModel {
         let status = statusFilter == .all ? nil : statusFilter.rawValue
         switch TerminalController.shared.controlWorkspaceTaskQueueList(
             statusRaw: status,
-            workspaceID: workspaceFilter,
+            workspaceID: nil,
             windowID: nil
         ) {
         case .tabManagerUnavailable:
@@ -87,7 +87,7 @@ final class WorkspaceTaskQueueModel {
             sourceRows = items
             sortedRowsByKey.removeAll(keepingCapacity: true)
             rebuildWorkspaceOptions(from: items)
-            rows = sortedRows(for: sortKey)
+            rows = displayedRows()
             errorMessage = nil
         }
     }
@@ -183,6 +183,12 @@ final class WorkspaceTaskQueueModel {
         }
         sortedRowsByKey[key] = sorted
         return sorted
+    }
+
+    private func displayedRows() -> [ControlWorkspaceTaskQueueItem] {
+        let sorted = sortedRows(for: sortKey)
+        guard let workspaceFilter else { return sorted }
+        return sorted.filter { $0.workspaceID == workspaceFilter }
     }
 
     private func stateRank(_ state: String) -> Int {

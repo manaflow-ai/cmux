@@ -39475,7 +39475,7 @@ export default CMUXSessionRestore;
             } else if let todos = dictionary["todos"] as? [Any] {
                 output["todos"] = sanitizedTaskToolArray(todos)
             } else if let task = sanitizedTaskToolObject(dictionary) {
-                output = task
+                output.merge(task) { _, new in new }
             }
             sanitized = output
         } else if let array = value as? [Any] {
