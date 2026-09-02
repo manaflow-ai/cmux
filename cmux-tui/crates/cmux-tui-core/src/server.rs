@@ -4839,9 +4839,12 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_INFO_BY_HANDLE_CLASS, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo,
+        GetFileInformationByHandle, GetFileInformationByHandleEx,
     };
+    use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_AF_UNIX;
 
     // AF_UNIX pathname sockets are NTFS reparse points. Open the reparse
     // point itself, not a target selected by normal reparse traversal, then
@@ -4858,6 +4861,28 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
     // writable storage for the fixed-size API result.
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
         return Err(std::io::Error::last_os_error());
+    }
+    let mut tag_info = FILE_ATTRIBUTE_TAG_INFO::default();
+    // SAFETY: `file` owns a valid handle and `tag_info` points to writable
+    // storage of the exact size required by `FileAttributeTagInfo`.
+    let tag_info_result = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileAttributeTagInfo as FILE_INFO_BY_HANDLE_CLASS,
+            (&mut tag_info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    if tag_info_result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0
+        || tag_info.ReparseTag != IO_REPARSE_TAG_AF_UNIX
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "session socket path is not an AF_UNIX socket",
+        ));
     }
     let file_index =
         (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
@@ -5219,6 +5244,12 @@ const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
 const SOCKET_CLEANUP_DEADLINE: Duration = Duration::from_secs(2);
 /// Bound retries after a transient listener error without spinning the thread.
 const ACCEPT_RETRY_BACKOFF: Duration = Duration::from_millis(100);
+/// Stop retrying persistent resource errors after a bounded recovery window.
+const ACCEPT_RETRY_LIMIT: u32 = 50;
+
+fn accept_retry_allowed(retries: u32) -> bool {
+    retries < ACCEPT_RETRY_LIMIT
+}
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
@@ -5269,12 +5300,23 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let server_wake = listener_wake.clone();
 
     let server = match std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        let mut transient_accept_failures = 0;
         loop {
             let stream = match listener.accept_with_wake(&server_wake) {
-                Ok(Some(stream)) => stream,
+                Ok(Some(stream)) => {
+                    transient_accept_failures = 0;
+                    stream
+                }
                 Ok(None) => break,
                 Err(_) if server_shutdown.load(Ordering::Acquire) => break,
                 Err(error) if retry_accept_os_error(&error) => {
+                    if !accept_retry_allowed(transient_accept_failures) {
+                        eprintln!(
+                            "cmux-tui: listener accept retry limit exceeded after {transient_accept_failures} failures: {error}"
+                        );
+                        break;
+                    }
+                    transient_accept_failures = transient_accept_failures.saturating_add(1);
                     match server_wake.wait(ACCEPT_RETRY_BACKOFF) {
                         Ok(true) => break,
                         Ok(false) => continue,
