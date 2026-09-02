@@ -4076,6 +4076,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reentrant_same_id_open_is_rejected_until_exit_publication_finishes() {
+        let h = harness(None, None);
+        let mut context = h.context("supervised", h.owner.clone());
+        let nested_context = h.context("supervised", h.owner.clone());
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let runtime = tokio::runtime::Handle::current();
+        let reentered = Arc::new(AtomicBool::new(false));
+        let (done, completed) = std::sync::mpsc::channel();
+        let nested_frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        let sent = Arc::clone(&h.sent);
+        let reentered_for_send = Arc::clone(&reentered);
+        context.send = TestArc::new(move |frame| {
+            if frame["type"] == "pty_exit" && !reentered_for_send.swap(true, Ordering::SeqCst) {
+                runtime.block_on(manager.handle_frame(&nested_frame, &nested_context));
+                done.send(()).expect("nested open completion");
+            }
+            sent.lock().unwrap().push(frame);
+        });
+        let frame = nested_frame.clone();
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let exit = thread::spawn(move || pty.exit(7));
+        assert!(
+            completed.recv_timeout(Duration::from_secs(1)).is_ok(),
+            "reentrant open must return while the exit callback owns the route gate"
+        );
+        exit.join().expect("exit callback");
+        assert!(!h.manager.has_attachment("p1"));
+        assert!(!h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+        assert!(h.sent().iter().any(|frame| frame["code"] == "bad_request"));
+    }
+
+    #[tokio::test]
     async fn input_operation_waits_before_close_can_retire_its_generation() {
         let h = harness(None, None);
         let frame = serde_json::json!({
