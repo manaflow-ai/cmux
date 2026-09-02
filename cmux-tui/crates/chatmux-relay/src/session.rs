@@ -104,6 +104,19 @@ fn reconcile_owner_user_id(config: &mut Config, owner_user_id: Option<String>) {
     config.owner_user_id = owner_user_id;
 }
 
+fn reconcile_owner_user_id_and_persist(
+    config: &mut Config,
+    owner_user_id: Option<String>,
+    config_path: &Path,
+    managed: bool,
+) {
+    let changed = config.owner_user_id != owner_user_id;
+    reconcile_owner_user_id(config, owner_user_id);
+    if changed && !managed {
+        save(config, config_path);
+    }
+}
+
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
     pub(crate) live: Option<Arc<AtomicBool>>,
@@ -895,7 +908,12 @@ async fn relay_session(
                             config.pending_trust = Some(local_trust.as_str().to_owned());
                             save(config, config_path);
                         }
-                        reconcile_owner_user_id(config, hello.owner_user_id);
+                        reconcile_owner_user_id_and_persist(
+                            config,
+                            hello.owner_user_id,
+                            config_path,
+                            state.managed,
+                        );
                         if state.managed {
                             match hello
                                 .managed_session_token
