@@ -332,7 +332,11 @@ final class VMHostListenerCoordinator {
                 Self.tokens.retain(vmIDs: Set(machines.map(\.id)))
                 let ids = Set(machines.map(\.id))
                 self.deliveredEndpoints = self.deliveredEndpoints.filter { ids.contains($0.key) }
+            } catch is CancellationError {
+                // Superseded by a newer refresh; that one reports.
+                return
             } catch let error as VMClientError {
+                guard !Task.isCancelled else { return }
                 if case .notSignedIn = error {
                     self.status.signedIn = false
                     self.status.machineCount = 0
@@ -343,6 +347,8 @@ final class VMHostListenerCoordinator {
                     self.status.lastError = error.description
                 }
             } catch {
+                guard !Task.isCancelled else { return }
+                if (error as? URLError)?.code == .cancelled { return }
                 self.status.lastError = error.localizedDescription
             }
             self.reconcile(source: source)
@@ -367,8 +373,10 @@ final class VMHostListenerCoordinator {
         )
         switch desired {
         case .off(var reason):
-            if reason == "signed_out", !status.inventoryKnown, status.lastError != nil {
-                reason = "cloud_unreachable"
+            if reason == "signed_out", !status.inventoryKnown {
+                // Nothing learned yet: either the first fetch is still in
+                // flight or it failed. Never claim "signed out" on a guess.
+                reason = status.lastError == nil ? "inventory_pending" : "cloud_unreachable"
             }
             stopListener(reason: reason)
         case .on:

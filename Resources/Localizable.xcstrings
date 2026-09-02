@@ -103,6 +103,23 @@
         }
       }
     },
+    "cli.vpn.notifications.reason.inventoryPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking sign-in and machines, run `cmux vpn notifications status` again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインとマシンを確認中です。もう一度 `cmux vpn notifications status` を実行してください"
+          }
+        }
+      }
+    },
     "cli.vpn.notifications.reason.signedOut": {
       "extractionState": "manual",
       "localizations": {
