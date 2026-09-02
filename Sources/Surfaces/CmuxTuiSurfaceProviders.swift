@@ -163,8 +163,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
             case .snapshotOnly(let id):
                 return String(
-                    localized: "cloudTree.error.snapshotOnly",
-                    defaultValue: "\(id) uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+                    format: String(
+                        localized: "cloudTree.error.snapshotOnly",
+                        defaultValue: "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+                    ),
+                    id
                 )
             case .badURL(let url):
                 return "The control plane returned an unusable URL: \(url)"
