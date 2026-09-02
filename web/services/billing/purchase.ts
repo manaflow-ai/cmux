@@ -1936,7 +1936,7 @@ export async function applySubscriptionUpdate(
       : await db.transaction((tx) => applyTeamUpdate(tx, { kind: "legacy-team" }));
     if ("skipped" in lockedResult) return { skipped: true };
     const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive);
+    await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
     return lockedResult;
   }
 
@@ -2433,7 +2433,7 @@ async function recordTeamCheckoutCompletion(input: {
       lockedResult.postCommitTeamSync.stackTeamId,
       lockedResult.postCommitTeamSync.stackApp,
     );
-    await syncTeamPlanMetadata(team, true);
+    await syncTeamPlanMetadata(team, true, subscriptionSeats(input.subscription));
   }
 
   return lockedResult.result;

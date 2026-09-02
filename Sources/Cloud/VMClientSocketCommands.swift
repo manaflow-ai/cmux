@@ -512,6 +512,12 @@ extension TerminalController {
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }
+        if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
+            var address: [String: Any] = [:]
+            address["ipv4"] = vm.addressIPv4.map { $0 as Any } ?? NSNull()
+            address["ipv6"] = vm.addressIPv6.map { $0 as Any } ?? NSNull()
+            payload["address"] = address
+        }
         if let base = vm.base {
             payload["base"] = [
                 "id": base.id,

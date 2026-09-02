@@ -71,7 +71,13 @@ extension RemoteSessionCoordinator {
 
                 let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
                 uploadedRemotePaths.append(remotePath)
-                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+                // SCP's stream is a batch protocol; a remote PTY would corrupt
+                // its framing even when an interactive workspace requested one.
+                var scpArgs: [String] = [
+                    "-q",
+                    "-o", "ControlMaster=no",
+                    "-o", "RequestTTY=no",
+                ]
                 if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
                     scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
                 }

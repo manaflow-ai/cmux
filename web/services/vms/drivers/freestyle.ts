@@ -1,4 +1,13 @@
-import { Freestyle, FreestyleApiError, type TunnelData, type VmData, type Vm, type VpcData } from "freestyle";
+import {
+  Freestyle,
+  FreestyleApiError,
+  type ResizeVmOptions,
+  type TunnelData,
+  type VmData,
+  type VmResources,
+  type Vm,
+  type VpcData,
+} from "freestyle";
 import { randomBytes } from "node:crypto";
 import {
   ProviderError,
@@ -23,6 +32,7 @@ import {
   type VMProvider,
   type VMStatus,
 } from "./types";
+import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
@@ -186,19 +196,30 @@ type FreestyleNetworkAddress = {
  * Private wins unconditionally, and deliberately never falls back: a machine on
  * a VPC has no public inbound rule, so a public route for it would not be a
  * degraded path but a guaranteed timeout with a misleading address in the
- * error. IPv6 is preferred within the network only because the daemon binds
- * `[::]` — the IPv4 address is the honest second choice on a network whose v6
- * allocation was declined, not a fallback for an unreachable v6.
+ * error.
+ *
+ * Within the network, IPv4 is preferred, because only the v4 path is reliable
+ * over the WireGuard tunnel. The tunnel routes the VPC's v4 prefix as a subnet,
+ * so it reaches any member the moment that member exists; its v6 path does not
+ * pick up members created after the tunnel came up. A VM created into an
+ * established tunnel therefore answers on its private v4 and blackholes on its
+ * private v6 from the same Mac, while both work VM-to-VM inside the VPC. With
+ * v6 first, every freshly created machine spent the full 60s connect timeout
+ * and surfaced as "Command timed out"; only machines predating the tunnel
+ * connected. Preferring v4 also matches the app's own `preferredPrivateAddress`
+ * (v4 then v6), so the address a person copies from the sidebar is the address
+ * the daemon is dialed on. The public fallback below stays v6 — Freestyle
+ * allocates no public v4 at all.
  */
 export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];
   for (const network of networks) {
-    const ipv6 = network.ipv6?.trim();
-    if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
-  }
-  for (const network of networks) {
     const ipv4 = network.ipv4?.trim();
     if (ipv4) return `ws://${ipv4}:${CMUX_TUI_PORT}/v1/link`;
+  }
+  for (const network of networks) {
+    const ipv6 = network.ipv6?.trim();
+    if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
   }
   if (networks.length > 0) {
     throw new ProviderError(
@@ -214,6 +235,23 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
     );
   }
   return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
+}
+
+/**
+ * The machine's private-network addresses as persistable metadata. Addresses
+ * are allocated at create, so the create response already carries them; a
+ * response without any (no network) contributes nothing.
+ */
+export function freestyleNetworkAddressMetadata(
+  data: FreestyleRouteAddresses,
+): { networkIpv4?: string; networkIpv6?: string } {
+  const network = (data.vpcs ?? data.networks ?? [])[0];
+  const ipv4 = network?.ipv4?.trim();
+  const ipv6 = network?.ipv6?.trim();
+  return {
+    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+  };
 }
 
 /** The Freestyle VPC/tunnel records mapped onto the driver-neutral shapes. */
@@ -345,6 +383,11 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         const fs = freestyleClient();
         const existing = await this.readNetworkBySlug(fs, slug);
         if (existing) {
+          // Create-time rules can be deleted out of band (dashboard, scripts),
+          // and a network without its members rule strands every machine on
+          // it. Heal on every reuse: listing is cheap, the create is
+          // conditional, and the rule is what the whole feature stands on.
+          await this.ensureMembersRule(fs, existing.id);
           setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
           return existing;
         }
@@ -464,6 +507,36 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
+  /**
+   * Guarantee the network's members-reach-each-other rule (all ports, all
+   * protocols — the rule created with the network). Missing means someone
+   * removed it; re-create rather than fail, because nothing on the network
+   * works without it.
+   */
+  private async ensureMembersRule(fs: Freestyle, networkId: string): Promise<void> {
+    try {
+      const { rules } = await fs.firewall.rules.list({ vpcId: networkId });
+      const present = rules.some((rule) =>
+        rule.source.vpcId === networkId &&
+        rule.destination.vpcId === networkId &&
+        rule.destination.port === undefined &&
+        rule.destination.protocol === undefined
+      );
+      if (present) return;
+      await fs.firewall.rules.create({
+        action: "allow",
+        source: { vpcId: networkId },
+        destination: { vpcId: networkId },
+        description: "cmux: members reach each other (healed)",
+      });
+    } catch (err) {
+      // Heal is best-effort on the reuse path: a transient listing failure
+      // must not block machine creation on a network that is almost always
+      // already correct.
+      console.error(`[freestyle] members-rule heal failed for ${networkId}`, err);
+    }
+  }
+
   /** A network by slug, or null when the account has none under that name. */
   private async readNetworkBySlug(fs: Freestyle, slug: string): Promise<ProviderNetwork | null> {
     try {
@@ -513,7 +586,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
           const networkId = options.network?.id;
-          const { vm, vmId } = await fs.vms.create({
+          const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
@@ -525,9 +598,16 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            // CreateVmOptions has no size: a VM boots at its snapshot's
+            // resources (the devbox snapshot is 2 vCPU / 4 GB / 16 GB) and
+            // only a grow-only resize raises them. Size before bootstrap so
+            // the machine the daemon comes up on is the one that was sold.
+            await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
             await this.bootstrapCmuxTui(vm, vmId, options.envs);
           } catch (err) {
-            // A VM that failed to bootstrap must not survive as an orphan.
+            // A VM that failed to size or bootstrap must not survive as an
+            // orphan, and an undersized machine must not ship as if it were
+            // the plan machine.
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
             });
@@ -539,13 +619,15 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image,
             createdAt: Date.now(),
-            // The network id is persisted so an operator can trace a machine to
-            // its owner's VPC without a provider round trip. Attach still reads
-            // the live address from vm.data(): this records which network the
-            // machine was placed on, never where to dial it.
+            // The network id and addresses are persisted so listings can show a
+            // machine's private IP (and an operator can trace it to its owner's
+            // VPC) without a provider round trip. Attach still reads the live
+            // address from vm.data(): this records where the machine was
+            // placed, never where to dial it.
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               ...(networkId ? { networkId } : {}),
+              ...(freestyleNetworkAddressMetadata(data)),
             },
           };
         } catch (err) {
@@ -553,6 +635,32 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * Grow the VM to the requested memory (the plan machine when the caller
+   * sent none), the vCPUs that memory implies, and the plan disk. Freestyle
+   * resize is grow-only, so only larger dimensions are sent; a snapshot that
+   * already carries the size is a no-op.
+   */
+  private async growToRequestedSize(
+    fs: Freestyle,
+    vm: Vm,
+    vmId: string,
+    memoryMb: number | undefined,
+    span: Parameters<typeof setSpanAttributes>[0],
+  ): Promise<void> {
+    const current = (await fs.vms.get(vmId)).resources;
+    const target = freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
+    const request = freestyleResizeRequest(current, target);
+    setSpanAttributes(span, {
+      "cmux.vm.resources.cpu": target.cpu,
+      "cmux.vm.resources.memory_mb": target.memory,
+      "cmux.vm.resources.storage_mb": target.storage,
+      "cmux.vm.resize.requested": request !== null,
+    });
+    if (!request) return;
+    await vm.resize(request);
   }
 
   async destroy(vmId: string): Promise<void> {
@@ -696,7 +804,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
           const networkId = options?.network?.id;
-          const { vm, vmId } = await fs.vms.create({
+          const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
@@ -717,7 +825,9 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image: snapshotId,
             createdAt: Date.now(),
-            ...(networkId ? { providerMetadata: { networkId } } : {}),
+            ...(networkId
+              ? { providerMetadata: { networkId, ...freestyleNetworkAddressMetadata(data) } }
+              : {}),
           };
         } catch (err) {
           throw new ProviderError("freestyle", `restore(${snapshotId})`, err);
@@ -753,6 +863,11 @@ export class FreestyleProvider implements VMProvider {
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
           const daemonBuild = await cmuxTuiDaemonBuild(invoke);
+          const addresses = freestyleNetworkAddressMetadata(data);
+          const networkAddresses = {
+            ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
+            ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
+          };
           return {
             transport: "cmux-remote" as const,
             route,
@@ -761,6 +876,7 @@ export class FreestyleProvider implements VMProvider {
             session: CMUX_TUI_SESSION,
             ...(daemonBuild ? { daemonBuild } : {}),
             ...(invitation ? { invitation } : {}),
+            ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
           };
         } catch (err) {
           throw err instanceof ProviderError
@@ -899,4 +1015,32 @@ export class FreestyleProvider implements VMProvider {
       return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
     };
   }
+}
+
+/** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */
+export function freestyleTargetResources(
+  memoryMb: number,
+  env: Record<string, string | undefined> = process.env,
+): VmResources {
+  return {
+    cpu: vcpusForMemoryMb(memoryMb),
+    memory: memoryMb,
+    storage: vmDiskMb(env),
+  };
+}
+
+/**
+ * The grow-only resize that takes `current` to `target`, or null when nothing
+ * needs to grow. Shrinks are never requested: Freestyle rejects them, and a
+ * snapshot restored at a larger size keeps what it had.
+ */
+export function freestyleResizeRequest(
+  current: VmResources,
+  target: VmResources,
+): ResizeVmOptions | null {
+  const request: ResizeVmOptions = {};
+  if (target.cpu > current.cpu) request.cpu = target.cpu;
+  if (target.memory > current.memory) request.memory = target.memory;
+  if (target.storage > current.storage) request.storage = target.storage;
+  return Object.keys(request).length > 0 ? request : null;
 }
