@@ -97,6 +97,19 @@ export type CreateOptions = {
    * Providers without an injecting edge must refuse them rather than drop them.
    */
   edgeRules?: readonly VmEdgeRule[];
+  /**
+   * The owner's private network to attach the machine to. When present the
+   * machine takes an address on it and its session daemon is reachable only
+   * from other members — the owner's other machines, and the owner's computer
+   * over its WireGuard tunnel — so the driver opens no public inbound port.
+   * Providers without `privateNetworking` ignore it.
+   */
+  network?: ProviderNetworkRef;
+};
+
+/** Enough of a provider network to attach a machine or a tunnel to it. */
+export type ProviderNetworkRef = {
+  readonly id: string;
 };
 
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
@@ -108,7 +121,10 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata">;
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata"> & {
+  /** The owner's private network; see {@link CreateOptions.network}. */
+  network?: ProviderNetworkRef;
+};
 
 export type SSHEndpoint = {
   transport: "ssh";
@@ -269,8 +285,91 @@ export interface VmCapabilities {
   readonly fork: boolean;
 }
 
+/** A private network that every machine belonging to one user shares. */
+export type ProviderNetwork = {
+  readonly id: string;
+  readonly slug: string | null;
+  /** IPv4 CIDR, when the network has one. */
+  readonly cidr: string | null;
+  /** IPv6 CIDR. Always present: provider networks are dual-stack. */
+  readonly cidrV6: string;
+};
+
+/**
+ * A WireGuard tunnel: one of the owner's computers as a member of their
+ * private network.
+ *
+ * `clientConfig` is a complete `wg-quick` config whose `PrivateKey` is blank —
+ * cmux always supplies its own public key, so the provider never mints (or
+ * sees) a private key, and the client fills its own in from its keystore.
+ */
+export type ProviderTunnel = {
+  readonly id: string;
+  readonly clientConfig: string;
+  readonly clientPublicKey: string;
+  readonly serverPublicKey: string;
+  readonly endpointHost: string | null;
+  readonly endpointPort: number;
+  /** The client's `AllowedIPs` — every range it routes through the tunnel. */
+  readonly routes: readonly string[];
+  /** The tunnel's address inside the attached network, i.e. what the VMs see. */
+  readonly addressV4: string | null;
+  readonly addressV6: string | null;
+};
+
+export type CreateProviderTunnelOptions = {
+  readonly slug: string;
+  readonly displayName?: string;
+  /** Base64 Curve25519 public key. Required: cmux never lets the provider mint a private key. */
+  readonly clientPublicKey: string;
+  readonly networkId: string;
+};
+
+/**
+ * Private networking, as a whole-account capability rather than a per-machine
+ * one: the network and the tunnels into it outlive every machine on them, so
+ * they are addressed by owner, not by VM id.
+ *
+ * A driver that does not implement this leaves `privateNetworking` undefined,
+ * and its machines keep whatever reachability the driver gives them directly.
+ */
+export interface VMPrivateNetworking {
+  /**
+   * The owner's network, created if it does not exist yet. Must be idempotent
+   * under concurrent calls with the same slug: two machines created at once
+   * must land on one network, not two.
+   */
+  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  /** Read a network back, or null when it no longer exists at the provider. */
+  getNetwork(networkId: string): Promise<ProviderNetwork | null>;
+  /** Delete a network. Must succeed when it is already gone. */
+  deleteNetwork(networkId: string): Promise<void>;
+  /** Create a tunnel with the network already attached. */
+  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel>;
+  /**
+   * Read a tunnel back with its address inside `networkId`, re-attaching the
+   * network if the attachment is missing. Null when the tunnel is gone at the
+   * provider, which is how a stale control-plane row is detected.
+   */
+  getTunnel(tunnelId: string, networkId: string): Promise<ProviderTunnel | null>;
+  /**
+   * Replace the tunnel's keys, keeping its id and every attachment. Used when a
+   * client presents a public key that does not match the recorded one — a
+   * reinstalled app that lost its private key.
+   */
+  rotateTunnelKey(tunnelId: string, clientPublicKey: string, networkId: string): Promise<ProviderTunnel>;
+  /** Delete a tunnel. Must succeed when it is already gone. */
+  deleteTunnel(tunnelId: string): Promise<void>;
+}
+
 export interface VMProvider {
   readonly id: ProviderId;
+
+  /**
+   * Per-owner private networks and the WireGuard tunnels into them. Undefined
+   * on drivers whose machines are only reachable at a public address.
+   */
+  readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
    * throw NotImplementedError declares that here; `fork` defaults to whether the method
@@ -309,6 +408,12 @@ export interface VMProvider {
   openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
+  /**
+   * Boot a new machine from a snapshot. `options.network` places it on the
+   * owner's private network exactly as `create` does — a restored machine is a
+   * machine like any other, and one restored outside the network would be the
+   * only unreachable one in the account.
+   */
   restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 

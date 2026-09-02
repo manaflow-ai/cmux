@@ -11,6 +11,7 @@ import type {
   VMHandle,
   VMStatus,
 } from "./drivers";
+import { isProviderId } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -42,6 +43,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import { resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -66,6 +68,18 @@ export {
   homeVolumeTemplateForUser,
   isMachineOwnedHomeVolumeName,
 } from "./volumeNaming";
+export {
+  deletePrivateNetworkingForAccountDeletion,
+  enrollVmTunnel,
+  isWireGuardPublicKey,
+  listVmTunnels,
+  networkSlugForUser,
+  readVmTunnel,
+  resolveOwnerNetwork,
+  revokeVmTunnel,
+  tunnelSlugForDevice,
+} from "./privateNetwork";
+export type { VmTunnelDescriptor } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -156,11 +170,25 @@ export async function runVmWorkflow<A>(
   }
 }
 
+/**
+ * A row whose provider is no longer registered belongs to a retired driver.
+ * Drivers leave with a code deploy while the rows they wrote survive until an
+ * operator runs the matching migration, so every read path must treat such a
+ * row as unaddressable instead of asking the registry for a driver it no
+ * longer has. The registry throws for an unknown id, and one surviving row was
+ * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ */
+export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
+  return !isProviderId(row.provider);
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+    return rows
+      .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
+      .map(vmEntryFromRow);
   });
 }
 
@@ -356,6 +384,20 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+
+    // Resolved before the row is inserted and the credit reserved, so a
+    // provisioning failure here costs nothing to unwind. The network is an
+    // account-level resource — free, idempotent, and reused by every later
+    // machine — so resolving it for a create that then hits the active-VM
+    // limit is not waste, it is setup the next create no longer has to do.
+    // Null means the deployment or provider has no private networking, and the
+    // machine falls back to being reachable at its public address.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+    );
+
     const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
 
     if (!create.inserted) {
@@ -425,6 +467,7 @@ export function createVm(input: {
         memoryMb: input.memoryMb,
         envs: materials?.envs,
         edgeRules: materials?.edgeRules,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -638,12 +681,28 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
+    // Base machines join the owner's private network exactly as ad-hoc
+    // machines do — Base is the machine most users touch first, so leaving it
+    // publicly exposed would make the default machine the least private one.
+    // finishBaseCreate receives its services as parameters (it predates the
+    // context-based composition), so hand them to the context-reading resolver
+    // explicitly instead of widening this function's environment.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+        Effect.provideService(VmRepository, repo),
+        Effect.provideService(VmProviderGateway, providers),
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -1160,7 +1219,7 @@ function reconcileObservedProviderStatus(
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderNotFoundError(err)
@@ -2150,7 +2209,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       providerVmId: input.providerVmId,
       provider: input.provider,
     });
-    if (!vm || !vm.providerVmId) {
+    if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (!callerStillOwnsBillingScope(input, vm)) {

@@ -143,7 +143,7 @@ describe("devbox image template", () => {
     expect(CMUX_TUI_PORT).toBe(1337);
     expect(CMUX_TUI_SESSION).toBe("cloud");
     // The boot script parameterizes only the listener bind (the env Freestyle
-    // beta's systemd unit sets); everything else must match the drivers'
+    // public platform's systemd unit sets); everything else must match the drivers'
     // command byte for byte, so passing the shell expansion as the bind
     // reconstructs the script's exact line.
     expect(devboxBoot).toContain(
@@ -262,6 +262,9 @@ describe("devbox image template", () => {
     }
     // The image must prove generation in a throwaway HOME and ship none.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain(
+      "grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml",
+    );
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
@@ -346,6 +349,9 @@ describe("devbox image template", () => {
       expect(codex).toContain('model_provider = "cmux"');
       expect(codex).toContain('base_url = "https://example.invalid/v1"');
       expect(codex).toContain('wire_api = "responses"');
+      // The /v1 plane is HTTP-only; pin the Responses WebSocket transport off
+      // instead of relying on the custom-provider default.
+      expect(codex).toContain("supports_websockets = false");
       expect(codex).toContain('persistence = "save-all"');
       // Every model-plane var is persisted generically, single-quoted.
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");

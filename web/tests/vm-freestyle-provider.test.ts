@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { Freestyle } from "freestyle";
 import {
+  FREESTYLE_NETWORK_FIREWALL_RULES,
   FreestyleProvider,
   assertNoRouteTokenInGuestPayload,
   freestyleCmuxRemoteRoute,
@@ -114,19 +115,69 @@ describe("FreestyleProvider transport contract", () => {
 });
 
 describe("Freestyle platform contract", () => {
-  test("firewall: outbound open, inbound only the daemon port", () => {
+  test("firewall on a private-network machine: outbound only, no inbound at all", () => {
+    // The VPC's members-reach-each-other rule is what admits the daemon port;
+    // an inbound rule here would re-expose 1337 to the Internet.
     expect(freestyleFirewallRules()).toEqual([
+      { action: "allow", source: {}, destination: { public: true } },
+    ]);
+  });
+
+  test("firewall without a network: inbound 1337 opens publicly, as before", () => {
+    expect(freestyleFirewallRules({ publicDaemonIngress: true })).toEqual([
       { action: "allow", source: {}, destination: { public: true } },
       { action: "allow", source: { public: true }, destination: { port: 1337, protocol: "tcp" } },
     ]);
   });
 
-  test("cmux-remote route is the public IPv6 straight to the daemon", () => {
-    expect(freestyleCmuxRemoteRoute("2602:f75c:0:1::2a", VM_ID)).toBe(
+  test("network firewall: one members-reach-each-other rule, nothing else", () => {
+    expect(FREESTYLE_NETWORK_FIREWALL_RULES).toEqual([
+      { action: "allow", source: {}, destination: {} },
+    ]);
+  });
+
+  test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
+    // On a VPC: the private IPv6 wins even when a public address exists,
+    // because a VPC machine has no public inbound rule.
+    expect(
+      freestyleCmuxRemoteRoute(
+        {
+          publicIpv6: "2602:f75c:0:1::2a",
+          vpcs: [{ ipv4: "10.40.0.10", ipv6: "fd7a:115c:a1e0::a" }],
+        },
+        VM_ID,
+      ),
+    ).toBe("ws://[fd7a:115c:a1e0::a]:1337/v1/link");
+    // v4-only membership is the honest second choice, not a public fallback.
+    expect(
+      freestyleCmuxRemoteRoute(
+        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.40.0.10", ipv6: null }] },
+        VM_ID,
+      ),
+    ).toBe("ws://10.40.0.10:1337/v1/link");
+    // A membership with no address is unreachable and must say so, not
+    // silently dial a public address the firewall will drop.
+    expect(() =>
+      freestyleCmuxRemoteRoute(
+        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: null, ipv6: null }] },
+        VM_ID,
+      ),
+    ).toThrow("no address");
+  });
+
+  test("cmux-remote route without a network is the public IPv6, as before", () => {
+    expect(freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toBe(
       "ws://[2602:f75c:0:1::2a]:1337/v1/link",
     );
-    expect(() => freestyleCmuxRemoteRoute(null, VM_ID)).toThrow("public IPv6");
-    expect(() => freestyleCmuxRemoteRoute("  ", VM_ID)).toThrow("public IPv6");
+    // The deprecated `networks` alias still resolves for older responses.
+    expect(
+      freestyleCmuxRemoteRoute(
+        { networks: [{ ipv6: "fd7a:115c:a1e0::b" }] },
+        VM_ID,
+      ),
+    ).toBe("ws://[fd7a:115c:a1e0::b]:1337/v1/link");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("public IPv6");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
   });
 
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
@@ -241,9 +292,11 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.creates).toHaveLength(1);
     expect(fake.creates[0]).toMatchObject({
       snapshotId: "sh-devbox",
-      firewall: { rules: freestyleFirewallRules() },
+      // No network given, so the daemon port stays publicly reachable.
+      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: true }) },
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
+    expect(fake.creates[0]).not.toHaveProperty("vpcs");
     // The token reaches the platform create call and nothing else.
     expect(JSON.stringify(fake.execs)).not.toContain("crt_");
     expect(JSON.stringify(fake.writes)).not.toContain("crt_");
@@ -255,6 +308,23 @@ describe("FreestyleProvider create with edge rules", () => {
     ]);
     expect(fake.execs.some((command) => command.includes("https://coderouter.dev/v1/models"))).toBe(true);
     expect(fake.deletes).toEqual([]);
+  });
+
+  test("keeps the inline tls rule when the machine joins a private network", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const handle = await providerWith(fake).create({
+      image: "sh-devbox",
+      envs: PLACEHOLDER_ENVS,
+      edgeRules: [EDGE_RULE],
+      network: { id: "vpc_1" },
+    });
+    expect(fake.creates[0]).toMatchObject({
+      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: false }) },
+      vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
+      tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
+    });
+    expect(handle.providerMetadata).toEqual({ networkId: "vpc_1" });
+    expect(JSON.stringify(fake.writes)).not.toContain("crt_");
   });
 
   test("omits the tls block and the probe when no rules are given", async () => {

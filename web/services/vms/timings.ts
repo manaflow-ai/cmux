@@ -11,6 +11,7 @@ export type VmTimingStage =
   | "limit_reconcile"
   | "billing"
   | "billing_reconcile"
+  | "resolve_network"
   | "model_plane_provision"
   | "provider_create"
   | "mark_running"
