@@ -563,6 +563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let remoteTmuxController = RemoteTmuxController()
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
+    /// Coordinates native Herdr Unix-socket mirroring (ssh-tmux parity host); composition-root owned.
+    let remoteHerdrController = RemoteHerdrController()
     /// Owns the process-scoped idle-sleep assertion shared by every local and
     /// mobile entrypoint.
     let caffeineController = CaffeineController()
@@ -571,6 +573,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// coordinator reaches back through `AppDelegate.shared`.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
+    /// Coordinates Herdr nested topology attachment + read projection (PR4); composition-root owned.
+    let nestedTopologyController = NestedTopologyController()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
@@ -2203,6 +2207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                await self.nestedTopologyController.teardown()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
@@ -2239,6 +2244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         removeWhenEmpty: false
                     )
                     ClosedItemHistoryStore.shared.flushPendingSaves()
+                    await self.nestedTopologyController.teardown()
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)
                     return
@@ -2443,6 +2449,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sentryStopMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
+        // Herdr native mirrors detach without server.stop.
+        remoteHerdrController.detachAll()
+        // Nested topology teardown is awaited from the confirmed-termination
+        // cleanup task so session snapshots see published intents first.
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()

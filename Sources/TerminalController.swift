@@ -7,6 +7,7 @@ import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxNestedTopology
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
@@ -39,6 +40,17 @@ extension Notification.Name {
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
+}
+
+private let remoteHerdrPendingSocketReplyKey = "cmux.remoteHerdr.pendingSocketReply"
+
+private final class RemoteHerdrPendingSocketReply: NSObject, @unchecked Sendable {
+    let socket: Int32
+    let command: String
+    init(socket: Int32, command: String) {
+        self.socket = socket
+        self.command = command
+    }
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
@@ -1163,6 +1175,20 @@ class TerminalController {
         return transport.writeAll(Data(payload.utf8), to: socket)
     }
 
+    static let remoteHerdrDeferredReplyToken = "\u{1e}cmux.remote-herdr.deferred"
+
+    nonisolated static func currentRemoteHerdrPendingSocketReply() -> (socket: Int32, command: String)? {
+        guard let pending = Thread.current.threadDictionary[remoteHerdrPendingSocketReplyKey] as? RemoteHerdrPendingSocketReply else {
+            return nil
+        }
+        return (pending.socket, pending.command)
+    }
+
+    nonisolated func completeRemoteHerdrSocketReply(_ response: String, socket: Int32, command: String) {
+        _ = writeSocketResponse(response, to: socket)
+        publishSocketEvents(command: command, response: response)
+    }
+
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
@@ -1708,6 +1734,26 @@ class TerminalController {
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
         case "remote.tmux.pane_surfaces":
             return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
+        case "remote.herdr.sessions":
+            return v2RemoteHerdrSessions(id: request.id, params: request.params)
+        case "remote.herdr.attach":
+            return v2RemoteHerdrAttach(id: request.id, params: request.params)
+        case "remote.herdr.mirror":
+            return v2RemoteHerdrMirror(id: request.id, params: request.params)
+        case "remote.herdr.window":
+            return v2RemoteHerdrWindow(id: request.id, params: request.params)
+        case "remote.herdr.detach":
+            return v2RemoteHerdrDetach(id: request.id, params: request.params)
+        case "remote.herdr.state":
+            return v2RemoteHerdrState(id: request.id, params: request.params)
+        case "remote.herdr.pane_surfaces":
+            return v2RemoteHerdrPaneSurfaces(id: request.id, params: request.params)
+        case "remote.herdr.pane_grids":
+            return v2RemoteHerdrPaneGrids(id: request.id, params: request.params)
+        case "nested.topology.list":
+            return v2NestedTopologyList(id: request.id, params: request.params)
+        case "nested.node.focus":
+            return v2NestedNodeFocus(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
@@ -1998,8 +2044,18 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        socket: Int32? = nil
     ) -> SocketLineProcessingResult {
+        if let socket {
+            Thread.current.threadDictionary[remoteHerdrPendingSocketReplyKey] = RemoteHerdrPendingSocketReply(
+                socket: socket,
+                command: command
+            )
+        } else {
+            Thread.current.threadDictionary.removeObject(forKey: remoteHerdrPendingSocketReplyKey)
+        }
+        defer { Thread.current.threadDictionary.removeObject(forKey: remoteHerdrPendingSocketReplyKey) }
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
         let debugStart = DispatchTime.now().uptimeNanoseconds
@@ -2031,6 +2087,12 @@ class TerminalController {
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
+        if response == TerminalController.remoteHerdrDeferredReplyToken {
+            return SocketLineProcessingResult(
+                response: nil,
+                passwordAuthorization: nextPasswordAuthorization
+            )
+        }
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -3167,6 +3229,7 @@ class TerminalController {
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
             "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            // remote.herdr.* and nested.topology.* appended below only when enabled
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -3331,6 +3394,24 @@ class TerminalController {
             ]
             methods.removeAll { taskComposerMethods.contains($0) }
         }
+        if RemoteHerdrController.isEnabled {
+            methods.append(contentsOf: [
+                "remote.herdr.sessions",
+                "remote.herdr.attach",
+                "remote.herdr.mirror",
+                "remote.herdr.window",
+                "remote.herdr.detach",
+                "remote.herdr.state",
+                "remote.herdr.pane_surfaces",
+                "remote.herdr.pane_grids",
+            ])
+        }
+        if NestedTopologyController.isEnabled {
+            methods.append(contentsOf: [
+                "nested.topology.list",
+                "nested.node.focus",
+            ])
+        }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
@@ -3341,8 +3422,17 @@ class TerminalController {
             "version": 2,
             "socket_path": socketServer.currentSocketPath,
             "access_mode": socketServer.accessMode.rawValue,
-            "capabilities": MobileHostService.mobileHostCapabilities,
-            "methods": methods.sorted()
+            "methods": methods.sorted(),
+            // Keep mobile host capabilities and add nested-topology semantics
+            // (PR4/PR5). Existing clients that only read `methods` remain compatible.
+            "capabilities": MobileHostService.mobileHostCapabilities + (
+                NestedTopologyController.isEnabled
+                    ? [
+                        NestedTopologyPublicCapability.readV1.rawValue,
+                        NestedTopologyPublicCapability.focusV1.rawValue,
+                    ]
+                    : []
+            ),
         ]
     }
 

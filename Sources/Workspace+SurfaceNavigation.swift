@@ -13,8 +13,9 @@ extension Workspace {
     }
 
     /// Moves keyboard focus through the rendered pane hierarchy. A selected
-    /// remote-tmux window owns a nested split tree, so it gets first refusal;
-    /// an edge with no inner neighbor falls through to the workspace tree.
+    /// remote-tmux / remote-Herdr window owns a nested split tree, so it gets
+    /// first refusal; an edge with no inner neighbor falls through to the
+    /// workspace tree.
     func moveFocus(direction: NavigationDirection) {
         if layoutMode == .canvas {
             moveCanvasFocus(direction: direction)
@@ -22,6 +23,15 @@ extension Workspace {
         }
         if let focusedPanelId,
            let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
+            switch mirror.navigateFocus(direction: direction) {
+            case .moved, .invalid:
+                return
+            case .edge:
+                break
+            }
+        }
+        if let focusedPanelId,
+           let mirror = remoteHerdrWindowMirror(forPanelId: focusedPanelId) {
             switch mirror.navigateFocus(direction: direction) {
             case .moved, .invalid:
                 return
@@ -67,6 +77,7 @@ extension Workspace {
     ) -> Bool {
         guard layoutMode != .canvas,
               !isRemoteTmuxMirror,
+              !isRemoteHerdrMirror,
               panels[panelId] != nil,
               let sourcePaneId = paneId(forPanelId: panelId) else {
             return false

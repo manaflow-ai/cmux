@@ -4,6 +4,7 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNestedTopology
 import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
@@ -15242,10 +15243,23 @@ struct VerticalTabsSidebar: View, Equatable {
         actionFactory: SidebarWorkspaceRowActionFactory,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceRowView {
-        SidebarWorkspaceRowView(
+        let nestedController = AppDelegate.shared?.nestedTopologyController
+        // Observe nested sidebar cache so attachment/title diffs refresh rows.
+        let nestedSubtrees = nestedController?.sidebarSubtrees(forWorkspaceID: input.workspaceId) ?? []
+        return SidebarWorkspaceRowView(
             snapshot: input.rowSnapshot(list: listSnapshot),
             actions: actionFactory(input),
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            nestedSubtrees: nestedSubtrees,
+            onToggleNestedExpansion: { hostSurfaceID in
+                nestedController?.toggleExpanded(hostStableSurfaceID: hostSurfaceID)
+            },
+            onFocusNestedNode: { hostSurfaceID, nodeID in
+                nestedController?.focusSidebarNode(
+                    hostStableSurfaceID: hostSurfaceID,
+                    nodeID: nodeID
+                )
+            }
         )
     }
 
