@@ -402,6 +402,14 @@ fn auth_snapshot_matches(left: &AuthSnapshot, right: &AuthSnapshot) -> bool {
         && left.transport_kind == right.transport_kind
 }
 
+fn auth_context_matches(snapshot: &AuthSnapshot, context: &FrameContext) -> bool {
+    snapshot.trust == context.trust
+        && snapshot.local_roots.as_deref() == context.local_roots.as_deref()
+        && snapshot.owner_user_id == context.owner_user_id
+        && snapshot.auth_generation == context.auth_generation
+        && snapshot.transport_kind == context.transport_kind
+}
+
 /// Scrubbed env for interactive PTYs (actions.mjs base, real TERM).
 pub fn pty_env(base: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = scrubbed_env(base);
@@ -891,13 +899,22 @@ impl PtyManager {
     /// first frame for an identified transport.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
-        if context.transport_id.is_none()
-            || context.cancellation.is_cancelled()
-            || Trust::parse(&context.trust).is_none()
-        {
+        let Some(transport_id) = context.transport_id.as_deref() else {
+            return;
+        };
+        let owner = TransportOwner::from_context(context);
+        if context.cancellation.is_cancelled() {
             return;
         }
-        let owner = TransportOwner::from_context(context);
+        if Trust::parse(&context.trust).is_none() {
+            let _update =
+                self.inner.transport_auth_updates.lock().expect("transport auth update lock");
+            let retired = self.inner.detach_matching_locked(|candidate| candidate == &owner);
+            drop(_update);
+            retired.retire();
+            debug_assert_eq!(owner.id.as_deref(), Some(transport_id));
+            return;
+        }
         let snapshot = AuthSnapshot::from_context(context);
         // Serialize replacement. A changed snapshot is removed before the
         // new one is published, so stale frames cannot re-register it during
@@ -2399,12 +2416,12 @@ impl Inner {
         {
             return false;
         }
-        let snapshot = AuthSnapshot::from_context(context);
         let owner = TransportOwner::from_context(context);
         if context.transport_kind == TransportKind::Legacy && context.transport_id.is_none() {
             // Legacy whole-manager callers use `None` and provide the
             // current trust on each frame. Keep that contract for non-
             // transport code.
+            let snapshot = AuthSnapshot::from_context(context);
             self.transport_auth.lock().expect("transport auth lock").insert(owner, snapshot);
             return true;
         }
@@ -2421,7 +2438,7 @@ impl Inner {
             .lock()
             .expect("transport auth lock")
             .get(&owner)
-            .is_some_and(|cached| auth_snapshot_matches(cached, &snapshot))
+            .is_some_and(|cached| auth_context_matches(cached, context))
     }
 
     fn matching_trust(auth: &AuthSnapshot, context: &FrameContext) -> Option<Trust> {
