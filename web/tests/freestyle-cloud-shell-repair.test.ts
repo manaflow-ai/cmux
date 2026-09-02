@@ -1,30 +1,42 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
-const freestyleDriverSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/freestyle.ts"),
-  "utf8",
-);
+import {
+  FREESTYLE_ATTACH_TRANSPORT,
+  freestyleCmuxRemoteRoute,
+  freestyleDaemonHealthyCommand,
+  freestyleFirewallRules,
+  freestyleStartDaemonCommand,
+} from "../services/vms/drivers/freestyle";
 
-describe("Freestyle Cloud VM shell repair", () => {
-  test("daemon creation and repair use the managed cloud shell", () => {
-    expect(freestyleDriverSource).toContain(
-      'const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell"',
-    );
-    expect(freestyleDriverSource).toContain('"--shell",\n        CMUX_CLOUD_SHELL_PATH');
-    expect(freestyleDriverSource).toContain(
-      "ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} --shell /usr/local/bin/cmux-cloud-shell",
-    );
-    expect(freestyleDriverSource).not.toContain('"--shell",\n        "/bin/bash"');
+const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
+
+describe("Freestyle Cloud VM daemon contract", () => {
+  test("uses the cmux-tui transport and repairs dual-stack listeners", () => {
+    expect(FREESTYLE_ATTACH_TRANSPORT).toBe("cmux-remote");
+    expect(freestyleDaemonHealthyCommand()).toContain("/proc/net/tcp6");
+
+    const startCommand = freestyleStartDaemonCommand();
+    expect(startCommand).toContain("CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
+    expect(startCommand).toContain("systemctl restart cmux-tui-daemon");
+    expect(startCommand).toContain("--remote-ws [::]:1337");
   });
 
-  test("healthy websocket daemons are still repaired when shell integration is missing", () => {
-    expect(freestyleDriverSource).toContain("readFreestyleCloudShellState(vm)");
-    expect(freestyleDriverSource).toContain("service-shell-not-managed");
-    expect(freestyleDriverSource).toContain("cmux-user-missing");
-    expect(freestyleDriverSource).toContain("home-zshrc-missing");
-    expect(freestyleDriverSource).toContain("freestyleCloudShellSetupCommands()");
+  test("uses private network addresses before the legacy public route", () => {
+    expect(
+      freestyleCmuxRemoteRoute(
+        {
+          publicIpv6: "2602:f75c:0:1::2a",
+          vpcs: [{ ipv6: "fd7a:115c:a1e0::a" }],
+        },
+        VM_ID,
+      ),
+    ).toBe("ws://[fd7a:115c:a1e0::a]:1337/v1/link");
+
+    expect(freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toBe(
+      "ws://[2602:f75c:0:1::2a]:1337/v1/link",
+    );
+    expect(freestyleFirewallRules()).toEqual([
+      { action: "allow", source: {}, destination: { public: true } },
+    ]);
   });
 });

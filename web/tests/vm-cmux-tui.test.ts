@@ -373,7 +373,9 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      // Keep the fake daemon alive without monopolizing a CPU while Bun runs
+      // other isolated test files concurrently on the small CI runner.
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -482,7 +484,7 @@ describe("cmux-tui install and daemon commands", () => {
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
       // Keep the fake daemon in shell code so its TERM trap runs reliably when
       // the supervisor switches away from the lost view.
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -557,7 +559,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ':' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -631,7 +633,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -699,7 +701,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
