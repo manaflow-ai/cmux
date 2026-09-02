@@ -1004,6 +1004,7 @@ mod tests {
             "--separate-git-dir=/tmp/attacker",
             "ssh://-oProxyCommand=id/repo.git",
             "ssh://git@-oProxyCommand=id/repo.git",
+            "ssh://-oProxyCommand=id@trusted-host/repo.git",
         ] {
             assert!(
                 validate_git_source(source).is_err(),
