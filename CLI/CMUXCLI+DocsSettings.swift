@@ -381,7 +381,7 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, networking, sidebar-appearance,
+          account, app, terminal, mobile, networking, sidebar-appearance,
           custom-sidebars, automation, browser, browser-import,
           global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
           cmux-json, json, reset
@@ -423,6 +423,8 @@ extension CMUXCLI {
             return "automation"
         case "browser":
             return "browser"
+        case "mobile", "ios", "iphone", "devices":
+            return "mobile"
         case "networking", "network", "iroh":
             return "networking"
         case "browser-import", "browserimport", "import-browser-data":
