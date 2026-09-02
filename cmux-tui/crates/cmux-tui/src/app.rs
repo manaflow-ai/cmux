@@ -87,7 +87,8 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    ProjectionBranch, ProjectionRailState, ProjectionRevision, ProjectionRow, ProjectionRowsCache,
+    ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -7277,6 +7278,9 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_rows_cache: ProjectionRowsCache,
+    agent_generation: u64,
+    sidebar_generation: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9549,6 +9553,9 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_rows_cache: ProjectionRowsCache::default(),
+        agent_generation: 0,
+        sidebar_generation: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10352,13 +10359,18 @@ impl App {
             .as_ref()
             .filter(|_| includes_agents)
             .map_or(&[][..], |(_, agents)| agents.as_slice());
-        crate::sidebar_projection::rows(
-            spec,
-            &self.tree,
-            agents,
-            self.sidebar_workspace_selection,
-            collapsed,
-        )
+        let revision = ProjectionRevision {
+            tree_workspace: self.tree.workspace_revision,
+            tree_pane: self.tree.pane_revision,
+            agents: self.projection_agents_generation,
+            sidebar: self.sidebar_generation,
+        };
+        let tree = &self.tree;
+        let selected_workspace = self.sidebar_workspace_selection;
+        self.projection_rows_cache.get_or_build(&spec.id, revision, || {
+            crate::sidebar_projection::rows(spec, tree, agents, selected_workspace, collapsed)
+        })
+            
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -10459,6 +10471,14 @@ impl App {
         self.projection_rails.entry(id).or_default()
     }
 
+    fn bump_sidebar_generation(&mut self) {
+        self.sidebar_generation = self.sidebar_generation.saturating_add(1);
+    }
+
+    fn bump_agent_generation(&mut self) {
+        self.agent_generation = self.agent_generation.saturating_add(1);
+    }
+
     fn invoke_sidebar_action(
         &mut self,
         target: SidebarActionTarget,
@@ -10534,12 +10554,16 @@ impl App {
     }
 
     fn follow_sidebar_workspace(&mut self, index: usize) {
+        let changed = self.sidebar_workspace_selection != index;
         if self.sidebar_workspace_selection != index {
             self.tabs_rail_selection = 0;
             self.tabs_rail_scroll = 0;
         }
         self.sidebar_workspace_selection = index;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        if changed {
+            self.bump_sidebar_generation();
+        }
     }
 
     fn activate_workspace(&mut self, index: usize) {
@@ -10548,10 +10572,12 @@ impl App {
         }
         self.follow_sidebar_workspace(index);
         self.tree.active_workspace = index;
+        self.bump_sidebar_generation();
         self.select_workspace_for_client(Some(index), None);
     }
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
+        self.bump_sidebar_generation();
         match target {
             ProjectionTarget::Workspace { id, .. } => {
                 // The hit map can outlive a tree snapshot while a remote
@@ -12004,6 +12030,7 @@ impl App {
         // The readout belongs to the previous daemon; the replacement's own
         // value arrives from its background refresh.
         self.machine_usage = None;
+        self.bump_sidebar_generation();
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -13320,6 +13347,7 @@ impl App {
         if topology_changed {
             self.invalidate_projection_agents();
         }
+        self.bump_sidebar_generation();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
                 self.tree.workspaces().iter().position(|workspace| workspace.id == selected)
@@ -14255,6 +14283,8 @@ impl App {
         let valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
+        self.projection_rows_cache.retain_view_ids(&valid_view_ids);
+        self.bump_sidebar_generation();
         self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
         if let Some(id) = focused_projection_id {
             if let Some((index, view)) =
@@ -15634,6 +15664,10 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
+                self.bump_agent_generation();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -18744,7 +18778,9 @@ impl App {
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
-                self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+                if self.projection_rail_state_mut(view_index).collapsed.insert(branch) {
+                    self.bump_sidebar_generation();
+                }
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
             }
@@ -18755,7 +18791,9 @@ impl App {
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
-                self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+                if self.projection_rail_state_mut(view_index).collapsed.remove(&branch) {
+                    self.bump_sidebar_generation();
+                }
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
             }
@@ -18773,6 +18811,7 @@ impl App {
                 state.selected_action = Some(next.saturating_sub(rows.len()));
             }
             state.follow_selection = true;
+            self.bump_sidebar_generation();
             return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Char(' '))
@@ -18782,6 +18821,7 @@ impl App {
             if !state.collapsed.remove(&branch) {
                 state.collapsed.insert(branch);
             }
+            self.bump_sidebar_generation();
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
@@ -22623,12 +22663,14 @@ impl App {
                     if !state.collapsed.remove(&branch) {
                         state.collapsed.insert(branch);
                     }
+                    self.bump_sidebar_generation();
                 }
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
                     state.selected_action = None;
                     state.follow_selection = true;
+                    self.bump_sidebar_generation();
                     self.activate_projection_target(target)?;
                     self.focus = FocusTarget::Pane;
                 }
@@ -23769,12 +23811,18 @@ impl App {
             .entry(self.config.sidebar.active_profile.clone())
             .or_default();
         if visible {
-            hidden.remove(&view_id);
+            let changed = hidden.remove(&view_id);
             self.sidebar_visible = true;
+            if changed {
+                self.bump_sidebar_generation();
+            }
         } else {
-            hidden.insert(view_id);
+            let changed = hidden.insert(view_id);
             if hides_focused {
                 self.focus = FocusTarget::Pane;
+            }
+            if changed {
+                self.bump_sidebar_generation();
             }
         }
     }
@@ -23798,6 +23846,7 @@ impl App {
             })
             .collect();
         self.sidebar_visible = true;
+        self.bump_sidebar_generation();
         if let Some(focused_view) = focused_view {
             let hidden = self
                 .hidden_sidebar_views
@@ -46245,6 +46294,9 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_rows_cache: ProjectionRowsCache::default(),
+            agent_generation: 0,
+            sidebar_generation: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
