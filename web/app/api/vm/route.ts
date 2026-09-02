@@ -24,6 +24,7 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
@@ -136,6 +137,10 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
@@ -370,6 +375,20 @@ export async function POST(request: Request): Promise<Response> {
             message: "The requested Cloud VM size exceeds this plan's memory limit.",
             action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
             details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
+          });
+        }
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        if (!memoryOptionsMb.includes(memoryMb)) {
+          // The pricing page promises every machine is the plan machine, so a
+          // smaller request is refused rather than quietly under-delivered.
+          // The plan default is always accepted, so operator overrides cannot
+          // make an omitted size fail.
+          return vmErrorResponse({
+            error: "vm_memory_unsupported",
+            status: 400,
+            message: "The requested Cloud VM size is not offered.",
+            action: `Omit \`memoryMb\`, or choose one of: ${memoryOptionsMb.join(", ")} MB.`,
+            details: { requestedMemoryMb: memoryMb, memoryOptionsMb: [...memoryOptionsMb], planId: entitlements.planId },
           });
         }
         setSpanAttributes(span, {

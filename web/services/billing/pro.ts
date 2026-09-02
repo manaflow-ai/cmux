@@ -605,27 +605,36 @@ export function metadataPlanId(raw: unknown): string | null {
 }
 
 /**
- * Writes `cmuxPlan: "team"` into a Stack team's clientReadOnlyMetadata while a
- * Stripe Team subscription is active. `cmuxVmPlan` is operator-owned and left
+ * Writes `cmuxPlan: "team"` and `cmuxSeats` (the subscription quantity) into
+ * a Stack team's clientReadOnlyMetadata while a Stripe Team subscription is
+ * active; both are removed when it lapses. Seats size the team's Cloud VM
+ * allowance (50 machines per seat), so a quantity change must land here even
+ * when the plan id is unchanged. `cmuxVmPlan` is operator-owned and left
  * untouched.
  */
 export async function syncTeamPlanMetadata(
   team: ProMetadataCustomer,
   isTeam: boolean,
+  seats: number | null = null,
 ): Promise<void> {
   const raw = team.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
-  const current = metadata.cmuxPlan;
+  const currentPlan = metadata.cmuxPlan;
+  const currentSeats = metadata.cmuxSeats;
 
   if (isTeam) {
-    if (current === TEAM_PLAN_ID) return;
+    const nextSeats = seats !== null && Number.isSafeInteger(seats) && seats > 0 ? seats : null;
+    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return;
     metadata.cmuxPlan = TEAM_PLAN_ID;
+    if (nextSeats === null) delete metadata.cmuxSeats;
+    else metadata.cmuxSeats = nextSeats;
   } else {
-    if (current !== TEAM_PLAN_ID) return;
-    delete metadata.cmuxPlan;
+    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return;
+    if (currentPlan === TEAM_PLAN_ID) delete metadata.cmuxPlan;
+    delete metadata.cmuxSeats;
   }
   await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
 }

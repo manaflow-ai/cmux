@@ -8621,22 +8621,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                     return
                 }
+                // Create hands the request to the shared create coordinator and
+                // the sheet closes at once: the placeholder workspace's loading
+                // pane and the Machines panel's pending row show Base coming up,
+                // and the person keeps working meanwhile (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     imageKinds: page?.limits?.imageKinds ?? [],
-                    launch: { [weak self] arguments, completion in
+                    submit: { [weak self] request in
                         guard let self else { return false }
-                        return self.launchCloudVMBaseOpen(
-                            workspace: workspace,
-                            socketPath: socketPath,
-                            preferredWindow: launchWindow,
-                            arguments: arguments,
-                            onCompletion: { result in
-                                completion(result)
-                                onCompletion?(result)
-                            }
-                        )
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                            guard let self else { return false }
+                            return self.launchCloudVMBaseOpen(
+                                workspace: workspace,
+                                socketPath: socketPath,
+                                preferredWindow: launchWindow,
+                                arguments: arguments,
+                                onCompletion: { result in
+                                    completion(result)
+                                    onCompletion?(result)
+                                }
+                            )
+                        }
                     }
                 )
                 model.onFinished = { outcome in

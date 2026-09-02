@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Files
+Comment=Browse the filesystem
+Exec=/usr/bin/thunar %U
+Terminal=false
+Icon=/etc/cmux/icons/thunar.png
+Type=Application
+Categories=System;Utility;FileManager;
+StartupNotify=true

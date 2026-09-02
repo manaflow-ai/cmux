@@ -27,9 +27,11 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 - Fake payment, two ways: `web/scripts/stripe/dev-grant.sh <email>` writes `cmuxVmPlan: "pro"` directly (same override as the admin page) (instant, no checkout; undo with dev-reset). For the full checkout path at $0, enter promotion code `CMUXDEV100` in test-mode checkout — a 100%-off forever coupon in the test account; `allow_promotion_codes` is already set on checkout sessions.
 - Newer Stripe CLI prints `stripe config --list` as `key=value` (older builds used `key = 'value'`); dev-stack.sh and dev-reset.sh accept both. If key extraction fails, re-run `stripe login`.
 
-## Test-mode resources
+## Catalog
 
-Product `prod_UpIQRE6cj0nFjs`. New checkouts use `cmux-pro-monthly` ($30/mo) and `cmux-pro-yearly-288` ($288/yr, equivalent to $24/mo). Keep `cmux-pro-yearly` ($240/yr) active for grandfathered subscriptions. Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
+Prices live in `web/services/billing/plans.ts` and are provisioned by `web/scripts/stripe/provision-catalog.sh`. Current checkout keys: `cmux-pro-monthly-50` ($50/mo), `cmux-pro-yearly-480` ($480/yr, $40/mo equivalent), `cmux-team-monthly-60` ($60/user/mo), `cmux-team-yearly-576` ($576/user/yr, $48/mo equivalent). Stripe amounts are immutable, so a price change mints a new lookup key carrying the amount and adds the old key to `LEGACY_PRICE_LOOKUP_KEYS`; grandfathered Prices (`cmux-pro-monthly` $30, `cmux-pro-yearly` $240, `cmux-pro-yearly-288` $288, `cmux-team-monthly` $35, `cmux-team-yearly-336` $336) stay active for the subscriptions on them and `/dashboard/billing` prices every row from its own Stripe amount. Env price-id overrides carry the amount in their name (`STRIPE_PRO_MONTHLY_50_PRICE_ID` and friends); a retired name fails env validation, so delete it from Vercel before deploying a price change. Test-mode Pro product `prod_UyHgRPpmCzrkLJ`, live `prod_Uq4a28vk0fP3E6`. Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
+
+The plan machine (50 machines per billing team, 20 GB / 5 vCPU / 200 GB disk) lives in `web/services/vms/machineSpec.ts`; `web/tests/pro-pricing.test.ts` pins the pricing copy to those constants.
 
 ## Feature flags
 
