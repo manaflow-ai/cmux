@@ -378,8 +378,7 @@ struct TerminalColorSchemeProtocolTests {
                 throw ProbeError.notReady
             }
         }
-        // The caller's defer owns a successful fixture. Keep the construction
-        // defer armed only for failures before this handoff.
+        // Keep construction cleanup armed only for failures before handoff.
         ownershipTransferred = true
         return terminal
     }
@@ -491,6 +490,7 @@ struct TerminalColorSchemeProtocolTests {
             defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
         }
         NSApp.appearance = terminal.previousApplicationAppearance
+        GhosttyApp.shared.synchronizeThemeWithAppearance(terminal.previousApplicationAppearance, source: "TerminalColorSchemeProtocolTests.tearDown")
     }
     private enum ProbeError: Error { case notReady }
     private func shellSingleQuoted(_ value: String) -> String {
