@@ -45,13 +45,13 @@ final class CloudTreeNode: NSObject {
         case browser(CloudTreeBrowserRow)
         /// "Ports" group under a cloud machine.
         case portsGroup(machine: SurfaceMachineID)
-        /// The resource plus the URL a person would paste to reach it —
-        /// `http://<machine-name>.internal:<port>` when the machine has a
-        /// private address (resolved by the app's own DNS override, so the
-        /// name only works from a Mac with the tunnel active), else
-        /// `http://<private-ip>:<port>`, else nil when the machine has no
-        /// private address to build one from (public-only machines, or one
-        /// this Mac hasn't attached to yet).
+        /// The resource plus the URL a click actually opens —
+        /// `http://<private-ip>:<port>`, reachable over the WireGuard tunnel —
+        /// or nil when the machine has no private address yet (public-only
+        /// machines, or one this Mac hasn't attached to yet). Deliberately the
+        /// raw address, never the `.internal` name: that name only resolves
+        /// once `cmux vpn hosts` has synced `/etc/hosts`, so a link built from
+        /// it would work only sometimes.
         case port(SurfaceResource, url: String?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
@@ -505,12 +505,8 @@ enum CloudTreeNodeBuilder {
         guard let port, let address = info?.privateAddress else { return nil }
         // Cloud machines only: the local Mac has no private-network address to
         // begin with, so it never reaches here with one.
-        if case .cloud(let id) = machine {
-            let hostname = CmuxInternalHostnames.hostname(id: id, label: info?.name)
-            return "http://\(hostname):\(port)"
-        }
-        let bracketed = address.contains(":") ? "[\(address)]" : address
-        return "http://\(bracketed):\(port)"
+        guard machine.isLocal == false else { return nil }
+        return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
     }
 
     private static func cloudChildren(machine: SurfaceMachineID, info: SurfaceMachineInfo?, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {

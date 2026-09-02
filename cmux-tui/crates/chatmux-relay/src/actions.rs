@@ -931,7 +931,8 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
     if files.is_empty() {
         return command.to_owned();
     }
-    let mut setup: Vec<String> = vec!["set +e".to_owned(), "umask 077".to_owned()];
+    let mut setup: Vec<String> = vec!["set -e".to_owned()];
+    let mut initializers: Vec<String> = Vec::new();
     let mut cleanup: Vec<String> = Vec::new();
     for (index, file) in files.iter().enumerate() {
         let sanitized: String = file
@@ -944,6 +945,9 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
             .collect();
         let hint = if sanitized.is_empty() { "secret".to_owned() } else { sanitized };
         let shell_path = format!("__chatmux_file_{index}");
+        initializers.push(format!("{shell_path}="));
+        cleanup
+            .push(format!("if [ -n \"${{{shell_path}-}}\" ]; then rm -f -- \"${shell_path}\"; fi"));
         setup.push(format!("{shell_path}=$(mktemp \"${{TMPDIR:-/tmp}}/chatmux-{hint}.XXXXXX\")"));
         setup.push(format!("chmod 600 \"${shell_path}\""));
         setup.push(format!(
@@ -952,16 +956,28 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         ));
         setup.push(format!("unset {}", file.content_environment_variable));
         setup.push(format!("export {}=\"${shell_path}\"", file.path_environment_variable,));
-        cleanup.push(format!("rm -f -- \"${shell_path}\""));
     }
     let cleanup_body = cleanup.join("; ");
-    setup.push(format!("__chatmux_cleanup() {{ {cleanup_body}; }}"));
-    setup.push("trap __chatmux_cleanup EXIT".to_owned());
-    setup.push("trap 'exit 143' HUP INT TERM".to_owned());
-    setup.push(format!("( /bin/sh -c {} )", shell_quote(command)));
-    setup.push("__chatmux_status=$?".to_owned());
+    let mut supervisor = vec![
+        "set -e".to_owned(),
+        format!("__chatmux_cleanup() {{ trap '' HUP INT TERM; set +e; {cleanup_body}; }}"),
+    ];
+    supervisor.extend(initializers);
+    supervisor.extend([
+        "trap __chatmux_cleanup 0".to_owned(),
+        "trap 'exit 143' HUP INT TERM".to_owned(),
+        "umask 077".to_owned(),
+    ]);
+    supervisor.extend(setup.into_iter().skip(1));
+    let mut setup = supervisor;
+    setup.push(format!("if ( /bin/sh -c {} ); then", shell_quote(command)));
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("else".to_owned());
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("fi".to_owned());
+    setup.push("trap '' HUP INT TERM".to_owned());
+    setup.push("trap - 0".to_owned());
     setup.push("__chatmux_cleanup".to_owned());
-    setup.push("trap - EXIT HUP INT TERM".to_owned());
     setup.push("exit $__chatmux_status".to_owned());
     setup.join("\n")
 }
@@ -1745,7 +1761,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let pattern = args.get("pattern").and_then(Value::as_str).unwrap_or_default();
+            let pattern =
+                args.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned();
             if pattern.is_empty() {
                 return fail("failed", "grep: pattern is required");
             }
@@ -1803,7 +1820,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                             "--exclude-dir=.git".to_owned(),
                             "--exclude-dir=node_modules".to_owned(),
                             "-e".to_owned(),
-                            pattern.to_owned(),
+                            pattern,
                             "--".to_owned(),
                             process_path,
                         ],
@@ -2508,6 +2525,49 @@ mod tests {
         )
         .await;
         assert_eq!(exec["result"]["output"], "abc123");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_file_setup_failure_does_not_run_command_or_leak_secret() {
+        let root = scratch("process-file-setup-failure");
+        let tmpdir_file = root.join("not-a-directory");
+        std::fs::write(&tmpdir_file, "").unwrap();
+        let marker = root.join("command-ran");
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = scrubbed_env(&HashMap::from([
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("TMPDIR".to_owned(), tmpdir_file.display().to_string()),
+        ]));
+        let secret = "process-file-secret";
+        let exec = perform_action(
+            &json!({
+                "verb": "exec",
+                "actionId": "process-file-setup-failure",
+                "allowedRoots": roots,
+                "args": {
+                    "command": format!("printf '%s' \"$MY_SECRET\" > '{}'", marker.display()),
+                },
+                "runtime": {
+                    "environment": { "MY_SECRET": secret },
+                    "files": [{
+                        "contentEnvironmentVariable": "MY_SECRET",
+                        "pathEnvironmentVariable": "MY_SECRET_PATH",
+                        "pathHint": "credentials",
+                    }],
+                },
+                "timeoutMs": 10000,
+            }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(exec["ok"], true, "{exec}");
+        assert_ne!(exec["result"]["exitCode"], 0, "setup unexpectedly succeeded: {exec}");
+        assert!(!marker.exists(), "target command ran after setup failure: {exec}");
+        assert!(!exec.to_string().contains(secret), "secret leaked in action result: {exec}");
         std::fs::remove_dir_all(&root).ok();
     }
 
