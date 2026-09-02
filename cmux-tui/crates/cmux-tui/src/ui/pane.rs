@@ -196,6 +196,35 @@ fn clip_tab_bar_rect(logical: Rect, bar: Rect, source_x: u16) -> Option<Rect> {
     })
 }
 
+fn tab_scroll_for_active(
+    widths: &[u16],
+    active_tab: usize,
+    requested_scroll: usize,
+    inner_width: u16,
+    plus_width: u16,
+    arrow_width: u16,
+) -> usize {
+    let max_scroll = widths.len().saturating_sub(1);
+    let mut scroll = requested_scroll.min(max_scroll);
+    if widths.is_empty() || scroll >= active_tab {
+        return scroll;
+    }
+
+    let mut range_width: u64 =
+        widths[scroll..=active_tab].iter().map(|width| u64::from(*width)).sum();
+    while scroll < active_tab {
+        let left_arrow = if scroll > 0 { arrow_width } else { 0 };
+        let available = inner_width
+            .saturating_sub(left_arrow.saturating_add(plus_width).saturating_add(arrow_width));
+        if range_width <= u64::from(available) {
+            break;
+        }
+        range_width -= u64::from(widths[scroll]);
+        scroll += 1;
+    }
+    scroll
+}
+
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
     let Some(screen_view) = app.tree.active_screen() else { return };
@@ -322,23 +351,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let plus_w: u16 = (plus_label.width() as u16).max(1);
     let arrow_w: u16 = 1;
 
-    // Clamp the requested scroll, then bump it until the active tab fits.
-    let max_scroll = tabs.len().saturating_sub(1);
-    let mut scroll = app.tab_scroll.get(&pane_id).copied().unwrap_or(0).min(max_scroll);
-    let fits = |scroll: usize| {
-        let left_arrow = if scroll > 0 { arrow_w } else { 0 };
-        let mut budget = inner_w.saturating_sub(left_arrow + plus_w + arrow_w);
-        for w in &widths[scroll..=active_tab.max(scroll)] {
-            if *w > budget {
-                return false;
-            }
-            budget -= *w;
-        }
-        true
-    };
-    while scroll < active_tab && !fits(scroll) {
-        scroll += 1;
-    }
+    // Advance the requested scroll in one pass until the active range fits.
+    let scroll = tab_scroll_for_active(
+        &widths,
+        active_tab,
+        app.tab_scroll.get(&pane_id).copied().unwrap_or(0),
+        inner_w,
+        plus_w,
+        arrow_w,
+    );
     app.tab_scroll.insert(pane_id, scroll);
 
     let mut hits = Vec::new();
