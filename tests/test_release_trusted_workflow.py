@@ -334,8 +334,26 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         profile_step = next(
             step for step in sign_steps if step.get("name") == "Embed release provisioning profile"
         )
-        self.assertIn("base64 -D > \"$TMP_PROFILE\"", profile_step["run"])
+        profile_run = profile_step["run"]
+        for required in (
+            "umask 077",
+            'runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"',
+            'TMP_PROFILE="$(mktemp "$runner_temp/cmux-release-profile.XXXXXX")"',
+            'TMP_PLIST="$(mktemp "$runner_temp/cmux-release-plist.XXXXXX")"',
+            'base64 -D > "$TMP_PROFILE"',
+        ):
+            self.assertIn(required, profile_run)
+        self.assertNotIn("/tmp/cmux-release-profile", profile_run)
         self.assertNotIn("base64 --decode", WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_xcode_fallback_uses_bsd_compatible_glob(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        select_step = next(step for step in sign_steps if step.get("name") == "Select Xcode")
+        select_run = select_step["run"]
+        self.assertIn("for candidate in /Applications/Xcode*.app", select_run)
+        self.assertIn('[[ -d "$candidate/Contents/Developer" ]]', select_run)
+        self.assertNotIn("-maxdepth", select_run)
 
     def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
         document = load()
