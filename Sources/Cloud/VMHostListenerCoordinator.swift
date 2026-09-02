@@ -55,6 +55,9 @@ final class VMHostListenerCoordinator {
         var machineFacingAddresses: [String] = []
         var networkCIDRs: [String] = []
         var tokenCount = 0
+        /// Whether sign-in and machine inventory have been learned at least
+        /// once this session; until then "signed_out" is a guess.
+        var inventoryKnown = false
         var lastError: String?
         var offReason: String?
     }
@@ -315,6 +318,7 @@ final class VMHostListenerCoordinator {
             guard let client = VMClient.shared else {
                 self.status.signedIn = false
                 self.status.machineCount = 0
+                self.status.inventoryKnown = true
                 self.reconcile(source: source)
                 return
             }
@@ -322,6 +326,8 @@ final class VMHostListenerCoordinator {
                 let machines = try await client.list()
                 guard !Task.isCancelled else { return }
                 self.status.signedIn = true
+                self.status.inventoryKnown = true
+                self.status.lastError = nil
                 self.status.machineCount = machines.count
                 Self.tokens.retain(vmIDs: Set(machines.map(\.id)))
                 let ids = Set(machines.map(\.id))
@@ -330,8 +336,11 @@ final class VMHostListenerCoordinator {
                 if case .notSignedIn = error {
                     self.status.signedIn = false
                     self.status.machineCount = 0
+                    self.status.inventoryKnown = true
                 } else {
-                    self.status.lastError = error.localizedDescription
+                    // Backend unreachable or erroring: keep what we knew and
+                    // surface the error instead of claiming "signed out".
+                    self.status.lastError = error.description
                 }
             } catch {
                 self.status.lastError = error.localizedDescription
@@ -357,7 +366,10 @@ final class VMHostListenerCoordinator {
             machineCount: status.machineCount
         )
         switch desired {
-        case .off(let reason):
+        case .off(var reason):
+            if reason == "signed_out", !status.inventoryKnown, status.lastError != nil {
+                reason = "cloud_unreachable"
+            }
             stopListener(reason: reason)
         case .on:
             guard !status.machineFacingAddresses.isEmpty, !status.networkCIDRs.isEmpty else {

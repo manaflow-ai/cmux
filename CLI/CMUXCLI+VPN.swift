@@ -101,6 +101,9 @@ extension CMUXCLI {
             detail = String(localized: "cli.vpn.notifications.reason.noMachines", defaultValue: "you have no Cloud machines")
         case "network_metadata_missing":
             detail = String(localized: "cli.vpn.notifications.reason.metadata", defaultValue: "network details missing; run `cmux vpn up` to re-enroll")
+        case "cloud_unreachable":
+            let format = String(localized: "cli.vpn.notifications.reason.cloudUnreachable", defaultValue: "cloud service unreachable: %@")
+            detail = String(format: format, (response["last_error"] as? String) ?? reason)
         case "bind_failed":
             detail = (response["last_error"] as? String) ?? reason
         default:

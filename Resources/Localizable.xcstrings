@@ -86,6 +86,23 @@
         }
       }
     },
+    "cli.vpn.notifications.reason.cloudUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud service unreachable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドサービスに接続できません: %@"
+          }
+        }
+      }
+    },
     "cli.vpn.notifications.reason.signedOut": {
       "extractionState": "manual",
       "localizations": {
