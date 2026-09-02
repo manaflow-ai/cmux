@@ -652,6 +652,12 @@ enum AuthEnvironment {
         environment: [String: String],
         isDebugBuild: Bool
     ) -> String {
+        if resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) == .production {
+            return productionStackProjectID
+        }
         if let projectID = environment["CMUX_STACK_PROJECT_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !projectID.isEmpty {
@@ -686,6 +692,12 @@ enum AuthEnvironment {
         environment: [String: String],
         isDebugBuild: Bool
     ) -> String {
+        if resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) == .production {
+            return productionStackPublishableClientKey
+        }
         if let clientKey = environment["CMUX_STACK_PUBLISHABLE_CLIENT_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !clientKey.isEmpty {

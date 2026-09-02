@@ -41,7 +41,7 @@ struct AuthEnvironmentTests {
     @Test("explicit Stack values override the selected auth channel")
     func explicitStackValuesOverrideSelectedAuthChannel() {
         let environment = [
-            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_AUTH_ENVIRONMENT": "development",
             "CMUX_STACK_PROJECT_ID": "test-project",
             "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "test-key",
         ]
@@ -120,6 +120,23 @@ struct AuthEnvironmentTests {
             isDebugBuild: false
         )
         #expect(release.absoluteString == "https://cmux.com")
+    }
+
+    @Test("production auth pins Stack project and client key")
+    func productionAuthPinsStackCredentials() {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_STACK_PROJECT_ID": "staging-project",
+            "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "staging-key",
+        ]
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: true
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: true
+        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
     }
 
     @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
