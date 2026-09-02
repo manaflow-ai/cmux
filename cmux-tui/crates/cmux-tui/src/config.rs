@@ -8265,6 +8265,31 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_requires_an_explicit_namespace_id() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let directory = TestDirectory::new("agent-plugin-id-required");
+        let path = directory.path.join("mux.json");
+        std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#)
+            .unwrap();
+        // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("CMUX_TUI_CONFIG");
+            std::env::set_var("CMUX_MUX_CONFIG", &path);
+        }
+
+        let config = load();
+
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        assert!(
+            config.agents.plugin.is_none(),
+            "a userland plugin without an explicit producer id must be ignored",
+        );
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
