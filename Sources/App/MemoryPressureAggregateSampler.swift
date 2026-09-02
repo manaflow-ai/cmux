@@ -166,7 +166,7 @@ nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalition
         ) -> Int32
         let coalitionInfoFunction = unsafeBitCast(symbol, to: CoalitionInfoFunction.self)
         var usage = CoalitionResourceUsagePrefix()
-        let usageResult = withUnsafeMutableBytes(of: &usage) { rawBuffer in
+        let usageResult: Int32 = withUnsafeMutableBytes(of: &usage) { rawBuffer -> Int32 in
             guard let baseAddress = rawBuffer.baseAddress else { return -1 }
             return coalitionInfoFunction(
                 coalitionID,
