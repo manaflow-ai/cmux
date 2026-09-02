@@ -5605,6 +5605,7 @@ fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Build the durable mutation plan for moving a sole tab across panes.
 pub(super) fn structural_tab_move_plan(
     mux: &Arc<Mux>,
     state: &mut State,
@@ -6233,6 +6234,7 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
 mod structural_tab_move_tests {
     use super::*;
 
+    /// Build a terminal tab fixture with the requested durable placement.
     fn tab(id: &str, pane_id: &str, position: usize) -> RegistryTab {
         RegistryTab {
             public_id: TabPublicId::parse(id.to_string()).unwrap(),
@@ -6248,6 +6250,7 @@ mod structural_tab_move_tests {
         }
     }
 
+    /// Reindex the moved tab and existing target tabs without touching others.
     #[test]
     fn target_tab_positions_reindex_moved_and_target_tabs_only() {
         let target_pane =
