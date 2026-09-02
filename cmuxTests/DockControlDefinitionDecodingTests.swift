@@ -29,7 +29,7 @@ struct DockControlDefinitionDecodingTests {
     }
 
     @MainActor
-    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": method,
             "method": method,
@@ -40,8 +40,14 @@ struct DockControlDefinitionDecodingTests {
         let raw = TerminalController.shared.handleSocketLine(requestLine)
         let responseData = try #require(raw.data(using: .utf8))
         let envelope = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        return envelope
+    }
+
+    @MainActor
+    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+        let envelope = try v2Envelope(method: method, params: params)
         if envelope["ok"] as? Bool != true {
-            Issue.record("Expected \(method) to succeed: \(raw)")
+            Issue.record("Expected \(method) to succeed: \(envelope)")
         }
         return try #require(envelope["result"] as? [String: Any])
     }
@@ -814,15 +820,12 @@ struct DockControlDefinitionDecodingTests {
         #expect(workspace.needsConfirmClose())
     }
 
-    @Test("surface.focus accepts Dock surface handles")
+    @Test("surface.focus rejects legacy workspace Dock handles")
     @MainActor
-    func surfaceFocusAcceptsDockSurfaceHandles() throws {
+    func surfaceFocusRejectsLegacyWorkspaceDockHandles() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        let defaults = UserDefaults.standard
-        let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
@@ -833,11 +836,6 @@ struct DockControlDefinitionDecodingTests {
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
-            if let previousDockEnabled {
-                defaults.set(previousDockEnabled, forKey: dockEnabledKey)
-            } else {
-                defaults.removeObject(forKey: dockEnabledKey)
-            }
         }
 
         let workspace = try #require(manager.tabs.first)
@@ -848,20 +846,16 @@ struct DockControlDefinitionDecodingTests {
 
         #expect(store.focusedPanelId == firstPanelId)
 
-        // AppDelegate/TabManager setup may reconcile persisted sidebar mode
-        // before the socket call. Set the beta gate after that lifecycle work
-        // so this fixture never depends on another suite's global defaults.
-        defaults.set(true, forKey: dockEnabledKey)
-        #expect(RightSidebarMode.dock.isAvailable())
-        let result = try v2Result(
+        let envelope = try v2Envelope(
             method: "surface.focus",
             params: ["surface_id": secondPanelId.uuidString]
         )
 
-        #expect(result["window_id"] as? String == windowId.uuidString)
-        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
-        #expect(result["surface_id"] as? String == secondPanelId.uuidString)
-        #expect(store.focusedPanelId == secondPanelId)
+        #expect(envelope["ok"] as? Bool == false)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "unavailable")
+        #expect(error["message"] as? String == "Dock placement is disabled")
+        #expect(store.focusedPanelId == firstPanelId)
     }
 
     @Test("Dock pane close prompt lists every tab that will close")
