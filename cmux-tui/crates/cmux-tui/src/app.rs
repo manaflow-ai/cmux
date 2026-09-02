@@ -24993,7 +24993,7 @@ mod tests {
     fn host_input_runtime_shutdown_joins_reader_before_returning() {
         let mut runtime = HostInputRuntime::new();
         let ingress = runtime.ingress.clone();
-        let (events_tx, events_rx) = std::sync::mpsc::sync_channel(1);
+        let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
