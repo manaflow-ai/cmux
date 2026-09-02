@@ -76,7 +76,7 @@ cmux_hosted_retention_hash_file() {
 
 cmux_hosted_retention_run() (
   if [[ $# -ne 2 ]]; then
-    cmux_hosted_retention_error "expected artifact root and current commit"
+    cmux_hosted_retention_error "expected current artifact directory and current commit"
     exit $?
   fi
 
