@@ -495,6 +495,9 @@ fn is_sensitive_env_name(name: &str) -> bool {
         || name.contains("PASSWORD")
         || name.contains("SECRET")
         || name.contains("PRIVATE_KEY")
+        || name.contains("ACCESS_KEY")
+        || name.contains("AUTH_SOCK")
+        || name == "DOCKER_AUTH_CONFIG"
         || name == "API_KEY"
         || name.ends_with("_API_KEY")
         || name == "AUTHORIZATION"
