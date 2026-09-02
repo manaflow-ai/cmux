@@ -623,6 +623,7 @@
 		E0C1BF3A1CF2C22FF100B77B /* CloudMachineLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49DC04B459E0132708ACD366 /* CloudMachineLink.swift */; };
 		5C6CEB17F0A6776F357BAF09 /* CloudMachineLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */; };
 		0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9143D900F124494A55F859F /* CloudMachinesFeature.swift */; };
+		C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */; };
 		C11322A10000000000000001 /* CloudManualMirrorTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322A20000000000000001 /* CloudManualMirrorTransportTests.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
@@ -640,11 +641,20 @@
 		BB4657280E610A6935E1906B /* CloudTuiClientPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4E59490776669AA7257527 /* CloudTuiClientPaths.swift */; };
 		EFD39AB12F5DF90B066159C4 /* CloudTuiCommandLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */; };
 		C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */; };
+		C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324120000000000000001 /* CloudTuiManualIOCommand.swift */; };
 		C11322D10000000000000001 /* CloudTuiManualIOConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322D20000000000000001 /* CloudTuiManualIOConnection.swift */; };
+		C11324310000000000000001 /* CloudTuiManualIODescriptorLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324320000000000000001 /* CloudTuiManualIODescriptorLease.swift */; };
+		C11324410000000000000001 /* CloudTuiManualIOFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324420000000000000001 /* CloudTuiManualIOFrame.swift */; };
+		C11324010000000000000001 /* CloudTuiManualIOFrameDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324020000000000000001 /* CloudTuiManualIOFrameDecoder.swift */; };
+		C11324210000000000000001 /* CloudTuiManualIOGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324220000000000000001 /* CloudTuiManualIOGrid.swift */; };
 		C11322E10000000000000001 /* CloudTuiManualIOInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322E20000000000000001 /* CloudTuiManualIOInputRouter.swift */; };
-		C11322B10000000000000001 /* CloudTuiManualIOProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322B20000000000000001 /* CloudTuiManualIOProtocol.swift */; };
 		C11323310000000000000001 /* CloudTuiManualIOResizeScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323320000000000000001 /* CloudTuiManualIOResizeScheduler.swift */; };
+		C11324610000000000000001 /* CloudTuiManualMirrorPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */; };
+		C11324510000000000000001 /* CloudTuiManualMirrorRequestKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */; };
 		C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */; };
+		C11324710000000000000001 /* CloudTuiResolvedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324720000000000000001 /* CloudTuiResolvedSurface.swift */; };
+		C11324910000000000000001 /* CloudTuiSurfaceIDResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324920000000000000001 /* CloudTuiSurfaceIDResolution.swift */; };
+		C11325A10000000000000001 /* CloudTuiTerminalProjectionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11325A20000000000000001 /* CloudTuiTerminalProjectionTarget.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
@@ -3715,6 +3725,7 @@
 		49DC04B459E0132708ACD366 /* CloudMachineLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineLink.swift; sourceTree = "<group>"; };
 		874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineLinkManager.swift; sourceTree = "<group>"; };
 		D9143D900F124494A55F859F /* CloudMachinesFeature.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachinesFeature.swift; sourceTree = "<group>"; };
+		C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorMaterialization.swift; sourceTree = "<group>"; };
 		C11322A20000000000000001 /* CloudManualMirrorTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorTransportTests.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
@@ -3732,11 +3743,20 @@
 		8C4E59490776669AA7257527 /* CloudTuiClientPaths.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTuiClientPaths.swift; sourceTree = "<group>"; };
 		47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTuiCommandLine.swift; sourceTree = "<group>"; };
 		C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiLegacySnapshotParser.swift; sourceTree = "<group>"; };
+		C11324120000000000000001 /* CloudTuiManualIOCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOCommand.swift; sourceTree = "<group>"; };
 		C11322D20000000000000001 /* CloudTuiManualIOConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOConnection.swift; sourceTree = "<group>"; };
+		C11324320000000000000001 /* CloudTuiManualIODescriptorLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIODescriptorLease.swift; sourceTree = "<group>"; };
+		C11324420000000000000001 /* CloudTuiManualIOFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOFrame.swift; sourceTree = "<group>"; };
+		C11324020000000000000001 /* CloudTuiManualIOFrameDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOFrameDecoder.swift; sourceTree = "<group>"; };
+		C11324220000000000000001 /* CloudTuiManualIOGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOGrid.swift; sourceTree = "<group>"; };
 		C11322E20000000000000001 /* CloudTuiManualIOInputRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOInputRouter.swift; sourceTree = "<group>"; };
-		C11322B20000000000000001 /* CloudTuiManualIOProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOProtocol.swift; sourceTree = "<group>"; };
 		C11323320000000000000001 /* CloudTuiManualIOResizeScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOResizeScheduler.swift; sourceTree = "<group>"; };
+		C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorPhase.swift; sourceTree = "<group>"; };
+		C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorRequestKind.swift; sourceTree = "<group>"; };
 		C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorSession.swift; sourceTree = "<group>"; };
+		C11324720000000000000001 /* CloudTuiResolvedSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiResolvedSurface.swift; sourceTree = "<group>"; };
+		C11324920000000000000001 /* CloudTuiSurfaceIDResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiSurfaceIDResolution.swift; sourceTree = "<group>"; };
+		C11325A20000000000000001 /* CloudTuiTerminalProjectionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiTerminalProjectionTarget.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -6393,6 +6413,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		90813BBC44D79A5D2D0A2F09 /* Surfaces */ = {
 			isa = PBXGroup;
 			children = (
+				C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */,
+				C11324920000000000000001 /* CloudTuiSurfaceIDResolution.swift */,
 				C11323020000000000000001 /* Workspace+CloudManualMirror.swift */,
 				C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */,
 				C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */,
@@ -6415,12 +6437,20 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		590E4F5F342E5B27010ECC8D /* Cloud */ = {
 			isa = PBXGroup;
 			children = (
-				C11322B20000000000000001 /* CloudTuiManualIOProtocol.swift */,
+				C11325A20000000000000001 /* CloudTuiTerminalProjectionTarget.swift */,
+				C11324120000000000000001 /* CloudTuiManualIOCommand.swift */,
+				C11324320000000000000001 /* CloudTuiManualIODescriptorLease.swift */,
+				C11324420000000000000001 /* CloudTuiManualIOFrame.swift */,
+				C11324020000000000000001 /* CloudTuiManualIOFrameDecoder.swift */,
+				C11324220000000000000001 /* CloudTuiManualIOGrid.swift */,
 				C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */,
 				C11322D20000000000000001 /* CloudTuiManualIOConnection.swift */,
 				C11322E20000000000000001 /* CloudTuiManualIOInputRouter.swift */,
 				C11323320000000000000001 /* CloudTuiManualIOResizeScheduler.swift */,
 				C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */,
+				C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */,
+				C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */,
+				C11324720000000000000001 /* CloudTuiResolvedSurface.swift */,
 				7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */,
 				D3770734999CDCF396F04F32 /* NewMachineSheet.swift */,
 				751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */,
@@ -10078,6 +10108,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E0C1BF3A1CF2C22FF100B77B /* CloudMachineLink.swift in Sources */,
 				5C6CEB17F0A6776F357BAF09 /* CloudMachineLinkManager.swift in Sources */,
 				0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */,
+				C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */,
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,
@@ -10093,11 +10124,20 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				BB4657280E610A6935E1906B /* CloudTuiClientPaths.swift in Sources */,
 				EFD39AB12F5DF90B066159C4 /* CloudTuiCommandLine.swift in Sources */,
 				C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */,
+				C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */,
 				C11322D10000000000000001 /* CloudTuiManualIOConnection.swift in Sources */,
+				C11324310000000000000001 /* CloudTuiManualIODescriptorLease.swift in Sources */,
+				C11324410000000000000001 /* CloudTuiManualIOFrame.swift in Sources */,
+				C11324010000000000000001 /* CloudTuiManualIOFrameDecoder.swift in Sources */,
+				C11324210000000000000001 /* CloudTuiManualIOGrid.swift in Sources */,
 				C11322E10000000000000001 /* CloudTuiManualIOInputRouter.swift in Sources */,
-				C11322B10000000000000001 /* CloudTuiManualIOProtocol.swift in Sources */,
 				C11323310000000000000001 /* CloudTuiManualIOResizeScheduler.swift in Sources */,
+				C11324610000000000000001 /* CloudTuiManualMirrorPhase.swift in Sources */,
+				C11324510000000000000001 /* CloudTuiManualMirrorRequestKind.swift in Sources */,
 				C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */,
+				C11324710000000000000001 /* CloudTuiResolvedSurface.swift in Sources */,
+				C11324910000000000000001 /* CloudTuiSurfaceIDResolution.swift in Sources */,
+				C11325A10000000000000001 /* CloudTuiTerminalProjectionTarget.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,

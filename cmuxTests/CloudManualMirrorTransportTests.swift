@@ -18,7 +18,7 @@ struct CloudManualMirrorTransportTests {
     @Test
     func rawAttachFramesDeliverOutputAndResizeReplay() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
-        let initial = try #require(decoder.decode(Self.line([
+        let initial = try #require(decoder.decode(try Self.line([
             "event": "vt-state",
             "surface": 17,
             "cols": 99,
@@ -27,14 +27,14 @@ struct CloudManualMirrorTransportTests {
         ])))
         #expect(initial == .snapshot(surfaceID: 17, columns: 99, rows: 35, bytes: Data("initial screen".utf8)))
 
-        let output = try #require(decoder.decode(Self.line([
+        let output = try #require(decoder.decode(try Self.line([
             "event": "output",
             "surface": 17,
             "data": Data("prompt> ".utf8).base64EncodedString(),
         ])))
         #expect(output == .output(surfaceID: 17, bytes: Data("prompt> ".utf8)))
 
-        let resized = try #require(decoder.decode(Self.line([
+        let resized = try #require(decoder.decode(try Self.line([
             "event": "resized",
             "surface": 17,
             "cols": 140,
@@ -49,8 +49,8 @@ struct CloudManualMirrorTransportTests {
         let attach = try #require(commands.attach(surfaceID: 17, columns: 120, rows: 40))
         #expect(attach["cmd"] as? String == "attach-surface")
         #expect(attach["surface"] as? UInt64 == 17)
-        #expect(attach["cols"] as? UInt64 == 120)
-        #expect(attach["rows"] as? UInt64 == 40)
+        #expect(attach["cols"] as? Int == 120)
+        #expect(attach["rows"] as? Int == 40)
 
         let input = commands.input(surfaceID: 17, bytes: Data("claude\r".utf8))
         #expect(input["cmd"] as? String == "send")
@@ -60,8 +60,8 @@ struct CloudManualMirrorTransportTests {
         let resize = commands.resize(surfaceID: 17, columns: 160, rows: 52)
         #expect(resize["cmd"] as? String == "resize-surface")
         #expect(resize["surface"] as? UInt64 == 17)
-        #expect(resize["cols"] as? UInt64 == 160)
-        #expect(resize["rows"] as? UInt64 == 52)
+        #expect(resize["cols"] as? Int == 160)
+        #expect(resize["rows"] as? Int == 52)
     }
 
     @Test
@@ -81,8 +81,8 @@ struct CloudManualMirrorTransportTests {
         )
         #expect(resize["cmd"] as? String == "resize-attached-view")
         #expect(resize["lease"] as? String == "lease-token")
-        #expect(resize["cols"] as? UInt64 == 160)
-        #expect(resize["rows"] as? UInt64 == 52)
+        #expect(resize["cols"] as? Int == 160)
+        #expect(resize["rows"] as? Int == 52)
 
         let release = try #require(
             commands.releaseAttachedViewSize(
@@ -111,8 +111,36 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func leaseCapabilityWithoutAResponseTokenFailsClosed() {
+        #expect(
+            CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: ["view-attachment-lease-v1"],
+                lease: nil
+            )
+        )
+        #expect(
+            CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: ["view-attachment-lease-v1"],
+                lease: ""
+            )
+        )
+        #expect(
+            !CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: ["view-attachment-lease-v1"],
+                lease: "lease-token"
+            )
+        )
+        #expect(
+            !CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: [],
+                lease: nil
+            )
+        )
+    }
+
+    @Test
     func responseDecoderPreservesCapabilitiesAndLeaseOutcome() throws {
-        let line = Self.line([
+        let line = try Self.line([
             "id": 7,
             "ok": true,
             "data": [
@@ -137,6 +165,46 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func frameDecoderRejectsBooleanAndFractionalIdentifiers() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let eventLines = [
+            Data("{\"event\":\"output\",\"surface\":true,\"data\":\"Ynl0ZXM=\"}".utf8),
+            Data("{\"event\":\"output\",\"surface\":1.0,\"data\":\"Ynl0ZXM=\"}".utf8),
+            Data("{\"event\":\"output\",\"surface\":1.5,\"data\":\"Ynl0ZXM=\"}".utf8),
+        ]
+        for line in eventLines {
+            #expect(decoder.decode(line) == nil)
+        }
+        let responseLines = [
+            Data("{\"id\":true,\"ok\":true}".utf8),
+            Data("{\"id\":1.0,\"ok\":true}".utf8),
+            Data("{\"id\":1.5,\"ok\":true}".utf8),
+        ]
+        for line in responseLines {
+            #expect(decoder.decode(line) == nil)
+        }
+    }
+
+    @Test
+    func resolverDistinguishesNoPlacementFromMalformedNumericValues() throws {
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": NSNull()])
+            ) == .noPlacement
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": true])
+            ) == .malformed
+        )
+        #expect(
+            parser.resolvedSurface(
+                from: try Self.line(["surface": 1.5])
+            ) == .malformed
+        )
+    }
+
+    @Test
     func resizeSamplesAreLatestWinsAndResumeAfterGeometryClaim() throws {
         var scheduler = CloudTuiManualIOResizeScheduler()
         let first = try #require(CloudTuiManualIOGrid(columns: 99, rows: 35))
@@ -151,6 +219,20 @@ struct CloudManualMirrorTransportTests {
         #expect(scheduler.inFlight == final)
         #expect(scheduler.acknowledge(canSend: true) == nil)
         #expect(scheduler.sample(final, canSend: true) == nil)
+    }
+
+    @Test
+    func staleResizeAcknowledgementCannotRetireANewerGrid() throws {
+        var scheduler = CloudTuiManualIOResizeScheduler()
+        let old = try #require(CloudTuiManualIOGrid(columns: 99, rows: 35))
+        let current = try #require(CloudTuiManualIOGrid(columns: 160, rows: 52))
+        #expect(scheduler.sample(old, canSend: true) == old)
+        scheduler.resetForReconnect()
+        #expect(scheduler.sample(current, canSend: true) == current)
+        #expect(scheduler.acknowledge(old, canSend: true) == nil)
+        #expect(scheduler.inFlight == current)
+        #expect(scheduler.acknowledge(current, canSend: true) == nil)
+        #expect(scheduler.lastAcknowledged == current)
     }
 
     @Test
@@ -192,6 +274,31 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func legacyTreeResolverRejectsNonIntegralSurfaceValuesAndScansManyIDsOnce() throws {
+        let tree: [String: Any] = [
+            "workspaces": [[
+                "screens": [[
+                    "panes": [[
+                        "tabs": [
+                            ["surface": 17, "terminal_resource_id": "term_one"],
+                            ["surface": 23, "terminal_resource_id": "term_two"],
+                            ["surface": 1.5, "terminal_resource_id": "term_fraction"],
+                            ["surface": true, "terminal_resource_id": "term_bool"],
+                        ],
+                    ]],
+                ]],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: tree)
+        #expect(
+            parser.surfaceIDs(
+                from: try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]),
+                terminalIDs: ["term_one", "term_two", "term_fraction", "term_bool"]
+            ) == ["term_one": 17, "term_two": 23]
+        )
+    }
+
+    @Test
     func generationAwareResolverUsesThePrivateCommandShape() throws {
         let arguments = try #require(
             CloudTuiCommandLine.resolveTerminalArguments(
@@ -217,7 +324,7 @@ struct CloudManualMirrorTransportTests {
         #expect(parser.resolvedSurfaceID(from: data) == 23)
     }
 
-    private static func line(_ object: [String: Any]) -> Data {
-        try! JSONSerialization.data(withJSONObject: object)
+    private static func line(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
     }
 }

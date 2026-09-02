@@ -59,6 +59,34 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }
 
+    /// `terminal <term_id> project --workspace <ws> --screen <screen> --pane <pane> --index <n>`:
+    /// creates a daemon tab view for a live terminal that currently has no placement. The
+    /// operation is deliberately separate from the native pane destination: the remote view
+    /// only makes the daemon's process-local surface attachable; local rendering remains in
+    /// Ghostty.
+    static func projectTerminalArguments(
+        socketPath: String,
+        terminalID: String,
+        target: CloudTuiTerminalProjectionTarget,
+        expectedRevision: String? = nil,
+        idempotencyKey: String? = nil
+    ) -> [String] {
+        var arguments = [
+            "--socket", socketPath, "--json", "terminal", terminalID, "project",
+            "--workspace", target.workspaceID,
+            "--screen", target.screenID,
+            "--pane", target.paneID,
+            "--index", String(target.index),
+        ]
+        if let expectedRevision, !expectedRevision.isEmpty {
+            arguments += ["--expected-revision", expectedRevision]
+        }
+        if let idempotencyKey, !idempotencyKey.isEmpty {
+            arguments += ["--idempotency-key", idempotencyKey]
+        }
+        return arguments
+    }
+
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
     static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {

@@ -12,6 +12,11 @@ import Foundation
 // the sole cross-thread handoff and carries immutable `Data` values.
 final class CloudTuiManualIOConnection: @unchecked Sendable {
     private static let maximumLineBytes = 16 * 1024 * 1024
+    // One frame can be a protocol-sized replay. Keep the stream's retained
+    // payload bounded to four such frames; a fifth frame closes the attachment
+    // and lets the owner reconnect from a fresh snapshot instead of growing
+    // memory while the main actor is stalled.
+    private static let maximumBufferedFrames = 4
 
     private let socketPath: String
     private let queue: DispatchQueue
@@ -19,9 +24,12 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     let events: AsyncStream<CloudTuiManualIOFrame>
     private let eventsContinuation: AsyncStream<CloudTuiManualIOFrame>.Continuation
     private var descriptor: Int32 = -1
+    private var isConnected = false
     private var readSource: DispatchSourceRead?
     private var writeSource: DispatchSourceWrite?
     private var writeSourceSuspended = true
+    private var descriptorLease: CloudTuiManualIODescriptorLease?
+    private var startContinuation: CheckedContinuation<Void, Error>?
     private var pendingLine = Data()
     private var pendingWrites: [Data] = []
     private var pendingWriteOffset = 0
@@ -45,7 +53,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         // stream, so the bounded overflow edge closes this attachment and lets
         // the owner reconnect from a fresh snapshot.
         (events, eventsContinuation) = AsyncStream<CloudTuiManualIOFrame>.makeStream(
-            bufferingPolicy: .bufferingOldest(2_048)
+            bufferingPolicy: .bufferingOldest(Self.maximumBufferedFrames)
         )
         eventsContinuation.onTermination = { [weak self] _ in
             self?.close()
@@ -54,21 +62,36 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Connects to the local link socket and starts line delivery.
     func start() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            queue.async { [self] in
-                guard !closed else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                do {
-                    try openLocked()
-                    continuation.resume()
-                } catch {
-                    closeLocked()
-                    continuation.resume(throwing: error)
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queue.async { [self] in
+                    guard !closed else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    if descriptor >= 0 {
+                        if isConnected {
+                            continuation.resume()
+                        } else {
+                            continuation.resume(throwing: Self.socketError("start", code: EALREADY))
+                        }
+                        return
+                    }
+                    startContinuation = continuation
+                    do {
+                        try openLocked()
+                    } catch {
+                        // `closeLocked` must not also resume this continuation;
+                        // the catch owns the one terminal resume for setup errors.
+                        startContinuation = nil
+                        closeLocked()
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
-        }
+        }, onCancel: { [weak self] in
+            self?.close()
+        })
     }
 
     /// Enqueues one JSON command. Commands are serialized with incoming lines.
@@ -113,46 +136,95 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         var noSignal: Int32 = 1
         _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
 
-        do {
-            var address = try Self.unixAddress(path: socketPath)
-            let addressLength = socklen_t(Self.unixAddressLength(address: address))
-            let connected = withUnsafePointer(to: &address) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    Darwin.connect(fd, $0, addressLength)
-                }
-            }
-            guard connected == 0 else { throw Self.socketError("connect") }
-            let flags = fcntl(fd, F_GETFL, 0)
-            if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
-            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            source.setEventHandler { [weak self] in
-                self?.readAvailableLocked()
-            }
-            source.setCancelHandler {
-                Darwin.close(fd)
-            }
-            readSource = source
-            let writeSource = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
-            writeSource.setEventHandler { [weak self] in
-                self?.flushWritesLocked()
-            }
-            // Keep the write source suspended until a non-blocking write
-            // actually needs another readiness notification. An always-active
-            // write source would wake the queue continuously while idle.
-            self.writeSource = writeSource
-            source.activate()
-            writeSource.activate()
-            writeSource.suspend()
-            self.writeSourceSuspended = true
-        } catch {
-            descriptor = -1
-            Darwin.close(fd)
-            throw error
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            throw Self.socketError("nonblocking")
         }
+
+        let descriptorLease = CloudTuiManualIODescriptorLease(descriptor: fd)
+        self.descriptorLease = descriptorLease
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        descriptorLease.registerSource()
+        source.setEventHandler { [weak self] in
+            self?.readAvailableLocked()
+        }
+        source.setCancelHandler {
+            descriptorLease.sourceDidCancel()
+        }
+        readSource = source
+
+        let writeSource = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
+        descriptorLease.registerSource()
+        writeSource.setEventHandler { [weak self] in
+            self?.finishConnectLocked()
+        }
+        writeSource.setCancelHandler {
+            descriptorLease.sourceDidCancel()
+        }
+        self.writeSource = writeSource
+        writeSourceSuspended = false
+
+        // Activate both sources before any fallible setup below. If address
+        // construction fails, their cancellation handlers still own the
+        // descriptor and close it exactly once.
+        source.activate()
+        writeSource.activate()
+
+        var address = try Self.unixAddress(path: socketPath)
+        let addressLength = socklen_t(Self.unixAddressLength(address: address))
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, addressLength)
+            }
+        }
+        guard connected == 0 else {
+            guard errno == EINPROGRESS else { throw Self.socketError("connect") }
+            return
+        }
+        finishConnectLocked()
+    }
+
+    /// Completes the nonblocking Unix-domain connect and switches the write
+    /// source from connection readiness to queued-command flushing.
+    private func finishConnectLocked() {
+        guard !closed, descriptor >= 0 else { return }
+        if isConnected {
+            flushWritesLocked()
+            return
+        }
+        var socketError: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &length) == 0 else {
+            failStartLocked(Self.socketError("connect status"))
+            return
+        }
+        guard socketError == 0 else {
+            failStartLocked(Self.socketError("connect", code: socketError))
+            return
+        }
+        isConnected = true
+        writeSource?.setEventHandler { [weak self] in
+            self?.flushWritesLocked()
+        }
+        if pendingWrites.isEmpty {
+            suspendWriteSourceLocked()
+        } else {
+            flushWritesLocked()
+        }
+        let continuation = startContinuation
+        startContinuation = nil
+        continuation?.resume()
+    }
+
+    private func failStartLocked(_ error: Error) {
+        let continuation = startContinuation
+        startContinuation = nil
+        closeLocked()
+        continuation?.resume(throwing: error)
     }
 
     private func readAvailableLocked() {
-        guard !closed, descriptor >= 0 else { return }
+        guard !closed, isConnected, descriptor >= 0 else { return }
         var bytes = [UInt8](repeating: 0, count: 16 * 1024)
         while !closed {
             let count = Darwin.read(descriptor, &bytes, bytes.count)
@@ -195,7 +267,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     }
 
     private func flushWritesLocked() {
-        guard !closed, descriptor >= 0 else { return }
+        guard !closed, isConnected, descriptor >= 0 else { return }
         while let first = pendingWrites.first, !closed {
             let remaining = first.count - pendingWriteOffset
             guard remaining > 0 else {
@@ -246,10 +318,12 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
+        isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
         pendingWrites.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
+        let descriptorToClose = self.descriptor
         let writeSource = self.writeSource
         self.writeSource = nil
         if writeSourceSuspended {
@@ -261,9 +335,19 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         writeSource?.cancel()
         let source = readSource
         readSource = nil
-        descriptor = -1
+        self.descriptor = -1
         source?.cancel()
+        if source == nil, writeSource == nil {
+            if let descriptorLease {
+                descriptorLease.closeIfReady()
+            } else if descriptorToClose >= 0 {
+                Darwin.close(descriptorToClose)
+            }
+        }
+        let continuation = startContinuation
+        startContinuation = nil
         eventsContinuation.finish()
+        continuation?.resume(throwing: CancellationError())
     }
 
     private static func unixAddress(path: String) throws -> sockaddr_un {
@@ -292,12 +376,12 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         return offset + pathLength + 1
     }
 
-    private static func socketError(_ operation: String) -> NSError {
+    private static func socketError(_ operation: String, code: Int32 = errno) -> NSError {
         NSError(
             domain: "cmux.cloud.manual-io",
-            code: Int(errno),
+            code: Int(code),
             userInfo: [
-                NSLocalizedDescriptionKey: "Cloud terminal socket " + operation + " failed: " + String(cString: strerror(errno))
+                NSLocalizedDescriptionKey: "Cloud terminal socket " + operation + " failed: " + String(cString: strerror(code))
             ]
         )
     }

@@ -10,24 +10,6 @@ import Foundation
 /// renders a foreign viewport inside this pane.
 @MainActor
 final class CloudTuiManualMirrorSession {
-    /// Lifecycle of the byte attachment, independent of the remote terminal's
-    /// own process lifecycle.
-    enum Phase: Equatable {
-        case idle
-        case connecting
-        case attached
-        case disconnected
-        case stopped
-    }
-
-    private enum RequestKind {
-        case identify
-        case clientInfo
-        case attach
-        case resize
-        case claim
-    }
-
     private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
 
     let machineID: String
@@ -44,7 +26,7 @@ final class CloudTuiManualMirrorSession {
     private var runtimeSampleTask: Task<Void, Never>?
     private var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    private var pendingRequests: [UInt64: RequestKind] = [:]
+    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -64,7 +46,8 @@ final class CloudTuiManualMirrorSession {
     private var replayNeedsReset = false
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
-    private(set) var phase: Phase = .idle
+    private(set) var phase: CloudTuiManualMirrorPhase = .idle
+    private nonisolated static let leaseCapability = "view-attachment-lease-v1"
 
     init(
         machineID: String,
@@ -84,6 +67,13 @@ final class CloudTuiManualMirrorSession {
             surfaceID: remoteSurfaceID,
             commandBuilder: commandBuilder
         )
+    }
+
+    /// Reports whether a server that advertised leased attachments omitted
+    /// the lease on its attach response. Falling back to an unleased resize in
+    /// that state could let a stale connection change a reused surface id.
+    nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
+        capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
     /// Binds the local Ghostty surface. The pane installs the same callbacks
@@ -136,6 +126,7 @@ final class CloudTuiManualMirrorSession {
             geometryClaimed = false
             claimUnsupported = false
             claimInFlight = false
+            discardPendingSizingRequests()
             resizeScheduler.resetForReconnect()
             return
         }
@@ -163,8 +154,43 @@ final class CloudTuiManualMirrorSession {
             connection?.close()
             connection = nil
             inputRouter.setConnection(nil)
+            pendingRequests.removeAll(keepingCapacity: true)
+            attachResponseReceived = false
+            claimInFlight = false
+            geometryClaimed = false
+            claimUnsupported = false
+            remoteLease = nil
+            serverCapabilities.removeAll(keepingCapacity: true)
+            resizeScheduler.resetForReconnect()
+            lastRemoteGrid = nil
             phase = .disconnected
         }
+    }
+
+    /// Drops an attachment whose numeric surface could not be resolved for
+    /// the current daemon generation. Keeping the old stream alive would let
+    /// a reused numeric id route output or input to another terminal; the
+    /// provider will reconnect only after a later authoritative resolution.
+    func markSurfaceResolutionUnavailable() {
+        guard phase != .stopped else { return }
+        if hasReceivedRemoteReplay {
+            replayNeedsReset = true
+        }
+        connectTask?.cancel()
+        eventTask?.cancel()
+        connection?.close()
+        connection = nil
+        inputRouter.setConnection(nil)
+        pendingRequests.removeAll(keepingCapacity: true)
+        attachResponseReceived = false
+        claimInFlight = false
+        geometryClaimed = false
+        claimUnsupported = false
+        remoteLease = nil
+        serverCapabilities.removeAll(keepingCapacity: true)
+        resizeScheduler.resetForReconnect()
+        lastRemoteGrid = nil
+        phase = .disconnected
     }
 
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -199,6 +225,7 @@ final class CloudTuiManualMirrorSession {
            (connection != nil || connectTask != nil) {
             if phase == .attached {
                 resumeSizingIfNeeded()
+                return
             }
             if phase == .connecting {
                 return
@@ -222,6 +249,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
+        lastRemoteGrid = nil
         phase = .connecting
 
         let path = socketPath
@@ -344,6 +372,9 @@ final class CloudTuiManualMirrorSession {
             guard let self,
                   self.connection === connection,
                   self.phase != .stopped else { return }
+            if self.hasReceivedRemoteReplay {
+                self.replayNeedsReset = true
+            }
             self.connection = nil
             self.inputRouter.setConnection(nil)
             self.phase = .disconnected
@@ -399,6 +430,9 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected() {
+        if hasReceivedRemoteReplay {
+            replayNeedsReset = true
+        }
         connection?.close()
         connection = nil
         inputRouter.setConnection(nil)
@@ -410,6 +444,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
+        lastRemoteGrid = nil
         guard phase != .stopped else { return }
         phase = .disconnected
         onNeedsReconnect()
@@ -446,12 +481,28 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected()
                 return
             }
+            guard !Self.requiresLeaseToken(
+                capabilities: Array(serverCapabilities),
+                lease: lease
+            ) else {
+                // A lease-capable peer must return the connection-owned token.
+                // Never downgrade this stream to surface-wide sizing, because
+                // a delayed command could otherwise resize a replacement view.
+                transitionToDisconnected()
+                return
+            }
             attachResponseReceived = true
             remoteLease = lease
             phase = .attached
             if let connection { inputRouter.setConnection(connection) }
             resumeSizingIfNeeded()
-        case .resize:
+        case let .resize(requestedGrid):
+            guard resizeScheduler.inFlight == requestedGrid else {
+                // The request may have been retired by a hide/reveal or a
+                // reconnect. Its response cannot acknowledge the current
+                // scheduler state.
+                return
+            }
             guard ok else {
                 // A failed resize means the daemon did not accept the grid;
                 // retaining the scheduler's in-flight value would make every
@@ -477,6 +528,7 @@ final class CloudTuiManualMirrorSession {
             // A report is useful even when it was passive. Hold the newest
             // sample while the explicit geometry claim is in flight.
             let next = resizeScheduler.acknowledge(
+                requestedGrid,
                 canSend: geometryClaimed || claimUnsupported
             )
             if !geometryClaimed && !claimUnsupported {
@@ -572,7 +624,7 @@ final class CloudTuiManualMirrorSession {
     private func sendResize(_ grid: CloudTuiManualIOGrid) {
         guard let connection, attachResponseReceived else { return }
         let requestID = takeRequestID()
-        pendingRequests[requestID] = .resize
+        pendingRequests[requestID] = .resize(grid)
         if let remoteLease,
            let command = commandBuilder.resizeAttachedView(
                surfaceID: remoteSurfaceID,
@@ -664,6 +716,20 @@ final class CloudTuiManualMirrorSession {
     private func takeRequestID() -> UInt64 {
         defer { nextRequestID = nextRequestID == UInt64.max ? 1 : nextRequestID + 1 }
         return nextRequestID
+    }
+
+    /// Removes size/claim responses that belong to a hidden projection. Their
+    /// commands may still be processed remotely, but their acknowledgements
+    /// must not retire a newer grid after the pane is revealed.
+    private func discardPendingSizingRequests() {
+        pendingRequests = pendingRequests.filter { _, kind in
+            switch kind {
+            case .resize(_), .claim:
+                return false
+            case .identify, .clientInfo, .attach:
+                return true
+            }
+        }
     }
 
     private static func isUnsupportedClaimError(_ error: String?) -> Bool {

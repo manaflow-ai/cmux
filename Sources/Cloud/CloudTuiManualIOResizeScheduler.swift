@@ -1,20 +1,5 @@
 import Foundation
 
-/// A cell grid sampled from the native Ghostty pane.
-struct CloudTuiManualIOGrid: Equatable, Sendable {
-    let columns: Int
-    let rows: Int
-
-    /// Creates a bounded, usable terminal grid.
-    init?(columns: Int, rows: Int) {
-        guard (2...10_000).contains(columns), (2...10_000).contains(rows) else {
-            return nil
-        }
-        self.columns = columns
-        self.rows = rows
-    }
-}
-
 /// Coalesces pane resize samples while one remote resize request is in flight.
 ///
 /// A divider drag can produce dozens of local Ghostty grid samples while a
@@ -45,6 +30,19 @@ struct CloudTuiManualIOResizeScheduler: Equatable, Sendable {
         }
         self.inFlight = nil
         return beginIfPossible(canSend: canSend)
+    }
+
+    /// Completes `grid` only when it is still the request in flight.
+    ///
+    /// Responses are correlated by request id, but a response from before a
+    /// hide/reveal or reconnect can still arrive after the scheduler has been
+    /// reset. Ignoring that stale response preserves the newer in-flight grid.
+    mutating func acknowledge(
+        _ grid: CloudTuiManualIOGrid,
+        canSend: Bool
+    ) -> CloudTuiManualIOGrid? {
+        guard inFlight == grid else { return nil }
+        return acknowledge(canSend: canSend)
     }
 
     /// Resumes a parked sample after the connection becomes authoritative.

@@ -191,6 +191,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
     private var tabByTerminal: [String: String] = [:]
+    /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
+    /// mutation, so two local panes racing on the same pool row must share one remote view.
+    // Internal so the manual-mirror extension can share the provider-owned task map.
+    var remoteTerminalProjectionTasks: [String: Task<Void, Error>] = [:]
 
     init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
         machineID = summary.id
@@ -218,6 +222,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for session in manualMirrorSessions.values { session.stop() }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
+        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        remoteTerminalProjectionTasks.removeAll()
     }
 
     // MARK: - SurfaceProvider
@@ -268,16 +274,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
                     || manualMirrorSessions.values.contains { $0.phase == .disconnected })
+            var reconnectableSessionIDs = Set<ObjectIdentifier>(
+                manualMirrorSessions.values.map { ObjectIdentifier($0) }
+            )
             if needsSurfaceIDRefresh {
+                let sessions = Array(manualMirrorSessions.values)
+                let resolutions = await resolveManualMirrorSessions(
+                    sessions,
+                    socketPath: connected.socketPath,
+                    link: link
+                )
                 var allSurfaceIDsResolved = true
-                for session in manualMirrorSessions.values {
-                    if let surfaceID = await Self.resolveSurfaceID(
-                        terminalID: session.terminalID,
-                        socketPath: connected.socketPath,
-                        link: link
-                    ) {
+                for session in sessions {
+                    switch resolutions[session.terminalID] {
+                    case let .resolved(surfaceID):
                         session.updateRemoteSurfaceID(surfaceID)
-                    } else {
+                        reconnectableSessionIDs.insert(ObjectIdentifier(session))
+                    case .none, .noPlacement, .unsupported, .failed:
+                        session.markSurfaceResolutionUnavailable()
+                        reconnectableSessionIDs.remove(ObjectIdentifier(session))
                         allSurfaceIDsResolved = false
                     }
                 }
@@ -285,7 +300,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     manualMirrorSurfaceIDsSocketPath = connected.socketPath
                 }
             }
-            for session in manualMirrorSessions.values {
+            for session in manualMirrorSessions.values
+            where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
             for port in await ports(client: client, force: force) {

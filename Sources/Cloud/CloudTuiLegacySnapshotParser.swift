@@ -9,14 +9,27 @@ import Foundation
 /// native pane from depending on the TUI's renderer or public-id internals.
 struct CloudTuiLegacySnapshotParser: Sendable {
     /// Finds a numeric surface in the result of the private
-    /// `resolve-terminal` command. A null surface means the terminal has no
-    /// current placement and callers should fall back to the legacy tree.
+    /// `resolve-terminal` command. A null or malformed response returns nil;
+    /// callers that need to distinguish those cases can use ``resolvedSurface(from:)``.
     func resolvedSurfaceID(from data: Data) -> UInt64? {
-        guard let root = try? JSONSerialization.jsonObject(with: data),
-              let object = root as? [String: Any] else {
-            return nil
+        if case let .surface(surface) = resolvedSurface(from: data) {
+            return surface
         }
-        return number(from: object["surface"])
+        return nil
+    }
+
+    /// Decodes the resolver response without conflating a valid zero-view
+    /// terminal (`surface:null`) with malformed or failed data.
+    func resolvedSurface(from data: Data) -> CloudTuiResolvedSurface {
+        guard let root = try? JSONSerialization.jsonObject(with: data),
+              let object = (root as? [String: Any])?["data"] as? [String: Any]
+                  ?? root as? [String: Any] else {
+            return .malformed
+        }
+        guard object.keys.contains("surface") else { return .malformed }
+        if object["surface"] is NSNull { return .noPlacement }
+        guard let surface = number(from: object["surface"]) else { return .malformed }
+        return .surface(surface)
     }
 
     /// Finds the numeric surface backing `terminalID` in a legacy tree payload.
@@ -26,11 +39,26 @@ struct CloudTuiLegacySnapshotParser: Sendable {
                   ?? root as? [String: Any] else {
             return nil
         }
-        return surfaceID(from: object, terminalID: terminalID)
+        return surfaceIDs(from: object, terminalIDs: [terminalID])[terminalID]
     }
 
     /// Finds the numeric surface backing `terminalID` in an already-decoded tree.
     func surfaceID(from object: [String: Any], terminalID: String) -> UInt64? {
+        surfaceIDs(from: object, terminalIDs: [terminalID])[terminalID]
+    }
+
+    /// Resolves many terminal identities in one compatibility-tree traversal.
+    ///
+    /// A refresh can own several native projections of one machine. Walking
+    /// the workspace/screen/pane/tab hierarchy once keeps the legacy fallback
+    /// O(number of tree records + number of requested terminals), rather than
+    /// rescanning the same tree for every pane.
+    func surfaceIDs(
+        from object: [String: Any],
+        terminalIDs: Set<String>
+    ) -> [String: UInt64] {
+        guard !terminalIDs.isEmpty else { return [:] }
+        var resolved: [String: UInt64] = [:]
         let workspaces = object["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
             let screens = workspace["screens"] as? [[String: Any]] ?? []
@@ -39,23 +67,58 @@ struct CloudTuiLegacySnapshotParser: Sendable {
                 for pane in panes {
                     let tabs = pane["tabs"] as? [[String: Any]] ?? []
                     for tab in tabs {
-                        let matches = (tab["terminal_resource_id"] as? String) == terminalID
-                            || (tab["tab_resource_id"] as? String) == terminalID
-                            || (tab["content_resource_id"] as? String) == terminalID
-                            || (tab["terminal_id"] as? String) == terminalID
-                        guard matches else { continue }
-                        if let number = number(from: tab["surface"]) { return number }
+                        guard let number = number(from: tab["surface"]) else { continue }
+                        for key in [
+                            "terminal_resource_id",
+                            "tab_resource_id",
+                            "content_resource_id",
+                            "terminal_id",
+                        ] {
+                            guard let candidate = tab[key] as? String,
+                                  terminalIDs.contains(candidate),
+                                  resolved[candidate] == nil else { continue }
+                            resolved[candidate] = number
+                        }
                     }
                 }
             }
         }
-        return nil
+        return resolved
+    }
+
+    /// Resolves many terminal identities from a JSON or response-envelope
+    /// payload in one tree walk.
+    func surfaceIDs(from data: Data, terminalIDs: Set<String>) -> [String: UInt64] {
+        guard let root = try? JSONSerialization.jsonObject(with: data),
+              let object = (root as? [String: Any])?["data"] as? [String: Any]
+                  ?? root as? [String: Any] else {
+            return [:]
+        }
+        return surfaceIDs(from: object, terminalIDs: terminalIDs)
     }
 
     private func number(from value: Any?) -> UInt64? {
         if let number = value as? NSNumber {
-            guard number.int64Value > 0 else { return nil }
-            return number.uint64Value
+            // JSON booleans bridge to NSNumber on Apple platforms. They are
+            // not valid surface ids, and NSNumber's integer accessors would
+            // otherwise turn true into 1. Require an integral, positive,
+            // lossless conversion before accepting the value.
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return nil
+            }
+            let type = String(cString: number.objCType)
+            switch type {
+            case "c", "s", "i", "l", "q":
+                let signed = number.int64Value
+                return signed > 0 ? UInt64(signed) : nil
+            case "C", "S", "I", "L", "Q":
+                let unsigned = number.uint64Value
+                return unsigned > 0 ? unsigned : nil
+            default:
+                // Floating-point JSON values (including 1.5) are rejected
+                // rather than rounded into a potentially different surface.
+                return nil
+            }
         }
         if let string = value as? String {
             return UInt64(string).flatMap { $0 > 0 ? $0 : nil }
