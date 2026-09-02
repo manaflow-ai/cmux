@@ -13972,7 +13972,7 @@ impl App {
         let valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
-        self.projection_rows_cache.retain_view_ids(&valid_view_ids);
+        self.projection_rows_cache.invalidate();
         self.bump_sidebar_generation();
         self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
         if let Some(id) = focused_projection_id {
