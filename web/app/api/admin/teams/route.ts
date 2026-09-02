@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import {
+  AdminGrantConflictError,
   AdminTeamNotFoundError,
   setTeamManualPlanGrant,
 } from "../../../../services/admin/proGrants";
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AdminTeamNotFoundError) {
       return adminJsonResponse({ error: "team_not_found" }, 404);
+    }
+    if (error instanceof AdminGrantConflictError) {
+      return adminJsonResponse({ error: "mutation_in_progress" }, 409);
     }
     throw error;
   }

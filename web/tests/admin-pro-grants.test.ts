@@ -486,44 +486,73 @@ type GrantRow = {
   createdAt: Date;
 };
 
-/** Collects bound parameter values from a drizzle SQL condition. */
-function boundParams(node: unknown, out: unknown[] = []): unknown[] {
-  // Template values in sql`...` stay raw JS strings until query build time.
-  if (typeof node === "string") out.push(node);
-  if (Array.isArray(node)) {
-    for (const item of node) boundParams(item, out);
-    return out;
-  }
-  if (node && typeof node === "object") {
-    const record = node as { value?: unknown; queryChunks?: unknown[]; constructor?: { name?: string } };
-    if (record.constructor?.name === "Param") {
-      if (Array.isArray(record.value)) out.push(...record.value);
-      else out.push(record.value);
+type Row = Record<string, unknown>;
+
+const COLUMN_FIELDS: Record<string, string> = {
+  id: "id",
+  email: "email",
+  plan: "plan",
+  granted_by_user_id: "grantedByUserId",
+  granted_by_email: "grantedByEmail",
+  claimed_at: "claimedAt",
+  applied_user_id: "appliedUserId",
+  applied_at: "appliedAt",
+  revoked_at: "revokedAt",
+  created_at: "createdAt",
+};
+
+function isStringChunk(node: unknown): node is { value: string[] } {
+  return !!node && typeof node === "object" && (node as { constructor?: { name?: string } }).constructor?.name === "StringChunk";
+}
+function isColumn(node: unknown): node is { name: string } {
+  return !!node && typeof node === "object" && "table" in (node as object) && typeof (node as { name?: unknown }).name === "string";
+}
+function leafParams(chunks: unknown[]): unknown[] {
+  const out: unknown[] = [];
+  for (const chunk of chunks) {
+    if (isStringChunk(chunk) || isColumn(chunk)) continue;
+    if (Array.isArray(chunk)) {
+      for (const item of chunk) out.push(item && typeof item === "object" && "value" in item ? (item as { value: unknown }).value : item);
+    } else if (chunk && typeof chunk === "object" && (chunk as { constructor?: { name?: string } }).constructor?.name === "Param") {
+      out.push((chunk as { value: unknown }).value);
+    } else if (typeof chunk === "string" || chunk instanceof Date) {
+      out.push(chunk);
     }
-    if (record.constructor?.name === "StringChunk" && Array.isArray(record.value)) {
-      out.push(...record.value.map((text) => `sql:${String(text)}`));
-    }
-    if (Array.isArray(record.queryChunks)) for (const chunk of record.queryChunks) boundParams(chunk, out);
   }
   return out;
 }
 
-/** Minimal in-memory double for the admin_plan_grants queries the service issues. */
+/** Evaluates a drizzle SQL condition tree against a plain row. */
+function evalCondition(node: unknown, row: Row): boolean {
+  if (!node || typeof node !== "object") return true;
+  const chunks = (node as { queryChunks?: unknown[] }).queryChunks;
+  if (!Array.isArray(chunks)) return true;
+  const texts = chunks.map((chunk) => (isStringChunk(chunk) ? chunk.value.join("") : null));
+  const children = chunks.filter((chunk) => !isStringChunk(chunk));
+  if (texts.includes(" and ")) return children.every((child) => evalCondition(child, row));
+  if (texts.includes(" or ")) return children.some((child) => evalCondition(child, row));
+  const column = chunks.find(isColumn);
+  if (!column) return children.every((child) => evalCondition(child, row));
+  const value = row[COLUMN_FIELDS[column.name] ?? column.name];
+  const op = texts.filter((text): text is string => text !== null).join("").replace(/[()]/g, "").trim();
+  const params = leafParams(chunks);
+  switch (op) {
+    case "is null": return value === null || value === undefined;
+    case "is not null": return value !== null && value !== undefined;
+    case "=": return value === params[0];
+    case "<": return value instanceof Date && params[0] instanceof Date ? value < params[0] : false;
+    case "in": return params.includes(value);
+    case "ilike": {
+      const pattern = String(params[0]).toLowerCase();
+      const needle = pattern.replace(/^%/, "").replace(/%$/, "").replace(/\\(.)/g, "$1");
+      return String(value).toLowerCase().includes(needle);
+    }
+    default: throw new Error(`fakeGrantsDb: unsupported operator ${JSON.stringify(op)}`);
+  }
+}
+
+/** In-memory double for the admin_plan_grants queries the service issues. */
 function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
-  const isOpen = (row: GrantRow) => !row.appliedAt && !row.revokedAt;
-  const matches = (condition: unknown) => {
-    const params = boundParams(condition).filter((value): value is string => typeof value === "string");
-    const requireClaimed = params.some((value) => value.startsWith("sql:") && value.includes("is not null"));
-    const like = params.find((value) => value.startsWith("%") && value.endsWith("%"));
-    const email = params.find((value) => value.includes("@") && !value.startsWith("%")) ?? null;
-    const ids = new Set(params.filter((value) => /^g\d+$/.test(value)));
-    return (row: GrantRow) =>
-      (!requireClaimed || row.appliedUserId !== null) &&
-      (ids.size === 0 || ids.has(row.id)) &&
-      (email === null || row.email === email) &&
-      (like === undefined || row.email.includes(like.slice(1, -1).replace(/\\(.)/g, "$1"))) &&
-      (email === null && like === undefined ? true : isOpen(row) || ids.size > 0);
-  };
   const db = {
     transaction: async <Result,>(operation: (tx: AdminGrantsDb) => Promise<Result>) => await operation(db),
     select: () => ({
@@ -532,8 +561,7 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
           orderBy: () => ({
             limit: async (limit: number) =>
               rows
-                .filter(matches(condition))
-                .filter(isOpen)
+                .filter((row) => evalCondition(condition, row as unknown as Row))
                 .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
                 .slice(0, limit),
           }),
@@ -563,22 +591,7 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
     update: () => ({
       set: (values: Partial<GrantRow>) => ({
         where: (condition: unknown) => {
-          const predicate = matches(condition);
-          const isClaim = "appliedUserId" in values && values.appliedUserId !== null && !("appliedAt" in values);
-          const isFinalize = "appliedAt" in values && values.appliedAt !== null;
-          const isRevoke = "revokedAt" in values && values.revokedAt !== null;
-          const isUnrevoke = "revokedAt" in values && values.revokedAt === null;
-          const claimant = isClaim ? String(values.appliedUserId) : null;
-          const claimStale = (row: GrantRow) => {
-            const cutoff = boundParams(condition).find((value): value is Date => value instanceof Date);
-            return row.claimedAt === null || (cutoff !== undefined && row.claimedAt < cutoff);
-          };
-          const hit = rows.filter((row) =>
-            predicate(row) &&
-            (!isClaim || (isOpen(row) && (row.appliedUserId === null || row.appliedUserId === claimant || claimStale(row)))) &&
-            (!isFinalize || row.revokedAt === null) &&
-            (!isRevoke || (row.appliedAt === null && row.revokedAt === null)) &&
-            (!isUnrevoke || row.appliedAt === null));
+          const hit = rows.filter((row) => evalCondition(condition, row as unknown as Row));
           const run = async () => {
             for (const row of hit) Object.assign(row, values);
             return hit.map((row) => ({ ...row }));
@@ -654,7 +667,13 @@ describe("pending email grants", () => {
     );
     expect(applied).toBe(1);
     expect(grants).toEqual([
-      { targetUserId: "u9", plan: "founders", admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" } },
+      {
+        targetUserId: "u9",
+        plan: "founders",
+        admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" },
+        unlessAuditNewerThan: rows.find((row) => row.plan === "founders")!.createdAt,
+        supersedePending: false,
+      },
     ]);
     expect(rows.find((row) => row.plan === "founders")?.appliedUserId).toBe("u9");
     expect(rows.find((row) => row.plan === "pro" && row.email === "pat@example.com")?.appliedAt).toBeNull();
@@ -800,6 +819,69 @@ describe("pending email grants", () => {
     expect((await listPendingEmailGrants("pat", { db })).map((row) => row.plan)).toEqual(["founders"]);
   });
 
+  test("a direct admin decision on a verified account supersedes older pending grants", async () => {
+    const rows: GrantRow[] = [];
+    const grantsDb = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db: grantsDb });
+    const target = fakeUser({ id: "u1", primaryEmail: "Pat@Example.com", primaryEmailVerified: true });
+    const app = fakeApp([target]);
+    await setManualPlanGrant({
+      targetUserId: "u1", plan: "pro", admin, app, withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe, grantsDb,
+    });
+    expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(await listPendingEmailGrants("pat", { db: grantsDb })).toEqual([]);
+
+    // Unverified accounts do not supersede: the pending row may belong to the real owner.
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db: grantsDb });
+    const squatter = fakeUser({ id: "u2", primaryEmail: "pat@example.com", primaryEmailVerified: false });
+    const app2 = fakeApp([squatter]);
+    await setManualPlanGrant({
+      targetUserId: "u2", plan: "pro", admin, app: app2, withFreshUser: directMutation(app2),
+      stripeBillingStatus: async () => noStripe, grantsDb,
+    });
+    expect((await listPendingEmailGrants("pat", { db: grantsDb })).length).toBe(1);
+  });
+
+  test("an older pending grant never overwrites a newer direct admin decision", async () => {
+    const target = fakeUser({
+      id: "u1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "founders", byUserId: "admin-2", byEmail: null, at: "2026-09-02T12:00:00.000Z" } },
+    });
+    const app = fakeApp([target]);
+    await setManualPlanGrant({
+      targetUserId: "u1", plan: "pro", admin, app, withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe, unlessAuditNewerThan: new Date("2026-09-02T11:00:00.000Z"),
+    });
+    expect(target.updates).toEqual([]);
+    await setManualPlanGrant({
+      targetUserId: "u1", plan: "pro", admin, app, withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe, unlessAuditNewerThan: new Date("2026-09-02T13:00:00.000Z"),
+    });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro" });
+  });
+
+  test("a failed compensating clear is retried at the user's next sign-in", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    // State left behind by the race: revoked, claimed by u9, never finalized.
+    rows[0]!.revokedAt = new Date();
+    rows[0]!.appliedUserId = "u9";
+    rows[0]!.claimedAt = new Date();
+    const seen: SetManualPlanGrantInput[] = [];
+    expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { seen.push(input); } })).toBe(0);
+    expect(seen).toEqual([
+      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" } }),
+    ]);
+    expect(rows[0]!.appliedUserId).toBeNull();
+    // Nothing left to retry.
+    seen.length = 0;
+    await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { seen.push(input); } });
+    expect(seen).toEqual([]);
+  });
+
   test("revoke is retry-safe: a failed metadata clear reopens the row", async () => {
     const rows: GrantRow[] = [];
     const db = fakeGrantsDb(rows);
@@ -830,16 +912,12 @@ describe("isMissingGrantsTableError", () => {
   });
 
   test("applyPendingEmailGrants treats a missing table as nothing to apply", async () => {
+    const missing = () => {
+      throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
+    };
     const db = {
-      update: () => ({
-        set: () => ({
-          where: () => ({
-            returning: async () => {
-              throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
-            },
-          }),
-        }),
-      }),
+      select: () => ({ from: () => ({ where: () => ({ orderBy: () => ({ limit: async () => missing() }) }) }) }),
+      update: () => ({ set: () => ({ where: () => ({ returning: async () => missing() }) }) }),
     } as unknown as AdminGrantsDb;
     expect(await applyPendingEmailGrants({ id: "u1", primaryEmail: "a@example.com" }, { db })).toBe(0);
   });

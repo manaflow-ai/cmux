@@ -228,6 +228,20 @@ export type SetManualPlanGrantInput = {
    * grant on the same account is left alone.
    */
   readonly onlyIfCurrent?: { readonly plan: string; readonly byUserId: string };
+  /**
+   * Skip the write when the account's audit record is newer than this
+   * instant. Used when applying a pending email grant so it never overwrites
+   * a later direct admin decision on the same account.
+   */
+  readonly unlessAuditNewerThan?: Date;
+  /**
+   * After a direct admin write on a verified account, revoke open pending
+   * grants for the same email so an older pending grant cannot undo it.
+   * Defaults to true for direct writes; pending-grant application passes
+   * false.
+   */
+  readonly supersedePending?: boolean;
+  readonly grantsDb?: AdminGrantsDb;
   readonly now?: () => Date;
   readonly app?: AdminStackApp;
   readonly withFreshUser?: FreshAdminUserMutation;
@@ -270,6 +284,13 @@ export async function setManualPlanGrant(
           return user;
         }
       }
+      if (input.unlessAuditNewerThan) {
+        const audit = grantRecordFromServerMetadata(user.serverMetadata);
+        const auditAt = audit ? Date.parse(audit.at) : Number.NaN;
+        if (!Number.isNaN(auditAt) && auditAt > input.unlessAuditNewerThan.getTime()) {
+          return user;
+        }
+      }
       await lease.refresh();
       const client = metadataRecord(user.clientReadOnlyMetadata);
       if (input.plan === null) {
@@ -302,6 +323,13 @@ export async function setManualPlanGrant(
       throw new AdminGrantConflictError(input.targetUserId);
     }
     throw error;
+  }
+
+  // A direct admin decision on a verified account supersedes any older
+  // pending grant addressed to that mailbox; otherwise the pending grant would
+  // re-apply at the next sign-in and silently undo this write.
+  if (input.supersedePending !== false && mutated.primaryEmailVerified && mutated.primaryEmail) {
+    await supersedeOpenGrantsForEmail(mutated.primaryEmail, mutated.id, input.grantsDb);
   }
 
   // Outside the lease: the resolver takes its own lease when it needs to
@@ -671,6 +699,36 @@ export class AdminInvalidEmailError extends Error {
   }
 }
 
+/**
+ * Revokes open pending grants for an email that are unclaimed or claimed by
+ * the given user. Rows claimed by another user are left for that sign-in.
+ * Tolerates a missing database or table.
+ */
+async function supersedeOpenGrantsForEmail(
+  rawEmail: string,
+  userId: string,
+  grantsDb?: AdminGrantsDb,
+): Promise<void> {
+  const email = canonicalizeEmailForMatching(rawEmail);
+  try {
+    const db = grantsDb ?? cloudDb();
+    await db
+      .update(adminPlanGrants)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(adminPlanGrants.email, email),
+          isNull(adminPlanGrants.appliedAt),
+          isNull(adminPlanGrants.revokedAt),
+          or(isNull(adminPlanGrants.appliedUserId), eq(adminPlanGrants.appliedUserId, userId)),
+        ),
+      );
+  } catch (error) {
+    if (isMissingGrantsTableError(error) || isMissingDatabaseConfigError(error)) return;
+    throw error;
+  }
+}
+
 /** A claim older than this is treated as abandoned and may be re-claimed. */
 export const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
 
@@ -718,6 +776,7 @@ export async function revokePendingEmailGrant(input: {
       plan: null,
       admin: input.admin ?? { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
       onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId },
+      supersedePending: false,
     });
   } catch (error) {
     if (!(error instanceof AdminUserNotFoundError)) {
@@ -729,6 +788,10 @@ export async function revokePendingEmailGrant(input: {
       throw error;
     }
   }
+  await db
+    .update(adminPlanGrants)
+    .set({ appliedUserId: null, claimedAt: null })
+    .where(eq(adminPlanGrants.id, row.id));
   return { revoked: true, clearedUserId: row.appliedUserId };
 }
 
@@ -765,6 +828,12 @@ export async function applyPendingEmailGrants(
   const grant = options.grant ?? setManualPlanGrant;
   const now = options.now ?? (() => new Date());
   const email = canonicalizeEmailForMatching(user.primaryEmail);
+  try {
+    await retryRevokedGrantCleanup(db, email, user.id, grant);
+  } catch (error) {
+    if (isMissingGrantsTableError(error) || isMissingDatabaseConfigError(error)) return 0;
+    throw error;
+  }
   const claimedAt = now();
   const staleBefore = new Date(claimedAt.getTime() - ADMIN_GRANT_CLAIM_TTL_MS);
   let claimed: Array<{
@@ -821,6 +890,9 @@ export async function applyPendingEmailGrants(
         targetUserId: user.id,
         plan,
         admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+        // A direct admin decision made after this grant was created wins.
+        unlessAuditNewerThan: newest.createdAt,
+        supersedePending: false,
       });
     } catch (error) {
       await releaseClaims();
@@ -835,14 +907,67 @@ export async function applyPendingEmailGrants(
     .returning({ id: adminPlanGrants.id });
   const finalized = new Set(done.map((row) => row.id));
   if (plan !== null && !finalized.has(newest.id)) {
-    // Revoked while the write was in flight: the revoke wins.
+    // Revoked while the write was in flight: the revoke wins. The row stays
+    // revoked with applied_user_id set until this clear succeeds, and
+    // retryRevokedGrantCleanup retries it at the user's next sign-in.
     await grant({
       targetUserId: user.id,
       plan: null,
       admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+      onlyIfCurrent: { plan: newest.plan, byUserId: newest.grantedByUserId },
+      supersedePending: false,
     });
+    await db
+      .update(adminPlanGrants)
+      .set({ appliedUserId: null, claimedAt: null })
+      .where(eq(adminPlanGrants.id, newest.id));
   }
   return finalized.size;
+}
+
+/**
+ * Durable cleanup for the revoke/apply race: a revoked row that still carries
+ * applied_user_id (and no applied_at) means a grant was written for that user
+ * and the compensating clear did not complete. Retry it here, on the user's
+ * own sign-in, and release the marker once the clear succeeds.
+ */
+async function retryRevokedGrantCleanup(
+  db: AdminGrantsDb,
+  email: string,
+  userId: string,
+  grant: (input: SetManualPlanGrantInput) => Promise<unknown>,
+): Promise<void> {
+  const dangling = await db
+    .select({
+      id: adminPlanGrants.id,
+      plan: adminPlanGrants.plan,
+      grantedByUserId: adminPlanGrants.grantedByUserId,
+      grantedByEmail: adminPlanGrants.grantedByEmail,
+    })
+    .from(adminPlanGrants)
+    .where(
+      and(
+        eq(adminPlanGrants.email, email),
+        isNotNull(adminPlanGrants.revokedAt),
+        isNull(adminPlanGrants.appliedAt),
+        eq(adminPlanGrants.appliedUserId, userId),
+      ),
+    )
+    .orderBy(desc(adminPlanGrants.createdAt))
+    .limit(ADMIN_USER_SEARCH_LIMIT);
+  for (const row of dangling) {
+    await grant({
+      targetUserId: userId,
+      plan: null,
+      admin: { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
+      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId },
+      supersedePending: false,
+    });
+    await db
+      .update(adminPlanGrants)
+      .set({ appliedUserId: null, claimedAt: null })
+      .where(eq(adminPlanGrants.id, row.id));
+  }
 }
 
 function isMissingDatabaseConfigError(error: unknown): boolean {
