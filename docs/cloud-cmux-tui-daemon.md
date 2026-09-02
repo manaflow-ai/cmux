@@ -100,12 +100,25 @@ today. The per-provider delivery mechanisms stay what they are:
 | daytona | baked into snapshot, entrypoint restarts it | same swap; the driver's repair exec restarts `server start` |
 | freestyle | systemd unit in the VM snapshot | same swap in the unit file |
 
-The daemon's remote state dir must live on the persistent volume (`/root` on
-blaxel, hence the default `/root/.local/state/cmux/remote` already qualifies)
+The daemon's remote state dir must live on the persistent volume (the machine's
+home: `/home/cmux` on blaxel — the daemon and every terminal pane run as the
+non-root `cmux` user with passwordless sudo; sandboxes created before that
+change keep their volume at `/root` and stay root until resurrected, and a
+machine where the user is unusable — missing user or runuser, or a failed
+bindfs identity view — degrades to a root daemon rather than failing — hence
+the HOME-derived default `~/.local/state/cmux/remote` already qualifies)
 so daemon identity and enrolled devices survive sandbox resurrection. Session
 state (`--state`) lives there too, so workspace layout restores from the
 journal checkpoint after a daemon restart; running processes do not survive a
 restart, and clients see the generation change instead of a silent new shell.
+
+On a Blaxel layout machine, the daemon watches the bindfs home view for mount
+events. If the view disappears, the supervisor stops the user daemon and exits
+with a restartable failure code. Blaxel starts the command again, which reruns
+the idempotent user setup and repairs the view before selecting the non-root
+daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
+and runs the daemon there as root. Active terminals therefore do not continue
+writing into the disposable rootfs directory.
 
 ## Lease/auth integration with the attach-endpoint flow
 
