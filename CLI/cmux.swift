@@ -1153,13 +1153,21 @@ final class ClaudeHookSessionStore {
     func clearAgentLifecycleIfPresent(
         sessionId: String,
         workspaceId: String?,
-        surfaceId: String?
+        surfaceId: String?,
+        hookEventName: String? = nil
     ) throws {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalizedSessionId] else { return }
             record.agentLifecycle = .unknown
+            if let hookEventName = normalizeOptional(hookEventName) {
+                if record.hookEventName != hookEventName {
+                    record.lastSubtitle = nil
+                    record.lastBody = nil
+                }
+                record.hookEventName = hookEventName
+            }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
@@ -28287,7 +28295,8 @@ struct CMUXCLI {
                     try? sessionStore.clearAgentLifecycleIfPresent(
                         sessionId: consumedSession.sessionId,
                         workspaceId: consumedSession.workspaceId,
-                        surfaceId: consumedSession.surfaceId
+                        surfaceId: consumedSession.surfaceId,
+                        hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionEnd"
                     )
                     // Lifecycle cleanup is always pane-scoped: a workspace can
                     // host multiple agents whose notifications are independent.
@@ -35241,7 +35250,8 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        hookEventName: persistedHookEventName
                     )) ?? false
                 } else {
                     _ = try? store.upsert(
@@ -36556,6 +36566,7 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
                         pid: mapped.pid,
                         launchCommand: mapped.launchCommand,
+                        hookEventName: persistedHookEventName,
                         lastSubtitle: nil,
                         lastBody: nil,
                         autoNameMessages: autoNamingMessages(

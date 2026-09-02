@@ -74,4 +74,36 @@ import Testing
         #expect(decoded.hookEventName == nil)
         #expect(decoded.sessionId == "legacy-session")
     }
+
+    @Test func lifecycleCleanupPersistsTheTeardownHookEvent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-store-cleanup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let statePath = root.appendingPathComponent("sessions.json").path
+        let store = ClaudeHookSessionStore(processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": statePath])
+        _ = try store.upsert(
+            sessionId: "session-1",
+            workspaceId: "workspace-1",
+            surfaceId: "surface-1",
+            agentLifecycle: .idle,
+            hookEventName: "Stop",
+            lastSubtitle: "Completed",
+            lastBody: "Finished"
+        )
+
+        try store.clearAgentLifecycleIfPresent(
+            sessionId: "session-1",
+            workspaceId: "workspace-1",
+            surfaceId: "surface-1",
+            hookEventName: "SessionEnd"
+        )
+
+        let ended = try #require(store.lookup(sessionId: "session-1"))
+        #expect(ended.agentLifecycle == .unknown)
+        #expect(ended.hookEventName == "SessionEnd")
+        #expect(ended.lastSubtitle == nil)
+        #expect(ended.lastBody == nil)
+    }
 }
