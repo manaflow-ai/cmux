@@ -19,7 +19,7 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
     PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
     TerminalPointerSnapshot,
-    platform::{restrict_directory, transport},
+    platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -3592,69 +3592,101 @@ impl Drop for RemoteSession {
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(dir);
-        // Frame mirrors contain terminal output and may include secrets. Keep
-        // the opt-in dump directory and files private even when the process
-        // runs with a permissive umask.
-        let _ = restrict_directory(dir);
-        let logs = self.frame_logs.lock().unwrap();
-        let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
-        for entry in &logs.entries {
-            entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+        #[cfg(not(unix))]
+        {
+            // Secure descriptor-relative file creation is not available in
+            // this implementation. Do not emit secret-bearing dumps through
+            // path-based APIs on unsupported targets.
+            let _ = dir;
+            return;
         }
-        for surface in self.surfaces.lock().unwrap().values() {
-            let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = write_private_dump(&path, &dump_mirror(surface));
-            let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = private_dump_file(&frames) {
-                let mut writer = io::BufWriter::new(file);
-                for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                    let _ = writeln!(writer, "{line}");
+        #[cfg(unix)]
+        {
+            let Ok(directory) = private_dump_directory(dir) else { return };
+            let logs = self.frame_logs.lock().unwrap();
+            let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
+            for entry in &logs.entries {
+                entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+            }
+            for surface in self.surfaces.lock().unwrap().values() {
+                let mirror_name = format!("mirror-{}.txt", surface.id);
+                let _ = write_private_dump(&directory, &mirror_name, &dump_mirror(surface));
+                let frames_name = format!("frames-{}.log", surface.id);
+                if let Ok(file) = private_dump_file(&directory, &frames_name) {
+                    let mut writer = io::BufWriter::new(file);
+                    for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                        let _ = writeln!(writer, "{line}");
+                    }
                 }
             }
         }
     }
 }
 
-fn private_dump_file(path: &Path) -> io::Result<fs::File> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+#[cfg(unix)]
+fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    fs::create_dir_all(path)?;
+    let directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let metadata = directory.metadata()?;
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("dump directory is not private and user-owned: {}", path.display()),
+        ));
     }
-    #[cfg(not(unix))]
-    options.truncate(true);
-    let file = options.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let metadata = file.metadata()?;
-        // O_NOFOLLOW protects only the final path component. Verify the
-        // opened descriptor as well, so a stale or malicious dump entry
-        // cannot block on a FIFO or redirect output to a device. A link count
-        // above one indicates a hard link, which could otherwise truncate a
-        // different file when the dump is refreshed.
-        if !metadata.is_file() || metadata.nlink() != 1 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("dump target is not a private regular file: {}", path.display()),
-            ));
-        }
-        // Truncate only after validating the opened descriptor, so a hard
-        // link cannot cause data loss in another file.
-        file.set_len(0)?;
-        // `mode` only applies when the file is new. Set permissions through
-        // the opened descriptor so existing files are also private without a
-        // path-based symlink race.
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let name = CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    let descriptor = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY
+                | libc::O_CREAT
+                | libc::O_NOFOLLOW
+                | libc::O_NONBLOCK
+                | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
     }
+    let file = unsafe { fs::File::from_raw_fd(descriptor) };
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.nlink() != 1
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "dump target is not a private user-owned regular file",
+        ));
+    }
+    // Truncate only after validating the opened descriptor, so a hard link
+    // cannot cause data loss in another file.
+    file.set_len(0)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
     Ok(file)
 }
 
-fn write_private_dump(path: &Path, contents: &str) -> io::Result<()> {
-    let mut file = private_dump_file(path)?;
+#[cfg(unix)]
+fn write_private_dump(directory: &fs::File, name: &str, contents: &str) -> io::Result<()> {
+    let mut file = private_dump_file(directory, name)?;
     file.write_all(contents.as_bytes())?;
     Ok(())
 }
