@@ -1,11 +1,11 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
+run-name: ${{ inputs.test_filter }} on macos-15 @ ${{ inputs.ref || github.ref_name }}
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Full commit SHA to test; blank uses the current protected main commit
         required: false
         default: ""
       test_filter:
@@ -16,7 +16,7 @@ on:
         required: false
         default: "120"
       job_timeout:
-        description: "Job timeout in minutes (cold builds on 6-vcpu runners can exceed the 20-minute default)"
+        description: "Job timeout in minutes (cold builds can exceed the 20-minute default)"
         required: false
         default: "20"
       record_video:
@@ -24,93 +24,162 @@ on:
         required: false
         default: true
         type: boolean
-      runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-* choices use isolated VMs)"
-        required: false
-        default: "auto"
-        type: choice
-        options:
-          - auto
-          - blacksmith-6vcpu-macos-15
-          - blacksmith-6vcpu-macos-26
-          - blacksmith-6vcpu-macos-latest
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
-          - depot-macos-14
-          - tart-canary
-          - tart-dual
-          - tart-small
 
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-macos-15-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
+  # Keep source selection on a fixed hosted Linux runner, then pass one
+  # immutable commit SHA to the fixed hosted macOS E2E job.
+  validate-source:
+    runs-on: ubuntu-24.04 # github-hosted-required: source trust gate requires an isolated runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - name: Validate protected E2E source
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REQUESTED_SHA: ${{ inputs.ref || '' }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = process.env.REPOSITORY;
+            const eventName = process.env.EVENT_NAME;
+            const eventRef = process.env.EVENT_REF;
+            const eventRefType = process.env.EVENT_REF_TYPE;
+            const workflowIdentity = process.env.WORKFLOW_IDENTITY;
+            const eventSha = process.env.EVENT_SHA;
+            const workflowSha = process.env.WORKFLOW_SHA;
+            const requestedSha = process.env.REQUESTED_SHA;
+            const refProtected = process.env.REF_PROTECTED === 'true';
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const fail = (message) => {
+              core.setFailed(message);
+              throw new Error(message);
+            };
+
+            const expectedRepository = 'manaflow-ai/cmux';
+            if (repository !== expectedRepository || `${owner}/${repo}` !== expectedRepository) {
+              fail(`E2E guard must run in ${expectedRepository}, found ${repository}`);
+            }
+            if (eventName !== 'workflow_dispatch' || eventRef !== 'refs/heads/main' || eventRefType !== 'branch' || !refProtected) {
+              fail('E2E workflow_dispatch is allowed only from protected refs/heads/main');
+            }
+            if (!shaPattern.test(eventSha) || !shaPattern.test(workflowSha)) {
+              fail(`GitHub supplied an invalid event or workflow SHA: ${eventSha}, ${workflowSha}`);
+            }
+            const workflowPath = '.github/workflows/test-e2e.yml';
+            const expectedWorkflowIdentity = `${expectedRepository}/${workflowPath}@${eventRef}`;
+            if (workflowIdentity !== expectedWorkflowIdentity) {
+              fail(`E2E workflow identity ${workflowIdentity} does not match ${expectedWorkflowIdentity}`);
+            }
+            const workflowComparison = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: workflowSha,
+              head: eventSha,
+            });
+            if (!['ahead', 'identical'].includes(workflowComparison.data.status)) {
+              fail(`E2E workflow ${workflowSha} is not an ancestor of source ${eventSha}`);
+            }
+            const workflowAtSource = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: eventSha,
+            });
+            const workflowAtDefinition = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: workflowSha,
+            });
+            if (
+              Array.isArray(workflowAtSource.data) ||
+              Array.isArray(workflowAtDefinition.data) ||
+              workflowAtSource.data.type !== 'file' ||
+              workflowAtDefinition.data.type !== 'file' ||
+              workflowAtSource.data.sha !== workflowAtDefinition.data.sha
+            ) {
+              fail('E2E workflow definition changed between workflow and source revisions');
+            }
+
+            const mainSha = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            })).data.commit.sha;
+            if (!shaPattern.test(mainSha)) {
+              fail(`GitHub returned an invalid protected main SHA: ${mainSha}`);
+            }
+            const sourceSha = requestedSha || eventSha;
+            if (!shaPattern.test(sourceSha)) {
+              fail('The ref input must be a full 40-character commit SHA or empty');
+            }
+            await github.rest.repos.getCommit({ owner, repo, ref: sourceSha });
+
+            if (!requestedSha && sourceSha !== mainSha) {
+              fail(`Current main changed during dispatch: workflow ${sourceSha}, main ${mainSha}`);
+            }
+            if (requestedSha) {
+              const comparison = await github.rest.repos.compareCommits({
+                owner,
+                repo,
+                base: sourceSha,
+                head: mainSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                fail(`Requested E2E SHA ${sourceSha} is not an ancestor of protected main ${mainSha}`);
+              }
+            }
+
+            core.setOutput('source_sha', sourceSha);
+            core.notice(`Validated immutable E2E source ${sourceSha}`);
+
   e2e:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+    needs: validate-source
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: read
+    runs-on: macos-15 # github-hosted-required: manual E2E must not select mutable runners
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
-      TEST_REF: ${{ inputs.ref || github.ref }}
+      TEST_REF: ${{ needs.validate-source.outputs.source_sha }}
     steps:
-      - name: Validate Depot runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
-            depot-*)
-              echo "Resolved runner matches depot-*? yes"
-              ;;
-            *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
-              exit 1
-              ;;
-          esac
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
-      - name: Clear stale git locks (self-hosted reused workspace)
-        shell: bash
-        run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
           submodules: recursive
 
-      - name: Capture SHA
+      - name: Verify immutable checkout and capture SHA
         id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
+          echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"
 
       - name: Normalize test filter
         id: filter
@@ -181,8 +250,6 @@ jobs:
           bun-version: latest
 
       - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           ./scripts/download-prebuilt-ghosttykit.sh
@@ -298,8 +365,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
+          key: spm-macos-15-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-macos-15-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -366,9 +433,9 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            # A persistent AVFoundation capture session prevents
-            # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
+            # A persistent AVFoundation capture session can prevent
+            # XCUIApplication from foregrounding a macOS app on hosted images.
+            # Capture independent JPEG frames instead, then assemble
             # them after XCTest exits. No recorder owns the display while the
             # app is activating.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
@@ -631,7 +698,7 @@ jobs:
             STATUS_EMOJI="FAILED"
           fi
 
-          REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
+          REF_DISPLAY="$TEST_REF"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
           {
             echo "## E2E test result"

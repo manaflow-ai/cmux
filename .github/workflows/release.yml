@@ -4,18 +4,172 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  # Release runs are tag-push-only. Validate the tag and resolve one immutable
+  # commit before any runner checks out repository code or receives credentials.
+  validate-source:
+    runs-on: ubuntu-24.04 # github-hosted-required: source trust gate requires an isolated runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - name: Validate protected release source
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = process.env.REPOSITORY;
+            const eventName = process.env.EVENT_NAME;
+            const eventRef = process.env.EVENT_REF;
+            const eventRefType = process.env.EVENT_REF_TYPE;
+            const eventSha = process.env.EVENT_SHA;
+            const workflowSha = process.env.WORKFLOW_SHA;
+            const workflowRef = process.env.WORKFLOW_REF;
+            const refProtected = process.env.REF_PROTECTED === 'true';
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const fail = (message) => {
+              core.setFailed(message);
+              throw new Error(message);
+            };
+
+            const expectedRepository = 'manaflow-ai/cmux';
+            if (repository !== expectedRepository || `${owner}/${repo}` !== expectedRepository) {
+              fail(`Release guard must run in ${expectedRepository}, found ${repository}`);
+            }
+            if (!shaPattern.test(eventSha)) {
+              fail(`GitHub supplied an invalid source SHA: ${eventSha}`);
+            }
+            if (!shaPattern.test(workflowSha)) {
+              fail(`GitHub supplied an invalid workflow SHA: ${workflowSha}`);
+            }
+            const workflowPath = '.github/workflows/release.yml';
+            const expectedWorkflowRef = `${expectedRepository}/${workflowPath}@${eventRef}`;
+            if (workflowRef !== expectedWorkflowRef) {
+              fail(`Release workflow identity ${workflowRef} does not match ${expectedWorkflowRef}`);
+            }
+
+            // GitHub may keep workflowSha at the commit that last changed this
+            // file while the event advances. Require that revision to be an
+            // ancestor and that the workflow blob is unchanged at the source.
+            const workflowComparison = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: workflowSha,
+              head: eventSha,
+            });
+            if (!['ahead', 'identical'].includes(workflowComparison.data.status)) {
+              fail(`Release workflow ${workflowSha} is not an ancestor of source ${eventSha}`);
+            }
+            const workflowAtSource = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: eventSha,
+            });
+            const workflowAtDefinition = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: workflowSha,
+            });
+            if (
+              Array.isArray(workflowAtSource.data) ||
+              Array.isArray(workflowAtDefinition.data) ||
+              workflowAtSource.data.type !== 'file' ||
+              workflowAtDefinition.data.type !== 'file' ||
+              workflowAtSource.data.sha !== workflowAtDefinition.data.sha
+            ) {
+              fail('Release workflow definition changed between workflow and source revisions');
+            }
+
+            const mainSha = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            })).data.commit.sha;
+            if (!shaPattern.test(mainSha)) {
+              fail(`GitHub returned an invalid protected main SHA: ${mainSha}`);
+            }
+            const workflowAtMain = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: mainSha,
+            });
+            if (
+              Array.isArray(workflowAtMain.data) ||
+              workflowAtMain.data.type !== 'file' ||
+              workflowAtSource.data.sha !== workflowAtMain.data.sha
+            ) {
+              fail('Release tag is using a stale workflow definition; create the tag from the current protected main policy');
+            }
+
+            if (eventName === 'push') {
+              if (eventRefType !== 'tag' || !refProtected) {
+                fail('Release tag push must target a protected ref');
+              }
+              if (!/^refs\/tags\/v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(eventRef)) {
+                fail(`Release push must be a semantic version tag, found ${eventRef}`);
+              }
+              const tagName = eventRef.replace('refs/tags/', '');
+              const tagRef = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+              let tagSha = tagRef.data.object.sha;
+              if (tagRef.data.object.type === 'tag') {
+                tagSha = (await github.rest.git.getTag({
+                  owner,
+                  repo,
+                  tag_sha: tagSha,
+                })).data.object.sha;
+              }
+              if (!shaPattern.test(tagSha)) {
+                fail(`GitHub returned an invalid release tag SHA: ${tagSha}`);
+              }
+              if (tagSha !== eventSha) {
+                fail(`Release tag ${eventRef} moved to ${tagSha} after the event was created`);
+              }
+              const comparison = await github.rest.repos.compareCommits({
+                owner,
+                repo,
+                base: eventSha,
+                head: mainSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                fail(`Release tag ${eventRef} does not point to a commit on protected main`);
+              }
+            } else {
+              fail(`Unsupported release event: ${eventName}`);
+            }
+
+            core.setOutput('source_sha', eventSha);
+            core.notice(`Validated immutable release source ${eventSha}`);
+
   build-ghostty-cli-helper:
+    needs: validate-source
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') && github.ref_protected == true
+    permissions:
+      contents: read
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
@@ -34,7 +188,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -62,7 +229,12 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
-    needs: build-ghostty-cli-helper
+    needs: [validate-source, build-ghostty-cli-helper]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') && github.ref_protected == true
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -89,7 +261,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Validate Sparkle build number is monotonic
         run: ./tests/test_ci_sparkle_build_monotonic.sh
@@ -107,7 +292,7 @@ jobs:
             core.setOutput('skip_upload', 'false');
             core.setOutput('release_state', 'clear');
             if (!tag) {
-              core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
+              core.setFailed(`Release asset guard expected a tag, found ${context.ref}`);
               return;
             }
             try {
@@ -541,17 +726,6 @@ jobs:
             remote-daemon-assets/cmuxd-remote-linux-amd64
             remote-daemon-assets/cmuxd-remote-checksums.txt
             remote-daemon-assets/cmuxd-remote-manifest.json
-
-      - name: Upload build artifacts (dry-run)
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-release-dry-run
-          path: |
-            cmux-macos.dmg
-            appcast.xml
-            remote-daemon-assets/cmuxd-remote-*
-          if-no-files-found: error
 
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

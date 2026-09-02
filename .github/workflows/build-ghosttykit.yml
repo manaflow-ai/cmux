@@ -1,14 +1,187 @@
 name: Build GhosttyKit
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ghostty
+
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
+  # This workflow can publish to the manaflow-ai/ghostty release repository.
+  # It runs only for protected main pushes and resolves one immutable commit
+  # before any runner checks out repository code or receives the release token.
+  validate-source:
+    runs-on: ubuntu-24.04 # github-hosted-required: source trust gate requires an isolated runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      ghostty_sha: ${{ steps.source.outputs.ghostty_sha }}
+    steps:
+      - name: Validate protected GhosttyKit source
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = process.env.REPOSITORY;
+            const eventName = process.env.EVENT_NAME;
+            const eventRef = process.env.EVENT_REF;
+            const eventRefType = process.env.EVENT_REF_TYPE;
+            const eventSha = process.env.EVENT_SHA;
+            const workflowSha = process.env.WORKFLOW_SHA;
+            const workflowRef = process.env.WORKFLOW_REF;
+            const refProtected = process.env.REF_PROTECTED === 'true';
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const fail = (message) => {
+              core.setFailed(message);
+              throw new Error(message);
+            };
+
+            const expectedRepository = 'manaflow-ai/cmux';
+            if (repository !== expectedRepository || `${owner}/${repo}` !== expectedRepository) {
+              fail(`GhosttyKit guard must run in ${expectedRepository}, found ${repository}`);
+            }
+            if (eventName !== 'push' || eventRef !== 'refs/heads/main' || eventRefType !== 'branch' || !refProtected) {
+              fail('GhosttyKit runs only for protected refs/heads/main pushes');
+            }
+            if (!shaPattern.test(eventSha)) {
+              fail(`GitHub supplied an invalid source SHA: ${eventSha}`);
+            }
+            if (!shaPattern.test(workflowSha)) {
+              fail(`GitHub supplied an invalid workflow SHA: ${workflowSha}`);
+            }
+            const workflowPath = '.github/workflows/build-ghosttykit.yml';
+            const expectedWorkflowRef = `${expectedRepository}/${workflowPath}@${eventRef}`;
+            if (workflowRef !== expectedWorkflowRef) {
+              fail(`GhosttyKit workflow identity ${workflowRef} does not match ${expectedWorkflowRef}`);
+            }
+            const workflowComparison = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: workflowSha,
+              head: eventSha,
+            });
+            if (!['ahead', 'identical'].includes(workflowComparison.data.status)) {
+              fail(`GhosttyKit workflow ${workflowSha} is not an ancestor of source ${eventSha}`);
+            }
+            const workflowAtSource = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: eventSha,
+            });
+            const workflowAtDefinition = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: workflowSha,
+            });
+            if (
+              Array.isArray(workflowAtSource.data) ||
+              Array.isArray(workflowAtDefinition.data) ||
+              workflowAtSource.data.type !== 'file' ||
+              workflowAtDefinition.data.type !== 'file' ||
+              workflowAtSource.data.sha !== workflowAtDefinition.data.sha
+            ) {
+              fail('GhosttyKit workflow definition changed between workflow and source revisions');
+            }
+            const mainSha = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            })).data.commit.sha;
+            if (!shaPattern.test(mainSha)) {
+              fail(`GitHub returned an invalid protected main SHA: ${mainSha}`);
+            }
+            const comparison = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: eventSha,
+              head: mainSha,
+            });
+            if (!['ahead', 'identical'].includes(comparison.data.status)) {
+              fail(`GhosttyKit source ${eventSha} is not an ancestor of protected main ${mainSha}`);
+            }
+
+            // A reviewed cmux commit carries a gitlink, not a mutable Ghostty
+            // branch. Resolve that gitlink from the event commit and require
+            // the object to exist in our fork's protected main lineage before
+            // any macOS runner checks it out.
+            const ghosttyOwner = 'manaflow-ai';
+            const ghosttyRepo = 'ghostty';
+            const ghosttyRepository = `${ghosttyOwner}/${ghosttyRepo}`;
+            const ghosttyPath = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: 'ghostty',
+              ref: eventSha,
+            });
+            const gitlink = ghosttyPath.data;
+            if (Array.isArray(gitlink) || gitlink.type !== 'submodule') {
+              fail('GhosttyKit source must contain a single Ghostty submodule gitlink');
+            }
+            if (gitlink.submodule_git_url !== 'https://github.com/manaflow-ai/ghostty.git') {
+              fail(`Ghostty submodule URL is not the trusted fork: ${gitlink.submodule_git_url}`);
+            }
+            const ghosttySha = gitlink.sha;
+            if (!shaPattern.test(ghosttySha)) {
+              fail(`GitHub returned an invalid Ghostty submodule SHA: ${ghosttySha}`);
+            }
+            const ghosttyCommit = await github.rest.repos.getCommit({
+              owner: ghosttyOwner,
+              repo: ghosttyRepo,
+              ref: ghosttySha,
+            });
+            if (ghosttyCommit.data.sha !== ghosttySha) {
+              fail(`Ghostty submodule SHA resolved to ${ghosttyCommit.data.sha}, expected ${ghosttySha}`);
+            }
+            const ghosttyMainSha = (await github.rest.repos.getBranch({
+              owner: ghosttyOwner,
+              repo: ghosttyRepo,
+              branch: 'main',
+            })).data.commit.sha;
+            if (!shaPattern.test(ghosttyMainSha)) {
+              fail(`GitHub returned an invalid Ghostty main SHA: ${ghosttyMainSha}`);
+            }
+            const ghosttyComparison = await github.rest.repos.compareCommits({
+              owner: ghosttyOwner,
+              repo: ghosttyRepo,
+              base: ghosttySha,
+              head: ghosttyMainSha,
+            });
+            if (!['ahead', 'identical'].includes(ghosttyComparison.data.status)) {
+              fail(`Ghostty SHA ${ghosttySha} is not reachable from protected Ghostty main ${ghosttyMainSha}`);
+            }
+
+            core.setOutput('source_sha', eventSha);
+            core.setOutput('ghostty_sha', ghosttySha);
+            core.notice(`Validated immutable GhosttyKit source ${eventSha} with Ghostty ${ghosttySha}`);
+
   build-ghosttykit:
+    needs: validate-source
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.ref_protected == true
+    environment:
+      name: sdk-release
+    permissions:
+      contents: read
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 35
     env:
@@ -30,7 +203,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+          EXPECTED_GHOSTTY_SHA: ${{ needs.validate-source.outputs.ghostty_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
+          actual_ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$actual_ghostty_sha" == "$EXPECTED_GHOSTTY_SHA" ]] || {
+            echo "Ghostty checkout $actual_ghostty_sha does not match validated SHA $EXPECTED_GHOSTTY_SHA" >&2
+            exit 1
+          }
+          ghostty_remote="$(git -C ghostty config --get remote.origin.url || true)"
+          case "$ghostty_remote" in
+            https://github.com/manaflow-ai/ghostty|https://github.com/manaflow-ai/ghostty.git|git@github.com:manaflow-ai/ghostty.git)
+              ;;
+            *)
+              echo "Ghostty checkout uses an untrusted remote: $ghostty_remote" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Get ghostty SHA
         id: ghostty-sha

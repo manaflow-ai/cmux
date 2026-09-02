@@ -64,13 +64,15 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
-  echo "FAIL: each Nightly run must build the exact revision that triggered it"
+if ! grep -Fq 'const headSha = process.env.VALIDATED_SHA;' "$WORKFLOW_FILE"; then
+  echo "FAIL: each Nightly run must build the exact revision accepted by the source guard"
   exit 1
 fi
 
-if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
-  echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
+if ! grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE" || \
+   ! grep -Fq 'base: eventSha' "$WORKFLOW_FILE" || \
+   ! grep -Fq "needs: validate-source" "$WORKFLOW_FILE"; then
+  echo "FAIL: Nightly must validate its source against protected main before building"
   exit 1
 fi
 

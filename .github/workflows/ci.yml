@@ -11,6 +11,15 @@ on:
       - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - .github/workflows/release.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/test-e2e.yml
+      - .github/workflows/build-ghosttykit.yml
+      - tests/test_ci_dispatch_source_guard.py
+      - tests/test_ci_self_hosted_guard.sh
+      - tests/test_nightly_universal_build.sh
+      - docs/ci-runners.md
+      - scripts/run-e2e.sh
       - tests/test_ci_change_areas.py
       - .github/workflows/cla.yml
       - .github/workflows/ci.yml
@@ -193,6 +202,9 @@ jobs:
 
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+
+      - name: Validate privileged dispatch source guards
+        run: python3 tests/test_ci_dispatch_source_guard.py
 
       # These fixtures run only in this unprivileged pull_request job. They
       # exercise the candidate workflow for developer feedback, never serve as
