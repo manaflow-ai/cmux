@@ -539,11 +539,13 @@ mod unix {
         groups: impl IntoIterator<Item = Option<libc::pid_t>>,
         host_group: libc::pid_t,
         signal: libc::c_int,
-        mut send: impl FnMut(libc::pid_t, libc::c_int),
-    ) {
+        mut send: impl FnMut(libc::pid_t, libc::c_int) -> bool,
+    ) -> bool {
+        let mut all_succeeded = true;
         for group in validated_process_groups(groups, host_group) {
-            send(group, signal);
+            all_succeeded &= send(group, signal);
         }
+        all_succeeded
     }
 
     impl SpawnedPtyChild {
@@ -581,21 +583,21 @@ mod unix {
         fn drop(&mut self) {
             let host_group = unsafe { libc::getpgrp() };
             let groups = validated_process_groups(self.process_groups, host_group);
-            signal_validated_process_groups(
+            let groups_signaled = signal_validated_process_groups(
                 groups.iter().copied().map(Some),
                 host_group,
                 libc::SIGKILL,
                 |group, signal| {
                     // SAFETY: the group was returned by the PTY or child, is
                     // positive, and is not the terminal-host process group.
-                    let _ = unsafe { libc::killpg(group, signal) };
+                    unsafe { libc::killpg(group, signal) == 0 }
                 },
             );
             if let Some(child) = self.child.as_deref_mut() {
                 // A valid process group already includes the child. Avoid a
-                // second direct PID signal, which could target a recycled PID
-                // if the group vanished before this guard was dropped.
-                if groups.is_empty() {
+                // second direct PID signal unless group signaling failed, which
+                // could leave the child running while the guard waits below.
+                if groups.is_empty() || !groups_signaled {
                     let _ = child.kill();
                 }
                 let _ = child.wait();
