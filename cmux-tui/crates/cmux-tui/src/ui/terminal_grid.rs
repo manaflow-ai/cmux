@@ -915,6 +915,48 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_wide_selection_keeps_the_spacer_head_unselected() {
+        let mut terminal = Terminal::new(4, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("ABC橋D".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(4, 3)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 4, height: 3 },
+                        source_x: 0,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    // A row-major range can include the physical spacer head,
+                    // but only the wrapped glyph's lead row is selectable.
+                    |col, row| (col == 3 && row == 0) || (col <= 1 && row == 1),
+                );
+            })
+            .unwrap();
+
+        let buffer = output.backend().buffer();
+        let selection_bg = Theme::default().selection_bg;
+        assert_ne!(buffer[(3, 0)].bg, selection_bg);
+        assert_eq!(buffer[(0, 1)].bg, selection_bg);
+        assert_eq!(buffer[(1, 1)].bg, selection_bg);
+    }
+
+    #[test]
     fn frame_default_order_and_live_blank_cells_follow_canonical_roles() {
         let foreground = Rgb { r: 0x11, g: 0x22, b: 0x33 };
         let background = Rgb { r: 0x44, g: 0x55, b: 0x66 };

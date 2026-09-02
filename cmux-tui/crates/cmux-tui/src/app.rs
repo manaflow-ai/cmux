@@ -27784,6 +27784,89 @@ mod tests {
         (app, mux, surface, content)
     }
 
+    fn wrapped_selection_fixture(
+        name: &str,
+        text: &[u8],
+    ) -> (App, Arc<Mux>, Arc<cmux_tui_core::Surface>, Rect) {
+        let (mux, surface) = test_mux(name, None);
+        surface.with_terminal(|terminal| {
+            terminal.resize(4, 3, 8, 16).unwrap();
+            terminal.vt_write(text);
+        });
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 4, height: 3 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 7, height: 5 },
+            bar: Some(Rect { x: 1, y: 2, width: 7, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        (app, mux, surface, content)
+    }
+
+    #[test]
+    fn dragging_from_a_wrapped_wide_head_anchors_to_the_glyph_lead() {
+        let (mut app, mux, surface, content) =
+            wrapped_selection_fixture("wrapped-wide-cell-drag-selection-test", "ABC橋D".as_bytes());
+
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(press).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        let selection = app.selection.expect("dragging a wrapped glyph must create a selection");
+        assert_eq!(selection.anchor, (0, 1));
+        assert_eq!(selection.range(), ((0, 1), (2, 1)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_clicking_a_wrapped_wide_head_selects_the_glyph_word() {
+        let (mut app, mux, surface, content) =
+            wrapped_selection_fixture("wrapped-wide-word-selection-test", "AB 橋".as_bytes());
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 1), (0, 1))),
+            "double-clicking a wrapped glyph head must select its word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn double_click_selects_a_complete_word() {
         let (mut app, mux, surface, content) =
