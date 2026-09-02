@@ -1747,7 +1747,14 @@ impl Inner {
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
             let _control_guard = ControlGuard::new(Arc::clone(&control));
-            let Some(listed) = control.request("list-workspaces", json!({})).await else {
+            let Some(listed) = request_control_with_cancellation(
+                &control,
+                "list-workspaces",
+                json!({}),
+                &context.cancellation,
+            )
+            .await
+            else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
@@ -1779,8 +1786,13 @@ impl Inner {
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
-                let Some(info) =
-                    control.request("process-info", json!({ "surface": tab.surface_id })).await
+                let Some(info) = request_control_with_cancellation(
+                    &control,
+                    "process-info",
+                    json!({ "surface": tab.surface_id }),
+                    &context.cancellation,
+                )
+                .await
                 else {
                     control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
@@ -2451,7 +2463,13 @@ impl Inner {
         };
         let mut control_guard = ControlGuard::new(Arc::clone(&control));
 
-        let identify = control.request("identify", json!({})).await;
+        let identify = request_control_with_cancellation(
+            &control,
+            "identify",
+            json!({}),
+            &context.cancellation,
+        )
+        .await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
         let protocol = info
             .and_then(|v| v.get("data"))
@@ -2477,7 +2495,13 @@ impl Inner {
             None
         };
         if surface_id.is_none() {
-            let listed = control.request("list-workspaces", json!({})).await;
+            let listed = request_control_with_cancellation(
+                &control,
+                "list-workspaces",
+                json!({}),
+                &context.cancellation,
+            )
+            .await;
             let tabs = listed
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2504,7 +2528,13 @@ impl Inner {
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
         if roots_scoped {
-            let info = control.request("process-info", json!({ "surface": surface_id })).await;
+            let info = request_control_with_cancellation(
+                &control,
+                "process-info",
+                json!({ "surface": surface_id }),
+                &context.cancellation,
+            )
+            .await;
             let actual = info
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2669,7 +2699,9 @@ impl Inner {
                 "subtitle": "cmux-tui",
             }));
             let socket_path = socket_dir.join(format!("{session}.sock"));
-            for terminal in self.list_session_terminals(&socket_path, &home).await {
+            for terminal in
+                self.list_session_terminals(&socket_path, &home, &context.cancellation).await
+            {
                 if surfaces.len() >= MAX_ENUM_SURFACES {
                     break;
                 }
@@ -2714,11 +2746,13 @@ impl Inner {
         &self,
         socket_path: &Path,
         home: &str,
+        cancellation: &CancellationToken,
     ) -> Vec<(String, String)> {
         let Ok(control) = self.deps.connect_control(socket_path).await else {
             return Vec::new();
         };
-        let identify = control.request("identify", json!({})).await;
+        let identify =
+            request_control_with_cancellation(&control, "identify", json!({}), cancellation).await;
         let protocol = identify
             .as_ref()
             .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2730,7 +2764,9 @@ impl Inner {
             control.end();
             return Vec::new();
         }
-        let listed = control.request("list-workspaces", json!({})).await;
+        let listed =
+            request_control_with_cancellation(&control, "list-workspaces", json!({}), cancellation)
+                .await;
         let tabs: Vec<PtyTab> = listed
             .as_ref()
             .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2745,8 +2781,13 @@ impl Inner {
             let mut title =
                 if !tab.title.is_empty() { tab.title.clone() } else { tab.name.clone() };
             if title.is_empty() {
-                let proc =
-                    control.request("process-info", json!({ "surface": tab.surface_id })).await;
+                let proc = request_control_with_cancellation(
+                    &control,
+                    "process-info",
+                    json!({ "surface": tab.surface_id }),
+                    cancellation,
+                )
+                .await;
                 if let Some(data) = proc
                     .as_ref()
                     .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -3742,6 +3783,7 @@ mod tests {
     }
 
     struct StalledControl {
+        stall_command: &'static str,
         entered: Arc<tokio::sync::Notify>,
         ended: Arc<AtomicBool>,
     }
@@ -3749,11 +3791,30 @@ mod tests {
     impl ControlHandle for StalledControl {
         fn request(
             &self,
-            _cmd: &str,
+            cmd: &str,
             _params: Value,
         ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
-            self.entered.notify_one();
-            Box::pin(std::future::pending())
+            if cmd == self.stall_command {
+                self.entered.notify_one();
+                return Box::pin(std::future::pending());
+            }
+            let response = match cmd {
+                "list-workspaces" => Some(serde_json::json!({
+                    "ok": true,
+                    "data": {
+                        "workspaces": [{
+                            "name": "ws",
+                            "screens": [{
+                                "panes": [{
+                                    "tabs": [{"kind": "pty", "surface": 1}]
+                                }]
+                            }]
+                        }]
+                    }
+                })),
+                _ => None,
+            };
+            Box::pin(async move { response })
         }
         fn send(&self, _cmd: &str, _params: Value) {}
         fn on_event(&self, _handler: EventHandler) {}
@@ -3767,41 +3828,44 @@ mod tests {
 
     #[tokio::test]
     async fn cancelling_scoped_open_releases_stalled_control_reservation() {
-        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let ended = Arc::new(AtomicBool::new(false));
-        let control = Arc::new(StalledControl {
-            entered: Arc::clone(&entered),
-            ended: Arc::clone(&ended),
-        });
-        let h = harness_with_control(
-            Some(cmux),
-            None,
-            None,
-            Some(Arc::clone(&control) as Arc<dyn ControlHandle>),
-        );
-        let context = h.context("supervised", h.owner.clone());
-        let cancellation = context.cancellation.clone();
-        let frame = serde_json::json!({
-            "version": 4,
-            "type": "pty_open",
-            "ptyId": "p1",
-            "session": "main",
-            "cols": 80,
-            "rows": 24,
-            "actorId": "user_owner",
-            "allowedRoots": [h.home.to_string_lossy()],
-        });
-        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
-        let open = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
-        entered.notified().await;
-        cancellation.cancel();
-        tokio::time::timeout(std::time::Duration::from_millis(100), open)
-            .await
-            .expect("cancelling a stalled control request must finish open")
-            .expect("open task must not panic");
-        assert!(ended.load(Ordering::SeqCst));
-        assert_eq!(h.manager.opening_count(), 0);
+        for stall_command in ["list-workspaces", "process-info"] {
+            let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+            let entered = Arc::new(tokio::sync::Notify::new());
+            let ended = Arc::new(AtomicBool::new(false));
+            let control = Arc::new(StalledControl {
+                stall_command,
+                entered: Arc::clone(&entered),
+                ended: Arc::clone(&ended),
+            });
+            let h = harness_with_control(
+                Some(cmux),
+                None,
+                None,
+                Some(Arc::clone(&control) as Arc<dyn ControlHandle>),
+            );
+            let context = h.context("supervised", h.owner.clone());
+            let cancellation = context.cancellation.clone();
+            let frame = serde_json::json!({
+                "version": 4,
+                "type": "pty_open",
+                "ptyId": "p1",
+                "session": "main",
+                "cols": 80,
+                "rows": 24,
+                "actorId": "user_owner",
+                "allowedRoots": [h.home.to_string_lossy()],
+            });
+            let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+            let open = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
+            entered.notified().await;
+            cancellation.cancel();
+            tokio::time::timeout(std::time::Duration::from_millis(100), open)
+                .await
+                .expect("cancelling a stalled control request must finish open")
+                .expect("open task must not panic");
+            assert!(ended.load(Ordering::SeqCst));
+            assert_eq!(h.manager.opening_count(), 0);
+        }
     }
 
     #[tokio::test]
