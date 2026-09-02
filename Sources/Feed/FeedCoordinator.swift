@@ -37,9 +37,9 @@ final class FeedCoordinator: @unchecked Sendable {
     /// session restore, then updated only for Feed-owned checklist mutations;
     /// retirement can therefore validate a small candidate set instead of
     /// rescanning every workspace on every task hook.
-    @MainActor private var agentTodoWorkspaceIDsByRawWorkstream: [String: Set<UUID>] = [:]
-    @MainActor private var agentTodoRawWorkstreamsByWorkspace: [UUID: Set<String>] = [:]
-    @MainActor private var hasBuiltAgentTodoOwnershipIndex = false
+    @MainActor fileprivate var agentTodoWorkspaceIDsByRawWorkstream: [String: Set<UUID>] = [:]
+    @MainActor fileprivate var agentTodoRawWorkstreamsByWorkspace: [UUID: Set<String>] = [:]
+    @MainActor fileprivate var hasBuiltAgentTodoOwnershipIndex = false
     @MainActor private var activeWorkstreamIDsByWorkspace: [UUID: [String: String]] = [:]
     /// Session ids evicted from a per-workspace active-session map. A marker
     /// keeps final-session cleanup fail-closed until every known evicted id has
