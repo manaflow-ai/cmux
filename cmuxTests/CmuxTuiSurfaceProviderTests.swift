@@ -473,10 +473,26 @@ import Testing
         // it must not produce duplicate rename targets or duplicate tree rows.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
-            ["id": "term_one", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
+            ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
         ]
         let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
         #expect(state?.terminals.first?.tabIDs == ["tab_1"])
+
+        // A tab that exists but claims another content identity is not a
+        // recoverable placement error. Accepting it would route a rename to
+        // the wrong terminal, so the complete graph is rejected and the
+        // provider must fetch a fresh snapshot.
+        var mismatchedTerminalTab = snapshot
+        mismatchedTerminalTab["terminals"] = [
+            ["id": "term_build", "tab_ids": ["tab_2"], "title": "wrong", "lifecycle": "running"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedTerminalTab, machine: Self.machine) == nil)
+
+        var mismatchedBrowserTab = snapshot
+        mismatchedBrowserTab["browsers"] = [
+            ["id": "browser_1", "tab_id": "tab_1", "url": "http://localhost:3000", "title": "wrong"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedBrowserTab, machine: Self.machine) == nil)
     }
 
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {

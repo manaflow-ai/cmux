@@ -121,7 +121,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             cursor = nil
         }
         guard let rawSnapshot = canonicalJSONData(snapshot),
-              identityCollectionsAreUnique(in: snapshot)
+              identityCollectionsAreUnique(in: snapshot),
+              snapshotRelationshipsAreConsistent(in: snapshot)
         else { return nil }
 
         let workspaces = ((snapshot["workspaces"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMWorkspaceState? in
@@ -301,6 +302,70 @@ struct CmuxTuiSnapshotParser: Sendable {
                     break
                 }
             }
+        }
+        return true
+    }
+
+    /// Verifies the foreign-key edges that determine a remote placement. A
+    /// terminal id alone is not enough: the tab must explicitly identify that
+    /// same terminal. Otherwise a stale or malformed tab reference can make a
+    /// rename or open operation target another terminal. Missing terminal tabs
+    /// remain allowed for exited or detached daemon records, which preserves
+    /// the documented pool representation.
+    private static func snapshotRelationshipsAreConsistent(in snapshot: [String: Any]) -> Bool {
+        let workspaces = (snapshot["workspaces"] as? [[String: Any]]) ?? []
+        let screens = (snapshot["screens"] as? [[String: Any]]) ?? []
+        let panes = (snapshot["panes"] as? [[String: Any]]) ?? []
+        let tabs = (snapshot["tabs"] as? [[String: Any]]) ?? []
+        let terminals = (snapshot["terminals"] as? [[String: Any]]) ?? []
+        let browsers = (snapshot["browsers"] as? [[String: Any]]) ?? []
+
+        let workspaceIDs = Set(workspaces.compactMap { nonEmptyString($0["id"]) })
+        let screenIDs = Set(screens.compactMap { nonEmptyString($0["id"]) })
+        let paneIDs = Set(panes.compactMap { nonEmptyString($0["id"]) })
+        var tabByID: [String: [String: Any]] = [:]
+        for tab in tabs {
+            guard let tabID = nonEmptyString(tab["id"]) else { return false }
+            tabByID[tabID] = tab
+            guard let paneID = nonEmptyString(tab["pane_id"]), paneIDs.contains(paneID) else { return false }
+        }
+        for screen in screens {
+            guard let workspaceID = nonEmptyString(screen["workspace_id"]), workspaceIDs.contains(workspaceID) else {
+                return false
+            }
+        }
+        for pane in panes {
+            guard let screenID = nonEmptyString(pane["screen_id"]), screenIDs.contains(screenID) else { return false }
+        }
+
+        func referencedTabIDs(in terminal: [String: Any]) -> [String] {
+            var ids = (terminal["tab_ids"] as? [String]) ?? []
+            if let tabID = nonEmptyString(terminal["tab_id"]), !ids.contains(tabID) {
+                ids.append(tabID)
+            }
+            return ids
+        }
+
+        for terminal in terminals {
+            guard let terminalID = nonEmptyString(terminal["id"]) else { return false }
+            for tabID in referencedTabIDs(in: terminal) {
+                // A missing tab is a valid detached/exited state. An existing
+                // tab with a different content identity is never safe to use.
+                guard let tab = tabByID[tabID] else { continue }
+                guard nonEmptyString(tab["content_kind"]) == "terminal",
+                      nonEmptyString(tab["content_id"]) == terminalID
+                else { return false }
+            }
+        }
+
+        for browser in browsers {
+            guard let browserID = nonEmptyString(browser["id"]),
+                  let tabID = nonEmptyString(browser["tab_id"])
+            else { return false }
+            guard let tab = tabByID[tabID] else { continue }
+            guard nonEmptyString(tab["content_kind"]) == "browser",
+                  nonEmptyString(tab["content_id"]) == browserID
+            else { return false }
         }
         return true
     }
@@ -690,6 +755,13 @@ struct CmuxTuiSnapshotParser: Sendable {
         machine: SurfaceMachineID,
         only resourceIDs: Set<SurfaceResourceID>? = nil
     ) -> [SurfaceResource] {
+        // Raw one-shot callers do not pass through `state(fromSnapshot:)`.
+        // Apply the same graph boundary here so they cannot construct a
+        // resource with a placement borrowed from another tab.
+        guard identityCollectionsAreUnique(in: snapshot),
+              snapshotRelationshipsAreConsistent(in: snapshot)
+        else { return [] }
+
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
@@ -709,6 +781,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
         }
         var paneOfTab: [String: String] = [:]
+        var contentKindOfTab: [String: String] = [:]
+        var contentIDOfTab: [String: String] = [:]
         var nameOfTab: [String: String] = [:]
         var indexOfTab: [String: Int] = [:]
         var focusedOfTab: [String: Bool] = [:]
@@ -716,6 +790,12 @@ struct CmuxTuiSnapshotParser: Sendable {
             guard let id = tab["id"] as? String else { continue }
             if let paneID = tab["pane_id"] as? String {
                 paneOfTab[id] = paneID
+            }
+            if let contentKind = nonEmptyString(tab["content_kind"]) {
+                contentKindOfTab[id] = contentKind
+            }
+            if let contentID = nonEmptyString(tab["content_id"]) {
+                contentIDOfTab[id] = contentID
             }
             if let name = (tab["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 nameOfTab[id] = name
@@ -752,6 +832,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             // each SurfaceRemoteView, because one terminal can have different tab labels.
             terminal.remoteViews = tabIDs.compactMap { tabID in
                 guard let paneID = paneOfTab[tabID],
+                      contentKindOfTab[tabID] == "terminal",
+                      contentIDOfTab[tabID] == terminalID,
                       let screenID = screenOfPane[paneID],
                       let workspaceID = workspaceOfScreen[screenID],
                       let workspace = workspaceByID[workspaceID] else { return nil }

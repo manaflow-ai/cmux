@@ -343,6 +343,82 @@ enum CloudTreeNodeBuilder {
         let tabID: String?
     }
 
+    /// Indexes local projections by their complete remote placement. The cloud
+    /// tree is rebuilt often, so `localWorkspaceShowing` must not rescan every
+    /// projection and resource for every remote workspace row.
+    private struct LocalWorkspacePlacementIndex {
+        private var exact: [RemotePlacementIdentity: [UUID]] = [:]
+        private var legacy: [SurfaceResourceID: [UUID]] = [:]
+
+        init(snapshot: SurfaceCatalogSnapshot) {
+            var projectionCountByResource: [SurfaceResourceID: Int] = [:]
+            for projection in snapshot.projections {
+                projectionCountByResource[projection.resource, default: 0] += 1
+            }
+
+            var singleViewResources = Set<SurfaceResourceID>()
+            for resource in snapshot.resources where resource.remoteViews?.count == 1 {
+                singleViewResources.insert(resource.id)
+            }
+
+            for projection in snapshot.projections {
+                if let remoteWorkspaceID = projection.remoteWorkspaceID {
+                    let identity = RemotePlacementIdentity(
+                        resource: projection.resource,
+                        workspaceID: remoteWorkspaceID,
+                        tabID: projection.remoteTabID
+                    )
+                    exact[identity, default: []].append(projection.workspaceID)
+                } else if projection.remoteTabID == nil,
+                          projectionCountByResource[projection.resource] == 1,
+                          singleViewResources.contains(projection.resource) {
+                    // A pre-placement session record has no remote coordinates.
+                    // Keep the narrow compatibility rule from the old scan, but
+                    // precompute it once so it cannot become a hot-path scan.
+                    legacy[projection.resource, default: []].append(projection.workspaceID)
+                }
+            }
+        }
+
+        func localWorkspaceShowing(
+            remoteWorkspaceID: String,
+            placements: [SurfaceResourcePlacement]
+        ) -> UUID? {
+            let wanted = Set(placements.compactMap { placement -> RemotePlacementIdentity? in
+                guard placement.remoteWorkspaceID == remoteWorkspaceID else { return nil }
+                return RemotePlacementIdentity(
+                    resource: placement.resource,
+                    workspaceID: remoteWorkspaceID,
+                    tabID: placement.remoteTabID
+                )
+            })
+            guard !wanted.isEmpty else { return nil }
+
+            var placementCountByResource: [SurfaceResourceID: Int] = [:]
+            for identity in wanted {
+                placementCountByResource[identity.resource, default: 0] += 1
+            }
+            var counts: [UUID: Int] = [:]
+            for identity in wanted {
+                for workspaceID in exact[identity] ?? [] {
+                    counts[workspaceID, default: 0] += 1
+                }
+                // A pre-placement record has no coordinates. The initializer
+                // has proven that the resource has one projection and one
+                // remote view; the per-workspace count below preserves the
+                // old rule that this inference is safe only for one placement.
+                if placementCountByResource[identity.resource] == 1 {
+                    for workspaceID in legacy[identity.resource] ?? [] {
+                        counts[workspaceID, default: 0] += 1
+                    }
+                }
+            }
+            return counts.max { lhs, rhs in
+                lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString
+            }?.key
+        }
+    }
+
     /// Returns every current placement, with a nil view only for legacy
     /// providers that expose a workspace but no tab id. An explicit empty view
     /// array means the resource is detached and must not be invented in a
@@ -373,6 +449,7 @@ enum CloudTreeNodeBuilder {
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
+        let placementIndex = LocalWorkspacePlacementIndex(snapshot: snapshot)
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
@@ -390,7 +467,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: .cloud(machine.id)),
                 kind: .machine(machine, info),
-                children: cloudChildren(machine: .cloud(machine.id), info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: .cloud(machine.id),
+                    info: info,
+                    snapshot: snapshot,
+                    placementIndex: placementIndex
+                )
             ))
         }
         // Machines the catalog knows but the fleet list has not returned yet (or
@@ -409,7 +491,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
-                children: cloudChildren(machine: info.id, info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: info.id,
+                    info: info,
+                    snapshot: snapshot,
+                    placementIndex: placementIndex
+                )
             ))
         }
         return compactingSingleChildChains(nodes)
@@ -495,44 +582,10 @@ enum CloudTreeNodeBuilder {
         placements: [SurfaceResourcePlacement],
         snapshot: SurfaceCatalogSnapshot
     ) -> UUID? {
-        let wanted = Set(placements.compactMap { placement -> RemotePlacementIdentity? in
-            guard placement.remoteWorkspaceID == remoteWorkspaceID else { return nil }
-            return RemotePlacementIdentity(
-                resource: placement.resource,
-                workspaceID: remoteWorkspaceID,
-                tabID: placement.remoteTabID
-            )
-        })
-        guard !wanted.isEmpty else { return nil }
-        var counts: [UUID: Int] = [:]
-        for projection in snapshot.projections {
-            let candidates = wanted.filter { $0.resource == projection.resource }
-            guard !candidates.isEmpty else { continue }
-            let resource = snapshot.resources.first { $0.id == projection.resource }
-            let resourcePlacements = wanted.filter { $0.resource == projection.resource }
-            let matches = candidates.contains { identity in
-                if projection.remoteWorkspaceID == identity.workspaceID {
-                    if let tabID = identity.tabID {
-                        return projection.remoteTabID == tabID
-                    }
-                    return projection.remoteTabID == nil
-                }
-                // A projection from an older session may lack both coordinates.
-                // Infer it only when the resource has exactly one remote view in
-                // total and the resource has one local projection.
-                guard projection.remoteWorkspaceID == nil,
-                      projection.remoteTabID == nil,
-                      resourcePlacements.count == 1,
-                      snapshot.projections(of: projection.resource).count == 1,
-                      resource?.remoteViews?.count == 1
-                else { return false }
-                return true
-            }
-            if matches {
-                counts[projection.workspaceID, default: 0] += 1
-            }
-        }
-        return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
+        LocalWorkspacePlacementIndex(snapshot: snapshot).localWorkspaceShowing(
+            remoteWorkspaceID: remoteWorkspaceID,
+            placements: placements
+        )
     }
 
     static func nodeID(resource: SurfaceResourceID) -> String { "resource:\(resource.rawValue)" }
@@ -644,7 +697,12 @@ enum CloudTreeNodeBuilder {
         return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
     }
 
-    private static func cloudChildren(machine: SurfaceMachineID, info: SurfaceMachineInfo?, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+    private static func cloudChildren(
+        machine: SurfaceMachineID,
+        info: SurfaceMachineInfo?,
+        snapshot: SurfaceCatalogSnapshot,
+        placementIndex: LocalWorkspacePlacementIndex
+    ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else { return [] }
         var children: [CloudTreeNode] = []
@@ -773,10 +831,9 @@ enum CloudTreeNodeBuilder {
                     let shownDisplayPlacements: [RemoteResourcePlacement] = workspaceDisplayPlacements.isEmpty
                         ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
                         : workspaceDisplayPlacements
-                    let openInLocal = localWorkspaceShowing(
+                    let openInLocal = placementIndex.localWorkspaceShowing(
                         remoteWorkspaceID: workspace.id,
                         placements: placements,
-                        snapshot: snapshot
                     )
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
