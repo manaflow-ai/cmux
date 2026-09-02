@@ -61,6 +61,27 @@ expect_failure "$helper" plan "$hosted" 0 "$commit_c"
 expect_failure "$helper" plan "$hosted" 1001 "$commit_c"
 expect_failure "$helper" plan "$hosted" 999999999999999999999999999999999 "$commit_c"
 
+active_bin="$hosted/$commit_a/cmux-tui"
+printf 'active artifact\n' >"$active_bin"
+mkdir "$tmp/active-bin"
+cat >"$tmp/active-bin/lsof" <<'EOF'
+#!/bin/sh
+printf '4242\n'
+EOF
+chmod +x "$tmp/active-bin/lsof"
+PATH="$tmp/active-bin:$PATH" "$helper" remove "$hosted" "$commit_a" >"$tmp/active-remove"
+grep -Fqx $'active\t'$commit_a "$tmp/active-remove" || fail "active artifact was not reported"
+[[ -d "$hosted/$commit_a" ]] || fail "active artifact was removed"
+
+cat >"$tmp/active-bin/lsof" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$tmp/active-bin/lsof"
+PATH="$tmp/active-bin:$PATH" "$helper" remove "$hosted" "$commit_a" >"$tmp/inactive-remove"
+grep -Fqx $'removed\t'$commit_a "$tmp/inactive-remove" || fail "inactive artifact was not removed"
+[[ ! -e "$hosted/$commit_a" ]] || fail "inactive artifact remains"
+
 mkdir "$tmp/no-lsof-bin"
 for command_name in find id sort stat shasum awk; do
   command_path="$(command -v "$command_name")"
