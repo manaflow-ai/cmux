@@ -139,6 +139,44 @@ struct GhosttyDrawableSizeRetryTests {
         )
     }
 
+    @Test func standaloneSurfaceUsesNativeWindowLiveResizeState() throws {
+        _ = NSApplication.shared
+
+        let window = LiveResizeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let terminalSurface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = terminalSurface.hostedView
+        hostedView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        window.contentView?.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(findGhosttyNSView(in: hostedView))
+        _ = surfaceView.forceRefreshSurface()
+
+        // This view is not owned by WindowTerminalPortal, so it has no portal
+        // propagation flag. AppKit's native window state must still defer its
+        // pixel-only resize work during the interactive resize.
+        window.liveResizeActive = true
+        #expect(surfaceView.debugIsWindowLiveResizeActiveForTesting())
+    }
+
     private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
         if let view = view as? GhosttyNSView {
             return view
@@ -159,4 +197,10 @@ struct GhosttyDrawableSizeRetryTests {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
     }
+}
+
+private final class LiveResizeProbeWindow: NSWindow {
+    var liveResizeActive = false
+
+    override var inLiveResize: Bool { liveResizeActive }
 }

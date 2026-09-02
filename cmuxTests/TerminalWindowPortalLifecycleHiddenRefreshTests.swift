@@ -204,6 +204,63 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime((leftSurface, rightSurface)) {}
     }
 
+    @MainActor
+    func testLateDidResizeAfterEndStillRunsFinalLiveResizePass() throws {
+        let window = trackTestWindow(LiveResizeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        ))
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        let committedRendererSize = surface.hostedView.surfaceView.frame.size
+        window.liveResizeActive = true
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        let liveTarget = NSSize(width: 200, height: 140)
+        anchor.setFrameSize(liveTarget)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, committedRendererSize)
+
+        // AppKit can deliver a frame callback after didEndLiveResize while
+        // its native flag is still true. That callback must not cancel the
+        // pending end pass.
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        window.liveResizeActive = false
+
+        let finalTarget = NSSize(width: 220, height: 150)
+        anchor.setFrameSize(finalTarget)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(surface.hostedView.frame.size, finalTarget)
+        XCTAssertNotEqual(
+            surface.hostedView.surfaceView.frame.size,
+            committedRendererSize,
+            "A late frame callback must not strand the renderer in the deferred resize phase"
+        )
+        withExtendedLifetime(surface) {}
+    }
+
     /// Regression: during a live window resize, each `didResize` tick must
     /// synchronize hosted terminal frames INSIDE the tick — in the same
     /// transaction that commits the window's new size. The portal's queued
@@ -433,4 +490,10 @@ extension TerminalWindowPortalLifecycleTests {
         )
         withExtendedLifetime(surface) {}
     }
+}
+
+private final class LiveResizeProbeWindow: NSWindow {
+    var liveResizeActive = false
+
+    override var inLiveResize: Bool { liveResizeActive }
 }
