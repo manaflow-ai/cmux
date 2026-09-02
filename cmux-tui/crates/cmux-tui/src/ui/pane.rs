@@ -196,6 +196,35 @@ fn clip_tab_bar_rect(logical: Rect, bar: Rect, source_x: u16) -> Option<Rect> {
     })
 }
 
+fn tab_scroll_for_active(
+    widths: &[u16],
+    active_tab: usize,
+    requested_scroll: usize,
+    inner_width: u16,
+    plus_width: u16,
+    arrow_width: u16,
+) -> usize {
+    let max_scroll = widths.len().saturating_sub(1);
+    let mut scroll = requested_scroll.min(max_scroll);
+    if widths.is_empty() || scroll >= active_tab {
+        return scroll;
+    }
+
+    let mut range_width: u64 =
+        widths[scroll..=active_tab].iter().map(|width| u64::from(*width)).sum();
+    while scroll < active_tab {
+        let left_arrow = if scroll > 0 { arrow_width } else { 0 };
+        let available = inner_width
+            .saturating_sub(left_arrow.saturating_add(plus_width).saturating_add(arrow_width));
+        if range_width <= u64::from(available) {
+            break;
+        }
+        range_width -= u64::from(widths[scroll]);
+        scroll += 1;
+    }
+    scroll
+}
+
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
     let Some(screen_view) = app.tree.active_screen() else { return };
@@ -322,23 +351,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let plus_w: u16 = (plus_label.width() as u16).max(1);
     let arrow_w: u16 = 1;
 
-    // Clamp the requested scroll, then bump it until the active tab fits.
-    let max_scroll = tabs.len().saturating_sub(1);
-    let mut scroll = app.tab_scroll.get(&pane_id).copied().unwrap_or(0).min(max_scroll);
-    let fits = |scroll: usize| {
-        let left_arrow = if scroll > 0 { arrow_w } else { 0 };
-        let mut budget = inner_w.saturating_sub(left_arrow + plus_w + arrow_w);
-        for w in &widths[scroll..=active_tab.max(scroll)] {
-            if *w > budget {
-                return false;
-            }
-            budget -= *w;
-        }
-        true
-    };
-    while scroll < active_tab && !fits(scroll) {
-        scroll += 1;
-    }
+    // Advance the requested scroll in one pass until the active range fits.
+    let scroll = tab_scroll_for_active(
+        &widths,
+        active_tab,
+        app.tab_scroll.get(&pane_id).copied().unwrap_or(0),
+        inner_w,
+        plus_w,
+        arrow_w,
+    );
     app.tab_scroll.insert(pane_id, scroll);
 
     let mut hits = Vec::new();
@@ -695,7 +716,7 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
 
 #[cfg(test)]
 mod tests {
-    use super::{client_border_labels, clip_tab_bar_rect};
+    use super::{client_border_labels, clip_tab_bar_rect, tab_scroll_for_active};
     use crate::session::{ClientInfo, ClientSizeInfo};
     use cmux_tui_core::Rect;
 
@@ -704,6 +725,22 @@ mod tests {
         let bar = Rect { x: 0, y: 0, width: 8, height: 1 };
         let logical = Rect { x: 1, y: 0, width: 3, height: 1 };
         assert_eq!(clip_tab_bar_rect(logical, bar, 10), None);
+    }
+
+    #[test]
+    fn tab_scroll_preserves_requested_offset_when_active_range_fits() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 2, 1, 15, 1, 1), 1);
+    }
+
+    #[test]
+    fn tab_scroll_advances_to_the_first_offset_that_fits_active_tab() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 3, 0, 16, 1, 1), 2);
+    }
+
+    #[test]
+    fn tab_scroll_handles_a_large_tab_set_without_changing_selection_semantics() {
+        let widths = vec![3; 100_000];
+        assert_eq!(tab_scroll_for_active(&widths, 99_999, 0, 12, 1, 1), 99_997);
     }
 
     fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
