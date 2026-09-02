@@ -999,7 +999,7 @@ final class SurfaceCatalog {
     /// remote daemon documents.
     var export: SurfaceCatalogExport {
         let retainedObservations = cloudStateObservations.filter { cloudStates[$0.key] != nil }
-        SurfaceCatalogExport(
+        return SurfaceCatalogExport(
             catalog: snapshot,
             cloudStates: cloudStates.values.sorted { $0.machine.rawValue < $1.machine.rawValue },
             cloudStateObservations: retainedObservations
