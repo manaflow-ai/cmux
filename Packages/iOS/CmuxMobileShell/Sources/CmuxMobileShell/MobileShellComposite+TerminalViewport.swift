@@ -159,7 +159,8 @@ extension MobileShellComposite {
                 columns: columns,
                 rows: rows,
                 renderEpoch: nil,
-                renderRevisionFloor: nil
+                renderRevisionFloor: nil,
+                renderEmissionRevisionFloor: nil
             )
         }
         guard let client = remoteClient else {
