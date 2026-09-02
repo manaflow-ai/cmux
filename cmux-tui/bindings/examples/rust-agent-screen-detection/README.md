@@ -33,8 +33,8 @@ another language, or a different ruleset without a cmux core change.
 
 The supervisor must provide a non-blank `CMUX_PLUGIN_ID`. The executable exits
 when that namespace is absent; it never invents a shared producer ID. The
-manager writes this value from the package identity, while a hand-written
-configuration must set `agents.plugin.id` explicitly.
+manager generates and persists this value for the installed package, while a
+hand-written configuration must set `agents.plugin.id` explicitly.
 
 Process identity uses executable and wrapper arguments before reading
 `CMUX_AGENT` or `HERDR_AGENT` from the host process environment. The hint is a
