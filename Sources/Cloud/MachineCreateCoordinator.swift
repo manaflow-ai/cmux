@@ -157,7 +157,7 @@ final class MachineCreateCoordinator {
     /// Recognizes the CLI's "Created Cloud VM <id>" line in `output`. The
     /// format is the CLI's own localized string, so the match follows the
     /// user's language instead of a hard-coded English prefix.
-    static func createdMachineID(fromOutput output: String) -> String? {
+    nonisolated static func createdMachineID(fromOutput output: String) -> String? {
         let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
         let parts = format.components(separatedBy: "%@")
         guard parts.count == 2 else { return nil }
@@ -177,7 +177,7 @@ final class MachineCreateCoordinator {
     /// ("Created Cloud VM …", "OK machine=…") are dropped first so the reason
     /// leads. Redacted transcripts fall back to their first safe line plus the
     /// hidden-details placeholder, matching `CloudVMActionLauncher`'s alerts.
-    static func displayableFailureOutput(_ output: String) -> String {
+    nonisolated static func displayableFailureOutput(_ output: String) -> String {
         let generic = String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
         let stripped = output
             .split(separator: "\n", omittingEmptySubsequences: false)
