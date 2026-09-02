@@ -10315,7 +10315,9 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
+    /// Return a projection's rows, reusing the cached immutable snapshot when
+    /// its tree and presentation revisions have not changed.
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(includes_agents) = self
             .config
             .sidebar
@@ -10323,7 +10325,7 @@ impl App {
             .get(index)
             .map(|spec| spec.includes(SidebarResourceKind::Agents))
         else {
-            return Vec::new();
+            return Arc::from([]);
         };
         if includes_agents {
             let generation = self.projection_agents_generation;
@@ -10347,7 +10349,7 @@ impl App {
                 }
             }
         }
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+        let Some(spec) = self.config.sidebar.views.get(index) else { return Arc::from([]) };
         let empty_collapsed = HashSet::new();
         let collapsed = self
             .projection_rails
