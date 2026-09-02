@@ -600,6 +600,40 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             return 0
           }
 
+          # The first process-table snapshot must describe the same kernel
+          # identity captured before discovery started. PID and PPID alone are
+          # not sufficient because a wrapper can exit and its PID can be
+          # reused by another child of this shell before the snapshot runs.
+          # Darwin's snapshot carries the kernel birth timestamp, while the
+          # termination token also retains the pid version for the force path.
+          cmux_ssh_auth_root_snapshot_matches_termination_identity() {
+            [ -n "$cmux_ssh_auth_root_termination_identity" ] || return 0
+            /usr/bin/awk \
+              -v cmux_candidate="$1" \
+              -v cmux_termination="$cmux_ssh_auth_root_termination_identity" '
+                BEGIN {
+                  cmux_candidate_count = split(cmux_candidate, cmux_candidate_fields, /[[:space:]]+/)
+                  cmux_termination_count = split(cmux_termination, cmux_termination_fields, ":")
+                  if (cmux_candidate_count != 4) exit 1
+                  if (cmux_termination_fields[1] == "P" && cmux_termination_count == 5) {
+                    cmux_started = "P_" cmux_termination_fields[5] "_0_0_0_0"
+                    exit !(cmux_candidate_fields[1] == cmux_termination_fields[2] &&
+                      cmux_candidate_fields[2] == cmux_termination_fields[3] &&
+                      cmux_candidate_fields[3] == cmux_termination_fields[4] &&
+                      cmux_candidate_fields[4] == cmux_started)
+                  }
+                  if (cmux_termination_fields[1] == "D" && cmux_termination_count == 7) {
+                    cmux_started = "K_" cmux_termination_fields[5] "_" cmux_termination_fields[6] "_0_0"
+                    exit !(cmux_candidate_fields[1] == cmux_termination_fields[2] &&
+                      cmux_candidate_fields[2] == cmux_termination_fields[3] &&
+                      cmux_candidate_fields[3] == cmux_termination_fields[4] &&
+                      cmux_candidate_fields[4] == cmux_started)
+                  }
+                  exit 1
+                }
+              '
+          }
+
           cmux_ssh_auth_extract_tree() {
             : > "$cmux_ssh_auth_members"
             : > "$cmux_ssh_auth_root_identity_candidate"
@@ -652,6 +686,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ "$cmux_ssh_auth_extract_status" -ne 0 ]; then return "$cmux_ssh_auth_extract_status"; fi
             cmux_ssh_auth_root_identity_candidate_value=
             if ! IFS= read -r cmux_ssh_auth_root_identity_candidate_value < "$cmux_ssh_auth_root_identity_candidate"; then
+              return 1
+            fi
+            if ! cmux_ssh_auth_root_snapshot_matches_termination_identity \
+              "$cmux_ssh_auth_root_identity_candidate_value"; then
+              # The captured identity is still safe to use for the root-only
+              # abort path. Never journal or signal a tree from this snapshot.
+              cmux_ssh_auth_cleanup_needs_root_abort=1
               return 1
             fi
             if [ -z "$cmux_ssh_auth_root_identity" ]; then
