@@ -86,6 +86,8 @@ pub enum WgError {
     NoTunnelAddress(IpAddr),
     /// The remote answered the SYN with a reset, or never answered.
     ConnectionRefused(SocketAddr),
+    /// The destination is outside the peer's configured `AllowedIPs`.
+    RouteNotAllowed(IpAddr),
     /// A listener already owns the port.
     ListenerBusy(u16),
     /// The tunnel has been shut down.
@@ -106,6 +108,9 @@ impl fmt::Display for WgError {
                 write!(formatter, "no tunnel address in the same family as {remote}")
             }
             Self::ConnectionRefused(remote) => write!(formatter, "{remote} refused the connection"),
+            Self::RouteNotAllowed(remote) => {
+                write!(formatter, "destination {remote} is outside the tunnel routes")
+            }
             Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
             Self::Shutdown => formatter.write_str("the tunnel is shut down"),
             Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
