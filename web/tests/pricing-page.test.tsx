@@ -100,8 +100,8 @@ describe("localized pricing page", () => {
     ).toEqual({
       label: "Concurrent Cloud VMs",
       free: "false",
-      pro: "Up to 5",
-      team: "Up to 5",
+      pro: "50",
+      team: "50",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
