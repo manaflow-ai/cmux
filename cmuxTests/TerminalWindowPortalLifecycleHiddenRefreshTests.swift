@@ -10,6 +10,52 @@ import CmuxTerminal
 
 extension TerminalWindowPortalLifecycleTests {
 
+    /// Every AppKit boundary around a portal-hosted Ghostty surface must clip
+    /// its descendants. The renderer replaces the terminal view's backing
+    /// layer with an IOSurface layer, so the view-level clip chain is the
+    /// invariant that survives stale drawables and live-resize frame churn.
+    @MainActor
+    func testPortalHostedTerminalUsesViewLevelClippingAtEveryBoundary() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        XCTAssertTrue(
+            portal.hostView.clipsToBounds,
+            "The window-level portal host must clip stale terminal contents to the content region"
+        )
+        XCTAssertTrue(
+            surface.hostedView.clipsToBounds,
+            "Each hosted pane must clip its renderer and overlays to the pane bounds"
+        )
+        XCTAssertTrue(
+            surface.hostedView.surfaceView.clipsToBounds,
+            "The terminal view must keep a view-level clip after Ghostty installs its IOSurface layer"
+        )
+        XCTAssertTrue(portal.hostView.layer?.masksToBounds == true)
+        XCTAssertTrue(surface.hostedView.layer?.masksToBounds == true)
+        XCTAssertTrue(surface.hostedView.surfaceView.layer?.masksToBounds == true)
+        withExtendedLifetime((portal, surface)) {}
+    }
+
     @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
         let window = makeTestWindow(
