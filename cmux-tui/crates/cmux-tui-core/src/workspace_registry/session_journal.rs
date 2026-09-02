@@ -1419,6 +1419,10 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         expected_bytes,
         expected_digest,
     ) = row;
+    anyhow::ensure!(
+        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the compressed size limit"
+    );
     let start_sequence = u64::try_from(start_sequence)?;
     let end_sequence = u64::try_from(end_sequence)?;
     let record_count = usize::try_from(record_count)?;
