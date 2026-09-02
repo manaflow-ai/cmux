@@ -656,7 +656,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             userInfo: ["workspaceId": displayedWorkspace.id]
         )
         return .revealed(
-            item: queueItem(
+            queueItem(
                 item,
                 workspace: workspace,
                 windowID: app.windowId(for: workspaceManager),
@@ -698,7 +698,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         }
         WorkspaceTodoFeature.markUsed()
         return .updated(
-            item: queueItem(
+            queueItem(
                 workspace.todoState.checklist.first(where: { $0.id == itemID }) ?? item,
                 workspace: workspace,
                 windowID: app.windowId(for: workspaceManager),
