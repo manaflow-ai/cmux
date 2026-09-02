@@ -1201,6 +1201,8 @@ impl HostInputProducer {
         if !wake {
             return true;
         }
+        // This is only a wake hint. Keep it nonblocking so shutdown can join
+        // the reader even when the app event channel is full.
         match self.events.try_send(AppEvent::HostInputReady) {
             Ok(()) | Err(TrySendError::Full(AppEvent::HostInputReady)) => true,
             Err(TrySendError::Disconnected(AppEvent::HostInputReady)) => {
