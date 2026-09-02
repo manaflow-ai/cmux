@@ -100,6 +100,33 @@ import Testing
         #expect(CmuxTuiSnapshotParser.tabNames(fromSnapshot: snapshot) == ["tab_1": "build loop"])
     }
 
+    @Test func terminalViewsComeFromReverseTabContentEdges() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["terminals"] = [
+            ["id": "term_build", "tab_id": "tab_1", "title": "cargo test", "lifecycle": "running"],
+            ["id": "term_shell", "tab_id": "tab_2", "title": "shell", "lifecycle": "running"],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        #expect(build.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
+
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let targeted = try #require(CmuxTuiSnapshotParser.resources(
+            from: state,
+            matching: [SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")]
+        ).first)
+        #expect(targeted.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
+
+        // An older daemon can omit a tab row while retaining the terminal's
+        // legacy reference. It remains safe only when the referenced row still
+        // exists and identifies this terminal.
+        var legacy = snapshot
+        legacy["tabs"] = (snapshot["tabs"] as! [[String: Any]]).filter { $0["id"] as? String != "tab_4" }
+        let legacyResources = CmuxTuiSnapshotParser.terminals(fromSnapshot: legacy, machine: Self.machine)
+        let legacyBuild = try #require(legacyResources.first { $0.id.key == "term_build" })
+        #expect(legacyBuild.remoteViews?.map(\.tabID) == ["tab_1"])
+    }
+
     @Test func vmOpenWorkspaceSelectorsPreferIdsAndRejectAmbiguousNames() {
         let machine: [String: Any] = [
             "id": "vivid-newt",
@@ -786,11 +813,25 @@ import Testing
         let untouched = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources.filter { $0.kind != .display })
         #expect(untouched.filter { $0.kind == .display }.count == 1)
         #expect(untouched.first { $0.kind == .display }?.remoteViews == nil)
+
+        // Older daemon snapshots called the VNC pointer a screen. The wire
+        // alias must still project the same display resource.
+        tabs[tabs.count - 1]["content_kind"] = "screen"
+        snapshot["tabs"] = tabs
+        let legacyDisplay = try #require(
+            CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+                .first { $0.kind == .display }
+        )
+        #expect(legacyDisplay.remoteViews?.map(\.tabID) == ["tab_desk"])
     }
 
     @Test func revisionedStateRetainsTheWholeRemoteDocumentAndAppliesTabDelta() throws {
         var snapshot = Self.sessionSnapshot
-        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        snapshot["cursor"] = [
+            "generation": "daemon-a",
+            "revision": "7",
+            "future_cursor_field": ["lease": "keep-me"],
+        ]
         snapshot["clients"] = [["id": "client-1", "session_id": "session-1", "transport": "unix"]]
         snapshot["notifications"] = [["id": "notice-1", "title": "Build", "body": "done"]]
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
@@ -833,6 +874,8 @@ import Testing
             to: state
         ))
         #expect(next.cursor == CloudVMCursor(generation: "daemon-a", revision: 8))
+        let nextCursor = try #require(next.snapshotObject()?["cursor"] as? [String: Any])
+        #expect(nextCursor["future_cursor_field"] as? [String: String] == ["lease": "keep-me"])
         #expect(next.tabs.first { $0.id == "tab_1" }?.name == "renamed")
         let terminal = try #require(CmuxTuiSnapshotParser.resources(from: next).first { $0.id.key == "term_build" })
         #expect(terminal.remoteViews?.first?.name == "renamed")
@@ -859,6 +902,153 @@ import Testing
         #expect(!application.impact.requiresFullResourceRebuild)
     }
 
+    @Test func tabMoveUpdatesBothTerminalViewListsFromOneDelta() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let delta: [String: Any] = [
+            "kind": "delta",
+            "previous_revision": "7",
+            "revision": "8",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "tab",
+                "id": "tab_4",
+                "value": [
+                    "id": "tab_4", "pane_id": "pane_2", "name": "moved",
+                    "content_kind": "terminal", "content_id": "term_shell", "index": 1, "focused": false,
+                ],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: delta)
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: data,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        #expect(next.lookupIndex.terminal(id: "term_build")?.tabIDs == ["tab_1"])
+        #expect(next.lookupIndex.terminal(id: "term_shell")?.tabIDs == ["tab_2", "tab_4"])
+        let build = try #require(CmuxTuiSnapshotParser.resources(
+            from: next,
+            matching: [SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")]
+        ).first)
+        #expect(build.remoteViews?.map(\.tabID) == ["tab_1"])
+        let shell = try #require(CmuxTuiSnapshotParser.resources(
+            from: next,
+            matching: [SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_shell")]
+        ).first)
+        #expect(shell.remoteViews?.map(\.tabID) == ["tab_2", "tab_4"])
+    }
+
+    @Test func rowLocalDeltaPreservesLargeUnknownCollection() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        snapshot["notifications"] = (0..<300).map { index in
+            [
+                "id": "notice-\(index)",
+                "title": "Build \(index)",
+                "body": "pending",
+                "metadata": ["attempt": index, "owner": "agent-\(index % 7)"],
+            ] as [String: Any]
+        }
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let delta: [String: Any] = [
+            "kind": "delta",
+            "previous_revision": "7",
+            "revision": "8",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "notification",
+                "id": "notice-173",
+                "value": [
+                    "id": "notice-173", "title": "Build 173", "body": "passed",
+                    "metadata": ["attempt": 4, "owner": "agent-5"],
+                ],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: delta)
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: data,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        #expect(next.entities(kind: "notifications").count == 300)
+        let changed = try #require(next.entity(kind: "notification", id: "notice-173"))
+        let changedObject = try #require(JSONSerialization.jsonObject(with: changed.payload) as? [String: Any])
+        #expect(changedObject["body"] as? String == "passed")
+        let untouched = try #require(next.entity(kind: "notification", id: "notice-172"))
+        let untouchedObject = try #require(JSONSerialization.jsonObject(with: untouched.payload) as? [String: Any])
+        #expect(untouchedObject["metadata"] as? [String: Any] != nil)
+        #expect(next.otherEntities.contains { $0.kind == "notifications" && $0.id == "notice-173" })
+    }
+
+    @Test func fragmentedDocumentMatchesPayloadIdentityAndRejectsAmbiguity() throws {
+        var legacyDocument = CloudVMStateDocument(snapshot: [
+            "agents": [["terminal_id": "term_build", "state": "working"]],
+        ])
+        #expect(legacyDocument.upsert(
+            collectionKey: "agents",
+            id: "agent_new",
+            value: ["id": "agent_new", "terminal_id": "term_build", "state": "working"],
+            alternateField: (name: "terminal_id", value: "term_build")
+        ))
+        // The row still has its positional storage key, but delete addresses
+        // the explicit payload id. Identity cannot depend on the map key.
+        #expect(legacyDocument.delete(
+            collectionKey: "agents",
+            id: "agent_new",
+            alternateField: (name: "terminal_id", value: "term_build")
+        ))
+        #expect(legacyDocument.opaqueEntities(excluding: []).isEmpty)
+
+        var ambiguousDocument = CloudVMStateDocument(snapshot: [
+            "notifications": [
+                ["id": "notice", "body": "first"],
+                ["id": "notice", "body": "second"],
+            ],
+        ])
+        let before = try #require(ambiguousDocument.data())
+        #expect(!ambiguousDocument.upsert(
+            collectionKey: "notifications",
+            id: "notice",
+            value: ["id": "notice", "body": "replacement"]
+        ))
+        #expect(ambiguousDocument.data() == before)
+        #expect(!ambiguousDocument.delete(collectionKey: "notifications", id: "notice"))
+        #expect(ambiguousDocument.data() == before)
+
+        // The envelope id and payload id are one identity contract. A mismatch
+        // must force snapshot recovery and cannot overwrite an existing row.
+        #expect(!ambiguousDocument.upsert(
+            collectionKey: "notifications",
+            id: "notice",
+            value: ["id": "different", "body": "unsafe"]
+        ))
+        #expect(ambiguousDocument.data() == before)
+
+        var relationshipDocument = CloudVMStateDocument(snapshot: [
+            "agents": [["id": "agent-1", "terminal_id": "term-a", "state": "working"]],
+        ])
+        let relationshipBefore = try #require(relationshipDocument.data())
+        #expect(!relationshipDocument.delete(
+            collectionKey: "agents",
+            id: "agent-1",
+            alternateField: (name: "terminal_id", value: "term-b")
+        ))
+        #expect(relationshipDocument.data() == relationshipBefore)
+
+        var missingRelationshipDocument = CloudVMStateDocument(snapshot: [
+            "agents": [["id": "agent-1", "state": "working"]],
+        ])
+        let missingRelationshipBefore = try #require(missingRelationshipDocument.data())
+        #expect(!missingRelationshipDocument.delete(
+            collectionKey: "agents",
+            id: "agent-1",
+            alternateField: (name: "terminal_id", value: "term-a")
+        ))
+        #expect(missingRelationshipDocument.data() == missingRelationshipBefore)
+    }
+
     @Test func legacySnapshotRemainsReadableButIsSnapshotOnly() throws {
         var snapshot = Self.sessionSnapshot
         snapshot.removeValue(forKey: "cursor")
@@ -879,11 +1069,23 @@ import Testing
         let encoded = try JSONEncoder().encode(state)
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(object["lookupIndex"] == nil)
+        #expect(object["document"] != nil)
+        #expect(object["rawSnapshot"] == nil)
 
         let decoded = try JSONDecoder().decode(CloudVMState.self, from: encoded)
         #expect(decoded == state)
         #expect(decoded.lookupIndex.tab(id: "tab_1")?.contentID == "term_build")
         #expect(decoded.lookupIndex.screenIDs(workspaceID: "ws_main") == ["screen_1"])
+
+        // A pre-document archive remains readable through the one-way raw
+        // snapshot migration path. Its conflicting typed projections are not
+        // trusted.
+        var legacyObject = object
+        legacyObject.removeValue(forKey: "document")
+        legacyObject["rawSnapshot"] = state.rawSnapshot.base64EncodedString()
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacyDecoded = try JSONDecoder().decode(CloudVMState.self, from: legacyData)
+        #expect(legacyDecoded == state)
     }
 
     @Test func legacyAgentDeltaUsesTerminalRelationshipIdentity() throws {
@@ -924,6 +1126,29 @@ import Testing
             deltaPayload: reassignmentData,
             cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
             to: state
+        ) == nil)
+
+        // An explicit id cannot claim a relationship already owned by another
+        // explicit row. The canonical fragment key must stay aligned with the
+        // payload identity, so this also forces a snapshot.
+        var explicitSnapshot = Self.sessionSnapshot
+        explicitSnapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        explicitSnapshot["agents"] = [["id": "agent_old", "terminal_id": "term_build", "state": "working"]]
+        let explicitState = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: explicitSnapshot, machine: Self.machine))
+        let explicitChange: [String: Any] = [
+            "kind": "delta",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "agent",
+                "id": "agent_new",
+                "value": ["id": "agent_new", "terminal_id": "term_build", "state": "blocked"],
+            ]],
+        ]
+        let explicitData = try JSONSerialization.data(withJSONObject: explicitChange)
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: explicitData,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: explicitState
         ) == nil)
     }
 

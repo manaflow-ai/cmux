@@ -27,11 +27,13 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
 The checked-in image manifest is the source of truth for active and rollback
-images. Its newest validated Freestyle base entry is
-`freestyle-cmux-devbox-20260902c`
-(`sh-940ec3bc46224c019e5e8d9a97053293`). The entries ending in `b` and `a` are
-validated rollback images. The retired beta snapshot remains in the manifest
-only to preserve provenance.
+images. Its active validated Freestyle base entry is
+`freestyle-cmux-devbox-20260902e`
+(`sh-e4dc9393a82e4dfaaa8f90b01b0d247c`). Entries ending in `c`, `b`, and `a`
+are validated rollback images. The retired beta snapshot remains in the
+manifest only to preserve provenance. `FREESTYLE_SANDBOX_SNAPSHOT` is a legacy
+name retained for audit and image-build metadata; runtime image selection does
+not read it.
 
 ## State and rename synchronization contract
 
@@ -76,13 +78,19 @@ browsers, and agents. The macOS app must not create a second remote graph.
   process-wide coordinator, so two local windows cannot send the same remote
   tab or workspace out of order. A local binding or projection stores the
   exact remote ID; legacy fallback is allowed only for one unambiguous view.
-- Delta publication uses an explicit impact set and a materialized typed-graph
-  index. Title, lifecycle, agent, and same-placement tab changes update only
-  the touched index entries and rebuild only the affected resource rows. Any
-  relationship-root, creation, deletion, move, or content change rebuilds the
-  complete derived resource set. The raw graph is always updated first, and the
-  index is a non-persisted cache, so a targeted row is still derived from the
-  same authoritative bytes as a full snapshot.
+- Delta publication uses one canonical `CloudVMState.document` plus a
+  materialized typed-graph index. The document stores every top-level value and
+  collection row as canonical JSON fragments, so a title, lifecycle, agent, or
+  same-placement tab change replaces one fragment and updates only the affected
+  typed rows. Any relationship-root, creation, deletion, move, or content change
+  rebuilds the complete derived resource set. The index is a non-persisted cache,
+  and `rawSnapshot` is materialized only at export or recovery boundaries. A
+  targeted row and a full snapshot therefore use the same authoritative document.
+- A resource kind that is absent from the client's known delta storage map is a
+  fail-closed barrier. The app fetches one bounded full snapshot instead of
+  guessing a plural key or identity rule. The snapshot retains the new kind as
+  opaque state, so protocol growth is visible to agents without risking a
+  misapplied mutation.
 - Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
   states. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
@@ -99,10 +107,12 @@ browsers, and agents. The macOS app must not create a second remote graph.
 
 Agent-facing controls are JSON-first and composable: `cmux vm tree --json`,
 `surface.catalog`, `surface.project`, `vm tab rename`, and the explicit
-`vm terminal rename` compatibility command. The full graph costs more parsing
-than a row-only cache, but it prevents divergent identity maps. Derived rows
-keep UI updates small. Bounded recovery caps provider and CPU use, with an
-operator-visible warning when the event stream remains incompatible.
+`vm terminal rename` compatibility command. The full graph costs more parsing at
+snapshot boundaries than a row-only cache, but the canonical fragment document
+prevents divergent identity maps and avoids re-encoding unrelated rows during
+steady-state deltas. Derived rows keep UI updates small. Bounded recovery caps
+provider and CPU use, with an operator-visible warning when the event stream
+remains incompatible.
 
 ## Current Blockers
 
@@ -131,6 +141,11 @@ operator-visible warning when the event stream remains incompatible.
   catalog projection lifecycle, including restore and existing-target opens.
 - [x] Preserve complete state from legacy Freestyle snapshots without a cursor;
   expose `snapshot_only` to agents and fail revision-fenced writes clearly.
+- [x] Keep one canonical fragment document for known and unknown daemon state;
+  derive typed rows and indexes from it, and apply row-local deltas without
+  full-document re-encoding.
+- [x] Verify reverse tab-content edges, legacy terminal tab references, tab
+  moves, and large opaque collections in focused behavior tests.
 - [ ] Persist the claimed cmux-tui device fingerprint/device id in each lease and
   revoke only those device records on sign-out. Freestyle currently revokes the
   control-plane lease rows, but not daemon enrollment records.
@@ -182,8 +197,8 @@ These are already configured in Vercel for development, preview, and production:
   - Stack org ids later, if org billing exists
 - [x] Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` in the verified local and deployed
   environments.
-- [x] Set `FREESTYLE_API_KEY` and `FREESTYLE_SANDBOX_SNAPSHOT` in the verified
-  provider environments. Values are never printed by audit tools.
+- [x] Set `FREESTYLE_API_KEY` in the verified provider environments. Values are
+  never printed by audit tools. The checked-in manifest selects the image.
 - [x] Set Axiom/OpenTelemetry env in the verified staging and production
   environments:
   - `OTEL_SERVICE_NAME`
@@ -218,7 +233,8 @@ These are already configured in Vercel for development, preview, and production:
     enables free provisioning **only while** `CMUX_VM_ALLOW_FREE_PROVISIONING` is unset; any set
     value of the new switch wins, and every other legacy value or unset keeps the gate on)
   - `CMUX_VM_FREESTYLE_ENABLED`
-  - `FREESTYLE_SANDBOX_SNAPSHOT`
+  - `FREESTYLE_SANDBOX_SNAPSHOT` only when running an image-build or legacy
+    audit command; it is ignored by VM runtime resolution
   - Axiom/OpenTelemetry vars
 - [x] Document the split between `~/.secrets/cmuxterm-dev.env`, `~/.secrets/cmuxterm.env`, and
   `~/.secrets/cmux.env` in `AGENTS.md`.
@@ -228,12 +244,16 @@ These are already configured in Vercel for development, preview, and production:
 
 ## Phase 3: Image Manifest and Rollback
 
-Keep the exact Freestyle snapshot ID in `FREESTYLE_SANDBOX_SNAPSHOT`. This gives
-simple rollback by changing one env var and redeploying.
+Keep every Freestyle snapshot ID in the checked-in image manifest. The entry
+flagged `defaultForKind` is the active image, and rollback is a manifest change
+followed by a deploy. Runtime image resolution never uses an environment image
+selector, so an old `FREESTYLE_SANDBOX_SNAPSHOT` value cannot silently override
+the reviewed image.
 
 - [x] Add a checked-in image manifest, `web/services/vms/images/manifest.json`.
-- [x] Stop relying on hardcoded default image ids in deployed environments. Production and preview
-  fail closed if the active Freestyle snapshot env var is missing or invalid.
+- [x] Stop relying on hardcoded or environment-selected image ids in deployed
+  environments. Production and preview fail closed when the manifest has no
+  validated `defaultForKind` entry.
 - [x] Record every known-good Freestyle snapshot with:
   - image version
   - Freestyle snapshot id
@@ -242,10 +262,12 @@ simple rollback by changing one env var and redeploying.
   - builder script version
   - validation status
   - notes for known limitations
-- [x] Add docs for the active env selector, `FREESTYLE_SANDBOX_SNAPSHOT`.
+- [x] Add docs for the manifest default and mark
+  `FREESTYLE_SANDBOX_SNAPSHOT` as a legacy ignored selector.
 - [x] Add docs for rollback:
-  - choose previous known-good manifest entry
-  - set Vercel env vars back to that entry
+  - choose a previous known-good manifest entry
+  - mark it `defaultForKind`
+  - open and merge the manifest PR
   - redeploy
   - confirm new VMs use the old image
 - [x] Ensure VM create responses or internal telemetry record:
@@ -270,8 +292,8 @@ simple rollback by changing one env var and redeploying.
   - artifact URL used by Freestyle snapshot creation
 - [ ] Run Freestyle smoke tests after image build:
   - shell starts
-  - WebSocket PTY authenticates
-  - command execution works
+  - `cmux-remote` Noise session authenticates over `/v1/link`
+  - terminal RPC and command execution work
   - browser proxy can reach an HTTP server inside the VM
   - locale/sudo/python sanity checks pass
 - [ ] Add the validated manifest entry in the same PR as any snapshot ID update.

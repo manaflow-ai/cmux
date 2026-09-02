@@ -1399,7 +1399,7 @@ function recordResumeUsageEvent(
 // Active-limit note: the control-plane-owned paused-row resume path is
 // limit-gated for billing teams by reservePausedResume before the provider
 // resume starts. Freestyle can still resume a VM outside the control plane
-// (for example through its SSH gateway); those already-running observations
+// (for example from the provider console); those already-running observations
 // are reconciled durably here, and beginCreate re-counts provider-running VMs
 // before allocating another active slot.
 function preflightResumeIfSuspended(
@@ -1462,7 +1462,7 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status === "running") {
-      // Freestyle's SSH gateway can resume a VM entirely outside the control
+      // A provider-side action can resume a VM entirely outside the control
       // plane; if the durable row still says paused, record the observed
       // running state so active-limit reconciliation can see the VM.
       if (vm.status === "paused") {

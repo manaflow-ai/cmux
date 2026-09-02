@@ -41,10 +41,10 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
-      // transport cmux Cloud machines serve. Clients that do not ask keep the legacy
-      // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
-      // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
+      // Transport selection: "cmux-remote" is the cmux-tui remote daemon, the only
+      // transport current Cloud machines serve. Clients that do not ask may use a
+      // legacy WebSocket PTY/RPC endpoint only if a future provider advertises one;
+      // a cmux-tui-only machine answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
       if (transport === "cmux-remote") {
         let deviceFingerprint: string | undefined;

@@ -434,9 +434,10 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
-  // and throws here; the seam stays for a provider that serves a raw PTY again.
+  // Returns a live legacy attach endpoint the client can dial into: a raw WebSocket
+  // PTY with a short-lived one-use lease, or SSH. The current Freestyle driver is
+  // cmux-remote only and throws here; the seam remains for a future provider that
+  // explicitly supports a legacy raw transport.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).

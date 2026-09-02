@@ -119,15 +119,19 @@ today; it is kept for a future non-root cloud home.
 
 ## State model and synchronization invariants
 
-`CloudVMState.rawSnapshot` is the one local copy of the daemon graph. Its typed
-workspace, screen, pane, tab, terminal, browser, agent, and opaque-entity arrays
-are projections derived from those bytes. A materialized ID and relationship
-index is built with each accepted snapshot and updated only for entities named
-by an accepted delta. Row-local publication therefore does not allocate maps for
-the rest of the VM graph. The index is a cache, excluded from encoded state, and
-is never an independent write source. `SurfaceCatalog` stores that state with
-the derived surface rows in one main-actor transaction. No sidebar, CLI, or
-pane keeps a second remote graph.
+`CloudVMState.document` is the one canonical local document for the daemon graph.
+It stores top-level values and each array row as canonical JSON fragments, with a
+stable order list for every collection. This preserves fields that the app does
+not know yet and lets a delta replace one row without parsing or re-encoding
+unrelated rows. `rawSnapshot` remains a compatibility export, materialized only
+when a caller crosses a snapshot or agent-export boundary. The typed workspace,
+screen, pane, tab, terminal, browser, agent, and opaque-entity values are
+projections of the document. A materialized ID and relationship index is built
+with each accepted snapshot and updated only for entities named by an accepted
+delta. The index is a cache, excluded from encoded state, and is never an
+independent write source. `SurfaceCatalog` stores that state with the derived
+surface rows in one main-actor transaction. No sidebar, CLI, or pane keeps a
+second remote graph.
 
 The state has an explicit synchronization mode. Current daemons use `journaled`
 mode and publish a `(generation, revision)` cursor. A generation change means a
@@ -145,6 +149,13 @@ one snapshot-recovery allowance, which starts one final stream without erasing
 the spent budget. A later failed run stays exhausted, so routine snapshot
 refreshes cannot cause an unbounded spawn loop. A new authenticated connection
 is an explicit reset boundary.
+
+The client applies deltas only for resource kinds whose snapshot storage shape
+is known. A newly added daemon kind is therefore a synchronization barrier, not
+an event the client guesses how to pluralize or identify. The next complete
+snapshot still retains that kind losslessly in the document. This fail-closed
+choice protects identity and ordering at the cost of one bounded snapshot read
+when the daemon grows its schema.
 
 Older daemons may return the same complete graph without a cursor. The app
 keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the
@@ -198,8 +209,33 @@ route as opaque, and the daemon's enrolled device key is the session authority.
 This model keeps all daemon fields available to agents through the redacted
 `surface.catalog` export while keeping credentials out of the export. It costs
 one immutable graph decode per accepted snapshot and a full rebuild at topology
-boundaries. Those costs are intentional: a cheaper row cache would create
-divergent IDs, stale placement decisions, and unsafe rename targets.
+boundaries. Row-local deltas pay only for the changed fragments and affected
+typed rows. Swift copy-on-write still copies collection metadata when a fragment
+map changes, but it does not parse or re-encode unrelated row payloads. These
+costs are intentional: an unbounded event log would make recovery and export
+grow with VM lifetime, while a row cache without one canonical document would
+create divergent IDs, stale placement decisions, and unsafe rename targets.
+
+### Design decision record
+
+The canonical fragment document is the authority, the typed graph is a
+projection, and the ID/relationship index is a cache. Every accepted mutation
+updates these three layers in one local transaction. This is the smallest model
+that lets an agent inspect unknown future fields, address exact IDs, and apply a
+row-local rename without rebuilding the whole VM graph.
+
+The rejected alternatives are explicit:
+
+- A full JSON blob per delta is simpler, but it parses and encodes every remote
+  row for a one-tab rename. That cost grows with unrelated VM state and makes a
+  busy VM compete with the UI for CPU.
+- An unbounded event log is useful for audit, but it makes recovery and agent
+  export depend on VM lifetime. The daemon journal remains the bounded ordering
+  source; the client document is the current state, not a second history.
+- Separate provider, UI, and agent caches make individual reads look cheap, but
+  they allow identity and placement to diverge. Freestyle-specific transport
+  code therefore ends at the daemon link, and all consumers read the same
+  catalog transaction.
 
 ## Lease/auth integration with the attach-endpoint flow
 
