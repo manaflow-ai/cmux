@@ -14243,12 +14243,14 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn bound_listener_claim_fails_closed_without_identity_support() {
+    fn bound_listener_claim_keeps_unverified_windows_path_unowned() {
         let dir = TestSocketDir::create("windows-claim-without-identity");
         let path = dir.path().join("mux.sock");
         let listener = transport::listen(&path).unwrap();
 
-        assert!(ServedSocketLease::claim_bound(path.clone(), &listener).is_err());
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener).unwrap();
+        lease.cleanup();
+        assert!(path.exists(), "unverified Windows cleanup removed the publication");
         drop(listener);
         std::fs::remove_file(path).unwrap();
     }
