@@ -311,9 +311,41 @@ struct ClaudeHookSessionRecord: Codable {
     // confirmed title apply; the in-flight marker dedupes concurrent Stops.
     var autoNameLastTitle: String?
     var autoNameLastLineCount: Int?
+    /// Transcript high-water observed by any hook pass, including passes that
+    /// cannot generate a title. This is separate from the successful naming
+    /// baseline so compaction remains detectable while naming is suppressed.
+    var autoNameLastObservedLineCount: Int?
+    /// Compare-and-set token for the hook pass that owns the current in-flight
+    /// operation. Observers that skip behind that owner join its accumulator
+    /// without rotating the token.
+    var autoNameLastObservationGeneration: String?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
-    /// Last summarization attempt, including failures, for cooldown enforcement.
+    /// Reservation written by the synchronous Stop hook before it forks a
+    /// detached worker. The child clears it when it claims the naming pass;
+    /// expiry lets a crashed child be reclaimed.
+    var autoNameSpawnLeaseAt: TimeInterval?
+    var autoNameSpawnLeaseToken: String?
+    /// Highest transcript size observed while the current in-flight owner was
+    /// summarizing or reconciling. Its finisher consumes the accumulator only
+    /// while it still owns `autoNameLastObservationGeneration`.
+    var autoNameInFlightObservedLineCount: Int?
+    /// A durable compact-lifecycle obligation. `SessionStart(source=compact)`
+    /// sets it before best-effort replay, and a later Stop clears it only after
+    /// the app confirms every affected title target was resolved.
+    var autoNameTitleReconciliationGeneration: String?
+    /// Progress marker for the compact epoch that owns the pending generation.
+    /// Duplicate delivery with the same marker is ignored; a changed marker
+    /// starts a new obligation without letting an older finisher clear it.
+    var autoNameTitleReconciliationEpochLineCount: Int?
+    /// Number of socket apply attempts made for the current durable compact
+    /// obligation. A permanently unresolved target is abandoned after a small
+    /// bounded number of retries so every later Stop cannot repeat the same
+    /// synchronous socket work forever.
+    var autoNameTitleReconciliationAttemptCount: Int?
+    /// Wall-clock of the last summarization attempt (success OR failure), so a
+    /// persistently failing summarizer (rate-limited, signed out, timing out)
+    /// gets the same minInterval cooldown instead of respawning every turn.
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
@@ -416,6 +448,7 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
+    static let maxAutoNameTitleReconciliationAttempts = 4
 
     private let statePath: String
     private let fileManager: FileManager
@@ -446,6 +479,56 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState(deadline: deadline, persist: false) { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Atomically reserves the detached-worker spawn for one session.
+    @discardableResult
+    func claimAutoNamingSpawn(
+        sessionId: String,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        now: Date
+    ) throws -> String? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        return try withLockedState { state in
+            let timestamp = now.timeIntervalSince1970
+            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId ?? "",
+                surfaceId: surfaceId ?? "",
+                startedAt: timestamp,
+                updatedAt: timestamp
+            )
+            if let leaseAt = record.autoNameSpawnLeaseAt,
+               timestamp - leaseAt < AutoNamingEngine().config.inFlightExpiry {
+                return nil
+            }
+            if let inFlightAt = record.autoNameInFlightAt,
+               timestamp - inFlightAt < AutoNamingEngine().config.inFlightExpiry {
+                return nil
+            }
+            let token = UUID().uuidString
+            record.autoNameSpawnLeaseAt = timestamp
+            record.autoNameSpawnLeaseToken = token
+            record.updatedAt = timestamp
+            state.sessions[normalized] = record
+            return token
+        }
+    }
+
+    /// Releases a detached-worker reservation when launch or early setup fails.
+    func releaseAutoNamingSpawn(sessionId: String, token: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.autoNameSpawnLeaseToken == token else { return }
+            record.autoNameSpawnLeaseAt = nil
+            record.autoNameSpawnLeaseToken = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
         }
     }
 
@@ -1064,25 +1147,38 @@ final class ClaudeHookSessionStore {
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
+        var observationGeneration: String?
+        /// True when a transcript-shrink reconciliation has exhausted its
+        /// bounded retry budget. Callers should suppress both socket replay
+        /// and a fresh summarizer pass for this hook.
+        var reconciliationExhausted: Bool = false
     }
 
-    /// Atomically evaluates the auto-naming throttle for a session and, when
-    /// the decision is to proceed, records the in-flight marker inside the
-    /// same locked transaction so a concurrent Stop hook sees it and skips.
+    /// Atomically evaluates the auto-naming throttle and records the in-flight
+    /// marker for reconciliation or an allowed naming pass. A disallowed pass
+    /// does not claim an attempt, while transcript shrink can still reconcile.
     /// When no session record exists yet (the auto-name hook can race the
     /// sync Stop hook's upsert), a minimal record is synthesized so the
-    /// marker and baseline writes are never silently dropped.
+    /// in-flight reservation is never silently dropped.
     func beginAutoNaming(
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
         transcriptLineCount: Int,
+        transcriptPath: String? = nil,
         now: Date,
-        engine: AutoNamingEngine
+        engine: AutoNamingEngine,
+        allowNewTitleGeneration: Bool,
+        spawnToken: String? = nil
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
-            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
+            return AutoNamingBeginOutcome(
+                decision: .skipShortTranscript,
+                lastTitle: nil,
+                observationGeneration: nil,
+                reconciliationExhausted: false
+            )
         }
         return try withLockedState { state in
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
@@ -1095,50 +1191,440 @@ final class ClaudeHookSessionStore {
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
+                lastObservedLineCount: max(
+                    record.autoNameLastObservedLineCount ?? 0,
+                    record.autoNameInFlightObservedLineCount ?? 0
+                ),
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
                 lastAttemptAt: record.autoNameLastAttemptAt
             )
+            if let spawnToken {
+                guard record.autoNameSpawnLeaseToken == spawnToken else {
+                    return AutoNamingBeginOutcome(
+                        decision: .skipInFlight,
+                        lastTitle: snapshot.lastTitle,
+                        observationGeneration: nil,
+                        reconciliationExhausted: false
+                    )
+                }
+                record.autoNameSpawnLeaseAt = nil
+                record.autoNameSpawnLeaseToken = nil
+            }
+            if let transcriptPath = normalizeOptional(transcriptPath) {
+                record.transcriptPath = transcriptPath
+            }
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
+            let isTranscriptReconciliation: Bool
+            if case .reseedBaseline = decision {
+                isTranscriptReconciliation = true
+            } else {
+                isTranscriptReconciliation = false
+            }
+            if isTranscriptReconciliation,
+               record.autoNameTitleReconciliationGeneration == nil,
+               max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+                    >= Self.maxAutoNameTitleReconciliationAttempts {
+                // Ordinary shrink reconciliation has no explicit lifecycle
+                // event that can identify a new epoch. Keep the terminal bound
+                // until a fresh compact hook mints a new generation.
+                return AutoNamingBeginOutcome(
+                    decision: decision,
+                    lastTitle: snapshot.lastTitle,
+                    observationGeneration: nil,
+                    reconciliationExhausted: true
+                )
+            }
+            if isTranscriptReconciliation,
+               record.autoNameTitleReconciliationEpochLineCount == nil {
+                // Ordinary transcript-shrink reconciliation has no explicit
+                // compact hook, so persist its first compacted progress marker
+                // just like the durable Claude compact path.
+                record.autoNameTitleReconciliationEpochLineCount = transcriptLineCount
+            }
+            let observationGeneration: String?
             switch decision {
-            case .proceed:
+            case .proceed where allowNewTitleGeneration, .reseedBaseline:
+                observationGeneration = claimAutoNamingObservation(
+                    transcriptLineCount,
+                    record: &record
+                )
                 record.autoNameInFlightAt = now.timeIntervalSince1970
-            case .reseedBaseline(let to):
-                record.autoNameLastLineCount = to
-            case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
-                break
+                if isTranscriptReconciliation {
+                    record.autoNameTitleReconciliationAttemptCount = max(
+                        0,
+                        record.autoNameTitleReconciliationAttemptCount ?? 0
+                    ) + 1
+                }
+            case .skipInFlight:
+                observationGeneration = nil
+                recordUnclaimedAutoNamingObservation(
+                    transcriptLineCount,
+                    joiningLiveClaim: true,
+                    record: &record
+                )
+            case .proceed, .skipShortTranscript, .skipTooSoon, .skipInsufficientGrowth:
+                observationGeneration = nil
+                recordUnclaimedAutoNamingObservation(
+                    transcriptLineCount,
+                    joiningLiveClaim: false,
+                    record: &record
+                )
+            }
+            if !isTranscriptReconciliation,
+               record.autoNameTitleReconciliationGeneration == nil {
+                record.autoNameTitleReconciliationAttemptCount = nil
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
-            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+            return AutoNamingBeginOutcome(
+                decision: decision,
+                lastTitle: snapshot.lastTitle,
+                observationGeneration: observationGeneration,
+                reconciliationExhausted: false
+            )
+        }
+    }
+
+    /// Starts a new in-flight observation claim. Any expired owner's accumulated
+    /// observation first joins the stable high-water so a failed replacement
+    /// cannot erase it.
+    private func claimAutoNamingObservation(
+        _ lineCount: Int?,
+        record: inout ClaudeHookSessionRecord
+    ) -> String {
+        foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+        if let lineCount {
+            record.autoNameLastObservedLineCount = max(
+                lineCount,
+                record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+            )
+        }
+        let generation = UUID().uuidString
+        record.autoNameLastObservationGeneration = generation
+        record.autoNameInFlightObservedLineCount = lineCount
+        return generation
+    }
+
+    /// Records a pass that did not claim work. A live in-flight owner consumes
+    /// the observation; otherwise it advances the stable high-water directly.
+    private func recordUnclaimedAutoNamingObservation(
+        _ lineCount: Int,
+        joiningLiveClaim: Bool,
+        record: inout ClaudeHookSessionRecord
+    ) {
+        if joiningLiveClaim {
+            if record.autoNameLastObservationGeneration != nil {
+                record.autoNameInFlightObservedLineCount = max(
+                    lineCount,
+                    record.autoNameInFlightObservedLineCount ?? lineCount
+                )
+            } else {
+                // Legacy stores can have a live marker without an ownership
+                // token. Preserve its dedupe window and record conservatively.
+                record.autoNameLastObservedLineCount = max(
+                    lineCount,
+                    record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+                )
+            }
+            return
+        }
+        foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+        // A non-joining pass has already established that any old marker is
+        // expired. Revoke it so a late finisher cannot mutate newer state.
+        record.autoNameInFlightAt = nil
+        record.autoNameLastObservationGeneration = nil
+        record.autoNameInFlightObservedLineCount = nil
+        record.autoNameLastObservedLineCount = max(
+            lineCount,
+            record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+        )
+    }
+
+    private func foldAutoNamingInFlightObservationIntoHighWater(
+        record: inout ClaudeHookSessionRecord
+    ) {
+        guard let inFlightObservedLineCount = record.autoNameInFlightObservedLineCount else { return }
+        record.autoNameLastObservedLineCount = max(
+            inFlightObservedLineCount,
+            record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+        )
+    }
+
+    private func autoNamingObservedHighWater(in record: ClaudeHookSessionRecord) -> Int {
+        max(
+            record.autoNameLastLineCount ?? 0,
+            max(
+                record.autoNameLastObservedLineCount ?? 0,
+                record.autoNameInFlightObservedLineCount ?? 0
+            )
+        )
+    }
+
+    /// Records an explicit Claude compaction before any best-effort title
+    /// replay. Duplicate delivery for the same progress epoch is reported as
+    /// existing; a changed epoch mints a new generation. Returns nil when the
+    /// session has neither a generated title nor a naming pass that can produce one.
+    func markAutoNamingTitleReconciliationPending(
+        sessionId: String,
+        transcriptLineCount: Int? = nil
+    ) throws -> (generation: String, isNew: Bool)? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.autoNameLastTitle != nil || record.autoNameInFlightAt != nil else {
+                return nil
+            }
+            let now = Date().timeIntervalSince1970
+            if record.autoNameTitleReconciliationGeneration == nil,
+               max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+                    >= Self.maxAutoNameTitleReconciliationAttempts,
+               let epoch = record.autoNameTitleReconciliationEpochLineCount,
+               transcriptLineCount == nil || transcriptLineCount == epoch {
+                // The same compact epoch already exhausted its bounded retry
+                // budget. Do not reopen it on duplicate SessionStart delivery.
+                record.updatedAt = now
+                state.sessions[normalized] = record
+                return nil
+            }
+            if let existingGeneration = record.autoNameTitleReconciliationGeneration,
+               transcriptLineCount == nil
+                    || record.autoNameTitleReconciliationEpochLineCount == nil
+                    || record.autoNameTitleReconciliationEpochLineCount == transcriptLineCount {
+                // Duplicate compact delivery belongs to the same unresolved
+                // obligation. Keep its generation and attempt budget intact;
+                // only a later, cleared generation starts a new epoch.
+                record.updatedAt = now
+                state.sessions[normalized] = record
+                return (generation: existingGeneration, isNew: false)
+            }
+            let generation = UUID().uuidString
+            record.autoNameTitleReconciliationGeneration = generation
+            record.autoNameTitleReconciliationEpochLineCount = transcriptLineCount
+            record.autoNameTitleReconciliationAttemptCount = 0
+            record.updatedAt = now
+            state.sessions[normalized] = record
+            return (generation: generation, isNew: true)
+        }
+    }
+
+    /// Claims a pending title replay with the same in-flight marker used by
+    /// regular naming. A pending-but-unclaimed result means another hook owns
+    /// the replay and callers must skip normal throttle/LLM work.
+    func claimPendingAutoNamingTitleReconciliation(
+        sessionId: String,
+        transcriptLineCount: Int?,
+        now: Date,
+        engine: AutoNamingEngine
+    ) throws -> (
+        pending: Bool,
+        title: String?,
+        compactedLineCount: Int?,
+        generation: String?,
+        observationGeneration: String?,
+        exhausted: Bool
+    ) {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return (false, nil, nil, nil, nil, false) }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  let generation = record.autoNameTitleReconciliationGeneration else {
+                return (false, nil, nil, nil, nil, false)
+            }
+            let hasLiveInFlight = record.autoNameInFlightAt.map {
+                now.timeIntervalSince1970 - $0 < engine.config.inFlightExpiry
+            } ?? false
+            let attemptCount = max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+            if !hasLiveInFlight,
+               attemptCount >= Self.maxAutoNameTitleReconciliationAttempts {
+                // Keep the normal title/baseline history intact, but abandon
+                // this permanently unresolved compact obligation. Returning
+                // `pending=true` with `exhausted=true` keeps the caller from
+                // falling through into a fresh LLM pass on this Stop.
+                record.autoNameTitleReconciliationGeneration = nil
+                // Keep the maxed count as an exhausted marker. Without it,
+                // the next Stop would reopen the same transcript-shrink
+                // reconciliation through the ordinary path.
+                record.autoNameLastObservationGeneration = nil
+                record.autoNameInFlightObservedLineCount = nil
+                record.autoNameInFlightAt = nil
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (true, nil, nil, nil, nil, true)
+            }
+            let observedHighWater = autoNamingObservedHighWater(in: record)
+            let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
+                guard observedHighWater > 0,
+                      record.autoNameLastNamedAt != nil,
+                      current < observedHighWater else { return nil }
+                return current
+            }
+            guard let title = record.autoNameLastTitle else {
+                if hasLiveInFlight {
+                    if let transcriptLineCount {
+                        recordUnclaimedAutoNamingObservation(
+                            transcriptLineCount,
+                            joiningLiveClaim: true,
+                            record: &record
+                        )
+                    }
+                    record.updatedAt = now.timeIntervalSince1970
+                    state.sessions[normalized] = record
+                    return (true, nil, nil, nil, nil, false)
+                }
+                if let transcriptLineCount {
+                    recordUnclaimedAutoNamingObservation(
+                        transcriptLineCount,
+                        joiningLiveClaim: false,
+                        record: &record
+                    )
+                }
+                record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameTitleReconciliationEpochLineCount = nil
+                record.autoNameTitleReconciliationAttemptCount = nil
+                record.autoNameInFlightAt = nil
+                record.autoNameLastObservationGeneration = nil
+                record.autoNameInFlightObservedLineCount = nil
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (false, nil, nil, nil, nil, false)
+            }
+            if hasLiveInFlight {
+                if let transcriptLineCount {
+                    recordUnclaimedAutoNamingObservation(
+                        transcriptLineCount,
+                        joiningLiveClaim: true,
+                        record: &record
+                    )
+                }
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (true, nil, nil, nil, nil, false)
+            }
+            let observationGeneration = claimAutoNamingObservation(
+                transcriptLineCount,
+                record: &record
+            )
+            record.autoNameInFlightAt = now.timeIntervalSince1970
+            record.autoNameTitleReconciliationAttemptCount = attemptCount + 1
+            record.updatedAt = now.timeIntervalSince1970
+            state.sessions[normalized] = record
+            return (true, title, compactedLineCount, generation, observationGeneration, false)
+        }
+    }
+
+    /// Completes a transcript-shrink reconciliation without changing normal
+    /// naming cooldown or title history. A confirmed owner advances both the
+    /// baseline and high-water through observations that joined while it ran.
+    func finishAutoNamingReconciliation(
+        sessionId: String,
+        compactedLineCount: Int?,
+        confirmedApply: Bool,
+        claimedReconciliationGeneration: String? = nil,
+        observationGeneration: String? = nil,
+        clearPendingOnConfirmation: Bool = true
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            guard let observationGeneration,
+                  record.autoNameLastObservationGeneration == observationGeneration else {
+                return
+            }
+            let ownsPendingGeneration = record.autoNameTitleReconciliationGeneration
+                == claimedReconciliationGeneration
+            if confirmedApply, ownsPendingGeneration {
+                if let compactedLineCount {
+                    let reconciledLineCount = max(
+                        compactedLineCount,
+                        record.autoNameInFlightObservedLineCount ?? compactedLineCount
+                    )
+                    record.autoNameLastLineCount = reconciledLineCount
+                    record.autoNameLastObservedLineCount = reconciledLineCount
+                } else {
+                    foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+                }
+                if clearPendingOnConfirmation,
+                   claimedReconciliationGeneration != nil {
+                    record.autoNameTitleReconciliationGeneration = nil
+                    record.autoNameTitleReconciliationEpochLineCount = nil
+                    record.autoNameTitleReconciliationAttemptCount = nil
+                } else if claimedReconciliationGeneration == nil {
+                    // Ordinary transcript-shrink reconciliation has no
+                    // durable generation, but a confirmed apply still resets
+                    // its bounded retry budget for the next shrink.
+                    record.autoNameTitleReconciliationAttemptCount = nil
+                }
+            } else {
+                foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+            }
+            record.autoNameInFlightAt = nil
+            record.autoNameLastObservationGeneration = nil
+            record.autoNameInFlightObservedLineCount = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
         }
     }
 
     /// Records a completed naming pass. On a confirmed apply, the durable
-    /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries.
+    /// baseline (title, line count, timestamp) advances. Failure retains the
+    /// observed high-water while releasing the owned claim for a later retry.
     func finishAutoNaming(
         sessionId: String,
         appliedTitle: String?,
         baselineLineCount: Int?,
+        baselineConfirmedWithoutTitle: Bool = false,
+        observationGeneration: String?,
         now: Date
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
+            guard let observationGeneration,
+                  record.autoNameLastObservationGeneration == observationGeneration else {
+                return
+            }
+            let inFlightObservedLineCount = record.autoNameInFlightObservedLineCount
+            foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             record.autoNameInFlightAt = nil
+            record.autoNameSpawnLeaseAt = nil
+            record.autoNameLastObservationGeneration = nil
+            record.autoNameInFlightObservedLineCount = nil
             // Stamp every completed pass (success or failure) so the throttle
             // enforces a cooldown before retrying a failing summarizer.
             record.autoNameLastAttemptAt = now.timeIntervalSince1970
-            if let appliedTitle, let baselineLineCount {
-                record.autoNameLastTitle = appliedTitle
-                record.autoNameLastLineCount = baselineLineCount
-                record.autoNameLastNamedAt = now.timeIntervalSince1970
+            if let baselineLineCount {
+                if let appliedTitle {
+                    let isFirstConfirmedTitle = record.autoNameLastNamedAt == nil
+                    record.autoNameLastTitle = appliedTitle
+                    record.autoNameLastLineCount = baselineLineCount
+                    record.autoNameLastNamedAt = now.timeIntervalSince1970
+                    if isFirstConfirmedTitle,
+                       let inFlightObservedLineCount {
+                        // A failed first attempt may have observed a larger
+                        // pre-compaction transcript. Once the first title is
+                        // confirmed, discard that stale high-water while retaining
+                        // observations that joined this owned attempt.
+                        record.autoNameLastObservedLineCount = max(
+                            baselineLineCount,
+                            inFlightObservedLineCount
+                        )
+                    }
+                } else if baselineConfirmedWithoutTitle {
+                    record.autoNameLastLineCount = baselineLineCount
+                    record.autoNameLastNamedAt = now.timeIntervalSince1970
+                    record.autoNameLastObservedLineCount = max(
+                        baselineLineCount,
+                        record.autoNameLastObservedLineCount ?? baselineLineCount
+                    )
+                }
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
@@ -2297,6 +2783,204 @@ final class ClaudeHookSessionStore {
             }
             return activeTurnId == normalizedTurnId
         }
+    }
+
+    /// Updates a compact continuation only when the identity observed before
+    /// routing is still the owner of its pane. Compact hooks may arrive after a
+    /// replacement session has taken the pane, so this compare-and-set keeps a
+    /// stale event from rewriting the session's persisted workspace, surface,
+    /// or process identity before the visible-mutation guard runs.
+    @discardableResult
+    func upsertCompactSessionIfCurrent(
+        sessionId: String,
+        expectedRecord: ClaudeHookSessionRecord?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        targetIsAuthoritative: Bool
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
+            return false
+        }
+        return try withLockedState { state in
+            let existing = state.sessions[normalizedSessionId]
+            if let expectedRecord {
+                guard let existing,
+                      existing.workspaceId == expectedRecord.workspaceId,
+                      existing.surfaceId == expectedRecord.surfaceId,
+                      compactProcessIdentityMatches(
+                          existing: existing,
+                          expected: expectedRecord,
+                          incomingPID: pid
+                      ),
+                      compactSessionStillOwnsTarget(
+                          state: state,
+                          record: existing,
+                          targetWorkspaceId: normalizedWorkspaceId,
+                          targetSurfaceId: normalizedSurfaceId,
+                          targetIsAuthoritative: targetIsAuthoritative
+                      ) else {
+                    return false
+                }
+            } else {
+                guard existing == nil,
+                      targetIsAuthoritative,
+                      compactTargetIsAvailable(
+                          state: state,
+                          sessionId: normalizedSessionId,
+                          workspaceId: normalizedWorkspaceId,
+                          surfaceId: normalizedSurfaceId
+                      ) else {
+                    return false
+                }
+            }
+
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                now: now
+            )
+            let inheritedActiveRecord: ClaudeHookActiveSessionRecord? = {
+                let candidates = [
+                    state.activeSessionsByWorkspace[normalizedWorkspaceId],
+                    state.activeSessionsBySurface[normalizedSurfaceId],
+                    state.activeSessionsByWorkspace[record.workspaceId],
+                    state.activeSessionsBySurface[record.surfaceId],
+                ]
+                return candidates.compactMap { $0 }.first { $0.sessionId == normalizedSessionId }
+            }()
+            update(
+                &record,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: false,
+                // Compact SessionStart continues the existing agent lifecycle;
+                // unlike a fresh session, it must not overwrite running/idle/
+                // needs-input state while only refreshing identity metadata.
+                agentLifecycle: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            state.sessions[normalizedSessionId] = record
+            for (workspaceID, active) in state.activeSessionsByWorkspace
+                where workspaceID != normalizedWorkspaceId && active.sessionId == normalizedSessionId {
+                state.activeSessionsByWorkspace.removeValue(forKey: workspaceID)
+            }
+            for (surfaceID, active) in state.activeSessionsBySurface
+                where surfaceID != normalizedSurfaceId && active.sessionId == normalizedSessionId {
+                state.activeSessionsBySurface.removeValue(forKey: surfaceID)
+            }
+            let activeRecord = ClaudeHookActiveSessionRecord(
+                sessionId: normalizedSessionId,
+                turnId: inheritedActiveRecord?.turnId,
+                allowsNewSessionReplacement: inheritedActiveRecord?.allowsNewSessionReplacement,
+                updatedAt: now
+            )
+            if state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId == nil
+                || state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId == normalizedSessionId {
+                state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+            }
+            state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
+            return true
+        }
+    }
+
+    private func compactProcessIdentityMatches(
+        existing: ClaudeHookSessionRecord,
+        expected: ClaudeHookSessionRecord,
+        incomingPID: Int?
+    ) -> Bool {
+        let expectedGeneration = expected.pidStartSeconds.flatMap { seconds in
+            expected.pidStartMicroseconds.map { (seconds, $0) }
+        }
+        let existingGeneration = existing.pidStartSeconds.flatMap { seconds in
+            existing.pidStartMicroseconds.map { (seconds, $0) }
+        }
+        if let expectedGeneration {
+            guard existingGeneration == expectedGeneration else { return false }
+        } else if let expectedPID = expected.pid,
+                  let existingPID = existing.pid,
+                  expectedPID != existingPID {
+            return false
+        }
+        if let incomingPID, let existingGeneration {
+            guard let incomingIdentity = processStartIdentity(pid: incomingPID),
+                  (incomingIdentity.seconds, incomingIdentity.microseconds) == existingGeneration else {
+                return false
+            }
+        } else if let incomingPID,
+                  let existingPID = existing.pid,
+                  incomingPID != existingPID {
+            return false
+        }
+        return true
+    }
+
+    private func compactSessionStillOwnsTarget(
+        state: ClaudeHookSessionStoreFile,
+        record: ClaudeHookSessionRecord,
+        targetWorkspaceId: String,
+        targetSurfaceId: String,
+        targetIsAuthoritative: Bool
+    ) -> Bool {
+        let sessionId = record.sessionId
+        let targetMatchesRecord = record.workspaceId == targetWorkspaceId
+            && record.surfaceId == targetSurfaceId
+        if let active = state.activeSessionsBySurface[record.surfaceId] {
+            guard active.sessionId == sessionId else { return false }
+        } else if targetMatchesRecord {
+            guard state.activeSessionsByWorkspace[record.workspaceId]?.sessionId == sessionId else {
+                // An exact-target compact without active ownership evidence is
+                // a delayed event from an ended session, not a continuation.
+                return false
+            }
+        }
+
+        guard !targetMatchesRecord else { return true }
+        guard targetIsAuthoritative else { return false }
+        // A live pid/surface delivery resolution is the authoritative pane
+        // owner during a move. The persisted active indexes still point at the
+        // old record and are pruned before this transaction; requiring them to
+        // prove the new target would make every target-only rehome impossible.
+        // A workspace slot may belong to a sibling pane, so only a conflicting
+        // surface owner can reject this pane-scoped authoritative target.
+        return state.activeSessionsBySurface[targetSurfaceId]
+            .map { $0.sessionId == sessionId } ?? true
+    }
+
+    private func compactTargetIsAvailable(
+        state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) -> Bool {
+        if let active = state.activeSessionsBySurface[surfaceId], active.sessionId != sessionId {
+            return false
+        }
+        if let active = state.activeSessionsByWorkspace[workspaceId],
+           active.sessionId != sessionId,
+           state.activeSessionsBySurface[surfaceId]?.sessionId != sessionId {
+            return false
+        }
+        return true
     }
 
     func canReplaceActiveSession(
@@ -27643,11 +28327,19 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
+            let isCompactSessionStart = isClaudeCompactSessionStart(parsedInput)
+            // Compaction continues an existing session, so its persisted pane
+            // identity is valid routing evidence. Other SessionStart sources
+            // intentionally resolve without a record because startup/resume can
+            // report an old or parent session id before the new session exists.
+            let compactSession = isCompactSessionStart
+                ? parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                : nil
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
-                mappedSession: nil,
+                mappedSession: compactSession,
                 routing: hookRouting,
                 client: client
-            ), resolvedTarget.isAuthoritative else {
+            ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
                 emitAgentJournalEvent(
@@ -27666,10 +28358,38 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let canUseCompactFallback = isCompactSessionStart && compactSession != nil
+            guard resolvedTarget.isAuthoritative || canUseCompactFallback else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.non-authoritative-target")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-non-authoritative",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
+                printClaudeHookAck()
+                return
+            }
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if resolvedSurface.isAuthoritative {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                // A compact fallback is useful only for preserving the
+                // persisted session obligation; its focused pane is not a
+                // valid feed destination.
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.fallback-telemetry-suppressed")
+            }
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -27682,59 +28402,147 @@ struct CMUXCLI {
                 cwd: parsedInput.cwd
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
-            let sessionStartSource = parsedInput.object?["source"] as? String
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
-                    sessionId: sessionId,
-                    source: sessionStartSource,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
-                    launchCommand: launchCommand,
-                    turnId: parsedInput.turnId
-                )) == true
-                return accepted ? sessionId : nil
-            }
-            guard let acceptedSessionId else {
-                telemetry.breadcrumb("claude-hook.session-start.stale")
-                printClaudeHookAck()
-                return
-            }
-            publishAgentSurfaceResumeBinding(
-                client: client,
+            let canMutateVisibleTarget = resolvedSurface.isAuthoritative
+            let canPersistSessionIdentity = resolvedSurface.isAuthoritative || canUseCompactFallback
+            let canReplaceStoppedSession = !isCompactSessionStart && shouldReplaceStoppedClaudeSession(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                kind: "claude",
-                displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                sessionId: acceptedSessionId,
-                cwd: parsedInput.cwd,
-                launchCommand: launchCommand,
-                observedPermissionMode: observedHookPermissionMode
-            )
-            emitAgentJournalEvent(
-                client: client,
-                kind: .sessionStarted,
-                source: "claude",
-                agentKey: Self.claudeCodeStatusKey,
-                sessionId: acceptedSessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                isSubagent: suppressVisibleMutations,
-                nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                detail: isClearSessionStart ? "clear-session-start" : nil,
-                store: sessionStore,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            // SessionStart itself is the process-running signal. Keep ordinary
-            // startup/resume visually quiet, but register the PID immediately so
-            // later hooks and terminal state are attached to this exact surface.
-            if let claudePid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+            // A compact SessionStart may be delivered through the focused pane
+            // while its recorded pane is temporarily absent. That surface is
+            // only a delivery guess: retain the persisted identity above, but
+            // never promote or register visible state on the borrowed pane.
+            // Non-compact fallbacks were rejected before this point.
+            // Compact is a continuation of the same session, never a new
+            // active boundary. In particular, do not let a delayed compact
+            // event use a stopped-session replacement slot to resurrect an
+            // older session that the pane has already replaced.
+            let shouldPromoteActiveSession = !isCompactSessionStart
+                && canMutateVisibleTarget
+                && (isClearSessionStart || canReplaceStoppedSession)
+            var sessionRecordWorkspaceId = workspaceId
+            var sessionRecordSurfaceId = surfaceId
+            if isCompactSessionStart,
+               !resolvedSurface.isAuthoritative,
+               let compactSession {
+                // A focused-surface fallback is only a delivery guess. Keep the
+                // compacted session's recorded identity so a later authoritative
+                // Stop can reconcile the title on the pane that owns it.
+                sessionRecordWorkspaceId = compactSession.workspaceId
+                sessionRecordSurfaceId = compactSession.surfaceId
+            }
+            if isCompactSessionStart {
+                // Compact is a continuation of the recorded identity. Do not
+                // send it through the authoritative SessionStart transaction:
+                // that transaction intentionally rejects a stale session or
+                // promotes a fresh active boundary. A compact fallback keeps
+                // the persisted pane address while visible delivery remains
+                // fail-closed below.
+                if let sessionId = parsedInput.sessionId, canPersistSessionIdentity {
+                    let accepted = (try? sessionStore.upsertCompactSessionIfCurrent(
+                        sessionId: sessionId,
+                        expectedRecord: compactSession,
+                        workspaceId: sessionRecordWorkspaceId,
+                        surfaceId: sessionRecordSurfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
+                        launchCommand: launchCommand,
+                        targetIsAuthoritative: resolvedSurface.isAuthoritative
+                    )) == true
+                    guard accepted else {
+                        telemetry.breadcrumb("claude-hook.session-start.compact-stale")
+                        printClaudeHookAck()
+                        return
+                    }
+                }
+                runClaudeCompactAutoNameHook(
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    targetIsAuthoritative: resolvedSurface.isAuthoritative,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
                 )
+                // A compact event must never register a PID or otherwise
+                // mutate a borrowed focused pane. Only the current recorded
+                // owner may receive the visible PID update.
+                let shouldRegisterPID = canMutateVisibleTarget
+                    && (
+                        shouldPromoteActiveSession
+                            || shouldApplyClaudeHookVisibleMutation(
+                                sessionStore: sessionStore,
+                                parsedInput: parsedInput,
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId,
+                                telemetry: telemetry
+                            )
+                    )
+                if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
+            } else {
+                let sessionStartSource = parsedInput.object?["source"] as? String
+                let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+                    let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
+                        sessionId: sessionId,
+                        source: sessionStartSource,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
+                        launchCommand: launchCommand,
+                        turnId: parsedInput.turnId
+                    )) == true
+                    return accepted ? sessionId : nil
+                }
+                guard let acceptedSessionId else {
+                    telemetry.breadcrumb("claude-hook.session-start.stale")
+                    printClaudeHookAck()
+                    return
+                }
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: acceptedSessionId,
+                    cwd: parsedInput.cwd,
+                    launchCommand: launchCommand,
+                    observedPermissionMode: observedHookPermissionMode
+                )
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: acceptedSessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: suppressVisibleMutations,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    detail: isClearSessionStart ? "clear-session-start" : nil,
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
+                // SessionStart itself is the process-running signal. Keep ordinary
+                // startup/resume visually quiet, but register the PID immediately so
+                // later hooks and terminal state are attached to this exact surface.
+                if let claudePid, !suppressVisibleMutations {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             }
             if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -28119,30 +28927,25 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
-                    fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                    mappedSession: mappedSession,
+                    routing: hookRouting,
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
                     printClaudeHookAck()
                     return
                 }
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
+                guard resolvedTarget.isAuthoritative else {
+                    telemetry.breadcrumb("claude-hook.auto-name.non-authoritative-target")
+                    printClaudeHookAck()
+                    return
+                }
                 runClaudeAutoNameHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    workspaceId: resolvedTarget.workspaceId,
+                    surfaceId: resolvedTarget.surfaceId,
                     sessionStore: sessionStore,
                     client: client,
                     telemetry: telemetry
@@ -28915,11 +29718,20 @@ struct CMUXCLI {
         }
     }
 
-    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+    private func claudeSessionStartSource(_ parsedInput: ClaudeHookParsedInput) -> String? {
         guard let source = parsedInput.object?["source"] as? String else {
-            return false
+            return nil
         }
-        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "clear"
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "compact"
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
@@ -36155,28 +36967,80 @@ export default CMUXSessionRestore;
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
+            let autoNamingSession = sessionId.isEmpty
+                ? mapped
+                : ((try? store.lookup(sessionId: sessionId)) ?? mapped)
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
-            // disabled feature spawns nothing extra on turn end; the detached
-            // process re-probes to honor a toggle that lands mid-pass.
+            // disabled feature or a manual workspace without prior auto-name
+            // state spawns nothing extra on turn end. Manual workspaces only
+            // fork when a compact obligation, in-flight claim, or transcript/
+            // message high-water change needs reconciliation. The detached
+            // process re-probes to honor a mid-pass toggle.
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
-               ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
-                spawnDetachedAgentAutoName(
-                    def: def,
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
-                    cwd: cwd,
-                    env: env,
-                    telemetry: telemetry
+               ), autoNameProbe["enabled"] as? Bool == true {
+                let workspaceUserOwned = autoNameProbe["workspace_user_owned"] as? Bool == true
+                let hasReplayableAutoName = hasReplayableAutoNamingState(autoNamingSession)
+                let autoNamingTranscriptPath = normalizedHookValue(
+                    input.transcriptPath ?? autoNamingSession?.transcriptPath
                 )
+                let autoNamingFallbackLineCount: Int? = {
+                    guard workspaceUserOwned, hasReplayableAutoName,
+                          let autoNamingTranscriptPath,
+                          let source = autoNamingSource(for: def) else {
+                        return nil
+                    }
+                    switch source {
+                    case .codexRollout, .grokHistory:
+                        return readRecentTextFileLines(
+                            path: autoNamingTranscriptPath,
+                            maxBytes: 512 * 1024
+                        )?.count
+                    case .hookMessageCache:
+                        return nil
+                    }
+                }()
+                let autoNamingProgress: Int? = workspaceUserOwned && hasReplayableAutoName
+                    ? autoNamingProgressMetric(
+                        for: def,
+                        session: autoNamingSession,
+                        sessionId: sessionId,
+                        transcriptPath: autoNamingTranscriptPath,
+                        cwd: cwd,
+                        env: env,
+                        fallbackLineCount: autoNamingFallbackLineCount
+                    )
+                    : nil
+                let spawnToken: String? = {
+                    guard shouldSpawnDetachedAgentAutoName(
+                        probe: autoNameProbe,
+                        session: autoNamingSession,
+                        currentProgress: autoNamingProgress
+                    ) else { return nil }
+                    return try? store.claimAutoNamingSpawn(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        now: Date()
+                    )
+                }()
+                if let spawnToken {
+                    spawnDetachedAgentAutoName(
+                        def: def,
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        transcriptPath: autoNamingTranscriptPath,
+                        cwd: cwd,
+                        spawnToken: spawnToken,
+                        env: env,
+                        telemetry: telemetry
+                    )
+                }
             }
 
         case .shellObserved:

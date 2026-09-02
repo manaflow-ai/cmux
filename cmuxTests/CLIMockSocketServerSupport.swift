@@ -25,6 +25,51 @@ final class CLIMockOnceFlag: @unchecked Sendable {
     }
 }
 
+/// Fulfills an expectation after a required number of distinct socket
+/// connections complete, or immediately if the listener itself stops.
+///
+/// Access is protected by `lock`, which is why this reference type can safely
+/// cross the mock server's `@Sendable` connection closures.
+final class CLIMockConnectionCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let requiredCompletionCount: Int
+    private var completionCount = 0
+    private var didFulfill = false
+
+    init(requiredCompletionCount: Int) {
+        self.requiredCompletionCount = max(1, requiredCompletionCount)
+    }
+
+    func recordCompletion(_ expectation: XCTestExpectation) {
+        lock.lock()
+        guard !didFulfill else {
+            lock.unlock()
+            return
+        }
+        completionCount += 1
+        let shouldFulfill = completionCount >= requiredCompletionCount
+        if shouldFulfill {
+            didFulfill = true
+        }
+        lock.unlock()
+
+        if shouldFulfill {
+            expectation.fulfill()
+        }
+    }
+
+    func fulfillImmediately(_ expectation: XCTestExpectation) {
+        lock.lock()
+        guard !didFulfill else {
+            lock.unlock()
+            return
+        }
+        didFulfill = true
+        lock.unlock()
+        expectation.fulfill()
+    }
+}
+
 /// Reads newline-framed requests from `clientFD` and writes back each response
 /// `respond` returns, until the peer closes the connection or a write fails.
 /// Returning nil from `respond` consumes the request without answering it.
@@ -327,9 +372,10 @@ extension CMUXOpenCommandTests {
 }
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    /// Serves the mock control socket until the listener is torn down, fulfilling
-    /// `handled` once the first connection is done (or once the listener goes away
-    /// before anything connected).
+    /// Serves the mock control socket until the listener is torn down. By default,
+    /// `handled` is fulfilled when the first connection completes. Callers that
+    /// need all observable socket work to settle can request a specific completed
+    /// connection count.
     ///
     /// One accept loop services every connection the CLI opens. That matters
     /// headless: with piped stdio and no controlling TTY the CLI can't resolve its
@@ -339,12 +385,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount: Int = 1,
+        waitForAllConnections: Bool = false,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         startMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
+            connectionCount: connectionCount,
+            waitForAllConnections: waitForAllConnections,
             fulfillWhen: fulfillWhen
         ) { line in
             handler(line)
@@ -356,27 +406,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startMockServerAllowingNoResponse(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount: Int = 1,
+        waitForAllConnections: Bool = false,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
-        let fulfillmentGate = CLIMockOnceFlag()
+        let expectedConnectionCount = max(1, connectionCount)
+        let completionGate = CLIMockConnectionCompletionGate(
+            requiredCompletionCount: waitForAllConnections ? expectedConnectionCount : 1
+        )
         CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
+            let connectionGate = CLIMockOnceFlag()
+
             defer {
                 Darwin.close(clientFD)
-                fulfillmentGate.fulfill(handled)
+                if connectionGate.claim() {
+                    completionGate.recordCompletion(handled)
+                }
             }
             cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                 state.append(line)
-                if fulfillWhen?(line) == true {
-                    fulfillmentGate.fulfill(handled)
+                if fulfillWhen?(line) == true, connectionGate.claim() {
+                    completionGate.recordCompletion(handled)
                 }
                 return handler(line)
             }
         }, onListenerClosed: {
             // Unblock the waiter if the listener is torn down before any client
             // connected (matches the previous accept-failure fulfillment).
-            fulfillmentGate.fulfill(handled)
+            completionGate.fulfillImmediately(handled)
         })
         return handled
     }

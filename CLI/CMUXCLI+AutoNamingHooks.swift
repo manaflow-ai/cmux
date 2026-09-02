@@ -16,15 +16,12 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("claude-hook.auto-name.disabled")
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
+        let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
@@ -41,70 +38,145 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.stale")
             return
         }
-
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
-        guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
+        let currentSession = (try? sessionStore.lookup(sessionId: sessionId)) ?? mappedSession
+        if workspaceUserOwned, !hasReplayableAutoNamingState(currentSession) {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned-no-replay")
             return
         }
-        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
-        let engine = AutoNamingEngine()
-        guard let outcome = try? sessionStore.beginAutoNaming(
+
+        let transcriptSnapshot: (path: String, lines: [String], lineCount: Int)? = {
+            guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
+                  let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
+                  !lines.isEmpty else { return nil }
+            return (
+                transcriptPath,
+                lines,
+                textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
+            )
+        }()
+        if reconcilePendingAutoNamingTitleIfNeeded(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            transcriptLineCount: lineCount,
-            now: Date(),
-            engine: engine
-        ) else { return }
-        guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("claude-hook.auto-name.throttled")
-            return
-        }
-
-        var confirmedTitle: String?
-        defer {
-            try? sessionStore.finishAutoNaming(
-                sessionId: sessionId,
-                appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
-            )
-        }
-
-        let messages = engine.extractMessages(fromTranscriptLines: lines)
-        guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-
-        let resolution = resolvedSummarizerAgent(
-            probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
-        )
-        guard let rawResponse = summarize(
-            summarizerAgent: resolution.agent,
-            prompt: prompt,
-            env: env,
-            timeout: engine.config.llmTimeout,
+            transcriptLineCount: transcriptSnapshot?.lineCount,
+            clearPendingOnConfirmation: true,
+            sessionStore: sessionStore,
+            client: client,
+            telemetryKey: "claude-hook.auto-name.pending-reconcile",
             telemetry: telemetry
-        ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
-            reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
+        ) {
             return
         }
-
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
-        confirmedTitle = applyAutoNamingTitle(
-            sanitized,
+        guard let transcriptSnapshot else { return }
+        let lines = transcriptSnapshot.lines
+        runFileBackedAutoName(
+            sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            previousTitle: outcome.lastTitle,
+            lines: lines,
+            lineCount: transcriptSnapshot.lineCount,
+            transcriptPath: transcriptSnapshot.path,
+            sessionStore: sessionStore,
             client: client,
+            allowSummarization: !workspaceUserOwned,
+            expectedWorkspaceTitle: probe["workspace_title"] as? String,
+            expectedPanelTitle: probe["panel_title"] as? String,
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
-        )
-        // Re-report a missing override only after the fallback apply, so the
-        // app's clear-on-apply doesn't immediately wipe the Settings note.
-        if confirmedTitle != nil, let missing = resolution.missingOverride {
-            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        ) { engine, outcome in
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
+            )
+            let messages = engine.extractMessages(fromTranscriptLines: lines)
+            guard let context = engine.buildContext(from: messages) else { return nil }
+            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+            guard let rawResponse = summarize(
+                summarizerAgent: resolution.agent,
+                prompt: prompt,
+                env: env,
+                timeout: engine.config.llmTimeout,
+                telemetry: telemetry
+            ) else {
+                reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
+                return nil
+            }
+            return (response: rawResponse, missingOverride: resolution.missingOverride)
         }
+    }
+
+    /// Handles Claude's explicit compact lifecycle event. The durable obligation
+    /// is recorded even when delivery only found a focused-surface fallback; only
+    /// the immediate replay requires an authoritative target. Matching
+    /// SessionStart hooks have no guaranteed ordering, so the obligation remains
+    /// for the next Stop even after a successful apply.
+    func runClaudeCompactAutoNameHook(
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String,
+        surfaceId: String,
+        targetIsAuthoritative: Bool,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let sessionId = parsedInput.sessionId else { return }
+        let env = ProcessInfo.processInfo.environment
+        let mappedSession = try? sessionStore.lookup(sessionId: sessionId)
+        let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
+        guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.nested-suppressed")
+            return
+        }
+        let ownershipWorkspaceId = mappedSession?.workspaceId ?? workspaceId
+        let ownershipSurfaceId = mappedSession?.surfaceId ?? (targetIsAuthoritative ? surfaceId : nil)
+        guard shouldApplyClaudeHookVisibleMutation(
+            sessionStore: sessionStore,
+            parsedInput: parsedInput,
+            workspaceId: ownershipWorkspaceId,
+            surfaceId: ownershipSurfaceId,
+            telemetry: telemetry
+        ) else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.stale")
+            return
+        }
+        let compactTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
+            ?? (try? sessionStore.lookup(sessionId: sessionId))?.transcriptPath
+        let compactTranscriptLineCount = compactTranscriptPath.flatMap { path -> Int? in
+            guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else { return nil }
+            return textFileGrowthMetric(path: path, fallbackLineCount: lines.count)
+        }
+        guard let pending = try? sessionStore.markAutoNamingTitleReconciliationPending(
+            sessionId: sessionId,
+            transcriptLineCount: compactTranscriptLineCount
+        ) else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.no-title")
+            return
+        }
+        guard pending.isNew else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.duplicate")
+            return
+        }
+        guard targetIsAuthoritative else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.non-authoritative-target")
+            return
+        }
+        guard let probe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
+        ), probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.disabled")
+            return
+        }
+        _ = reconcilePendingAutoNamingTitleIfNeeded(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            transcriptLineCount: nil,
+            clearPendingOnConfirmation: false,
+            sessionStore: sessionStore,
+            client: client,
+            telemetryKey: "claude-hook.auto-name.compact.reconcile",
+            telemetry: telemetry
+        )
     }
 
     /// Spawns a detached generic-agent auto-name pass via a bounded shell wrapper.
@@ -115,6 +187,7 @@ extension CMUXCLI {
         surfaceId: String,
         transcriptPath: String?,
         cwd: String?,
+        spawnToken: String,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
@@ -145,6 +218,7 @@ extension CMUXCLI {
         ]
         var spawnEnv = env
         spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)
+        spawnEnv["CMUX_AUTO_NAME_SPAWN_TOKEN"] = spawnToken
         process.environment = spawnEnv
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -152,6 +226,8 @@ extension CMUXCLI {
         do {
             try process.run()
         } catch {
+            try? ClaudeHookSessionStore(processEnv: spawnEnv)
+                .releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
             telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
             return
         }
@@ -176,45 +252,59 @@ extension CMUXCLI {
               let surfaceId = optionValue(commandArgs, name: "--surface") else {
             return
         }
+        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"])
+        defer {
+            if let spawnToken {
+                try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
+            }
+        }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("codex-hook.auto-name.user-owned")
-            return
-        }
-
-        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
             return
         }
-        let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
-            ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
+        let currentSession = try? sessionStore.lookup(sessionId: sessionId)
+        if workspaceUserOwned, !hasReplayableAutoNamingState(currentSession) {
+            telemetry.breadcrumb("codex-hook.auto-name.user-owned-no-replay")
+            return
+        }
+        let suppliedTranscriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
+        // Deliberately do not fall back to `findCodexTranscriptPath`: title
+        // identity must come from this hook invocation or its persisted
+        // cmux-owned session binding, never a newest-file/mtime scan.
+        let transcriptPath = suppliedTranscriptPath ?? normalizedHookValue(currentSession?.transcriptPath)
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
             return
         }
-        let resolution = resolvedSummarizerAgent(
-            probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
-        )
         runFileBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             lines: lines,
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
+            transcriptPath: transcriptPath,
             sessionStore: sessionStore,
             client: client,
-            missingOverride: resolution.missingOverride,
+            allowSummarization: !workspaceUserOwned,
+            expectedWorkspaceTitle: probe["workspace_title"] as? String,
+            expectedPanelTitle: probe["panel_title"] as? String,
+            spawnToken: spawnToken,
             telemetryKey: "codex-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
+            )
             let messages = engine.extractCodexMessages(fromRolloutLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
@@ -229,7 +319,79 @@ extension CMUXCLI {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
                 return nil
             }
-            return raw
+            return (response: raw, missingOverride: resolution.missingOverride)
         }
+    }
+
+    /// Returns the separately confirmed workspace and panel outcomes, or a
+    /// failure when the socket request or response fails.
+    func applyAutoNamingTitle(
+        _ title: String,
+        workspaceId: String,
+        surfaceId: String,
+        expectedSessionId: String? = nil,
+        expectedWorkspaceTitle: String? = nil,
+        expectedPanelTitle: String? = nil,
+        reconciliationCAS: Bool = false,
+        clearStatusOnApply: Bool = true,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool, targetUnresolved: Bool), CLIError> {
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "clear_status_on_apply": clearStatusOnApply,
+            "title": title
+        ]
+        if let expectedSessionId {
+            params["expected_session_id"] = expectedSessionId
+        }
+        if let expectedWorkspaceTitle {
+            params["expected_workspace_title"] = expectedWorkspaceTitle
+        }
+        if let expectedPanelTitle {
+            params["expected_panel_title"] = expectedPanelTitle
+        }
+        if reconciliationCAS {
+            params["reconciliation_cas"] = true
+        }
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(method: "workspace.set_auto_title", params: params)
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).socket-failed")
+            return .failure(CLIError(message: String(describing: error)))
+        }
+        let workspaceApplied = payload["workspace_applied"] as? Bool == true
+        let workspaceApplySkipped = payload["workspace_apply_skipped"] as? Bool == true
+        let panelApplied = payload["panel_applied"] as? Bool
+        let workspaceResolved = workspaceApplied
+            || workspaceApplySkipped
+        let hasPanelOutcome = payload.keys.contains("panel_applied")
+            || payload.keys.contains("panel_apply_skipped")
+        let panelResolved = !hasPanelOutcome
+            || panelApplied != nil
+            || payload["panel_apply_skipped"] as? Bool == true
+        let titleApplied = workspaceApplied || panelApplied == true
+        let targetUnresolved = payload["target_unresolved"] as? Bool == true
+        let terminalSkip = payload["terminal_skip"] as? Bool == true
+        if targetUnresolved {
+            telemetry.breadcrumb("\(telemetryKey).target-unresolved")
+        } else if titleApplied {
+            telemetry.breadcrumb("\(telemetryKey).applied")
+        } else if workspaceApplySkipped {
+            telemetry.breadcrumb("\(telemetryKey).preserved-workspace-title")
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).rejected")
+        }
+        return .success((
+            titleApplied: titleApplied,
+            targetsResolved: !targetUnresolved
+                && (terminalSkip || (workspaceResolved && panelResolved)),
+            terminalSkip: terminalSkip,
+            targetUnresolved: targetUnresolved
+        ))
     }
 }

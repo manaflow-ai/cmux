@@ -4231,7 +4231,16 @@ class TerminalController {
     /// `workspaceAutoNamingEnabled` setting; `{"probe": true}` reads the live
     /// setting state without writing, which lets hook processes honor
     /// mid-session toggles. `panel_id` accepts either a panel UUID or a
-    /// surface UUID.
+    /// surface UUID. `expected_workspace_title` makes reconciliation a
+    /// compare-and-set: a manual or different current automatic title is
+    /// preserved and reported as `workspace_apply_skipped`. The corresponding
+    /// `expected_panel_title` protects a newer automatic panel title in the same
+    /// transaction. For remote tmux mirrors, reconciliation may only reapply an
+    /// already matching auto-owned panel title because the remote window name is
+    /// authoritative. `panel_apply_skipped` distinguishes compare-and-set and
+    /// valid single-panel suppression from an unresolved target, while
+    /// `clear_status_on_apply=false` lets reconciliation preserve the last
+    /// summarizer health warning when it only reapplies a stored title.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -4246,11 +4255,24 @@ class TerminalController {
             if let workspaceId = v2UUID(params, "workspace_id"),
                let tabManager = v2ResolveTabManager(params: params) {
                 var userOwned: Bool?
+                var workspaceTitle: String?
+                var panelTitle: String?
                 v2MainSync {
                     guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                     userOwned = workspace.effectiveCustomTitleSource == .user
+                    workspaceTitle = workspace.title.nilIfEmpty
+                    if let panelId = v2UUID(params, "panel_id") {
+                        let resolvedPanelId = workspace.panels[panelId] != nil
+                            ? panelId
+                            : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
+                        panelTitle = resolvedPanelId.flatMap {
+                            workspace.panelTitle(panelId: $0)?.nilIfEmpty
+                        }
+                    }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
+                result["workspace_title"] = v2OrNull(workspaceTitle)
+                result["panel_title"] = v2OrNull(panelTitle)
             }
             return .ok(result)
         }
@@ -4274,30 +4296,170 @@ class TerminalController {
         guard let workspaceId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
+        let expectedWorkspaceTitleRaw = v2String(params, "expected_workspace_title")
+        let hasExpectedWorkspaceTitle = params.keys.contains("expected_workspace_title")
+        let expectedPanelTitleRaw = v2String(params, "expected_panel_title")
+        let hasExpectedPanelTitle = params.keys.contains("expected_panel_title")
+        let expectedSessionId = v2String(params, "expected_session_id")
+        let reconciliationCAS = v2Bool(params, "reconciliation_cas") ?? false
         guard let titleRaw = v2String(params, "title"),
-              !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !hasExpectedWorkspaceTitle
+                || expectedWorkspaceTitleRaw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              !hasExpectedPanelTitle
+                || expectedPanelTitleRaw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
         let panelId = v2UUID(params, "panel_id")
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedWorkspaceTitle = expectedWorkspaceTitleRaw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedPanelTitle = expectedPanelTitleRaw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
+        let clearStatusOnApply = v2Bool(params, "clear_status_on_apply") ?? true
         var found = false
         var workspaceApplied = false
+        var workspaceApplySkipped = false
         var panelApplied: Bool?
+        var panelApplySkipped = false
+        var terminalSkip = false
+        var targetUnresolved = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
-            workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
-            if let panelId {
-                // Hook payloads carry surface ids; accept either a panel id
-                // or a surface id for the tab target.
-                let resolvedPanelId = workspace.panels[panelId] != nil
-                    ? panelId
-                    : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
-                if let resolvedPanelId,
-                   !(panelOnlyIfMultiple && workspace.panels.count < 2) {
-                    panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+            // Resolve every requested target before mutating either one.
+            let resolvedPanelId = panelId.flatMap { id in
+                workspace.panels[id] != nil ? id : workspace.panelIdFromSurfaceId(TabID(uuid: id))
+            }
+            guard panelId == nil || resolvedPanelId != nil else {
+                // The requested surface disappeared between hook routing and
+                // this transaction. Treat it as a terminally resolved skip so
+                // the same transcript does not keep retrying forever.
+                workspaceApplySkipped = true
+                panelApplySkipped = true
+                terminalSkip = true
+                return
+            }
+            if let expectedSessionId {
+                let sessionMatches = resolvedPanelId.flatMap { panelId in
+                    workspace.surfaceResumeBinding(panelId: panelId).flatMap { binding in
+                        guard let checkpointId = binding.checkpointId,
+                              let kind = binding.kind else { return false }
+                        return ManagedAgentSessionIdentity.sessionIDsMatch(
+                            kind: kind,
+                            lhs: checkpointId,
+                            rhs: expectedSessionId
+                        )
+                    }
+                } ?? false
+                guard sessionMatches else {
+                    workspaceApplySkipped = true
+                    if panelId != nil { panelApplySkipped = true }
+                    targetUnresolved = true
+                    return
+                }
+            }
+            // A remote mirror's unclaimed panel is authoritative for the whole
+            // mirror. Preflight that ownership before mutating the workspace so
+            // a rejected panel write cannot still emit `rename-session`.
+            let remotePanelOwnershipBlocked: Bool = {
+                guard workspace.isRemoteTmuxMirror,
+                      let resolvedPanelId,
+                      !(panelOnlyIfMultiple && workspace.panels.count < 2) else {
+                    return false
+                }
+                if let expectedPanelTitle,
+                   workspace.panelTitle(panelId: resolvedPanelId) != expectedPanelTitle {
+                    // A remote window rename is authoritative for the whole
+                    // mirror. Block the workspace transaction too, so a stale
+                    // panel replay cannot emit `rename-session`.
+                    return true
+                }
+                guard workspace.panelCustomTitleSources[resolvedPanelId] == .auto else {
+                    return true
+                }
+                if expectedPanelTitle == nil,
+                   let autoTitle = workspace.panelCustomTitles[resolvedPanelId],
+                   workspace.panelTitles[resolvedPanelId] != autoTitle {
+                    // A remote `%window-renamed` changed the authoritative
+                    // base title after cmux's last auto write. A fresh title
+                    // must not reclaim that remote choice; only an explicit
+                    // reconciliation CAS may repair an owned projection.
+                    return true
+                }
+                if let expectedPanelTitle,
+                   workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle {
+                    return true
+                }
+                return false
+            }()
+            if remotePanelOwnershipBlocked {
+                terminalSkip = true
+            }
+            if workspace.effectiveCustomTitleSource == .user ||
+               (expectedWorkspaceTitle != nil &&
+                (reconciliationCAS
+                    ? (workspace.effectiveCustomTitleSource != .auto
+                        || workspace.customTitle != expectedWorkspaceTitle)
+                    : workspace.title != expectedWorkspaceTitle)) ||
+               remotePanelOwnershipBlocked {
+                // Manual ownership, a newer sibling-session auto-title, or an
+                // authoritative remote panel wins. Reconciliation may still
+                // repair an independently owned local/remote panel.
+                workspaceApplySkipped = true
+            } else {
+                workspaceApplied = tabManager.setCustomTitle(
+                    tabId: workspaceId,
+                    title: title,
+                    source: .auto
+                )
+            }
+            if let resolvedPanelId {
+                if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if reconciliationCAS,
+                          let expectedPanelTitle,
+                          (workspace.panelCustomTitleSources[resolvedPanelId] != .auto
+                            || workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle) {
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.panelTitle(panelId: resolvedPanelId) != expectedPanelTitle {
+                    // The panel changed between the naming probe and this
+                    // apply. Preserve the newer title as a compare-and-set
+                    // failure, regardless of whether it is local or remote.
+                    panelApplySkipped = true
+                } else if remotePanelOwnershipBlocked {
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.isRemoteTmuxMirror,
+                          (workspace.panelCustomTitleSources[resolvedPanelId] != .auto ||
+                           workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle) {
+                    // A remote tmux window name is authoritative. Reconciliation
+                    // may reapply a title this panel already auto-owns, but must
+                    // not treat missing ownership as permission to emit
+                    // `rename-window` over a newer remote name.
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.panelCustomTitleSources[resolvedPanelId] == .auto,
+                          workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle {
+                    // A newer automatic title from another session owns this
+                    // panel now. Preserve it just like the workspace CAS above.
+                    panelApplySkipped = true
+                } else if workspace.isRemoteTmuxMirror,
+                          workspace.panelCustomTitleSources[resolvedPanelId] != .auto {
+                    // Remote tmux owns an unclaimed panel title. A fresh auto
+                    // title has no prior CAS value to compare, so fail closed
+                    // rather than claiming the panel and emitting rename-window
+                    // over the remote user's choice.
+                    panelApplySkipped = true
+                } else {
+                    panelApplied = workspace.setPanelCustomTitle(
+                        panelId: resolvedPanelId,
+                        title: title,
+                        source: .auto
+                    )
                 }
             }
         }
@@ -4311,7 +4473,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if (workspaceApplied || panelApplied == true) && clearStatusOnApply {
             AutoNamingStatusStore.clear()
         }
 
@@ -4320,8 +4482,12 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "title": title,
             "workspace_applied": workspaceApplied,
-            "panel_applied": v2OrNull(panelApplied),
-            "enabled": true
+            "workspace_apply_skipped": workspaceApplySkipped,
+                "panel_applied": v2OrNull(panelApplied),
+                "panel_apply_skipped": panelApplySkipped,
+                "terminal_skip": terminalSkip,
+                "target_unresolved": targetUnresolved,
+                "enabled": true
         ])
     }
 

@@ -15,6 +15,7 @@ import Testing
     private func snapshot(
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
+        lastObservedLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
         lastAttemptAt: TimeInterval? = nil
@@ -22,6 +23,7 @@ import Testing
         AutoNamingSessionSnapshot(
             lastTitle: lastTitle,
             lastLineCount: lastLineCount,
+            lastObservedLineCount: lastObservedLineCount,
             lastNamedAt: lastNamedAt,
             inFlightAt: inFlightAt,
             lastAttemptAt: lastAttemptAt
@@ -126,6 +128,32 @@ import Testing
             snapshot: snapshot(lastTitle: "Fix auth bug", lastLineCount: 500, lastNamedAt: base),
             transcriptLineCount: 60,
             now: now
+        )
+        #expect(decision == .reseedBaseline(to: 60))
+    }
+
+    @Test func compactionBelowMinimumStillReseeds() {
+        let base = TimeInterval(1_000_000)
+        let compactedCount = config.minTranscriptLines - 1
+        let decision = engine.throttleDecision(
+            snapshot: snapshot(lastTitle: "Fix auth bug", lastLineCount: 500, lastNamedAt: base),
+            transcriptLineCount: compactedCount,
+            now: Date(timeIntervalSince1970: base + config.minInterval + 1)
+        )
+        #expect(decision == .reseedBaseline(to: compactedCount))
+    }
+
+    @Test func compactionUsesObservedHighWaterWithoutChangingNamingBaseline() {
+        let base = TimeInterval(1_000_000)
+        let decision = engine.throttleDecision(
+            snapshot: snapshot(
+                lastTitle: "Fix auth bug",
+                lastLineCount: 1,
+                lastObservedLineCount: 500,
+                lastNamedAt: base
+            ),
+            transcriptLineCount: 60,
+            now: Date(timeIntervalSince1970: base + config.minInterval + 1)
         )
         #expect(decision == .reseedBaseline(to: 60))
     }

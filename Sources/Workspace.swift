@@ -5296,6 +5296,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        let isIdempotentRemoteAutoWrite = isRemoteTmuxMirror
+            && source == .auto
+            && previous == trimmed
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
@@ -5305,15 +5308,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
+            if previous == trimmed {
+                // A user write still claims ownership. Keep going so an
+                // idempotent write also repairs derived tab chrome.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
-                applyFocusedPanelTitle(panelId: panelId)
-                return true
+                if isIdempotentRemoteAutoWrite, panelTitle(panelId: panelId) != trimmed {
+                    // A differing remote `%window-renamed` value is
+                    // authoritative. Preserve it and its derived tab chrome.
+                    return true
+                }
+            } else {
+                panelCustomTitles[panelId] = trimmed
+                panelCustomTitleSources[panelId] = source
             }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
         }
 
         applyFocusedPanelTitle(panelId: panelId)
@@ -5326,7 +5333,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        if isRemoteTmuxMirror, !isIdempotentRemoteAutoWrite {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
