@@ -8,13 +8,12 @@ import Testing
 #endif
 
 /// The New Machine sheet's model: the CLI invocation it builds, the plan
-/// ceilings it mirrors, and how a failed create is surfaced for retry.
+/// ceilings it mirrors, and how Create hands the work off without waiting.
 @Suite("New machine model")
 @MainActor
 struct NewMachineModelTests {
-    private struct LaunchRecorder {
-        var arguments: [[String]] = []
-        var pendingCompletion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
+    private struct SubmitRecorder {
+        var requests: [MachineCreateRequest] = []
     }
 
     private final class Box<Value> {
@@ -27,11 +26,10 @@ struct NewMachineModelTests {
         plan: MachinePlanSnapshot? = nil,
         imageKinds: [VMImageKindOption] = [],
         starts: Bool = true
-    ) -> (NewMachineModel, Box<LaunchRecorder>) {
-        let recorder = Box(LaunchRecorder())
-        let model = NewMachineModel(mode: mode, plan: plan, imageKinds: imageKinds) { arguments, completion in
-            recorder.value.arguments.append(arguments)
-            recorder.value.pendingCompletion = completion
+    ) -> (NewMachineModel, Box<SubmitRecorder>) {
+        let recorder = Box(SubmitRecorder())
+        let model = NewMachineModel(mode: mode, plan: plan, imageKinds: imageKinds) { request in
+            recorder.value.requests.append(request)
             return starts
         }
         return (model, recorder)
@@ -80,27 +78,33 @@ struct NewMachineModelTests {
 
     // MARK: CLI arguments
 
+    /// With no `limits.imageKinds` from the backend the sheet opens on
+    /// shell-only (no provider ships a desktop image), and the kind travels
+    /// as a flag: no image id is pinned, and the create runs in the background.
     /// The default size is omitted so the backend applies its plan default,
     /// which an operator memory brake may have lowered below the plan machine.
-    @Test func testDefaultInvocationRequestsDesktopByKindWithoutPinningAnImageOrSize() {
+    @Test func testDefaultInvocationRequestsShellOnlyByKindInTheBackground() {
         let (model, _) = makeModel()
-        #expect(model.cliArguments == ["vm", "new", "--desktop"])
+        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
         #expect(!(model.cliArguments.contains("--image")))
         #expect(!(model.cliArguments.contains("--size")))
     }
 
-    @Test func testNonDefaultSizeTravelsAsAFlag() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 50, planId: "pro"))
-        model.kind = .base
-        model.memoryMb = 16384
-        #expect(model.cliArguments == ["vm", "new", "--base", "--size", "16384"])
+    @Test func testDesktopKindTravelsAsAFlagWhenTheBackendServesIt() {
+        let kinds = [
+            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
+            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
+        ]
+        let (model, _) = makeModel(imageKinds: kinds)
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
+        #expect(!(model.cliArguments.contains("--image")))
     }
 
     @Test func testBaseKindSizeAndNameTravelAsFlags() {
         let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
         model.kind = .base
         model.name = "  build box  "
-        #expect(model.cliArguments == ["vm", "new", "--base", "--name", "build box"])
+        #expect(model.cliArguments == ["vm", "new", "--base", "--name", "build box", "--focus", "false"])
     }
 
     @Test func testBlankNameIsNotSent() {
@@ -117,7 +121,9 @@ struct NewMachineModelTests {
         #expect(!(model.supportsName))
         model.name = "ignored"
         model.kind = .base
-        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base"])
+        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
+        #expect(model.createRequest.name == nil, "Base has no label; the row is called Base")
+        #expect(model.createRequest.baseWorkspaceID == workspaceID)
     }
 
     // MARK: Plan ceilings
@@ -143,14 +149,20 @@ struct NewMachineModelTests {
 
     @Test func testPlanTextsMirrorTheMeterAndFreeWindow() {
         let free = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free", freeAccessWindowDays: 7)
-        let (model, _) = makeModel(plan: free)
-        #expect(model.planMeterText == "0 of 1 machine in use")
-        #expect(model.freeAccessNoteText == "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
+        let (freeModel, _) = makeModel(plan: free)
+        #expect(freeModel.planMeterText == "0 of 1 machine in use")
+        #expect(freeModel.freeAccessNoteText == "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
 
         let pro = MachinePlanSnapshot(activeCount: 2, maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 7)
         let (proModel, _) = makeModel(plan: pro)
         #expect(proModel.planMeterText == "2 of 5 machines in use")
-        #expect(proModel.freeAccessNoteText == nil)
+        #expect(proModel.freeAccessNoteText == nil, "paid plans have no access window")
+    }
+
+    @Test func testMemoryLabelsReadInGigabytes() {
+        #expect(NewMachineModel.memoryLabel(mb: 2048) == "2 GB")
+        #expect(NewMachineModel.memoryLabel(mb: 24576) == "24 GB")
+        #expect(NewMachineModel.memoryLabel(mb: 1500) == "1500 MB")
     }
 
     @Test func testSelectedImageFollowsTheKind() {
@@ -190,104 +202,60 @@ struct NewMachineModelTests {
         #expect(model.kind == .base)
     }
 
-    @Test func testMemoryLabelsReadInGigabytes() {
-        #expect(NewMachineModel.memoryLabel(mb: 24576) == "24 GB")
-        #expect(NewMachineModel.memoryLabel(mb: 3000) == "3000 MB")
-    }
-
     // MARK: Create lifecycle
 
-    @Test func testCreateLaunchesOnceAndFinishesOnSuccess() {
+    /// https://github.com/manaflow-ai/cmux/issues/11397: Create must hand the
+    /// person back their window immediately. The sheet finishes as soon as the
+    /// create is submitted; the machine coming up (tens of seconds) is the
+    /// coordinator's business, never the sheet's lifetime.
+    @Test func testCreateFinishesTheSheetBeforeTheMachineExists() {
         let (model, recorder) = makeModel()
         var outcomes: [NewMachineModel.Outcome] = []
         model.onFinished = { outcomes.append($0) }
 
         model.create()
-        #expect(model.isCreating)
-        model.create()
-        #expect(recorder.value.arguments.count == 1, "a second click while creating must not launch again")
 
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: nil))
-        #expect(!(model.isCreating))
-        #expect(model.outcome == .created)
-        #expect(outcomes == [.created])
+        #expect(recorder.value.requests.count == 1, "the create is submitted once")
+        #expect(outcomes == [.submitted], "the sheet must finish without waiting for the CLI to complete")
+        #expect(model.outcome == .submitted)
+        #expect(model.errorText == nil)
     }
 
-    @Test func testFailureShowsTheCLIOutputAndAllowsRetry() {
+    @Test func testSubmittedRequestCarriesTheSheetsChoices() {
+        let (model, recorder) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
+        model.kind = .base
+        model.memoryMb = 4096
+        model.name = " ci box "
+        model.create()
+        let request = recorder.value.requests.first
+        #expect(request?.mode == .newMachine)
+        #expect(request?.kind == .base)
+        #expect(request?.name == "ci box")
+        #expect(request?.displayName == "ci box")
+        #expect(request?.arguments == ["vm", "new", "--base", "--size", "4096", "--name", "ci box", "--focus", "false"])
+        #expect(request?.progressLabel == "Creating…")
+    }
+
+    @Test func testSecondCreateAfterSubmitIsIgnored() {
         let (model, recorder) = makeModel()
         model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Cloud VM temporarily unavailable (HTTP 503: vm_image_config_error)\n\nWhat to do:\n  Retry without `image`.\n",
-            workspaceId: nil
-        ))
-        #expect(!(model.isCreating))
-        #expect(model.outcome == nil)
-        #expect(model.errorText == "Cloud VM temporarily unavailable (HTTP 503: vm_image_config_error)\n\nWhat to do:\n  Retry without `image`.")
-
         model.create()
-        #expect(model.errorText == nil, "a retry clears the previous error while it runs")
-        #expect(recorder.value.arguments.count == 2)
-    }
-
-    @Test func testCreatedMachineIDIsParsedFromTheCLIsCreatedLine() {
-        #expect(NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == "calm-petrel")
-        #expect(NewMachineModel.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  ") == "noble_wren2")
-        #expect(NewMachineModel.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
-        #expect(NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM") == nil)
-        #expect(NewMachineModel.createdMachineID(fromOutput: "") == nil)
-    }
-
-    @Test func testCreatedButOpenFailedNeverRetriesTheCreate() {
-        let (model, recorder) = makeModel()
-        model.create()
-        #expect(recorder.value.arguments.count == 1)
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.",
-            workspaceId: nil
-        ))
-        #expect(model.createdMachineID == "calm-petrel")
-        #expect(model.outcome == nil, "the sheet stays up so the person sees why the open failed")
-        #expect(!(model.isCreating))
-        #expect(model.errorText?.contains("calm-petrel") == true)
-        #expect(model.errorText?.contains("No provider") == true, "the CLI output is kept for diagnosis")
-
-        // The primary button is now "Done": it closes the sheet without launching again.
-        model.create()
-        #expect(recorder.value.arguments.count == 1, "a second create would mint a second machine")
-        #expect(model.outcome == .created)
-    }
-
-    @Test func testBaseSetupFailureIsNotMistakenForACreatedMachine() {
-        let (model, recorder) = makeModel(mode: .base(workspaceID: UUID()))
-        model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Created Cloud VM base-1\nError: attach failed",
-            workspaceId: nil
-        ))
-        #expect(model.createdMachineID == nil)
-        #expect(model.outcome == nil)
-        model.create()
-        #expect(recorder.value.arguments.count == 2, "Base setup retries through the idempotent base open")
-    }
-
-    @Test func testEmptyFailureOutputGetsAGenericMessage() {
-        let (model, recorder) = makeModel()
-        model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 2, output: "  \n", workspaceId: nil))
-        #expect(model.errorText == "The machine could not be created.")
+        #expect(recorder.value.requests.count == 1, "a second click must not launch a second create")
     }
 
     @Test func testLaunchRefusalIsReportedWithoutFinishing() {
-        let (model, _) = makeModel(starts: false)
+        let (model, recorder) = makeModel(starts: false)
         var outcomes: [NewMachineModel.Outcome] = []
         model.onFinished = { outcomes.append($0) }
         model.create()
-        #expect(!(model.isCreating))
-        #expect(model.errorText != nil)
+        #expect(model.outcome == nil)
+        #expect(model.errorText != nil, "a refused launch is the one error the sheet still shows inline")
         #expect(outcomes.isEmpty)
+
+        // Retry re-submits and clears the message while it runs.
+        model.create()
+        #expect(recorder.value.requests.count == 2)
+        #expect(model.errorText != nil, "still refused, still shown")
     }
 
     @Test func testCancelFinishesOnceAndBlocksLaterCreate() {
@@ -298,6 +266,6 @@ struct NewMachineModelTests {
         model.cancel()
         model.create()
         #expect(outcomes == [.cancelled])
-        #expect(recorder.value.arguments.isEmpty)
+        #expect(recorder.value.requests.isEmpty)
     }
 }
