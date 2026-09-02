@@ -259,6 +259,7 @@ extension TerminalController {
         }
         let isBase = v2Bool(params, "base") ?? false
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase)
+        Task { @MainActor in await VMHostListenerCoordinator.shared.bindingDidChange(vmID: vmID) }
         return .ok([
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),

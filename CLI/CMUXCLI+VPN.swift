@@ -40,9 +40,79 @@ extension CMUXCLI {
             try runVPNRevoke(client: client, jsonOutput: jsonOutput)
         case "hosts":
             try runVPNHostsSync(client: client, jsonOutput: jsonOutput)
+        case "notifications":
+            try runVPNNotifications(Array(commandArgs.dropFirst()), client: client, jsonOutput: jsonOutput)
         default:
-            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts>")
+            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts|notifications>")
         }
+    }
+
+    /// `cmux vpn notifications [on|off|status]` — whether this Mac accepts
+    /// notifications from its Cloud VMs over the tunnel (default off).
+    private func runVPNNotifications(_ args: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let sub = args.first?.lowercased() ?? "status"
+        let response: [String: Any]
+        switch sub {
+        case "on", "off":
+            response = try client.sendV2(
+                method: "vm.host_notifications_set",
+                params: ["enabled": sub == "on"],
+                responseTimeout: 30
+            )
+        case "status":
+            response = try client.sendV2(method: "vm.host_status", responseTimeout: 30)
+        default:
+            throw CLIError(message: "Usage: cmux vpn notifications <on|off|status>")
+        }
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        printVMHostStatus(response)
+    }
+
+    /// Human summary of `vm.host_status`.
+    private func printVMHostStatus(_ response: [String: Any]) {
+        let enabled = (response["enabled"] as? Bool) ?? false
+        let listening = (response["listening"] as? Bool) ?? false
+        if !enabled {
+            print(String(
+                localized: "cli.vpn.notifications.off",
+                defaultValue: "Notifications from machines: off. Turn on with `cmux vpn notifications on` or in Settings > Cloud."
+            ))
+            return
+        }
+        if listening, let endpoint = response["machine_endpoint"] as? String {
+            let format = String(localized: "cli.vpn.notifications.listening", defaultValue: "Notifications from machines: on, listening at %@")
+            print(String(format: format, endpoint))
+            let machines = (response["machine_count"] as? Int) ?? 0
+            let machinesFormat = String(localized: "cli.vpn.notifications.machines", defaultValue: "Machines: %d")
+            print(String(format: machinesFormat, machines))
+            return
+        }
+        let reason = (response["off_reason"] as? String) ?? "unknown"
+        let detail: String
+        switch reason {
+        case "signed_out":
+            detail = String(localized: "cli.vpn.notifications.reason.signedOut", defaultValue: "not signed in")
+        case "tunnel_down":
+            detail = String(localized: "cli.vpn.notifications.reason.tunnelDown", defaultValue: "tunnel is down; run `cmux vpn up`")
+        case "no_machines":
+            detail = String(localized: "cli.vpn.notifications.reason.noMachines", defaultValue: "you have no Cloud machines")
+        case "network_metadata_missing":
+            detail = String(localized: "cli.vpn.notifications.reason.metadata", defaultValue: "network details missing; run `cmux vpn up` to re-enroll")
+        case "inventory_pending":
+            detail = String(localized: "cli.vpn.notifications.reason.inventoryPending", defaultValue: "checking sign-in and machines, run `cmux vpn notifications status` again")
+        case "cloud_unreachable":
+            let format = String(localized: "cli.vpn.notifications.reason.cloudUnreachable", defaultValue: "cloud service unreachable: %@")
+            detail = String(format: format, (response["last_error"] as? String) ?? reason)
+        case "bind_failed":
+            detail = (response["last_error"] as? String) ?? reason
+        default:
+            detail = reason
+        }
+        let format = String(localized: "cli.vpn.notifications.waiting", defaultValue: "Notifications from machines: on, not listening (%@)")
+        print(String(format: format, detail))
     }
 
     private func runVPNUp(client: SocketClient, jsonOutput: Bool) throws {
@@ -229,6 +299,9 @@ extension CMUXCLI {
         }
         let backendFormat = String(localized: "cli.vpn.status.backend", defaultValue: "Backend: %@")
         print(String(format: backendFormat, neAvailable ? "app-managed (NetworkExtension)" : "wg-quick"))
+        if let hostStatus = try? client.sendV2(method: "vm.host_status", responseTimeout: 30) {
+            printVMHostStatus(hostStatus)
+        }
         if !neAvailable, Self.firstExecutable(Self.wgQuickCandidates) == nil {
             print(String(
                 localized: "cli.vpn.status.wgQuickMissing",

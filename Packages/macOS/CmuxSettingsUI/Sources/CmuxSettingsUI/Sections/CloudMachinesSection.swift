@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// **Cloud Machines** section — the plan card for persistent cloud VMs.
@@ -10,9 +12,11 @@ public struct CloudMachinesSection: View {
     private let hostActions: SettingsHostActions
     @State private var plan: CloudMachinesPlanSummary?
     @State private var hasLoaded = false
+    @State private var hostNotifications: DefaultsValueModel<Bool>
 
-    public init(hostActions: SettingsHostActions) {
+    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.hostActions = hostActions
+        _hostNotifications = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.cloudMachines.hostNotifications))
     }
 
     public var body: some View {
@@ -26,13 +30,17 @@ public struct CloudMachinesSection: View {
                     planRow
                     Divider().padding(.horizontal, 14)
                     panelRow
+                    Divider().padding(.horizontal, 14)
+                    hostNotificationsRow
                 }
             }
             .settingsSearchAnchors([
                 "setting:cloudMachines:plan",
                 "setting:cloudMachines:open-panel",
+                "setting:cloudMachines:host-notifications",
             ])
             .task {
+                hostNotifications.startObserving()
                 plan = await hostActions.cloudMachinesPlanSummary()
                 hasLoaded = true
             }
@@ -80,6 +88,23 @@ public struct CloudMachinesSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .id("setting:cloudMachines:open-panel")
+    }
+
+    @ViewBuilder
+    private var hostNotificationsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("cloud.vmHostNotifications.enabled"),
+            searchAnchorID: "setting:cloudMachines:host-notifications",
+            String(localized: "settings.cloudMachines.hostNotifications.title", defaultValue: "Notifications from machines"),
+            subtitle: hostNotifications.current
+                ? String(localized: "settings.cloudMachines.hostNotifications.subtitleOn", defaultValue: "Your machines can send notifications, titles, and agent status to this Mac over your private Cloud VM network while the tunnel is up.")
+                : String(localized: "settings.cloudMachines.hostNotifications.subtitleOff", defaultValue: "This Mac accepts nothing from your machines. Turn on to let agents in Cloud VMs notify you here.")
+        ) {
+            Toggle("", isOn: Binding(get: { hostNotifications.current }, set: { hostNotifications.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsCloudMachinesHostNotificationsToggle")
+        }
     }
 
     private var planSubtitle: String {

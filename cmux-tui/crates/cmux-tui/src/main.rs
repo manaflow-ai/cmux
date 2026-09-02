@@ -15,6 +15,7 @@ mod cli;
 mod client_log;
 mod config;
 mod host_colors;
+mod host_forward;
 mod keys;
 mod layout_undo;
 mod local_owner;

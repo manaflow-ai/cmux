@@ -1,6 +1,227 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.vpn.notifications.listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications from machines: on, listening at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンからの通知: オン、%@ で待ち受け中"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines: %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン数: %d"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications from machines: off. Turn on with `cmux vpn notifications on` or in Settings > Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンからの通知: オフ。`cmux vpn notifications on` または 設定 > Cloud でオンにできます。"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.metadata": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "network details missing; run `cmux vpn up` to re-enroll"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク情報がありません。`cmux vpn up` で再登録してください"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.noMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you have no Cloud machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンがありません"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.cloudUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud service unreachable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドサービスに接続できません: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.inventoryPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking sign-in and machines, run `cmux vpn notifications status` again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインとマシンを確認中です。もう一度 `cmux vpn notifications status` を実行してください"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not signed in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしていません"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.reason.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tunnel is down; run `cmux vpn up`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルが停止中です。`cmux vpn up` を実行してください"
+          }
+        }
+      }
+    },
+    "cli.vpn.notifications.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications from machines: on, not listening (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンからの通知: オン、待ち受けなし（%@）"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.hostNotifications.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac accepts nothing from your machines. Turn on to let agents in Cloud VMs notify you here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はマシンから何も受け付けません。オンにすると Cloud VM 内のエージェントがここに通知できます。"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.hostNotifications.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines can send notifications, titles, and agent status to this Mac over your private Cloud VM network while the tunnel is up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル接続中、マシンはプライベート Cloud VM ネットワーク経由でこの Mac に通知、タイトル、エージェント状態を送信できます。"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.hostNotifications.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications from machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンからの通知"
+          }
+        }
+      }
+    },
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {

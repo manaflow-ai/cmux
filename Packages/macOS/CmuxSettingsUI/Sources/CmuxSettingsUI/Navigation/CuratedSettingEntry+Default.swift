@@ -302,6 +302,19 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
             .init(section: .customSidebars, id: "renderer", title: String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), synonyms: "customSidebars.renderer renderer in-process in app remote worker isolated process hover focus typing input"),
 
+            // Cloud Machines
+            .init(
+                section: .cloudMachines,
+                id: "host-notifications",
+                title: String(localized: "settings.cloudMachines.hostNotifications.title", defaultValue: "Notifications from machines"),
+                detailText: [
+                    String(localized: "settings.cloudMachines.hostNotifications.subtitleOn", defaultValue: "Your machines can send notifications, titles, and agent status to this Mac over your private Cloud VM network while the tunnel is up."),
+                    String(localized: "settings.cloudMachines.hostNotifications.subtitleOff", defaultValue: "This Mac accepts nothing from your machines. Turn on to let agents in Cloud VMs notify you here."),
+                ].joined(separator: " "),
+                paths: ["cloud.vmHostNotifications.enabled"],
+                synonyms: "cloud machines vm notifications hooks agent tunnel wireguard vpn listener private network"
+            ),
+
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),

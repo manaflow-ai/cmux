@@ -182,7 +182,7 @@ class TerminalController {
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     /// Bounded async connection admission. The pool owns task lifetimes; an
     /// admitted connection owns its descriptor until its async handler exits.
-    private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
+    nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
         maximumConcurrentJobs: 32,
         maximumPendingJobs: 64
     )

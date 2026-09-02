@@ -69,6 +69,33 @@ struct VMTunnelManager: Sendable {
     var privateKeyURL: URL { stateDir.appendingPathComponent("private.key", isDirectory: false) }
     var deviceIDURL: URL { stateDir.appendingPathComponent("device-id", isDirectory: false) }
     var configURL: URL { stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false) }
+    /// The network facts the control plane returned at enrollment that the
+    /// config file does not carry: this Mac's address on the network and the
+    /// network's CIDRs. The host listener needs them to tell machines where
+    /// to call and to admit only callers from inside the network.
+    var networkMetadataURL: URL { stateDir.appendingPathComponent("network.json", isDirectory: false) }
+
+    /// `PersistentKeepalive` written into `[Peer]`. The platform config omits
+    /// it; without a keepalive the gateway's NAT mapping for this Mac expires
+    /// while idle and a *machine-initiated* connection (a notification) has no
+    /// path back until the Mac next sends something.
+    static let persistentKeepaliveSeconds = 25
+
+    struct NetworkMetadata: Codable, Sendable, Equatable {
+        let tunnelId: String
+        let addressV4: String?
+        let addressV6: String?
+        let networkCidr: String?
+        let networkCidrV6: String?
+
+        /// The CIDRs a caller must sit inside to be one of the user's machines
+        /// or tunnels. Empty when the control plane reported none.
+        var networkCIDRs: [String] { [networkCidr, networkCidrV6].compactMap { $0 } }
+
+        /// The addresses machines dial to reach this Mac; IPv6 first because
+        /// the daemon side prefers it, matching `freestyleCmuxRemoteRoute`.
+        var machineFacingAddresses: [String] { [addressV6, addressV4].compactMap { $0 } }
+    }
 
     /// wg-quick(8) records the created utun's name here — but on macOS the
     /// file is root-only (0400), so liveness detection must not depend on it;
@@ -143,6 +170,13 @@ struct VMTunnelManager: Sendable {
         let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey)
         try ensureStateDir()
         try write(config, to: configURL)
+        try writeNetworkMetadata(NetworkMetadata(
+            tunnelId: endpoint.tunnelId,
+            addressV4: endpoint.addressV4,
+            addressV6: endpoint.addressV6,
+            networkCidr: endpoint.networkCidr,
+            networkCidrV6: endpoint.networkCidrV6
+        ))
         return LocalTunnelState(
             endpoint: endpoint,
             configPath: configURL.path,
@@ -159,21 +193,69 @@ struct VMTunnelManager: Sendable {
     /// unique to the tunnel, so a match is the tunnel and nothing else. A
     /// future NetworkExtension tunnel reports through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
-        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
+        !liveInterfaceAddresses().isEmpty
+    }
+
+    /// The tunnel's own `[Interface] Address`es that some interface currently
+    /// holds — the exact local addresses a listener may bind so it exists only
+    /// while the tunnel does. Empty when the tunnel is down or unconfigured.
+    func liveInterfaceAddresses() -> [String] {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
         let expected = Self.interfaceAddresses(in: config)
-        guard !expected.isEmpty else { return false }
+        guard !expected.isEmpty else { return [] }
         var addrs: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addrs) == 0 else { return false }
+        guard getifaddrs(&addrs) == 0 else { return [] }
         defer { freeifaddrs(addrs) }
+        var live: [String] = []
         var cursor = addrs
         while let current = cursor {
             if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa),
-               expected.contains(address) {
-                return true
+               expected.contains(address), !live.contains(address) {
+                live.append(address)
             }
             cursor = current.pointee.ifa_next
         }
-        return false
+        return live
+    }
+
+    func loadNetworkMetadata() -> NetworkMetadata? {
+        guard let data = try? Data(contentsOf: networkMetadataURL) else { return nil }
+        return try? JSONDecoder().decode(NetworkMetadata.self, from: data)
+    }
+
+    /// Fetch this device's network addresses from the control plane and write
+    /// `network.json` without touching the WireGuard config. Enrollment is
+    /// idempotent per device fingerprint and public key, so a Mac that
+    /// enrolled before `network.json` existed (or lost the file) learns its
+    /// addresses again with the tunnel left running and no sudo prompt.
+    func refreshNetworkMetadata(client: VMClient) async throws -> NetworkMetadata {
+        let keys = try keypair()
+        let fingerprint = try deviceFingerprint()
+        let endpoint = try await client.enrollTunnel(
+            clientPublicKey: keys.publicKey,
+            deviceFingerprint: fingerprint,
+            deviceName: CloudTuiClientPaths.deviceName()
+        )
+        let metadata = NetworkMetadata(
+            tunnelId: endpoint.tunnelId,
+            addressV4: endpoint.addressV4,
+            addressV6: endpoint.addressV6,
+            networkCidr: endpoint.networkCidr,
+            networkCidrV6: endpoint.networkCidrV6
+        )
+        try ensureStateDir()
+        try writeNetworkMetadata(metadata)
+        return metadata
+    }
+
+    func writeNetworkMetadata(_ metadata: NetworkMetadata) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(metadata)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw TunnelError.keyStorageFailed("could not encode network metadata")
+        }
+        try write(text, to: networkMetadataURL)
     }
 
     /// The `Address =` values in a wg-quick config's `[Interface]` section,
@@ -217,8 +299,9 @@ struct VMTunnelManager: Sendable {
         }
     }
 
-    /// Fill the blank `PrivateKey` line the server left in the config.
-    /// The server-issued config is otherwise complete and final.
+    /// Fill the blank `PrivateKey` line the server left in the config and add
+    /// the `[Peer]` keepalive (see `persistentKeepaliveSeconds`). The
+    /// server-issued config is otherwise complete and final.
     static func completedConfig(_ config: String, privateKey: String) throws -> String {
         var lines = config.components(separatedBy: "\n")
         if let index = lines.firstIndex(where: { line in
@@ -226,16 +309,36 @@ struct VMTunnelManager: Sendable {
             return trimmed.lowercased().hasPrefix("privatekey")
         }) {
             lines[index] = "PrivateKey = \(privateKey)"
-            return lines.joined(separator: "\n")
+        } else {
+            // No PrivateKey line at all: insert directly under [Interface].
+            guard let interfaceIndex = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
+            }) else {
+                throw TunnelError.configMalformed("no [Interface] section in server config")
+            }
+            lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
         }
-        // No PrivateKey line at all: insert directly under [Interface].
-        guard let interfaceIndex = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
-        }) else {
-            throw TunnelError.configMalformed("no [Interface] section in server config")
+        return withPersistentKeepalive(lines).joined(separator: "\n")
+    }
+
+    /// Ensure the `[Peer]` section carries `PersistentKeepalive`. A value the
+    /// server already set is left alone; a config with no `[Peer]` section is
+    /// returned unchanged (it is not a usable tunnel either way).
+    static func withPersistentKeepalive(_ lines: [String]) -> [String] {
+        let trimmedLower = lines.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard let peerIndex = trimmedLower.firstIndex(of: "[peer]") else { return lines }
+        let peerEnd = trimmedLower[(peerIndex + 1)...].firstIndex(where: { $0.hasPrefix("[") }) ?? lines.count
+        let alreadySet = trimmedLower[(peerIndex + 1)..<peerEnd].contains { $0.hasPrefix("persistentkeepalive") }
+        guard !alreadySet else { return lines }
+        var result = lines
+        // Insert after the last non-empty line of the [Peer] section so a
+        // trailing blank line stays trailing.
+        var insertAt = peerEnd
+        while insertAt > peerIndex + 1, result[insertAt - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+            insertAt -= 1
         }
-        lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
-        return lines.joined(separator: "\n")
+        result.insert("PersistentKeepalive = \(persistentKeepaliveSeconds)", at: insertAt)
+        return result
     }
 
     private func ensureStateDir() throws {

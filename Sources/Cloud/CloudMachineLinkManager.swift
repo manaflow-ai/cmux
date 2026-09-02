@@ -62,6 +62,38 @@ actor CloudMachineLinkManager {
         self.paths = paths
         self.clientURL = clientURL
         self.hostThemeColors = hostThemeColors
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            VMHostListenerCoordinator.shared.register(linkManager: self)
+        }
+    }
+
+    /// The host listener (re)started: every connected machine gets the new
+    /// endpoint. Fire-and-forget like the theme push.
+    func redeliverHostEndpoints() async {
+        for (machineID, link) in links {
+            guard await link.isConnected else { continue }
+            Task { await VMHostListenerCoordinator.shared.deliverEndpoint(machineID: machineID) }
+        }
+    }
+
+    /// Install the host-forward journal hook on `machineID`'s daemon over its
+    /// link. Returns nil on success, else the failure text. A machine whose
+    /// daemon predates journal hooks fails here and simply never forwards.
+    func registerHostForwardHook(machineID: String) async -> String? {
+        guard let link = links[machineID], let connected = await link.connected else {
+            return "no link to \(machineID)"
+        }
+        let arguments = CloudTuiCommandLine.putJournalHookArguments(
+            socketPath: connected.socketPath,
+            manifestJSON: VMHostForwardHook.manifestJSON()
+        )
+        do {
+            _ = try await link.run(arguments: arguments)
+            return nil
+        } catch {
+            return CloudMachineLink.errorText(error)
+        }
     }
 
     var hasClient: Bool { clientURL != nil }
@@ -114,6 +146,10 @@ actor CloudMachineLinkManager {
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
             pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
+            // Hand the machine this Mac's notification endpoint (no-op while the
+            // host listener is off). Fire-and-forget: a failed delivery must not
+            // fail the connect that just succeeded.
+            Task { await VMHostListenerCoordinator.shared.machineDidLink(machineID) }
             return connected
         } catch {
             let text = CloudMachineLink.errorText(error)

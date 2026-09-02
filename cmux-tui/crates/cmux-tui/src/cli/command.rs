@@ -24,6 +24,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    HostForward(crate::host_forward::Plan),
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +172,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "host-forward" => parse_host_forward(&tokens.words[1..], &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
@@ -1649,6 +1651,22 @@ fn parse_provider(
     }
 }
 
+/// `host-forward [--env-file <path>] [--print-manifest <guest cmux-tui path>]`:
+/// the journal hook command a cmux Cloud machine's owner Mac registers. It
+/// reads one hook envelope from stdin and forwards it to the Mac; see
+/// `crate::host_forward`.
+fn parse_host_forward(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    if !words.is_empty() {
+        return Err(UsageError::new("host-forward takes no positional arguments"));
+    }
+    let env_file = flags.take("env-file").map(std::path::PathBuf::from);
+    let print_manifest = flags.take("print-manifest");
+    if print_manifest.as_deref().is_some_and(|binary| !std::path::Path::new(binary).is_absolute()) {
+        return Err(UsageError::new("--print-manifest needs the absolute guest path of cmux-tui"));
+    }
+    Ok(CommandPlan::HostForward(crate::host_forward::Plan { env_file, print_manifest }))
+}
+
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -2705,6 +2723,22 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
             output,
             1,
         )
+    }
+}
+
+pub(super) fn run_host_forward(global: GlobalArgs, plan: crate::host_forward::Plan) -> i32 {
+    match crate::host_forward::run(&plan) {
+        Ok(value) => super::wire::print_local_success(&value, global.output),
+        Err(error) => {
+            // Exit 1 is the dispatcher's retry signal: the Mac was unreachable
+            // or the envelope was unusable.
+            let error = json!({
+                "code": "local.host_forward",
+                "message": format!("{error:#}"),
+                "retryable": true,
+            });
+            super::wire::print_local_error(&error, global.output, 1)
+        }
     }
 }
 
@@ -3792,6 +3826,26 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn host_forward_parses_flags_and_rejects_positionals() {
+        let plan = parse(&strings(&["host-forward"])).unwrap();
+        let CommandPlan::HostForward(plan) = plan else { panic!("expected host-forward plan") };
+        assert_eq!(plan, crate::host_forward::Plan { env_file: None, print_manifest: None });
+        let plan = parse(&strings(&[
+            "host-forward",
+            "--env-file",
+            "/tmp/host.env",
+            "--print-manifest",
+            "/usr/local/bin/cmux-tui",
+        ]))
+        .unwrap();
+        let CommandPlan::HostForward(plan) = plan else { panic!("expected host-forward plan") };
+        assert_eq!(plan.env_file.as_deref(), Some(std::path::Path::new("/tmp/host.env")));
+        assert_eq!(plan.print_manifest.as_deref(), Some("/usr/local/bin/cmux-tui"));
+        assert!(parse(&strings(&["host-forward", "extra"])).is_err());
+        assert!(parse(&strings(&["host-forward", "--print-manifest", "cmux-tui"])).is_err());
     }
 
     #[test]
