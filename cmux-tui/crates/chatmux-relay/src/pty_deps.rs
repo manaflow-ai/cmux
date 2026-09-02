@@ -1970,4 +1970,29 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("cancellation must wake a blocked PTY poll");
     }
+
+    #[test]
+    fn pty_wait_setup_failure_records_exit_and_wakes_reader() {
+        let output = ThreadOutput::new();
+        let (completion, cancel_reader) =
+            ProcessOutputCompletion::with_pty_cancellation(1, TestArc::clone(&output))
+                .expect("cancellation wake");
+        let (reader_stream, _writer_stream) = UnixStream::pair().expect("PTY-like stream pair");
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pty(reader_stream, cancel_reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let control = TestControl { kills: TestArc::clone(&kills), drops: TestArc::new(AtomicUsize::new(0)) };
+        finish_pty_wait_setup_failure(&control, &completion);
+
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait setup failure must wake a blocked PTY poll");
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+    }
 }
