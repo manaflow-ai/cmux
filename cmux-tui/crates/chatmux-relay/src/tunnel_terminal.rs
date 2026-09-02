@@ -711,7 +711,7 @@ mod tests {
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cwd: &Path) -> Option<CmuxTui> {
             None
         }
         async fn ensure_daemon(

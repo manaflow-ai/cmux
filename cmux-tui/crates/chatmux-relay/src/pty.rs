@@ -246,7 +246,7 @@ pub struct EnsureDaemon {
 #[async_trait]
 pub trait PtyDeps: Send + Sync {
     async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle;
-    async fn resolve_cmux_tui(&self) -> Option<CmuxTui>;
+    async fn resolve_cmux_tui(&self, cwd: &Path) -> Option<CmuxTui>;
     async fn ensure_daemon(
         &self,
         cmux_tui: &CmuxTui,
@@ -677,7 +677,7 @@ impl Inner {
         };
         let env = pty_env(&self.env);
 
-        let cmux_tui = self.deps.resolve_cmux_tui().await;
+        let cmux_tui = self.deps.resolve_cmux_tui(&cwd).await;
         let opened = if let (Some(cmux_tui), Some(surface_ref)) =
             (cmux_tui.as_ref(), surface_ref.as_ref())
         {
@@ -2125,7 +2125,7 @@ mod tests {
             let output: Arc<dyn PtyOutput> = Arc::new(pty);
             PtyHandle { control, output, banner: None }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cwd: &Path) -> Option<CmuxTui> {
             self.resolve.clone()
         }
         async fn ensure_daemon(
