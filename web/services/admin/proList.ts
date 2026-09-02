@@ -479,14 +479,21 @@ export async function loadProListSnapshot(
     // Each read gets its own short transaction, so a failed optional read
     // (missing admin_plan_grants table) aborts only its own transaction and
     // the catch below still yields an empty pending list.
+    // guard() runs both before acquiring a transaction and again inside it,
+    // after SET LOCAL, so a slow acquisition cannot start a read past the
+    // deadline either.
     guard();
-    const subscribers = await withStatementTimeout(db, budgetFor(), async (scoped) =>
-      await listStripeProSubscribers({ db: scoped }));
+    const subscribers = await withStatementTimeout(db, budgetFor(), async (scoped) => {
+      guard();
+      return await listStripeProSubscribers({ db: scoped });
+    });
     guard();
     // Query inside the timeout scope, names outside it: the transaction ends
     // before any Stack request starts.
-    const teamRows = await withStatementTimeout(db, budgetFor(), async (scoped) =>
-      await listStripeTeamSubscriptionRows({ db: scoped }));
+    const teamRows = await withStatementTimeout(db, budgetFor(), async (scoped) => {
+      guard();
+      return await listStripeTeamSubscriptionRows({ db: scoped });
+    });
     guard();
     const teamSubscriptions: CappedList<StripeTeamSubscription> = {
       truncated: teamRows.truncated,
@@ -497,9 +504,10 @@ export async function loadProListSnapshot(
       }),
     };
     guard();
-    const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) =>
-      await listAllPendingEmailGrants({ db: scoped }),
-    ).catch((error: unknown) => {
+    const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) => {
+      guard();
+      return await listAllPendingEmailGrants({ db: scoped });
+    }).catch((error: unknown) => {
       if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
       throw error;
     });

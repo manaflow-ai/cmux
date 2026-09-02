@@ -276,8 +276,8 @@ describe("Pro roster", () => {
           select: base.select,
           execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
             executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
-            // Each read consumes 3 seconds of an 8 second deadline.
-            now += 3000;
+            // Each read consumes 2 seconds of an 8 second deadline.
+            now += 2000;
           }) as never,
         });
         return result;
@@ -287,8 +287,8 @@ describe("Pro roster", () => {
     await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, clock });
     expect(executed).toEqual([
       "set local statement_timeout = 8000",
-      "set local statement_timeout = 5000",
-      "set local statement_timeout = 2000",
+      "set local statement_timeout = 6000",
+      "set local statement_timeout = 4000",
     ]);
   });
 
@@ -356,6 +356,24 @@ describe("Pro roster", () => {
     await expect(
       loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: 99, clock: { now: () => 100, schedule: () => () => undefined } }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
+  });
+
+  test("a transaction setup that crosses the deadline starts no read", async () => {
+    let now = 0;
+    let selects = 0;
+    const db: ProListDb = {
+      select: (() => { selects += 1; throw new Error("select must not run"); }) as never,
+      transaction: async (operation) =>
+        await operation({
+          select: (() => { selects += 1; throw new Error("select must not run"); }) as never,
+          // Acquiring the transaction and SET LOCAL together take longer than the budget.
+          execute: (async () => { now += 2000; }) as never,
+        }),
+    };
+    await expect(
+      loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 1000, deadlineMs: 1000, clock: { now: () => now, schedule: () => () => undefined } }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
+    expect(selects).toBe(0);
   });
 
   test("no read starts after the deadline has passed", async () => {
