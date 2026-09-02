@@ -34283,6 +34283,9 @@ mod tests {
         assert!(std::ptr::eq(index_before, index_after));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
 
+        assert!(app.mux_titles.push(41, "live-title".to_string()));
+        assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::None);
+
         app.replace_tree(notify_tree(41, false));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
 

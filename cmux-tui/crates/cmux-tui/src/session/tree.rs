@@ -1303,6 +1303,36 @@ mod tests {
     }
 
     #[test]
+    fn focus_updates_reuse_the_existing_location_index() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 7, "title": "first"}]
+                    }]
+                }]
+            }]
+        }));
+
+        let index_before = tree.location_index() as *const TreeLocationIndex;
+        assert!(tree.set_active_screen(0, 0));
+        assert!(tree.set_active_pane(0, 0, 3));
+        assert!(tree.set_active_tab(0, 0, 3, 0));
+        let index_after = tree.location_index() as *const TreeLocationIndex;
+
+        assert!(std::ptr::eq(index_before, index_after));
+        assert_eq!(tree.active_surface(), Some(7));
+    }
+
+    #[test]
     fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
         let tree = parse_tree(&json!({
             "workspaces": [{
