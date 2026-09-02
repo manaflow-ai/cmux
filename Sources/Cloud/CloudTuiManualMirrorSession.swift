@@ -467,15 +467,23 @@ final class CloudTuiManualMirrorSession {
                 // peer rejects it, continue with the compatibility byte path
                 // without sending capability-gated fields.
                 serverCapabilities.removeAll(keepingCapacity: true)
-                sendClientInfoAndAttach()
+                sendClientInfo()
                 return
             }
             serverCapabilities = Set(capabilities)
-            sendClientInfoAndAttach()
+            sendClientInfo()
         case .clientInfo:
-            // Capability negotiation is additive. An older daemon may reject
-            // this optional metadata command; byte attach still works.
-            return
+            // Capability negotiation is additive: an older daemon may reject
+            // this optional metadata command and the byte attach still works.
+            // The attachment is deliberately sequenced behind the daemon's
+            // answer rather than queued right after the registration. Over a
+            // cloud link `set-client-info` rides the interactive lane while
+            // `attach-surface` rides the bulk lane, and the machine side
+            // applies whichever arrives first; an attach that overtakes the
+            // registration is answered without a lease, which this session
+            // must treat as fatal. The acknowledgement proves the daemon
+            // applied the registration before the attach is sent.
+            sendAttach()
         case .attach:
             guard ok else {
                 transitionToDisconnected()
@@ -572,17 +580,9 @@ final class CloudTuiManualMirrorSession {
         connection.send(commandBuilder.identify(requestID: requestID))
     }
 
-    private func sendClientInfoAndAttach() {
+    private func sendClientInfo() {
         guard let connection,
               phase != .stopped else { return }
-        // Register capabilities before the attachment. The two requests are
-        // serialized by the socket queue, while responses/events may
-        // interleave on the read side.
-        sendClientInfo(on: connection)
-        sendAttach(on: connection)
-    }
-
-    private func sendClientInfo(on connection: CloudTuiManualIOConnection) {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .clientInfo
         connection.send(
@@ -594,12 +594,17 @@ final class CloudTuiManualMirrorSession {
         )
     }
 
-    private func sendAttach(on connection: CloudTuiManualIOConnection) {
+    private func sendAttach() {
+        guard let connection,
+              phase != .stopped else { return }
         let requestID = takeRequestID()
         // Initial dimensions are legal only when explicitly advertised by the
         // daemon. Older peers still receive the same grid through the ordered
-        // post-attach resize path below.
+        // post-attach resize path below. A hidden pane keeps its last grid in
+        // the scheduler for the reveal edge, but a reconnect while hidden must
+        // not claim that grid on the shared remote PTY.
         let initialGrid = serverCapabilities.contains("attach-initial-size")
+            && surface?.isRendererPortalVisible == true
             ? resizeScheduler.desired
             : nil
         guard let command = commandBuilder.attach(
