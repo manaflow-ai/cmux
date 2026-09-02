@@ -366,6 +366,15 @@ else
   echo "error: CMUX_TUI_HOSTED_RETENTION_DRY_RUN must be 0 or 1" >&2
   exit 2
 fi
+retention_confirmed="${CMUX_TUI_HOSTED_RETENTION_CONFIRM:-0}"
+if [[ "$retention_dry_run" == false && "$retention_confirmed" != "1" ]]; then
+  echo "error: destructive retention requires CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 after a dry run" >&2
+  exit 2
+fi
+lsof_available=false
+if command -v lsof >/dev/null 2>&1; then
+  lsof_available=true
+fi
 
 hosted_artifact_dirs=()
 hosted_artifact_order=()
@@ -388,14 +397,18 @@ retained=0
 for candidate_dir in "${hosted_artifact_dirs[@]}"; do
   candidate_commit="${candidate_dir##*/}"
   candidate_binary="$candidate_dir/cmux-tui"
-  if [[ "$candidate_commit" == "$commit" || ! -f "$candidate_binary" ]]; then
+  if [[ "$candidate_commit" == "$commit" ]]; then
     continue
   fi
   if (( retained < retention_count )); then
     retained=$((retained + 1))
     continue
   fi
-  if command -v lsof >/dev/null 2>&1 && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
+  if [[ "$lsof_available" != true ]]; then
+    echo "Keeping artifact because lsof is unavailable: $candidate_dir" >&2
+    continue
+  fi
+  if [[ -f "$candidate_binary" ]] && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
     echo "Keeping active hosted artifact: $candidate_binary" >&2
     continue
   fi
