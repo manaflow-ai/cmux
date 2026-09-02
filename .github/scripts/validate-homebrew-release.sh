@@ -223,7 +223,8 @@ case "$ref_type" in
   tag)
     tag_object_file="$temporary_root/tag-object.json"
     api_json "repos/$GITHUB_REPOSITORY/git/tags/$ref_sha" "$tag_object_file"
-    jq -e '.object.type == "commit"' "$tag_object_file" >/dev/null || \
+    jq -e --arg tag_sha "$ref_sha" \
+      '.sha == $tag_sha and .object.type == "commit"' "$tag_object_file" >/dev/null || \
       fail "Annotated release tag does not point to a commit"
     tag_sha="$(jq -r '.object.sha // empty' "$tag_object_file")"
     [[ "$tag_sha" =~ $SHA_REGEX ]] || fail "Annotated release tag has an invalid commit SHA"

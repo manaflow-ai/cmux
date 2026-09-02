@@ -275,6 +275,20 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         result = self.run_validator(event, api)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_annotated_tag_is_resolved_to_the_source_commit(self) -> None:
+        event, api = _base_fixture()
+        tag_object_sha = "e" * 40
+        api["repos/manaflow-ai/cmux/git/ref/tags/v1.2.3"] = {
+            "ref": "refs/tags/v1.2.3",
+            "object": {"type": "tag", "sha": tag_object_sha},
+        }
+        api[f"repos/manaflow-ai/cmux/git/tags/{tag_object_sha}"] = {
+            "sha": tag_object_sha,
+            "object": {"type": "commit", "sha": "a" * 40},
+        }
+        result = self.run_validator(event, api)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_unmerged_release_commit_is_rejected(self) -> None:
         event, api = _base_fixture()
         api["repos/manaflow-ai/cmux/compare/main..." + "a" * 40]["status"] = "ahead"
