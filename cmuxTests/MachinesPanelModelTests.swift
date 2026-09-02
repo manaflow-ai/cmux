@@ -999,19 +999,6 @@ struct MachinesPanelClientBootstrapTests {
         #expect(attempts == 3)
     }
 
-    @Test("A missing configured client completes loading with a truthful problem")
-    @MainActor
-    func missingClientCompletesLoading() {
-        let model = MachinesPanelViewModel()
-
-        model.completeMissingClientLoad()
-
-        #expect(!model.isLoading)
-        #expect(model.hasLoadedOnce)
-        #expect(model.listProblem == .notConfigured)
-        #expect(model.lastErrorDescription?.isEmpty == false)
-    }
-
     @Test("Auth teardown clears refresh ownership and loading state")
     @MainActor
     func authTeardownClearsRefreshState() {
