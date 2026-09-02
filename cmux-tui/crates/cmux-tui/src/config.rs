@@ -4165,7 +4165,6 @@ fn write_config_value_atomic_with_sync(
     value: &Value,
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
-    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let process_id = std::process::id();
@@ -4342,12 +4341,6 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with non-optional application defaults
-/// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    ghostty_application_defaults().colors
-}
-
 struct GhosttyApplicationDefaults {
     colors: DefaultColors,
     scrollback_limit_bytes: Option<usize>,
@@ -4385,6 +4378,7 @@ enum GhosttyHelperDefaults {
     TimedOut,
 }
 
+#[cfg(test)]
 fn ghostty_defaults_from_sources(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4401,35 +4395,7 @@ fn ghostty_defaults_from_sources(
     }
 }
 
-/// Read Ghostty's scrollback setting with the same bounded include traversal
-/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
-/// make the byte unit explicit, so both spellings are accepted.
-fn ghostty_scrollback_limit_bytes() -> Option<usize> {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    let mut resolved = None;
-    for path in platform::ghostty_config_paths() {
-        if ghostty_config_deadline_expired(Some(deadline_at)) {
-            // A partial traversal is not an authoritative configuration
-            // result. Falling back to the shared default avoids making
-            // startup timing change the selected security and memory limit.
-            return None;
-        }
-        match parse_scrollback_limit_from_root(&path, deadline_at) {
-            ScrollbackConfigOutcome::Missing => {}
-            ScrollbackConfigOutcome::TimedOut => return None,
-            ScrollbackConfigOutcome::Parsed(setting) => {
-                // A file with no setting does not mask another candidate.
-                // An explicit empty setting is represented as Some(None) and
-                // intentionally resets the accumulated value to the default.
-                if let Some(setting) = setting {
-                    resolved = setting;
-                }
-            }
-        }
-    }
-    resolved
-}
-
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 enum ScrollbackConfigOutcome {
     Missing,
@@ -4437,6 +4403,7 @@ enum ScrollbackConfigOutcome {
     TimedOut,
 }
 
+#[cfg(test)]
 fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
     // Ghostty parses the complete parent file first, then loads its
     // config-file entries in declaration order. Nested entries are appended
@@ -4521,7 +4488,7 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
             }
             value.replace('_', "").parse::<usize>().ok().map(Some)
         })
-        .last()
+        .next_back()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -4835,18 +4802,6 @@ fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
     }
 }
 
-fn parse_ghostty_defaults_from_paths(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> Option<DefaultColors> {
-    match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Partial(_)
-        | GhosttyConfigParseOutcome::Missing
-        | GhosttyConfigParseOutcome::TimedOut => None,
-    }
-}
-
 fn parse_ghostty_application_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4926,31 +4881,6 @@ enum GhosttyConfigParseOutcome {
     TimedOut,
 }
 
-fn parse_ghostty_defaults_from_paths_result(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> GhosttyConfigParseOutcome {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    parse_ghostty_defaults_from_paths_result_until(config_paths, theme_dirs, Some(deadline_at))
-}
-
-fn parse_ghostty_defaults_from_paths_result_until(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-    deadline_at: Option<Instant>,
-) -> GhosttyConfigParseOutcome {
-    for path in config_paths {
-        if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
-        }
-        match parse_ghostty_defaults_from_path_result_until(&path, &theme_dirs, deadline_at) {
-            GhosttyConfigParseOutcome::Missing => {}
-            outcome => return outcome,
-        }
-    }
-    GhosttyConfigParseOutcome::Missing
-}
-
 #[cfg(test)]
 fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
     let mut theme_candidates = Vec::new();
@@ -4977,6 +4907,7 @@ fn parse_ghostty_defaults_from_path_result(
     parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
 }
 
+#[cfg(test)]
 fn parse_ghostty_defaults_from_path_result_until(
     path: &Path,
     theme_dirs: &[PathBuf],
@@ -4994,7 +4925,7 @@ fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
     path: &Path,
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
     let overrides = match parse_ghostty_config_file_until_with_scrollback(
@@ -5049,6 +4980,7 @@ fn parse_ghostty_config_file_with_deadline(
     )
 }
 
+#[cfg(test)]
 fn parse_ghostty_config_file_until(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
@@ -5061,7 +4993,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
@@ -5135,7 +5067,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     }
 
     if loaded_root {
-        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes.as_deref_mut() {
+        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes {
             let mut snapshot_by_identity = HashMap::new();
             for (index, (identity, _, _)) in snapshot.iter().enumerate() {
                 snapshot_by_identity.insert(identity, index);
