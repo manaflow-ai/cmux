@@ -1013,9 +1013,25 @@ enum WaitState {
     AlreadyReaped,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WaitRetryAction {
+    Retry,
+    Escalate,
+}
+
 impl WaitState {
     fn from_wait_error(already_reaped: bool) -> Self {
         if already_reaped { Self::AlreadyReaped } else { Self::Retry }
+    }
+}
+
+fn next_wait_retry(retries: &mut u32) -> WaitRetryAction {
+    *retries = retries.saturating_add(1);
+    if *retries >= MAX_WAIT_RETRIES {
+        *retries = 0;
+        WaitRetryAction::Escalate
+    } else {
+        WaitRetryAction::Retry
     }
 }
 
@@ -1327,26 +1343,38 @@ async fn run_spec(
                                 process_group_guard.armed = false;
                             }
                             WaitState::Retry => {
-                                wait_retries = wait_retries.saturating_add(1);
-                                if wait_retries >= MAX_WAIT_RETRIES {
-                                    exited = Some(1);
-                                } else {
-                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                        std::time::Duration::from_millis(10),
-                                    )));
+                                match next_wait_retry(&mut wait_retries) {
+                                    WaitRetryAction::Retry => {
+                                        wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                            std::time::Duration::from_millis(10),
+                                        )));
+                                    }
+                                    WaitRetryAction::Escalate => {
+                                        // Route persistent wait failures through the
+                                        // bounded kill and final-wait path. This
+                                        // kills the process group and gives Tokio a
+                                        // final chance to reap the leader.
+                                        kill_deadline = Some(Box::pin(tokio::time::sleep(
+                                            std::time::Duration::ZERO,
+                                        )));
+                                    }
                                 }
                             }
                         }
                         #[cfg(not(unix))]
                         {
                             let _ = error;
-                            wait_retries = wait_retries.saturating_add(1);
-                            if wait_retries >= MAX_WAIT_RETRIES {
-                                exited = Some(1);
-                            } else {
-                                wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                    std::time::Duration::from_millis(10),
-                                )));
+                            match next_wait_retry(&mut wait_retries) {
+                                WaitRetryAction::Retry => {
+                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(10),
+                                    )));
+                                }
+                                WaitRetryAction::Escalate => {
+                                    kill_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::ZERO,
+                                    )));
+                                }
                             }
                         }
                     }
