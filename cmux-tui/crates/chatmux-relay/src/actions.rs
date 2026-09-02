@@ -1477,11 +1477,26 @@ fn fail_result(version: i64, action_id: &str, code: &str, message: &str) -> Valu
     })
 }
 
+#[derive(Clone)]
 struct OwnedPathScope {
     local_roots: Option<Vec<String>>,
     server_roots: Option<Vec<String>>,
     home: PathBuf,
     workdir: String,
+}
+
+#[cfg(unix)]
+fn prepare_grep_paths(
+    scope: OwnedPathScope,
+    raw: String,
+) -> Result<(std::fs::File, String, std::fs::File, String), BlockingFsError> {
+    let path = scope.resolve(&raw, false)?;
+    let (path_guard, process_path) =
+        inherited_path(&path).map_err(|error| operation_error(error, true))?;
+    let command_cwd = scope.resolve(".", false)?;
+    let (cwd_guard, command_cwd_path) =
+        inherited_directory_path(&command_cwd).map_err(|error| operation_error(error, true))?;
+    Ok((path_guard, process_path, cwd_guard, command_cwd_path))
 }
 
 enum BlockingFsError {
@@ -1730,11 +1745,6 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let path = match scoped(raw, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
             let pattern = args.get("pattern").and_then(Value::as_str).unwrap_or_default();
             if pattern.is_empty() {
                 return fail("failed", "grep: pattern is required");
@@ -1743,26 +1753,35 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "grep is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_path(&path) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
+            let (_path_guard, process_path, _cwd_guard, command_cwd_path) =
+                match tokio::task::spawn_blocking({
+                    let scope = path_scope.clone();
+                    let raw = raw.to_owned();
+                    move || prepare_grep_paths(scope, raw)
+                })
+                .await
+                {
+                    Ok(Ok(value)) => value,
+                    Ok(Err(BlockingFsError::Refusal(message))) => {
+                        return fail("path_forbidden", &message);
+                    }
+                    Ok(Err(BlockingFsError::Io(error))) => return io_fail(error),
+                    Err(_) => return fail("failed", "operation failed"),
+                };
             #[cfg(not(unix))]
-            let process_path = path.path.display().to_string();
-            let command_cwd = match scoped(".", false) {
+            let path = match scoped(raw, false) {
                 Ok(Ok(path)) => path,
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            #[cfg(unix)]
-            let (_cwd_guard, command_cwd_path) = match inherited_directory_path(&command_cwd) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
             #[cfg(not(unix))]
-            let command_cwd_path = command_cwd.path.display().to_string();
+            let process_path = path.path.display().to_string();
+            #[cfg(not(unix))]
+            let command_cwd_path = match scoped(".", false) {
+                Ok(Ok(path)) => path.path.display().to_string(),
+                Ok(Err(message)) => return fail("path_forbidden", &message),
+                Err(error) => return io_fail(error),
+            };
             #[cfg(unix)]
             let command_cwd_fd = {
                 use std::os::fd::AsRawFd as _;
