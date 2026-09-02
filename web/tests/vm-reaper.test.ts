@@ -86,7 +86,7 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     userId: "user-reaper",
     billingTeamId: "team-reaper",
     billingPlanId: "pro",
-    provider: "e2b",
+    provider: "freestyle",
     providerVmId: "stale-sandbox",
     displayName: null,
     imageId: "cmux-devbox:devbox-20260828b",
@@ -111,7 +111,7 @@ function runReaper(
   return Effect.runPromise(
     // No shipped driver exposes a volume inventory, so the scan is inert unless
     // a provider is named; these tests drive it against the stub gateway.
-    reapVmResources({ now: NOW, volumeProvider: "e2b", ...options }).pipe(
+    reapVmResources({ now: NOW, volumeProvider: "freestyle", ...options }).pipe(
       Effect.provide(workflowLayer(repo, provider)),
     ),
   );
@@ -167,7 +167,7 @@ describe("Cloud VM reaper report", () => {
         oldVolume("cmux-home-abcdef123456"),
         oldVolume("shared-volume"),
       ]),
-      deleteHomeVolume: (_provider: "e2b", name: string) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: "freestyle", name: string) => Effect.sync(() => deleted.push(name)),
     } as unknown as VmProviderGatewayShape;
 
     const result = await runReaper(repo, provider, {
@@ -429,7 +429,7 @@ describe("Cloud VM reaper report", () => {
     });
     const provider = {
       ...baseProvider(),
-      listVolumes: (_provider: "e2b", options: { limit: number; cursor?: string }): Effect.Effect<VMVolumeInventory> => Effect.sync(() => {
+      listVolumes: (_provider: "freestyle", options: { limit: number; cursor?: string }): Effect.Effect<VMVolumeInventory> => Effect.sync(() => {
         calls.push({ limit: options.limit, ...(options.cursor ? { cursor: options.cursor } : {}) });
         return options.cursor
           ? { volumes: secondPage, nextCursor: null }

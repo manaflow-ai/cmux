@@ -1331,10 +1331,14 @@ describe("account deletion route", () => {
     );
   });
 
-  test("destroys personal VMs with the same provider id on different providers", async () => {
+  test("destroys every distinct personal VM and dedupes repeated rows", async () => {
+    // Rows are deduped by (providerVmId, provider). With one provider that
+    // makes a repeated provider id the same machine, so it is destroyed once
+    // while a genuinely distinct id still gets its own destroy call.
     listedPersonalVmIds = [
-      { providerVmId: "shared-provider-id", provider: "freestyle" },
-      { providerVmId: "shared-provider-id", provider: "e2b" },
+      { providerVmId: "vm-one", provider: "freestyle" },
+      { providerVmId: "vm-one", provider: "freestyle" },
+      { providerVmId: "vm-two", provider: "freestyle" },
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -1342,18 +1346,14 @@ describe("account deletion route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "account-user-1",
-      teamIds: ["account-user-1"],
-      providerVmId: "shared-provider-id",
-      provider: "freestyle",
-    }));
-    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "account-user-1",
-      teamIds: ["account-user-1"],
-      providerVmId: "shared-provider-id",
-      provider: "e2b",
-    }));
+    for (const providerVmId of ["vm-one", "vm-two"]) {
+      expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
+        userId: "account-user-1",
+        teamIds: ["account-user-1"],
+        providerVmId,
+        provider: "freestyle",
+      }));
+    }
   });
 
   test("destroys personal-team scoped VMs before deleting account rows", async () => {
