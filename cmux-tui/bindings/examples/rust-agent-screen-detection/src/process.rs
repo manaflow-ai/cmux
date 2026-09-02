@@ -1742,6 +1742,32 @@ mod tests {
             processes: vec![process(9, "fish", &["fish", "--command", "exec codex"])],
         };
         assert_eq!(identify_job(ManifestSet::bundled(), &fish_separate).unwrap().0.id(), "codex");
+
+        for (name, argv, expected) in [
+            ("bash", vec!["bash", "-s", "-c", "exec codex"], "codex"),
+            ("bash", vec!["bash", "-t", "-c", "exec codex"], "codex"),
+            ("sh", vec!["sh", "-s", "-c", "exec claude"], "claude"),
+            ("zsh", vec!["zsh", "-t", "-c", "exec pi"], "pi"),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 10, processes: vec![process(10, name, &argv)] };
+            assert_eq!(
+                identify_job(ManifestSet::bundled(), &job).map(|(manifest, _)| manifest.id()),
+                Some(expected),
+                "stdin-mode flags may precede a valid command flag: {argv:?}",
+            );
+        }
+
+        for (name, argv) in
+            [("bash", vec!["bash", "-s", "--", "codex"]), ("sh", vec!["sh", "-t", "claude"])]
+        {
+            let job =
+                ForegroundJob { process_group_id: 11, processes: vec![process(11, name, &argv)] };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "stdin-mode flags must not expose a positional token: {argv:?}",
+            );
+        }
     }
 
     #[test]
