@@ -1321,20 +1321,6 @@ impl Inner {
         attachment.control.kill();
     }
 
-    /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
-    fn close(&self, pty_id: &str) {
-        // Match `open`'s lock order. If opening still owns the reservation,
-        // record cancellation and let it dispose the newly opened PTY.
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if opening.ids.contains_key(pty_id) {
-            let generation = opening.ids.get(pty_id).expect("opening entry").generation;
-            opening.cancelled.insert(pty_id.to_owned(), generation);
-            return;
-        }
-        drop(opening);
-        self.close_exact(pty_id, None, None);
-    }
-
     fn close_if_transport(
         &self,
         pty_id: &str,
@@ -1615,16 +1601,6 @@ impl Inner {
         };
         drop(_publication);
         removed.control.kill();
-    }
-
-    fn close_if_generation(&self, pty_id: &str, generation: u64) {
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
-            return;
-        };
-        if attachment.generation == generation {
-            self.close_exact(pty_id, Some(generation), Some(&attachment.publication_gate));
-        }
     }
 
     fn close_exact(
