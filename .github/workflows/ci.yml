@@ -1265,13 +1265,15 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -ne 0 ]; then
-              local batch_summary
-              batch_summary="$(grep "Executed.*tests.*with.*failures" "$batch_output" | tail -1 || true)"
-              if echo "$batch_summary" | grep -q "(0 unexpected)"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
-              fi
+            # Reuse the final classifier for per-batch continuation. It only
+            # tolerates ordinary XCTest statuses (65/125); reserved wrapper
+            # statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary.
+            if [ "$batch_status" -ne 0 ] \
+              && scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null 2>&1; then
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
             return "$batch_status"
           }

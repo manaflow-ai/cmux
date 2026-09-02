@@ -42,6 +42,19 @@ if [ "$original_status" -eq 126 ]; then
   exit 1
 fi
 
+# Only these two statuses represent an ordinary XCTest assertion failure that
+# can be reconciled with an explicit "(0 unexpected)" summary. Every other
+# nonzero status is a wrapper, infrastructure, or unknown failure and must
+# remain blocking even when an earlier summary looks clean.
+case "$original_status" in
+  65|125)
+    ;;
+  *)
+    echo "Unrecognized app-host test failure status: $original_status" >&2
+    exit 1
+    ;;
+esac
+
 if [ ! -r "$output_path" ]; then
   echo "FAIL: app-host test output could not be classified" >&2
   exit 1
