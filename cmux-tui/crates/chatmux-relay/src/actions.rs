@@ -1273,11 +1273,15 @@ async fn run_spec(
             }, if !cancelled => {
                 cancelled = true;
                 #[cfg(unix)]
-                if !signal_process_tree(pid, false) {
-                    let _ = child.start_kill();
+                if exited.is_none() && process_group_guard.armed {
+                    if !signal_process_tree(pid, false) {
+                        let _ = child.start_kill();
+                    }
                 }
                 #[cfg(not(unix))]
-                signal_process_tree(pid, false);
+                if exited.is_none() {
+                    signal_process_tree(pid, false);
+                }
                 kill_deadline = Some(Box::pin(tokio::time::sleep(
                     std::time::Duration::from_millis(250),
                 )));
@@ -1387,6 +1391,11 @@ async fn run_spec(
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
                 if exited.is_some() {
+                    #[cfg(unix)]
+                    if process_group_guard.armed {
+                        signal_process_group(pid, false);
+                    }
+                    #[cfg(not(unix))]
                     signal_process_group(pid, false);
                 } else {
                     // The process group is the authoritative target. If the
@@ -1424,6 +1433,11 @@ async fn run_spec(
                 }
             }, if kill_deadline.is_some() => {
                 if exited.is_some() {
+                    #[cfg(unix)]
+                    if process_group_guard.armed {
+                        signal_process_group(pid, true);
+                    }
+                    #[cfg(not(unix))]
                     signal_process_group(pid, true);
                 } else {
                     // See the timeout branch above: never fall back to a
