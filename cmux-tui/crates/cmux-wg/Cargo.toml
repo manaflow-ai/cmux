@@ -10,22 +10,19 @@ description = "In-process WireGuard transport for cmux clients: boringtun plus a
 [lints]
 workspace = true
 
-[features]
-# Deterministic two-peer loopback harness for tests in other crates.
-test-support = ["dep:getrandom"]
-
 [dependencies]
 base64.workspace = true
 boringtun.workspace = true
 bytes.workspace = true
-getrandom = { workspace = true, optional = true }
+# Only the `testing` loopback harness needs randomness (fresh keypairs);
+# production callers bring their own keys.
+getrandom.workspace = true
 ip_network.workspace = true
 smoltcp.workspace = true
 tokio.workspace = true
-tokio-util = { workspace = true, features = ["sync"] }
+tokio-util.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-cmux-wg = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
