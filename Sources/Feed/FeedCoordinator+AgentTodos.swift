@@ -125,12 +125,8 @@ extension FeedCoordinator {
             canonicalWorkstreamID: workstreamId,
             source: source
         )
-        let workspacesByID = Dictionary(
-            app.allWorkspacesForAgentTodoRetirement.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         for candidateID in candidateIDs where candidateID != workspaceID {
-            guard let workspace = workspacesByID[candidateID] else { continue }
+            guard let workspace = app.workspaceForAgentTodoRetirement(id: candidateID) else { continue }
             var matchingWorkstreamIDs = Set<String>()
             for checklistItem in workspace.todoState.checklist {
                 guard let rawWorkstreamID = checklistItem.agentTaskRef?.workstreamId,
