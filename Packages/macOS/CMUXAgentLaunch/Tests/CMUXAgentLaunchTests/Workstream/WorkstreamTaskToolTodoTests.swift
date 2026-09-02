@@ -410,6 +410,30 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
     }
 
+    @Test("Duplicate TaskCreate subjects do not guess the provisional row")
+    func duplicateTaskCreateSubjectsFailClosed() {
+        var accumulator = WorkstreamTaskToolTodos()
+        _ = accumulator.applyPre(
+            tool: .taskCreate,
+            inputJSON: #"{"subject":"same subject"}"#,
+            requestID: "create-1"
+        )
+        _ = accumulator.applyPre(
+            tool: .taskCreate,
+            inputJSON: #"{"subject":"same subject"}"#,
+            requestID: "create-2"
+        )
+
+        _ = accumulator.applyPost(
+            tool: .taskCreate,
+            inputJSON: #"{"subject":"same subject"}"#,
+            responseJSON: #"{"task":{"id":"42","subject":"same subject"}}"#,
+            isError: false
+        )
+
+        #expect(accumulator.ownedIDList == ["pending-1", "pending-2"])
+    }
+
     @Test("A failed TaskUpdate restores the pre-tool checklist")
     func failedTaskUpdateRestoresPreToolState() {
         let store = WorkstreamStore(ringCapacity: 50)
