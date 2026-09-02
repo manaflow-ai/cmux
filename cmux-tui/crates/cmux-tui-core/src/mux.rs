@@ -9952,16 +9952,6 @@ impl Mux {
         self.journal_plugin.start(socket, self.session.clone());
     }
 
-    /// Compatibility wrapper for callers of the first agent-plugin preview.
-    pub fn configure_agent_plugin(&self, options: Option<crate::AgentPluginOptions>) {
-        self.configure_journal_plugin(options);
-    }
-
-    /// Compatibility wrapper for callers of the first agent-plugin preview.
-    pub fn start_agent_plugin(&self, socket: std::path::PathBuf) {
-        self.start_journal_plugin(socket);
-    }
-
     /// Journal a supervisor-observed plugin exit. The roster reducer removes
     /// only entries owned by this producer, so a crash cannot leave stale
     /// rows until the next terminal scan and the cleanup remains replayable.

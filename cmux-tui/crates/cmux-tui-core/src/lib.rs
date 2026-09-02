@@ -48,9 +48,7 @@ pub use agent_hooks::{
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
-pub use journal_plugin::{
-    AgentPluginOptions, AgentPluginRuntime, JournalPluginOptions, JournalPluginRuntime,
-};
+pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
