@@ -153,6 +153,36 @@ export function bakePreflight(options: { desktop?: boolean } = {}): { sha: strin
   return { sha: head, epoch };
 }
 
+/**
+ * The platform's name for the machine running the command: the Firecracker
+ * MMDS instance id (EC2-style token, then GET). Empty output means no metadata
+ * service (a container). cmux-devbox-boot keys the daemon identity on it.
+ */
+export const DEVBOX_INSTANCE_ID_COMMAND =
+  "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+
+/**
+ * Park the cmux-tui daemon on a machine about to be snapshotted: record this
+ * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
+ * stopped while the ids match), wait for the supervisor to stop it, wipe the
+ * identity and session state it produced, and prove nothing listens on 1337.
+ * Every machine created from the resulting snapshot has a different id, so
+ * its supervisor starts a daemon with a fresh identity within one tick.
+ * Run as root. Exits 0 only when the daemon is parked.
+ */
+export function devboxParkDaemonCommand(): string {
+  return [
+    `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
+    // [s]tart: the pattern must not match the exec shell carrying this command line.
+    "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
+    "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
+    "systemctl is-active cmux-tui-daemon >/dev/null",
+    "rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id",
+    "! grep -qi ':0539 ' /proc/net/tcp6",
+    "echo daemon-parked-for-clones",
+  ].join(" && ");
+}
+
 export function defaultBakeTag(): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
   return `devbox-${stamp}`;
@@ -214,6 +244,9 @@ export type DevboxManifestEntry = {
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
+  /** The cmux-tui build baked at /root/.cmux/bin/cmux-tui (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
+  cmuxTuiCommit?: string;
+  cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
   builtAt: string;

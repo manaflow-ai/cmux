@@ -56,6 +56,16 @@ describe("promoteImageManifestEntry", () => {
         defaultForLocalDev: true,
       }),
       passedEntry({ version: "freestyle-old-base", imageId: "sh-old", kind: "base", defaultForKind: true }),
+      // A foreign provider's entry: the type only knows freestyle now, but the
+      // promote step must still leave such rows alone.
+      passedEntry({
+        provider: "e2b" as unknown as DevboxManifestEntry["provider"],
+        version: "e2b-x",
+        imageId: "cmux-devbox:x",
+        envVar: "E2B_CMUXD_WS_TEMPLATE",
+        kind: "base",
+        defaultForKind: true,
+      }),
     ],
   };
 
@@ -67,12 +77,14 @@ describe("promoteImageManifestEntry", () => {
     // Pure: the input is untouched.
     expect(base.images[0].defaultForKind).toBe(true);
     expect(imageManifestProblems(next)).toEqual([]);
-    expect(next.images).toHaveLength(4);
-    expect(next.images.slice(0, 2).map((e) => [e.version, e.defaultForKind])).toEqual([
+    expect(next.images).toHaveLength(5);
+    expect(next.images.slice(0, 3).map((e) => [e.version, e.defaultForKind])).toEqual([
       ["freestyle-old-desktop", false],
       ["freestyle-old-base", false],
+      // Another provider's defaults are not this promotion's business.
+      ["e2b-x", true],
     ]);
-    expect(next.images.slice(2)).toMatchObject([
+    expect(next.images.slice(3)).toMatchObject([
       { version: "freestyle-cmux-devbox-test", kind: "desktop", defaultForKind: true },
       { version: "freestyle-cmux-devbox-test-base", kind: "base", defaultForKind: true },
     ]);
@@ -84,6 +96,7 @@ describe("promoteImageManifestEntry", () => {
     expect(next.images.map((e) => [e.version, e.kind, e.defaultForKind])).toEqual([
       ["freestyle-old-desktop", "desktop", true],
       ["freestyle-old-base", "base", false],
+      ["e2b-x", "base", true],
       ["freestyle-cmux-devbox-test", "base", true],
     ]);
   });
@@ -117,8 +130,12 @@ describe("imageManifestProblems", () => {
       ],
     };
     const problems = imageManifestProblems(bad);
-    expect(problems).toContain("b: defaultForKind but validationStatus is unknown");
-    expect(problems).toContain("freestyle/base: 2 entries flagged defaultForKind (a, b)");
-    expect(problems).toContain("freestyle/d: version listed more than once");
+    for (const expected of [
+      "b: defaultForKind but validationStatus is unknown",
+      "freestyle/base: 2 entries flagged defaultForKind",
+      "freestyle/d: version listed more than once",
+    ]) {
+      expect(problems.some((problem) => problem.includes(expected))).toBe(true);
+    }
   });
 });

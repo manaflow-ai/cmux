@@ -30,17 +30,9 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         )
         self.assertNotIn("--local-config", workflow)
         self.assertNotIn("crons", config)
-        # The docs channel is deployed explicitly with `vercel deploy`, so it
-        # must not inherit production-only settings.  In addition to cron
-        # schedules, `ignoreCommand` is only consulted for Git-triggered
-        # deployments and is intentionally omitted from the docs config.
         self.assertEqual(
             config,
-            {
-                key: value
-                for key, value in production_config.items()
-                if key not in {"crons", "ignoreCommand"}
-            },
+            {key: value for key, value in production_config.items() if key != "crons"},
         )
 
     def test_vercel_auth_is_checked_daily(self) -> None:
