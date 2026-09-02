@@ -59,20 +59,6 @@ struct ControlCommandCoordinatorWorkspaceTaskQueueTests {
         #expect(context.lastQueueWindowID == windowID)
     }
 
-    @Test("queue list forwards the requested sort key")
-    func listForwardsSortKey() throws {
-        let context = FakeWorkspaceTodoControlCommandContext()
-        context.queueResolution = .resolved([])
-        let coordinator = ControlCommandCoordinator(context: context)
-
-        _ = try #require(coordinator.handle(request(
-            "workspace.todo.queue.list",
-            ["sort": .string("activity")]
-        )))
-
-        #expect(context.lastQueueSortKey == .activity)
-    }
-
     @Test("index queue selectors resolve against the requested window")
     func indexSelectorUsesWindowSelector() throws {
         let context = FakeWorkspaceTodoControlCommandContext()

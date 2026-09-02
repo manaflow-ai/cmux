@@ -506,8 +506,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
         workspaceID: UUID?,
-        windowID: UUID?,
-        sortKey: ControlWorkspaceTaskQueueSortKey?
+        windowID: UUID?
     ) -> ControlWorkspaceTaskQueueResolution {
         guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
         let workspaces = app.allWorkspacesForAgentTodoRetirement
@@ -527,12 +526,10 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
                 return projected
             }
         }
-        // Each workspace contributes at most 50 checklist rows. Sort exactly
-        // once at the projection boundary; the queue model receives this
-        // ordered snapshot and does not resort it during rendering.
-        return .resolved(items.sorted { lhs, rhs in
-            queueItemPrecedes(lhs, rhs, sortKey: sortKey)
-        })
+        // The model owns presentation sorting and caches one ordered snapshot
+        // per sort key. The control seam returns the authoritative projection
+        // without doing another full-collection sort for each caller.
+        return .resolved(items)
     }
 
     func controlWorkspaceTaskQueueDispatch(
@@ -735,46 +732,6 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         )
     }
 
-    private func queueItemPrecedes(
-        _ lhs: ControlWorkspaceTaskQueueItem,
-        _ rhs: ControlWorkspaceTaskQueueItem,
-        sortKey: ControlWorkspaceTaskQueueSortKey?
-    ) -> Bool {
-        switch sortKey {
-        case .activity:
-            if lhs.lastActivityAt != rhs.lastActivityAt {
-                return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
-            }
-        case .workspace:
-            if lhs.workspaceTitle != rhs.workspaceTitle {
-                return lhs.workspaceTitle < rhs.workspaceTitle
-            }
-        case .status, nil:
-            if lhs.state != rhs.state {
-                return queueStateRank(lhs.state) < queueStateRank(rhs.state)
-            }
-        }
-        if lhs.workspaceTitle != rhs.workspaceTitle {
-            return lhs.workspaceTitle < rhs.workspaceTitle
-        }
-        if lhs.state != rhs.state {
-            return queueStateRank(lhs.state) < queueStateRank(rhs.state)
-        }
-        let textOrder = lhs.text.localizedStandardCompare(rhs.text)
-        if textOrder != .orderedSame {
-            return textOrder == .orderedAscending
-        }
-        return lhs.id.uuidString < rhs.id.uuidString
-    }
-
-    private func queueStateRank(_ raw: String) -> Int {
-        switch raw {
-        case "in-progress": 0
-        case "pending": 1
-        case "completed": 2
-        default: 3
-        }
-    }
 }
 
 private extension String {

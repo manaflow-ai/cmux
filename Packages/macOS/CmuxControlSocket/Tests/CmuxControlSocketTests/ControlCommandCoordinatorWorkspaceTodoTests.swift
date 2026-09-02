@@ -25,7 +25,6 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var queueTargetResolution: ControlWorkspaceTaskQueueTargetResolution = .tabManagerUnavailable
     var queueStrings = ControlWorkspaceTaskQueueStrings()
     var lastQueueWindowID: UUID?
-    var lastQueueSortKey: ControlWorkspaceTaskQueueSortKey?
     var lastQueueTarget: (workingDirectory: String?, agentCommand: String?, agentName: String?)?
     var queueTargetCallCount = 0
 
@@ -122,11 +121,9 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
         workspaceID: UUID?,
-        windowID: UUID?,
-        sortKey: ControlWorkspaceTaskQueueSortKey?
+        windowID: UUID?
     ) -> ControlWorkspaceTaskQueueResolution {
         lastQueueWindowID = windowID
-        lastQueueSortKey = sortKey
         queueResolution
     }
 

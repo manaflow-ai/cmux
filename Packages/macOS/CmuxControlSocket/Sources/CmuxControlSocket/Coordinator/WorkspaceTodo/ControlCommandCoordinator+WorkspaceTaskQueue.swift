@@ -65,8 +65,7 @@ extension ControlCommandCoordinator {
         switch context?.controlWorkspaceTaskQueueList(
             statusRaw: status,
             workspaceID: uuid(params, "workspace_id"),
-            windowID: uuid(params, "window_id"),
-            sortKey: string(params, "sort").flatMap(ControlWorkspaceTaskQueueSortKey.init(rawValue:))
+            windowID: uuid(params, "window_id")
         ) ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: strings.unavailable, data: nil)
@@ -161,8 +160,7 @@ extension ControlCommandCoordinator {
               case .resolved(let items) = context?.controlWorkspaceTaskQueueList(
                   statusRaw: string(params, "status"),
                   workspaceID: uuid(params, "workspace_id"),
-                  windowID: uuid(params, "window_id"),
-                  sortKey: string(params, "sort").flatMap(ControlWorkspaceTaskQueueSortKey.init(rawValue:))
+                  windowID: uuid(params, "window_id")
               ) else { return nil }
         return items.indices.contains(index) ? items[index].id : nil
     }

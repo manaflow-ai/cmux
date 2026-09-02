@@ -32,13 +32,6 @@ final class WorkspaceTaskQueueModel {
         case workspace
 
         var id: String { rawValue }
-        var controlKey: ControlWorkspaceTaskQueueSortKey {
-            switch self {
-            case .activity: .activity
-            case .status: .status
-            case .workspace: .workspace
-            }
-        }
         var title: String {
             switch self {
             case .activity: String(localized: "taskQueue.sort.activity", defaultValue: "Last activity")
@@ -52,12 +45,16 @@ final class WorkspaceTaskQueueModel {
     private(set) var workspaceOptions: [(id: UUID, title: String)] = []
     private(set) var isRefreshing = false
     private(set) var errorMessage: String?
+    /// Immutable source snapshot used to populate the cached presentation
+    /// orders; cache mutation must not invalidate the SwiftUI view by itself.
+    @ObservationIgnored private var sourceRows: [ControlWorkspaceTaskQueueItem] = []
+    @ObservationIgnored private var sortedRowsByKey: [SortKey: [ControlWorkspaceTaskQueueItem]] = [:]
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
     @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
     var statusFilter: StatusFilter = .all { didSet { refresh() } }
     var workspaceFilter: UUID? { didSet { refresh() } }
-    var sortKey: SortKey = .activity { didSet { refresh() } }
+    var sortKey: SortKey = .activity { didSet { rows = sortedRows(for: sortKey) } }
     var selectedRowID: UUID?
 
     init() {
@@ -78,16 +75,19 @@ final class WorkspaceTaskQueueModel {
         switch TerminalController.shared.controlWorkspaceTaskQueueList(
             statusRaw: status,
             workspaceID: workspaceFilter,
-            windowID: nil,
-            sortKey: sortKey.controlKey
+            windowID: nil
         ) {
         case .tabManagerUnavailable:
+            sourceRows = []
+            sortedRowsByKey.removeAll(keepingCapacity: true)
             rows = []
             workspaceOptions = []
             errorMessage = String(localized: "taskQueue.error.unavailable", defaultValue: "Task queue is unavailable while cmux is starting.")
         case .resolved(let items):
-            rows = items
+            sourceRows = items
+            sortedRowsByKey.removeAll(keepingCapacity: true)
             rebuildWorkspaceOptions(from: items)
+            rows = sortedRows(for: sortKey)
             errorMessage = nil
         }
     }
@@ -157,6 +157,41 @@ final class WorkspaceTaskQueueModel {
             let rightTitle = values[rhs, default: ""]
             return leftTitle == rightTitle ? lhs.uuidString < rhs.uuidString : leftTitle < rightTitle
         }.map { ($0, values[$0, default: ""]) }
+    }
+
+    private func sortedRows(for key: SortKey) -> [ControlWorkspaceTaskQueueItem] {
+        if let cached = sortedRowsByKey[key] {
+            return cached
+        }
+        var sorted = sourceRows
+        sorted.sort { lhs, rhs in
+            switch key {
+            case .activity:
+                if lhs.lastActivityAt != rhs.lastActivityAt {
+                    return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+                }
+            case .status:
+                if lhs.state != rhs.state { return stateRank(lhs.state) < stateRank(rhs.state) }
+            case .workspace:
+                if lhs.workspaceTitle != rhs.workspaceTitle { return lhs.workspaceTitle < rhs.workspaceTitle }
+            }
+            if lhs.workspaceTitle != rhs.workspaceTitle { return lhs.workspaceTitle < rhs.workspaceTitle }
+            if lhs.state != rhs.state { return stateRank(lhs.state) < stateRank(rhs.state) }
+            let textOrder = lhs.text.localizedStandardCompare(rhs.text)
+            if textOrder != .orderedSame { return textOrder == .orderedAscending }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        sortedRowsByKey[key] = sorted
+        return sorted
+    }
+
+    private func stateRank(_ state: String) -> Int {
+        switch state {
+        case "in-progress": 0
+        case "pending": 1
+        case "completed": 2
+        default: 3
+        }
     }
 
     deinit {

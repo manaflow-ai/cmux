@@ -12,13 +12,10 @@ public protocol ControlWorkspaceTaskQueueContext: AnyObject {
     ///   - statusRaw: Optional lifecycle-state filter.
     ///   - workspaceID: Optional source-workspace filter.
     ///   - windowID: Optional owning-window filter.
-    ///   - sortKey: Optional presentation order; `nil` preserves the default
-    ///     status/workspace/text ordering used by socket clients.
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
         workspaceID: UUID?,
-        windowID: UUID?,
-        sortKey: ControlWorkspaceTaskQueueSortKey?
+        windowID: UUID?
     ) -> ControlWorkspaceTaskQueueResolution
 
     func controlWorkspaceTaskQueueDispatch(
@@ -49,8 +46,7 @@ public extension ControlWorkspaceTaskQueueContext {
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
         workspaceID: UUID?,
-        windowID: UUID?,
-        sortKey: ControlWorkspaceTaskQueueSortKey?
+        windowID: UUID?
     ) -> ControlWorkspaceTaskQueueResolution {
         .tabManagerUnavailable
     }
