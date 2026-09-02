@@ -261,22 +261,26 @@ extension GhosttyApp {
                             completeClipboardRequest(with: text)
                         },
                         onFailure: { error in
-                            let shouldPresentFailure = MainActor.assumeIsolated {
+                            // Report the failure whether or not this is still the surface
+                            // the paste started on: the notification falls back to the
+                            // focused workspace when the origin surface is gone. The
+                            // identity check below only decides where TEXT may go.
+                            let outcome = MainActor.assumeIsolated {
                                 indicatorView.endImageTransferIndicator(
                                     for: operation
                                 )
-                                return requestSurfaceIdentity.matches(
+                                return TerminalUploadFailureNotification.post(
+                                    error: error,
+                                    surfaceId: callbackContext.surfaceId
+                                )
+                            }
+                            if outcome == .unavailable { NSSound.beep() }
+                            let shouldPresentFailure = MainActor.assumeIsolated {
+                                requestSurfaceIdentity.matches(
                                     requestTerminalSurface
                                 )
                             }
                             if shouldPresentFailure {
-                                let outcome = MainActor.assumeIsolated {
-                                    TerminalUploadFailureNotification.post(
-                                        error: error,
-                                        surfaceId: callbackContext.surfaceId
-                                    )
-                                }
-                                if outcome == .unavailable { NSSound.beep() }
 #if DEBUG
                                 cmuxDebugLog(
                                     "terminal.remotePasteUpload.failed " +

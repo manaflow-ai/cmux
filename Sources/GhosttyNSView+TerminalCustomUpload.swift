@@ -69,10 +69,14 @@ extension GhosttyNSView {
                 case .success(let text):
                     self?.deliverUploadResultText(text)
                 case .failure(let error):
-                    let outcome = TerminalUploadFailureNotification.post(
-                        error: error,
-                        surfaceId: originSurfaceId
-                    )
+                    // The runner delivers this on the main queue; state the proof the
+                    // same way the sibling call sites do.
+                    let outcome = MainActor.assumeIsolated {
+                        TerminalUploadFailureNotification.post(
+                            error: error,
+                            surfaceId: originSurfaceId
+                        )
+                    }
                     if outcome == .unavailable { NSSound.beep() }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
