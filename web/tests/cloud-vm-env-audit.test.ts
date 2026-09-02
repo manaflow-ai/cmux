@@ -75,10 +75,23 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY");
   });
 
-  test("the freestyle devbox snapshot is not deployable until it is re-baked on the public platform", () => {
-    // The only freestyle manifest entry was baked against the retired
-    // beta-api.freestyle.sh endpoint and carries validationStatus "unknown".
-    // The audit must keep failing until a public-platform bake replaces it, so
+  test("the validated public-platform freestyle devbox passes as the default provider", () => {
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
+        FREESTYLE_API_KEY: "x",
+      },
+      realManifest,
+    ) as Coherence;
+    expect(result.selected?.provider).toBe("freestyle");
+    expect(result.codeDefault).toBeNull();
+    expect(result.problems).toEqual([]);
+  });
+
+  test("the retired beta-api freestyle snapshot is still not deployable", () => {
+    // That entry was baked against beta-api.freestyle.sh and keeps
+    // validationStatus "unknown"; pointing the env at it must stay red so
     // nobody ships a default provider that cannot boot a machine.
     const result = auditCloudVmProviderCoherence(
       {
@@ -90,6 +103,25 @@ describe("cloud VM provider coherence audit", () => {
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
     expect(result.problems.join("\n")).toContain("validationStatus");
+  });
+
+  test("a coherent e2b rollback passes only with the code default still provisionable", () => {
+    const rollbackEnv = {
+      CMUX_VM_DEFAULT_PROVIDER: "e2b",
+      E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
+      E2B_API_KEY: "x",
+      FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
+      FREESTYLE_API_KEY: "x",
+    };
+    const result = auditCloudVmProviderCoherence(rollbackEnv, realManifest) as Coherence;
+    expect(result.codeDefault?.provider).toBe("freestyle");
+    // Not clean: the code default points at the unvalidated beta-api snapshot.
+    expect(result.problems.join("\n")).toContain("validationStatus");
+    const clean = auditCloudVmProviderCoherence(
+      { ...rollbackEnv, FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" },
+      realManifest,
+    ) as Coherence;
+    expect(clean.problems).toEqual([]);
   });
 
   test("an image value outside the manifest is a problem", () => {

@@ -62,10 +62,10 @@ describe("VM image resolver: request by kind", () => {
     }
   });
 
-  test("freestyle has no usable image until the devbox snapshot is re-baked on the public platform", () => {
-    // The only freestyle manifest entry was baked against the retired
-    // beta-api endpoint and carries validationStatus "unknown", so it is
-    // neither a kind default nor a local-dev default. Creates fail closed.
+  test("freestyle resolves only through its env selector, like every other provider", () => {
+    // The validated public-platform devbox entry is neither a kind default
+    // nor a local-dev default, so a deployment must set
+    // FREESTYLE_SANDBOX_SNAPSHOT explicitly; nothing is served silently.
     const err = captureImageConfigError(() => resolveVmImage("freestyle", undefined, deployed));
     expect(err).toMatchObject({
       provider: "freestyle",
@@ -77,6 +77,18 @@ describe("VM image resolver: request by kind", () => {
       reason: "no local default image is recorded for freestyle",
     });
     expect(listVmImageKinds("freestyle", deployed)).toEqual([]);
+  });
+
+  test("the validated public-platform devbox snapshot resolves from the env selector", () => {
+    const env = { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" };
+    expect(resolveVmImage("freestyle", undefined, env)).toMatchObject({
+      provider: "freestyle",
+      image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
+      imageVersion: "freestyle-cmux-devbox-20260902a",
+    });
+    expect(listVmImageKinds("freestyle", env)).toEqual([
+      { kind: "base", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" },
+    ]);
   });
 
   test("an operator-set freestyle snapshot still resolves, so a re-bake is env-only", () => {
