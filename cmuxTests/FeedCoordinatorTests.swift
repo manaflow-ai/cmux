@@ -12,6 +12,31 @@ import CmuxWorkspaces
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @MainActor
+    @Test("Failed task binding can roll back the created workspace")
+    func failedTaskBindingRollsBackCreatedWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.didAttemptStartupSessionRestore = true
+        let source = manager.addWorkspace(title: "Source", select: true)
+        let target = manager.addWorkspace(title: "Created target", select: false)
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(TerminalController.rollbackTaskDispatchWorkspace(
+            id: target.id,
+            in: manager
+        ))
+        #expect(manager.tabs.contains(where: { $0.id == source.id }))
+        #expect(!manager.tabs.contains(where: { $0.id == target.id }))
+    }
+
     @Test("Workspace-only blocking events retain their session surface")
     func workspaceOnlyAttentionUsesSessionSurface() {
         let workspaceID = UUID()
