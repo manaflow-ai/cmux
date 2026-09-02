@@ -94,7 +94,7 @@ jobs:
                 /^permissions:\s*\{\s*\}\s*$/m,
                 /^jobs:\s*$/m,
                 /^\s+announce:\s*$/m,
-                /^\s+runs-on:\s+ubuntu-24\.04\s*$/m,
+                /^\s+runs-on:\s+ubuntu-24\.04(?:\s+#.*)?\s*$/m,
                 /^\s+permissions:\s*\{\s*\}\s*$/m,
                 /^\s+steps:\s*$/m,
                 /^\s+-\s+name:\s+Emit queued release event\s*$/m,
