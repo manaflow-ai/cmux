@@ -15,10 +15,10 @@ on:
 permissions: {}
 
 concurrency:
-  # Cancel webhook retries by their payload identity while keeping separate
-  # user requests independent. Issue events have no delivery ID, so combine
-  # the issue ID, action, and update timestamp for a stable event key.
-  group: claude-${{ github.repository }}-${{ github.event.comment.id || github.event.review.id || format('{0}-{1}-{2}', github.event.issue.id, github.event.action, github.event.issue.updated_at) }}
+  # Cancel webhook retries by immutable comment or review ID. GitHub issue
+  # events do not expose a delivery ID, so keep each issue event independent
+  # rather than risking cancellation of a legitimate request.
+  group: claude-${{ github.repository }}-${{ github.event.comment.id || github.event.review.id || github.run_id }}
   cancel-in-progress: true
 
 jobs:
