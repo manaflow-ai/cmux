@@ -5350,10 +5350,24 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
+    /// Generation of the semantic selection currently installed on `App`.
+    /// `None` means the range cannot be safely copied because no stable
+    /// terminal snapshot was available.
+    semantic_content_generation: Option<u64>,
+    semantic_range: Option<GenerationTaggedSelectionRange>,
     /// A failed semantic press keeps `tracked_anchor` alive for a same-press
     /// cell drag, but it must not keep the repeat count alive for the next
     /// press.
     repeatable: bool,
+}
+
+/// A semantic range is valid only for the terminal content generation that
+/// produced it. Screen coordinates can move when output, reflow, or scrollback
+/// changes the terminal, so never union a range from an older generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GenerationTaggedSelectionRange {
+    content_generation: u64,
+    range: SelectionRange,
 }
 
 /// The most recent semantic drag result. Pointer reports often repeat the
@@ -16788,6 +16802,8 @@ impl App {
             && sequence.surface == surface
         {
             sequence.mode = SelectionMode::Cell;
+            sequence.semantic_content_generation = None;
+            sequence.semantic_range = None;
         }
     }
 
@@ -16816,24 +16832,27 @@ impl App {
         surface: SurfaceId,
         cell: (u16, u64),
         mode: SelectionMode,
-    ) -> Option<Selection> {
+    ) -> Option<(Selection, Option<u64>)> {
         if mode == SelectionMode::Cell {
-            return Some(Selection { surface, anchor: cell, head: cell });
+            return Some((Selection { surface, anchor: cell, head: cell }, None));
         }
         let point = Self::selection_point(cell)?;
         let handle = self.session.surface(surface)?;
-        let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
-                SelectionMode::Line => terminal
-                    .select_line_screen(point)
-                    .ok()
-                    .flatten()
-                    .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
-                SelectionMode::Cell => None,
-            })
-            .flatten()?;
-        Some(Self::selection_from_range(surface, range))
+        let (range, content_generation) =
+            handle.with_terminal_and_generation(|terminal, generation| {
+                let range = match mode {
+                    SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                    SelectionMode::Line => terminal
+                        .select_line_screen(point)
+                        .ok()
+                        .flatten()
+                        .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
+                    SelectionMode::Cell => None,
+                };
+                (range, generation)
+            })?;
+        let range = range?;
+        Some((Self::selection_from_range(surface, range), Some(content_generation)))
     }
 
     fn terminal_active_screen(&self, surface: SurfaceId) -> Option<Screen> {
@@ -16858,12 +16877,14 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
+        let host_selection_modifier =
+            |modifiers| modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT;
         if !previous.repeatable
             || screen.is_none()
             || previous.surface != surface
             || previous.screen != screen
-            || previous.modifiers != KeyModifiers::NONE
-            || modifiers != KeyModifiers::NONE
+            || previous.modifiers != modifiers
+            || !host_selection_modifier(modifiers)
         {
             return false;
         }
@@ -16891,6 +16912,9 @@ impl App {
         let repeated = previous.as_ref().is_some_and(|previous| {
             Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
         });
+        if !repeated {
+            self.replace_selection(None);
+        }
         let (mut count, mut tracked_anchor) = if repeated {
             let previous = previous.expect("repeated selection click has prior state");
             (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
@@ -16937,6 +16961,8 @@ impl App {
             anchor: cell,
             dragged: false,
             tracked_anchor,
+            semantic_content_generation: None,
+            semantic_range: None,
             repeatable: true,
         });
         mode
@@ -16983,7 +17009,20 @@ impl App {
             && sequence.surface == surface
         {
             sequence.mode = mode;
+            sequence.semantic_content_generation = None;
         }
+    }
+
+    fn current_semantic_selection_generation(&self, surface: SurfaceId) -> Option<u64> {
+        let Some(sequence) =
+            self.selection_click_sequence.as_ref().filter(|sequence| sequence.surface == surface)
+        else {
+            return None;
+        };
+        let Some(expected) = sequence.semantic_content_generation else {
+            return None;
+        };
+        (self.terminal_content_generation(surface) == Some(expected)).then_some(expected)
     }
 
     fn update_semantic_selection(
@@ -17015,8 +17054,8 @@ impl App {
             self.semantic_selection_cache = None;
             return;
         };
-        let content_generation = self.terminal_content_generation(surface);
-        if let Some(generation) = content_generation
+        let cache_generation = self.terminal_content_generation(surface);
+        if let Some(generation) = cache_generation
             && let Some(cache) = self.semantic_selection_cache
             && cache.surface == surface
             && cache.mode == mode
@@ -17031,43 +17070,78 @@ impl App {
             }
             return;
         }
-        let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => {
-                    let first = terminal
-                        .select_word_between_screen(anchor_point, current_point)
-                        .ok()
-                        .flatten()?;
-                    let second = terminal
-                        .select_word_between_screen(current_point, anchor_point)
-                        .ok()
-                        .flatten()?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
-                }
-                SelectionMode::Line => {
-                    let select_line =
-                        |point| {
+        let (range, content_generation) = handle
+            .with_terminal_and_generation(|terminal, generation| {
+                let range = match mode {
+                    SelectionMode::Word => {
+                        // Query both directions: Ghostty's nearest-word lookup is
+                        // directional, and the paired bounds preserve reverse
+                        // drags through whitespace or punctuation.
+                        let first = terminal
+                            .select_word_between_screen(anchor_point, current_point)
+                            .ok()
+                            .flatten()?;
+                        let second = terminal
+                            .select_word_between_screen(current_point, anchor_point)
+                            .ok()
+                            .flatten()?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Line => {
+                        let select_line = |point| {
                             terminal.select_line_screen(point).ok().flatten().or_else(|| {
                                 terminal.select_line_screen_untrimmed(point).ok().flatten()
                             })
                         };
-                    let first = select_line(anchor_point)?;
-                    let second = select_line(current_point)?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
-                }
-                SelectionMode::Cell => None,
+                        let first = select_line(anchor_point)?;
+                        let second = select_line(current_point)?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Cell => None,
+                };
+                Some((range, generation))
             })
-            .flatten();
+            .flatten()
+            .map_or((None, None), |(range, generation)| (range.flatten(), Some(generation)));
+        let range = range.map(|range| {
+            if mode == SelectionMode::Word {
+                self.selection_click_sequence
+                    .as_ref()
+                    .and_then(|sequence| sequence.semantic_range)
+                    .filter(|initial| content_generation == Some(initial.content_generation))
+                    .map(|initial| {
+                        let initial = initial.range;
+                        let start = if (initial.start.row, initial.start.column)
+                            <= (range.start.row, range.start.column)
+                        {
+                            initial.start
+                        } else {
+                            range.start
+                        };
+                        let end = if (initial.end.row, initial.end.column)
+                            >= (range.end.row, range.end.column)
+                        {
+                            initial.end
+                        } else {
+                            range.end
+                        };
+                        SelectionRange { start, end }
+                    })
+                    .unwrap_or(range)
+            } else {
+                range
+            }
+        });
         if let Some(generation) = content_generation {
             self.semantic_selection_cache = Some(SemanticSelectionCache {
                 surface,
@@ -17079,6 +17153,23 @@ impl App {
             });
         } else {
             self.semantic_selection_cache = None;
+        }
+        if let Some(sequence) =
+            self.selection_click_sequence.as_mut().filter(|sequence| sequence.surface == surface)
+        {
+            if let (Some(content_generation), Some(range)) = (content_generation, range) {
+                sequence.semantic_content_generation = Some(content_generation);
+                if mode == SelectionMode::Word {
+                    let anchor_generation =
+                        sequence.semantic_range.map(|anchor| anchor.content_generation);
+                    if anchor_generation != Some(content_generation) {
+                        sequence.semantic_range =
+                            Some(GenerationTaggedSelectionRange { content_generation, range });
+                    }
+                }
+            } else {
+                sequence.semantic_content_generation = None;
+            }
         }
         match range {
             Some(range) => self.replace_selection(Some(Self::selection_from_range(surface, range))),
@@ -20809,14 +20900,17 @@ impl App {
                     terminal_admission,
                 )
             }
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
-                .handle_horizontal_scroll_with_admission(
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                // Scrolling is a distinct gesture and ends click-repeat state.
+                self.reset_selection_click_sequence();
+                self.handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
                     terminal_admission,
-                ),
+                )
+            }
         }
     }
 
@@ -21957,9 +22051,9 @@ impl App {
         self.finish_active_drag();
 
         // A repeat is valid only for presses that land directly in a PTY
-        // content cell. Any chrome, overlay, browser, or modified click ends
-        // the pending terminal click sequence.
-        let repeat_target = modifiers == KeyModifiers::NONE
+        // content cell. Shift is the host-selection override when an inner
+        // PTY application owns mouse input, so preserve it for repeats.
+        let repeat_target = (modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT)
             && self.hit_at(x, y).is_none()
             && self.pane_area_at(x, y).is_some_and(|area| {
                 self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
@@ -22311,8 +22405,33 @@ impl App {
                     } else {
                         self.selection_mode = mode;
                         self.selection_mode_surface = Some(area.surface);
-                        if let Some(selection) = self.selection_for_click(area.surface, cell, mode)
+                        if let Some((selection, content_generation)) =
+                            self.selection_for_click(area.surface, cell, mode)
                         {
+                            if let Some(sequence) = self.selection_click_sequence.as_mut()
+                                && mode != SelectionMode::Cell
+                            {
+                                if let Some(content_generation) = content_generation {
+                                    sequence.semantic_range =
+                                        Some(GenerationTaggedSelectionRange {
+                                            content_generation,
+                                            range: SelectionRange {
+                                                start: SelectionPoint {
+                                                    column: selection.range().0.0,
+                                                    row: selection.range().0.1 as u32,
+                                                },
+                                                end: SelectionPoint {
+                                                    column: selection.range().1.0,
+                                                    row: selection.range().1.1 as u32,
+                                                },
+                                            },
+                                        });
+                                    sequence.semantic_content_generation = Some(content_generation);
+                                } else {
+                                    sequence.semantic_content_generation = None;
+                                    sequence.semantic_range = None;
+                                }
+                            }
                             self.replace_selection(Some(selection));
                         } else {
                             // A semantic lookup can legitimately return no
@@ -22625,6 +22744,13 @@ impl App {
         let semantic_select = was_select
             && self.selection_mode_surface.is_some()
             && self.selection_mode != SelectionMode::Cell;
+        let semantic_content_generation = if semantic_select {
+            self.selection_mode_surface
+                .and_then(|surface| self.current_semantic_selection_generation(surface))
+        } else {
+            None
+        };
+        let stale_semantic_selection = semantic_select && semantic_content_generation.is_none();
         let selection_dragged = was_select
             && self.selection_click_sequence.as_ref().is_some_and(|sequence| sequence.dragged);
         let was_drag = self.drag.is_some();
@@ -22634,12 +22760,26 @@ impl App {
             // their semantic mode, then make the next press a plain click.
             self.reset_selection_click_sequence();
         }
+        if stale_semantic_selection {
+            // The selected endpoints are screen coordinates. If terminal
+            // content changed while the button was held, copying them could
+            // return unrelated text from the new generation.
+            self.reset_selection_click_sequence();
+            self.replace_selection(None);
+            return Ok(RenderAction::Draw);
+        }
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
+        if !semantic_select && !selection_dragged {
+            // A click without motion is not a selection. Clear the provisional
+            // cell anchor created on press, including any prior selection.
+            self.replace_selection(None);
+            return Ok(RenderAction::Draw);
+        }
         match self.selection {
             Some(sel) if sel.anchor != sel.head || semantic_select => {
-                self.copy_selection(sel);
+                self.copy_selection(sel, semantic_content_generation);
                 Ok(RenderAction::Draw)
             }
             _ => {
@@ -22652,13 +22792,27 @@ impl App {
 
     /// Copy the selected text to the host clipboard via OSC 52 (the host
     /// terminal owns the clipboard; this works over SSH too).
-    fn copy_selection(&mut self, sel: Selection) {
+    fn copy_selection(&mut self, sel: Selection, expected_content_generation: Option<u64>) {
+        if let Some(expected) = expected_content_generation
+            && self.terminal_content_generation(sel.surface) != Some(expected)
+        {
+            self.reset_selection_click_sequence();
+            self.replace_selection(None);
+            return;
+        }
         let Some(surface) = self.session.surface(sel.surface) else { return };
         let (start, end) = sel.range();
         let Some(text) = surface.with_terminal(|t| t.selection_text_absolute(start, end)).flatten()
         else {
             return;
         };
+        if let Some(expected) = expected_content_generation
+            && self.terminal_content_generation(sel.surface) != Some(expected)
+        {
+            self.reset_selection_click_sequence();
+            self.replace_selection(None);
+            return;
+        }
         if text.is_empty() {
             return;
         }
@@ -23802,7 +23956,6 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -27433,6 +27586,87 @@ mod tests {
     }
 
     #[test]
+    fn shift_double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-double-click-word-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "Shift double click must select the complete word when bypassing PTY mouse reporting"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn shift_triple_click_selects_a_complete_line() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-triple-click-line-selection-test", b"alpha beta\ngamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        for _ in 0..3 {
+            app.handle_mouse(click).unwrap();
+            app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+                .unwrap();
+        }
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (10, 0))),
+            "Shift triple click must select the complete line when bypassing PTY mouse reporting"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn changing_shift_modifier_prevents_a_repeat_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-repeat-modifier-mismatch-test", b"alpha beta gamma");
+
+        let shift_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        app.handle_mouse(shift_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..shift_click })
+            .unwrap();
+        let plain_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            modifiers: KeyModifiers::NONE,
+            ..shift_click
+        };
+        app.handle_mouse(plain_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..plain_click })
+            .unwrap();
+
+        assert!(app.selection.is_none(), "a modifier change must reset the click sequence");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn a_failed_word_lookup_downgrades_to_a_cell_gesture() {
         let (mut app, mux, surface, content) =
             selection_fixture("failed-word-lookup-selection-state-test", b"alpha");
@@ -27469,6 +27703,92 @@ mod tests {
         );
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn failed_semantic_repeat_resets_the_click_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-semantic-repeat-reset-test", b"alpha\n");
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+
+        let blank_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row: content.y + 1,
+            ..first_click
+        };
+        app.handle_mouse(blank_click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..blank_click })
+            .unwrap();
+        assert!(app.selection.is_none(), "an unsupported semantic cell must not retain selection");
+
+        app.handle_mouse(blank_click).unwrap();
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed semantic repeat must reset the next click to cell mode"
+        );
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..blank_click })
+            .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn forwarded_pty_click_resets_host_repeat_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("forwarded-pty-click-repeat-reset-test", b"alpha beta");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        assert!(app.selection_click_sequence.is_some());
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.handle_mouse(click).unwrap();
+        assert!(app.selection_click_sequence.is_none());
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn plain_click_clears_an_existing_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("plain-click-clears-selection-test", b"alpha beta gamma");
+        app.replace_selection(Some(Selection {
+            surface: surface.id,
+            anchor: (0, 0),
+            head: (4, 0),
+        }));
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(app.selection.is_none(), "a plain click must clear an existing selection");
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -27496,6 +27816,36 @@ mod tests {
             "double click must select the full whitespace run between words"
         );
 
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn whitespace_double_click_drag_preserves_whitespace_anchor() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-whitespace-drag-selection-test", b"alpha   beta");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 6,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 9,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((5, 0), (11, 0))),
+            "dragging from whitespace must retain its initial whitespace range"
+        );
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -27533,6 +27883,56 @@ mod tests {
             app.selection.map(|selection| selection.range()),
             Some(((6, 0), (15, 0))),
             "double-click drag must start at the selected word and end at the whole target word"
+        );
+
+        let plain_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(plain_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..plain_click })
+            .unwrap();
+        assert!(app.selection.is_none(), "a plain click after a selection drag must clear it");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_back_shrinks_to_the_press_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-drag-back-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((6, 0), (10, 0))),
+            "dragging back must shrink to the word selected at the press"
         );
 
         mux.close_surface(surface.id).unwrap();
