@@ -1436,6 +1436,61 @@ def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
     assert "push:\n    tags:" not in text
 
 
+def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
+    cases = (
+        (
+            "tui-publish-pypi.yml",
+            "publish",
+            "Publish package distributions to PyPI",
+            "Verify every PyPI wheel after upload",
+            "${{ inputs.version }}",
+        ),
+        (
+            "cmux-tui-nightly.yml",
+            "publish-pypi",
+            "Publish nightly package distributions to PyPI",
+            "Verify every nightly PyPI wheel after upload",
+            "${{ needs.version.outputs.pypi_version }}",
+        ),
+    )
+
+    for name, job_name, publish_name, verify_name, version in cases:
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert isinstance(document, dict)
+        jobs = document.get("jobs")
+        assert isinstance(jobs, dict)
+        job = jobs.get(job_name)
+        assert isinstance(job, dict)
+        steps = job.get("steps")
+        assert isinstance(steps, list)
+        names = [step.get("name", "") for step in steps]
+        publish_index = names.index(publish_name)
+        verify_index = names.index(verify_name)
+        assert publish_index < verify_index
+        assert verify_index == len(steps) - 1
+
+        verify_step = steps[verify_index]
+        assert isinstance(verify_step, dict)
+        assert verify_step.get("env", {}).get("VERSION") == version
+        run = verify_step.get("run", "")
+        assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
+        assert "secrets." not in run
+        assert "gh-action-pypi-publish" not in run
+        assert "twine " not in run
+
+
+def test_tui_pypi_reconciliation_behavior_test_is_in_tui_ci() -> None:
+    text = workflow("cmux-tui-sdks.yml")
+    triggers = workflow_triggers(text)
+    for event in ("push", "pull_request"):
+        event_config = triggers[event]
+        assert isinstance(event_config, dict)
+        paths = event_config["paths"]
+        assert isinstance(paths, list)
+        assert "tests/test_tui_pypi_postpublish_reconcile.sh" in paths
+    assert "run: bash tests/test_tui_pypi_postpublish_reconcile.sh" in text
+
+
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
     for name in (
         "tui-publish-npm.yml",
