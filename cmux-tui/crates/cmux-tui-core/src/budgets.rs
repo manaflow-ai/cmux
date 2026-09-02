@@ -38,7 +38,9 @@ impl BudgetValue {
     /// Numeric value in [`Self::unit`].
     pub fn amount(self) -> u64 {
         match self {
-            BudgetValue::Duration(duration) => u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+            BudgetValue::Duration(duration) => {
+                u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+            }
             BudgetValue::Bytes(bytes) => bytes,
         }
     }
@@ -302,14 +304,23 @@ mod tests {
     #[test]
     fn every_stage_is_known() {
         for budget in table() {
-            assert!(STAGES.contains(&budget.stage), "{} has unknown stage {}", budget.name, budget.stage);
+            assert!(
+                STAGES.contains(&budget.stage),
+                "{} has unknown stage {}",
+                budget.name,
+                budget.stage
+            );
         }
     }
 
     #[test]
     fn table_values_match_the_named_constants() {
         let expect = |name: &str, value: BudgetValue| {
-            assert_eq!(find(name).unwrap_or_else(|| panic!("missing {name}")).value, value, "{name}");
+            assert_eq!(
+                find(name).unwrap_or_else(|| panic!("missing {name}")).value,
+                value,
+                "{name}"
+            );
         };
         expect("host.connect_window", BudgetValue::Duration(HOST_CONNECT_WINDOW));
         expect("host.connect_interval", BudgetValue::Duration(HOST_CONNECT_INTERVAL));
@@ -342,7 +353,11 @@ mod tests {
     #[test]
     fn planned_budgets_are_not_enforced_by_code_sites() {
         for budget in table().iter().filter(|budget| budget.stage == "planned") {
-            assert!(!budget.site.contains("::"), "planned budget {} names a code site", budget.name);
+            assert!(
+                !budget.site.contains("::"),
+                "planned budget {} names a code site",
+                budget.name
+            );
         }
     }
 
