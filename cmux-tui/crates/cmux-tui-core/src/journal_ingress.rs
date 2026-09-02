@@ -972,6 +972,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     for pending_batch in pending {
                         complete_batch_error(&pending_batch, error.clone());
                     }
+                    // The final Mux owner can disappear while this writer is
+                    // in a retry wait. Drain both ingress lanes so receipts
+                    // for events that never entered the active batch cannot
+                    // remain unresolved forever.
+                    complete_queued_error(&receivers, &error);
                     return;
                 };
                 if Instant::now() >= retry_deadline {
@@ -2614,6 +2619,28 @@ mod tests {
         completion_receiver
             .recv_timeout(Duration::from_millis(500))
             .expect("journal writer waited for its own completion during Mux::drop");
+    }
+
+    #[test]
+    fn mux_shutdown_completes_receipts_left_in_ingress_queues() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let (completion_sender, completion_receiver) = sync_channel(1);
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let queued = QueuedJournalEvent {
+            event: JournalIngressEvent::TerminalBarrier,
+            completion: Some(JournalIngressCompletion::Durable {
+                sender: completion_sender,
+                deadline,
+                commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
+            }),
+        };
+        sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
+
+        complete_queued_error(&receivers, "session journal stopped");
+
+        let result = completion_receiver.recv_timeout(Duration::from_millis(100)).unwrap();
+        assert!(result.is_err(), "shutdown must resolve queued durable receipts");
     }
 
     #[test]
