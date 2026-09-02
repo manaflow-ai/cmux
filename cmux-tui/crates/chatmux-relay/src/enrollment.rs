@@ -65,6 +65,7 @@ fn read_bounded<R: Read>(
                     break Ok(true);
                 }
             }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => break Err(error),
         }
     }
@@ -478,8 +479,8 @@ mod tests {
     fn interrupted_bounded_read_is_retried() {
         let mut reader = InterruptOnce { bytes: b"enrollment", interrupted: false };
         let mut contents = Vec::new();
-        let oversized =
-            read_bounded(&mut reader, MAX_ENROLLMENT_BYTES, &mut contents).expect("interrupted read");
+        let oversized = read_bounded(&mut reader, MAX_ENROLLMENT_BYTES, &mut contents)
+            .expect("interrupted read");
         assert_eq!(contents, b"enrollment");
         assert!(!oversized);
     }
