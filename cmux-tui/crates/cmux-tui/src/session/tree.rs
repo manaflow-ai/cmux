@@ -753,9 +753,6 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
     let active_tab_target_exists =
         value.get("tabs").and_then(Value::as_array).is_some_and(|tabs| raw_active_tab < tabs.len());
     let mut active_tab = None;
-    let active_tab = active_tab
-        .or_else(|| active_tab_target_exists.then_some(0))
-        .unwrap_or_else(|| if active_tab_is_declared { usize::MAX } else { 0 });
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
         resource_id: value
@@ -835,7 +832,9 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .collect()
             })
             .unwrap_or_default(),
-        active_tab,
+        active_tab: active_tab
+            .or_else(|| active_tab_target_exists.then_some(0))
+            .unwrap_or_else(|| if active_tab_is_declared { usize::MAX } else { 0 }),
     })
 }
 
