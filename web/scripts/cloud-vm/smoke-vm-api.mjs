@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -23,7 +23,7 @@ const skipAttach = rest.includes("--skip-attach");
 // metadata key the entitlements layer reads (cmuxVmPlan). Required to
 // exercise provisioning now that free plans are gated (vm_requires_pro).
 const paid = rest.includes("--paid");
-const provider = optionValue(rest, "--provider") ?? "e2b";
+const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -32,12 +32,10 @@ const REQUEST_TIMEOUT_MS = 45_000;
 // server-side default-provider path real clients (CLI, Mac app) use.
 if (
   shouldCreate &&
-  provider !== "e2b" &&
   provider !== "freestyle" &&
-  provider !== "daytona" &&
   provider !== "default"
 ) {
-  console.error("--provider must be e2b, freestyle, daytona, or default");
+  console.error("--provider must be freestyle or default");
   process.exit(2);
 }
 
@@ -224,8 +222,7 @@ try {
       if (attached.transport !== expectedTransport) {
         throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
       }
-      // Providers reach the daemon either through a tokened wss proxy (E2B,
-      // Daytona) or straight at the VM's public IPv6 over ws (Freestyle).
+      // Freestyle reaches the daemon straight at the VM's public IPv6 over ws.
       if (!/^wss?:\/\/.+\/v1\/link(\?|$)/.test(attached.route ?? "")) {
         throw new Error("cmux-remote attach response missing the daemon route");
       }

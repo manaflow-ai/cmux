@@ -1756,7 +1756,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: `provider-vm-idem-${createCalls}`,
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -1776,7 +1776,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-workflow-idem",
       billingPlanId: "free",
       maxActiveVms: 1,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
       idempotencyKey: "idem-1",
@@ -1791,7 +1791,7 @@ describe("VM Effect workflows", () => {
         billingTeamId: "team-workflow-idem",
         billingPlanId: "free",
         maxActiveVms: 1,
-        provider: "e2b",
+        provider: "freestyle",
         image: "cmuxd-ws:test",
         imageVersion: "test-version",
         idempotencyKey: "idem-1",
@@ -1804,7 +1804,7 @@ describe("VM Effect workflows", () => {
         billingTeamId: "team-workflow-idem-alt",
         billingPlanId: "free",
         maxActiveVms: 1,
-        provider: "e2b",
+        provider: "freestyle",
         image: "cmuxd-ws:test",
         imageVersion: "test-version",
         idempotencyKey: "idem-1",
@@ -1849,7 +1849,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: "provider-vm-base-deleting",
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -1869,7 +1869,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "user-base-deleting",
       billingPlanId: "free",
       maxActiveVms: 1,
-      provider: "e2b" as const,
+      provider: "freestyle" as const,
       image: "cmuxd-ws:test",
       baseName: "default",
     };
@@ -1918,7 +1918,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: "provider-vm-base-stale-delete",
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -1938,7 +1938,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "user-base-stale-delete",
       billingPlanId: "free",
       maxActiveVms: 1,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       baseName: "default",
     }).pipe(Effect.provide(providerLayer(provider))));
@@ -1957,7 +1957,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: `provider-vm-base-open-${createCalls}`,
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -1977,7 +1977,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-base-open",
       billingPlanId: "free",
       maxActiveVms: 5,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
     }).pipe(Effect.provide(layer)));
@@ -1987,7 +1987,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-base-open",
       billingPlanId: "free",
       maxActiveVms: 5,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
     }).pipe(Effect.provide(layer)));
@@ -1997,7 +1997,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-base-open-alt",
       billingPlanId: "free",
       maxActiveVms: 5,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
     }).pipe(Effect.provide(layer)));
@@ -2007,7 +2007,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "user-base-open",
       billingPlanId: "free",
       maxActiveVms: 5,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
     }).pipe(Effect.provide(layer)));
@@ -2017,7 +2017,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "user-base-open",
       billingPlanId: "free",
       maxActiveVms: 5,
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
     }).pipe(Effect.provide(layer)));
@@ -2412,7 +2412,7 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-limit-owner', 'team-workflow-limit', 'free', 'e2b', 'provider-vm-limit-1', 'cmuxd-ws:test', 'running')
+      values ('user-workflow-limit-owner', 'team-workflow-limit', 'free', 'freestyle', 'provider-vm-limit-1', 'cmuxd-ws:test', 'running')
     `;
 
     let createCalls = 0;
@@ -2421,7 +2421,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: "provider-vm-limit-2",
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -2442,7 +2442,7 @@ describe("VM Effect workflows", () => {
         billingTeamId: "team-workflow-limit",
         billingPlanId: "free",
         maxActiveVms: 1,
-        provider: "e2b",
+        provider: "freestyle",
         image: "cmuxd-ws:test",
         idempotencyKey: "limit-new-1",
       }).pipe(
@@ -3355,7 +3355,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: "provider-vm-concurrent-idem",
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -3375,7 +3375,7 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-workflow-concurrent-idem",
       billingPlanId: "free",
       maxActiveVms: 1,
-      provider: "e2b" as const,
+      provider: "freestyle" as const,
       image: "cmuxd-ws:test",
       idempotencyKey: "concurrent-idem-1",
     };
@@ -3432,7 +3432,7 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-reuse-slot', 'team-workflow-reuse-slot', 'free', 'e2b', 'provider-vm-reuse-old', 'cmuxd-ws:test', 'running')
+      values ('user-workflow-reuse-slot', 'team-workflow-reuse-slot', 'free', 'freestyle', 'provider-vm-reuse-old', 'cmuxd-ws:test', 'running')
     `;
 
     let createCalls = 0;
@@ -3442,7 +3442,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: "provider-vm-reuse-new",
             status: "running" as const,
             image: "cmuxd-ws:test",
@@ -3477,7 +3477,7 @@ describe("VM Effect workflows", () => {
         billingTeamId: "team-workflow-reuse-slot",
         billingPlanId: "free",
         maxActiveVms: 1,
-        provider: "e2b",
+        provider: "freestyle",
         image: "cmuxd-ws:test",
         idempotencyKey: "reuse-slot-new",
       }).pipe(Effect.provide(layer)),
@@ -3573,7 +3573,7 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           createCalls += 1;
           return {
-            provider: "e2b" as const,
+            provider: "freestyle" as const,
             providerVmId: `provider-vm-credit-grant-${createCalls}`,
             status: "running" as const,
             image: "cmuxd-ws:credit-grant",
@@ -3625,7 +3625,7 @@ describe("VM Effect workflows", () => {
           billingTeamId: "team-workflow-credit-grant",
           billingPlanId: "free",
           maxActiveVms: 10,
-          provider: "e2b",
+          provider: "freestyle",
           image: "cmuxd-ws:credit-grant",
           idempotencyKey,
         }).pipe(Effect.provide(layer)),

@@ -67,7 +67,7 @@ the provider, provider image id, cmux image version, build metadata, and validat
 
 Default image policy:
 
-- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE`,
+- Production and staging select images with `FREESTYLE_SANDBOX_SNAPSHOT`,
   `FREESTYLE_SANDBOX_SNAPSHOT`, and `DAYTONA_SANDBOX_SNAPSHOT`. A provider that ships a
   desktop image also gets a `_DESKTOP_IMAGE` selector; none does today.
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
@@ -89,7 +89,7 @@ Default image policy:
   is unset.
 - The current intended default provider is Freestyle on the public platform
   (`api.freestyle.sh`). Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` (the local loader supplies
-  this when unset); E2B and Daytona remain explicit rollback/provider overrides rather than
+  this when unset); Freestyle is the only provider, so the override can only ever name it, rather than
   silent fallbacks.
 - **The Freestyle devbox snapshot must be re-baked on the public platform.** The manifest's
   only Freestyle entry (`sh-fb3dcf7b…`) was baked against the retired `beta-api.freestyle.sh`
@@ -118,7 +118,7 @@ Rollback is an env-only operation:
 ## Baked tools and VM-local cmux CLI
 
 The E2B, Daytona, and Freestyle devbox images are defined in
-`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-e2b.ts`,
+`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-freestyle.ts`,
 `build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
@@ -200,16 +200,10 @@ Set these Vercel environment variables per production/staging environment:
   gate is **on**. `0`/`false`/`off` is treated as the old permissive escape hatch only when
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
-- `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
-- `CMUX_VM_DAYTONA_ENABLED`, per-provider Daytona create kill switch.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
-- `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
-- `DAYTONA_API_KEY`, Daytona provider key.
-- `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
-- `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
 - `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona` (defaults to `freestyle`).
 - `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
   paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
@@ -219,9 +213,7 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
 - `CMUX_VM_CREATE_CREDIT_ITEM_ID`, optional global Stack Auth item used as a prepaid create-credit bucket for every plan without a plan-specific item. Set to `none`, `disabled`, `off`, or `false` to opt out of create credits for plans without a plan-specific value.
 - `CMUX_VM_CREATE_CREDIT_COST`, default `1`.
-- `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
-- `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
 - `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0` and ignored while the paid-plan gate is enforced.
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `5`.
 - Stack Auth environment variables.
@@ -268,7 +260,7 @@ bun run cloud-vm:smoke -- production
 Staging may run a real create/destroy smoke with tiny quotas:
 
 ```bash
-bun run cloud-vm:smoke -- staging --create --provider e2b
+bun run cloud-vm:smoke -- staging --create --provider freestyle
 ```
 
 Run default-provider stress before changing provider defaults or after provider incidents:
@@ -373,23 +365,20 @@ transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupp
 `cmux vm base open` and the Machines panel all drive this from the Mac.
 See docs/cloud-cmux-tui-daemon.md for the design.
 
-E2B and Daytona machines run the same cmux-tui daemon and only the `cmux-remote`
-transport. The E2B route is the sandbox's public port host
-(`wss://1337-<id>.e2b.app/v1/link`; the proxy's only request auth is a header the
-dialer cannot send, so sandboxes are created with public port traffic and the
-daemon's Noise enrollment gates sessions). The Daytona route is the preview proxy
-with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter; preview tokens
-reset on sandbox restart, so the backend mints a fresh link per attach. cmux does
-not use Daytona's SSH gateway. The backend writes only a hash of attach tokens to
-Postgres; raw tokens are returned once to the Mac client. Machines created by the
-old cmuxd-remote drivers cannot serve this transport and need recreation.
+Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
+transport. The route is the VM's stable public IPv6 straight to the daemon
+(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
+arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
+enrollment is what gates sessions. The backend writes only a hash of attach
+tokens to Postgres; raw tokens are returned once to the Mac client. Machines
+created by the old cmuxd-remote drivers cannot serve this transport and need
+recreation.
 
-Operational note: Freestyle is the intended default. Before rollout or rollback, verify the
-deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`, and
-`FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`,
-then confirm attach and daemon health with
-`bun run cloud-vm:stress -- <target> --provider default`.
-Keep E2B/Daytona enabled only when deliberately selecting them as rollback providers.
+Operational note: before rollout, verify the deployed
+`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,
+and `FREESTYLE_SANDBOX_SNAPSHOT` env values with
+`bun run cloud-vm:env:audit -- <target> --strict`, then confirm attach and
+daemon health with `bun run cloud-vm:stress -- <target> --provider default`.
 
 ## Usage, limits, and pricing
 

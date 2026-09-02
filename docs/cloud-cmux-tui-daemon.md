@@ -93,17 +93,13 @@ never on a connection-scoped lease.
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. The per-provider delivery mechanisms stay
-what they are:
-
-| provider | today | change |
-| --- | --- | --- |
-| e2b | baked into template by `web/scripts/build-cloud-vm-images.ts` | swap the copied binary and start command |
-| daytona | baked into snapshot, entrypoint restarts it | same swap; the driver's repair exec restarts `server start` |
-| freestyle | systemd unit in the VM snapshot | same swap in the unit file |
+sha256, from the artifacts manifest. Freestyle's delivery mechanism stays what
+it is: a systemd unit in the VM snapshot, with the binary swapped in the unit
+file. (E2B and Daytona had their own rows here — a template-baked binary and a
+snapshot entrypoint respectively — until both providers were removed.)
 
 The daemon's remote state dir must live on the persistent volume (the machine's
-home; every current provider runs the daemon as root with `HOME=/root`, so the
+home; Freestyle runs the daemon as root with `HOME=/root`, so the
 HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
 non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
 but no driver selects it today.)
