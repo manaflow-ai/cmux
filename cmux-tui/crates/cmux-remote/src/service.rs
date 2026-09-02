@@ -2719,6 +2719,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delayed_tunnel_frame_survives_delivery_tombstone_churn() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        client_stream.close().await.unwrap();
+        assert!(daemon_stream.receive().await.unwrap().unwrap().finished);
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+
+        let mut closed = client.closed.lock().await;
+        for id in 100_000..100_000 + DELIVERY_FRAMES_PER_LANE as u64 + 1 {
+            closed.insert_on(id * 2 + 1, LANE_TUNNEL_BIT);
+        }
+        assert!(!closed.contains_on(stream_id, Lane::Tunnel));
+        drop(closed);
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                Some(0),
+                Lane::Tunnel,
+                stream_id,
+                Bytes::from_static(b"delayed tunnel"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.unwrap().unwrap();
+        assert!(
+            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
+        );
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn unknown_stream_tombstone_is_lane_specific() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
