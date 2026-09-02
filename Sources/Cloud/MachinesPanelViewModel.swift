@@ -671,7 +671,16 @@ final class MachinesPanelViewModel: ObservableObject {
 
     private func performRefresh() async {
         guard let client = VMClient.shared else {
+            // A signed-in panel can briefly outlive the client during bootstrap.
+            // Treat that as a completed, retryable load so the UI cannot remain
+            // blank behind an endless spinner.
+            lastErrorDescription = String(
+                localized: "machines.unavailable.title",
+                defaultValue: "Cloud is unreachable"
+            )
+            listProblem = .unreachable
             isLoading = false
+            hasLoadedOnce = true
             return
         }
         do {
