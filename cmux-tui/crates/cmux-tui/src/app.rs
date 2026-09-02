@@ -16838,8 +16838,9 @@ impl App {
         }
         let point = Self::selection_point(cell)?;
         let handle = self.session.surface(surface)?;
-        let (range, content_generation) =
-            handle.with_terminal_and_generation(|terminal, generation| {
+        let (range, content_generation) = handle
+            .with_terminal_and_generation(|terminal, generation| {
+                let point = terminal.normalize_selection_point_screen(point)?;
                 let range = match mode {
                     SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
                     SelectionMode::Line => terminal
@@ -16849,8 +16850,9 @@ impl App {
                         .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
                     SelectionMode::Cell => None,
                 };
-                (range, generation)
-            })?;
+                Some((range, generation))
+            })
+            .flatten()?;
         let range = range?;
         Some((Self::selection_from_range(surface, range), Some(content_generation)))
     }
@@ -17072,6 +17074,8 @@ impl App {
         }
         let (range, content_generation) = handle
             .with_terminal_and_generation(|terminal, generation| {
+                let anchor_point = terminal.normalize_selection_point_screen(anchor_point)?;
+                let current_point = terminal.normalize_selection_point_screen(current_point)?;
                 let range = match mode {
                     SelectionMode::Word => {
                         // Query both directions: Ghostty's nearest-word lookup is
@@ -27563,6 +27567,35 @@ mod tests {
     }
 
     #[test]
+    fn double_clicking_the_trailing_cell_of_a_wide_word_selects_the_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-wide-word-selection-test", "foo 界 bar".as_bytes());
+
+        // The CJK character occupies columns 4 and 5. A click on the trailing
+        // cell must behave like a click on the grapheme's leading cell.
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 5,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((4, 0), (4, 0))),
+            "double-clicking a wide grapheme's trailing cell must select its word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn a_single_cell_press_does_not_store_a_zero_length_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
@@ -27933,6 +27966,45 @@ mod tests {
             app.selection.map(|selection| selection.range()),
             Some(((6, 0), (10, 0))),
             "dragging back must shrink to the word selected at the press"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_to_a_wide_word_trailing_cell_selects_the_word() {
+        let (mut app, mux, surface, content) = selection_fixture(
+            "double-click-wide-word-drag-selection-test",
+            "alpha 界 omega".as_bytes(),
+        );
+
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+        app.handle_mouse(first_click).unwrap();
+
+        // The wide character starts at column 6 and occupies trailing spacer
+        // column 7. Dragging to that cell must use the grapheme lead.
+        let trailing = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(trailing).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..trailing })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (6, 0))),
+            "double-click drag to a wide grapheme's trailing cell must select its word"
         );
 
         mux.close_surface(surface.id).unwrap();
