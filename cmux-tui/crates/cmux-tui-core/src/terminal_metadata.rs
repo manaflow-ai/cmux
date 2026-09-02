@@ -284,6 +284,19 @@ mod tests {
     }
 
     #[test]
+    fn invalid_utf8_does_not_swallow_a_c1_string_terminator() {
+        let mut metadata = TerminalMetadata::default();
+        // E0 must be followed by A0..BF as its first UTF-8 continuation.
+        // 9C is therefore a raw C1 ST here and must close the OSC body.
+        let mut bytes = vec![0x9d, b'9', b';'];
+        bytes.extend_from_slice(b"old");
+        bytes.extend_from_slice(&[0xe0, 0x9c]);
+        metadata.observe_output(&bytes);
+        metadata.observe_output(b"\x1b]9;new\x07");
+        assert_eq!(metadata.osc_progress(), "new");
+    }
+
+    #[test]
     fn c1_string_openers_are_isolated_from_osc() {
         let mut metadata = TerminalMetadata::default();
         for opener in [0x90, 0x98, 0x9e, 0x9f] {
