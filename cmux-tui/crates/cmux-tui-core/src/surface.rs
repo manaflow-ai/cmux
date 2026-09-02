@@ -8232,6 +8232,34 @@ mod tests {
         surface.write_paste(b"must not reach a dead host").unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn already_dead_host_publishes_exited_state_before_attach() {
+        let mux = Mux::new_for_test("already-dead-host-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(92, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        // A second hosted-exit observer can enter after the first observer
+        // latched `dead`, but before the old code published Exited. The
+        // already-dead path must still make the final replay attachable.
+        pty.dead.store(true, Ordering::Release);
+        assert_eq!(
+            surface.terminal_host_connection_state(),
+            Some(TerminalHostConnectionState::Connected)
+        );
+        pty.finish_hosted_exit();
+
+        assert_eq!(
+            surface.terminal_host_connection_state(),
+            Some(TerminalHostConnectionState::Exited)
+        );
+        let attach = surface
+            .attach_stream()
+            .expect("an exited hosted terminal must serve its final replay");
+        assert!(attach.stream.try_recv().is_err());
+    }
+
     #[test]
     fn terminal_reconnect_failure_state_never_decodes_as_connected() {
         assert_ne!(TerminalHostConnectionState::from_u8(3), TerminalHostConnectionState::Connected);

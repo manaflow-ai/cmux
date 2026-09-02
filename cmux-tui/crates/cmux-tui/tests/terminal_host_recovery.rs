@@ -2295,6 +2295,102 @@ fn transient_startup_adoption_failure_retries_in_process_until_running() {
 }
 
 #[test]
+fn delayed_adoption_host_death_materializes_exited_surface() {
+    let mut harness = RecoveryHarness::start("delayed-adopt-death");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let workspace_id = created["workspace"].as_u64().unwrap();
+    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let workspace_key = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .and_then(|workspace| workspace["key"].as_str())
+        .unwrap()
+        .to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let endpoint = PathBuf::from(&record.endpoint);
+    let held_endpoint = endpoint.with_extension("held-for-adoption-death");
+
+    // Leave the host process alive while its endpoint is unavailable. Startup
+    // must retain the record and retry adoption asynchronously.
+    harness.sigkill();
+    fs::rename(&endpoint, &held_endpoint).unwrap();
+    harness.restart();
+    let pending_deadline = Instant::now() + Duration::from_secs(10);
+    let pending = loop {
+        let pending = request(
+            &harness.socket,
+            serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": &terminal_id}),
+        );
+        if pending["lifecycle"] == "adopting" {
+            break pending;
+        }
+        assert!(
+            Instant::now() < pending_deadline,
+            "missing endpoint did not enter asynchronous adoption: {pending}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(pending["lifecycle"], "adopting");
+    assert_eq!(pending["surface"], serde_json::Value::Null);
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live
+    );
+
+    // The adoption worker must project a proven host death through the same
+    // exited-placeholder path used by cold-start reconciliation.
+    // SAFETY: this record belongs to the dedicated test harness.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    let resolved_deadline = Instant::now() + Duration::from_secs(15);
+    let resolved = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 4, "cmd": "resolve-terminal", "terminal_id": &terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" && resolved["surface"].is_u64() {
+            break resolved;
+        }
+        assert!(
+            Instant::now() < resolved_deadline,
+            "adoption death did not materialize an exited surface: {resolved}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let restored_surface = resolved["surface"]
+        .as_u64()
+        .expect("delayed adoption death lost the materialized surface");
+
+    let recovered = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "list-workspaces"}));
+    let workspace = recovered["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(workspace_key.as_str()))
+        .expect("original workspace was not recovered");
+    let tab = first_tab(workspace).expect("exited terminal lost its tab placement");
+    assert_eq!(tab["terminal_id"].as_str(), Some(terminal_id.as_str()));
+    assert_eq!(tab["surface"].as_u64(), Some(restored_surface));
+
+    // Restore the canonical path so harness cleanup can remove the dead host
+    // record and socket after this assertion.
+    fs::rename(&held_endpoint, &endpoint).unwrap();
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn adoption_topology_failures_retry_same_host_without_exited_transition() {
     let mut harness = RecoveryHarness::start("retry-adopt-topology");
     let created = request(
