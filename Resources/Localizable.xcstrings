@@ -621,13 +621,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed to launch compatibility provider at %1$@: %2$@"
+            "value": "Couldn't start the required command. Verify it is installed and try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ の互換プロバイダーを起動できませんでした: %2$@"
+            "value": "必要なコマンドを起動できませんでした。インストールされていることを確認して、もう一度お試しください。"
           }
         },
         "ar": {
@@ -746,13 +746,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes."
+            "value": "Unknown compatibility command '%1$@'. Supported commands: %2$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な互換コマンド '%@' です。対応コマンド: status、snapshot、list-workspaces、list-tabs、list-panes。"
+            "value": "不明な互換コマンド '%1$@' です。対応コマンド: %2$@。"
           }
         },
         "ar": {
@@ -273178,13 +273178,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed provider CLI.\nCommands: %@\n\nNotes:\n  - `status` accepts cmux `--json` (mapped to provider `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;\n    cmux `--json` is accepted and ignored for those aliases."
+            "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed provider CLI.\nCommands: %@\n\nNotes:\n  - `status` accepts cmux `--json` (mapped to provider `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;\n    a top-level cmux `--json` is accepted and ignored, while an alias-local\n    `--json` is rejected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みのプロバイダー CLI への非表示の互換ブリッジです。\nコマンド: %@\n\n注記:\n  - `status` は cmux の `--json` を受け付けます（プロバイダーの `status --json` に変換されます）。\n  - `snapshot`、`list-workspaces`、`list-tabs`、`list-panes` は常に JSON を返します。\n    これらのエイリアスでは cmux の `--json` は受け付けられますが無視されます。"
+            "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みのプロバイダー CLI への非表示の互換ブリッジです。\nコマンド: %@\n\n注記:\n  - `status` は cmux の `--json` を受け付けます（プロバイダーの `status --json` に変換されます）。\n  - `snapshot`、`list-workspaces`、`list-tabs`、`list-panes` は常に JSON を返します。\n    これらのエイリアスでは、先頭の cmux の `--json` は受け付けられて無視されますが、\n    エイリアス直後の `--json` は拒否されます。"
           }
         }
       }
