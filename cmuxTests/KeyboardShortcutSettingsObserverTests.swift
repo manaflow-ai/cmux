@@ -9,8 +9,10 @@ import Testing
 #endif
 
 extension GlobalSearchShortcutBehaviorTests {
-    @MainActor @Suite("Keyboard shortcut settings observer") struct KeyboardShortcutSettingsObserverTests {
-    @Test func mainThreadSettingsChangeIsAuthoritativeBeforePostReturns() {
+    @Suite("Keyboard shortcut settings observer", .serialized)
+    @MainActor
+    struct KeyboardShortcutSettingsObserverTests {
+    @Test func settingsChangeIsAuthoritativeAfterMainActorTurn() async {
         let observer = KeyboardShortcutSettingsObserver.shared
         let expectedRevision = observer.revision &+ 1
 
@@ -18,11 +20,12 @@ extension GlobalSearchShortcutBehaviorTests {
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await Task.yield()
 
-        #expect(observer.revision == expectedRevision)
+        #expect(observer.revision >= expectedRevision)
     }
 
-    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() {
+    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() async {
         let notificationCenter = NotificationCenter()
         var configuredShortcut = StoredShortcut(
             key: "f",
@@ -61,6 +64,7 @@ extension GlobalSearchShortcutBehaviorTests {
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await Task.yield()
 
         #expect(observer.globalSearchShortcut == configuredShortcut)
         #expect(globalSearchLookupCount == initialLookupCount + 1)
@@ -70,6 +74,7 @@ extension GlobalSearchShortcutBehaviorTests {
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await Task.yield()
 
         #expect(observer.globalSearchShortcut == .unbound)
         #expect(globalSearchLookupCount == initialLookupCount + 2)

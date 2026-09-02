@@ -41,16 +41,12 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             queue: .main
         ) { [weak self] notification in
             let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
-            // Capture the eligibility decision before a concurrent workspace
-            // selection can change `selectedTabId`. The title event already
-            // belongs to this manager's focused presentation at delivery time;
-            // deferring that check would silently drop the refresh.
-            let shouldRefresh = MainActor.assumeIsolated {
-                self?.tabManager?.shouldScheduleRawTitleRefresh(
-                    forWorkspaceId: changedWorkspaceId
-                ) == true
-            }
-            guard shouldRefresh else { return }
+            guard changedWorkspaceId != nil else { return }
+            // The operation-queue callback is not proof that this closure is
+            // already on the Swift MainActor. Schedule the refresh safely and
+            // do not re-check selection after the hop: a selection change may
+            // legitimately occur between ingress and delivery. The coalescer
+            // bounds the resulting toolbar work to one update per burst.
             Task { @MainActor [weak self] in
                 self?.scheduleFocusedCommandTextUpdate()
             }

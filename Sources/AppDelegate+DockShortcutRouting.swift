@@ -148,16 +148,15 @@ extension AppDelegate {
     }
 
     /// Returns the Dock for menu enablement from the delivered focus snapshot.
-    /// This uses the same bounded ownership predicate as command execution, so
-    /// a transient responder handoff cannot leave a menu item disabled while
-    /// `performFocusedDockCommand` would still route it to the Dock.
+    /// Commands evaluation must stay bounded and side-effect free, so it never
+    /// walks the responder chain or the Dock's panel/Bonsplit collections.
     func focusedDockStoreForMenu(preferredWindow: NSWindow?) -> DockSplitStore? {
         guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
         ) else {
             return nil
         }
-        return dockStoreForShortcut(context: context)
+        return deliveredDockStoreForMenu(context: context)
     }
 
     /// Clears a Dock pointer-origin transaction when a key event begins in the
@@ -245,11 +244,10 @@ extension AppDelegate {
               dock.isVisibleInUI else {
             return nil
         }
-        // The delivered state is the common steady-state path used by menu
-        // reconstruction and execution. It avoids touching Dock panel maps in
-        // the Commands body. During a real responder handoff, fall back to the
-        // structured responder check so a Dock portal can still receive the
-        // first shortcut before its host publishes `.focused`.
+        // The delivered state is the common steady-state path for shortcut
+        // context and execution. During a real responder handoff, fall back to
+        // the structured responder check so a Dock portal can still receive the
+        // first keyboard shortcut before its host publishes `.focused`.
         if context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock {
             return dock
         }
@@ -263,6 +261,24 @@ extension AppDelegate {
                 in: context.window
             )
         return resolvedMode == .dock ? dock : nil
+    }
+
+    /// Resolves a Dock using only the state already published for menu
+    /// validation. Menu execution calls this same bounded predicate; a focus
+    /// handoff therefore fails closed until the endpoint reports delivered
+    /// Dock focus instead of accidentally mutating the main workspace.
+    private func deliveredDockStoreForMenu(
+        context: MainWindowContext
+    ) -> DockSplitStore? {
+        guard let sidebarState = context.fileExplorerState,
+              sidebarState.isVisible,
+              context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock,
+              let dock = existingWindowDock(forWindowId: context.windowId),
+              !dock.isRetired,
+              dock.isVisibleInUI else {
+            return nil
+        }
+        return dock
     }
 
     /// Confirms that a registry-resolved Dock responder is live, rather than a
@@ -311,7 +327,7 @@ extension AppDelegate {
     func focusedDockStoreForSurfaceCommand(
         preferredWindow: NSWindow?
     ) -> DockSplitStore? {
-        focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+        focusedDockStoreForMenu(preferredWindow: preferredWindow)
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
@@ -382,12 +398,13 @@ extension AppDelegate {
                 ) ? preferredDock : nil
             }
         } else {
-            // Action execution (menu or shortcut) always uses the same
-            // responder-aware resolver. The Commands body separately reads a
-            // bounded delivered-focus snapshot for enablement only.
-            store = focusedDockStoreForSurfaceCommand(
-                preferredWindow: preferredWindow
-            )
+            // Menu execution uses the same bounded delivered-focus resolver as
+            // Commands enablement. Configured keyboard execution retains the
+            // responder-aware fallback at the event boundary so a portal can
+            // receive its first split keystroke during a focus handoff.
+            store = action == nil
+                ? focusedDockStoreForSurfaceCommand(preferredWindow: preferredWindow)
+                : focusedDockStoreForShortcut(preferredWindow: preferredWindow)
         }
         guard let store else {
             return false
@@ -463,9 +480,10 @@ extension AppDelegate {
         guard case .dockScoped = action.dockShortcutRoutingDisposition else {
             return false
         }
-        guard let store = focusedDockStoreForShortcut(
+        guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
-        ) else {
+        ),
+        let store = deliveredDockStoreForMenu(context: context) else {
             return false
         }
         guard !command.isFocusHistoryNavigation

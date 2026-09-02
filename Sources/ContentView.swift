@@ -10508,36 +10508,28 @@ struct ContentView: View {
 
     private func beginRenameTabFlow() {
         if let dockSurface = commandPaletteDockSurfaceTarget() {
-            startRenameFlow(
-                CommandPaletteRenameTarget(
-                    kind: .dockTab(
-                        ownerId: dockSurface.dock.workspaceId,
-                        panelId: dockSurface.panelId
-                    ),
-                    currentName: dockSurface.tab.title
-                )
-            )
+            guard let target = Self.commandPaletteDockRenameTarget(
+                dock: dockSurface.dock,
+                panelId: dockSurface.panelId
+            ) else {
+                NSSound.beep()
+                return
+            }
+            startRenameFlow(target)
             return
         }
         if let browserTarget = commandPaletteBrowserActionTarget,
            let dock = AppDelegate.shared?.dock(
                resolving: browserTarget
            ) {
-            guard let tabId = dock.surfaceId(
-                forPanelId: browserTarget.panelId
-            ), let tab = dock.bonsplitController.tab(tabId) else {
+            guard let target = Self.commandPaletteDockRenameTarget(
+                dock: dock,
+                panelId: browserTarget.panelId
+            ) else {
                 NSSound.beep()
                 return
             }
-            startRenameFlow(
-                CommandPaletteRenameTarget(
-                    kind: .dockTab(
-                        ownerId: dock.workspaceId,
-                        panelId: browserTarget.panelId
-                    ),
-                    currentName: tab.title
-                )
-            )
+            startRenameFlow(target)
             return
         }
         guard let panelContext = focusedPanelContext else {

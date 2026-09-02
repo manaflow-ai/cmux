@@ -101,10 +101,10 @@ final class MobileWorkspaceListObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // This observer is delivered on the main operation queue. Keep
-            // subscription reconciliation synchronous so a caller that posts
-            // the notification can observe the new pipeline state immediately.
-            MainActor.assumeIsolated { [weak self] in
+            // `.main` selects the operation queue, not the Swift MainActor
+            // executor. Reconcile through an explicit hop because the mobile
+            // host can post this notification from its background actor.
+            Task { @MainActor [weak self] in
                 self?.reconcilePipelines()
             }
         }

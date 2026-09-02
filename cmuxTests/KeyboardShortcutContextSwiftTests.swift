@@ -130,7 +130,7 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(commandPaletteContext: palette))
     }
 
-    @Test("Surface shortcuts allow the focused Dock but terminal-only actions reject non-terminals")
+    @Test("Surface shortcuts expose a separate Dock terminal gate")
     @MainActor
     func surfaceShortcutContextKeepsDockTerminalGateExplicit() {
         let context = KeyboardShortcutSettings.Action.renameTab.shortcutContext

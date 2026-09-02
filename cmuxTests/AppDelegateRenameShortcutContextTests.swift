@@ -335,6 +335,19 @@ struct AppDelegateRenameShortcutContextTests {
                 ) === dock
             )
             #expect(dock.focusedPanelId == selectedPanelId)
+            let renameTarget = try #require(
+                ContentView.commandPaletteDockRenameTarget(
+                    dock: dock,
+                    panelId: selectedPanelId
+                )
+            )
+            #expect(
+                renameTarget.kind == .dockTab(
+                    ownerId: dock.workspaceId,
+                    panelId: selectedPanelId
+                )
+            )
+            #expect(renameTarget.currentName == "Dock Shortcut Test Panel")
             dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
             dock.bonsplitController.requestTabContextAction(
                 .clearName,

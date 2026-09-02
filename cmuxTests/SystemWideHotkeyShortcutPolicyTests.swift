@@ -127,14 +127,18 @@ extension GlobalSearchShortcutBehaviorTests {
         // probing Carbon registrations, which can be occupied by another app
         // on a shared CI host.
         let shortcut = commandGraveShortcut()
+        let defaults = UserDefaults.standard
+        let primaryKey = KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        let legacyKey = SystemWideHotkeySettings.legacyShortcutKey
+        let previousPrimary = defaults.object(forKey: primaryKey)
+        let previousLegacy = defaults.object(forKey: legacyKey)
+        defer {
+            restoreDefault(previousPrimary, forKey: primaryKey)
+            restoreDefault(previousLegacy, forKey: legacyKey)
+        }
         let encoded = try JSONEncoder().encode(shortcut)
-        UserDefaults.standard.removeObject(
-            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
-        )
-        UserDefaults.standard.set(
-            encoded,
-            forKey: SystemWideHotkeySettings.legacyShortcutKey
-        )
+        defaults.removeObject(forKey: primaryKey)
+        defaults.set(encoded, forKey: legacyKey)
 
         #expect(
             KeyboardShortcutSettings.conflictResolutionShortcut(
@@ -144,30 +148,40 @@ extension GlobalSearchShortcutBehaviorTests {
         // The conflict snapshot is read-only; migration remains the explicit
         // responsibility of SystemWideHotkeySettings.shortcut().
         #expect(
-            UserDefaults.standard.data(
-                forKey: SystemWideHotkeySettings.legacyShortcutKey
-            ) == encoded
+            defaults.data(forKey: legacyKey) == encoded
         )
     }
 
     @Test func conflictSnapshotPreservesReopenClosedLegacyDisplacement() throws {
+        let defaults = UserDefaults.standard
+        let workspaceKey = KeyboardShortcutSettings.Action.reopenClosedWorkspace.defaultsKey
+        let browserKey = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel.defaultsKey
+        let previousWorkspace = defaults.object(forKey: workspaceKey)
+        let previousBrowser = defaults.object(forKey: browserKey)
+        defer {
+            restoreDefault(previousWorkspace, forKey: workspaceKey)
+            restoreDefault(previousBrowser, forKey: browserKey)
+        }
         let legacy = KeyboardShortcutSettings.Action
             .reopenClosedBrowserPanel
             .defaultShortcut
         let encoded = try JSONEncoder().encode(legacy)
-        UserDefaults.standard.set(
-            encoded,
-            forKey: KeyboardShortcutSettings.Action.reopenClosedWorkspace.defaultsKey
-        )
-        UserDefaults.standard.removeObject(
-            forKey: KeyboardShortcutSettings.Action.reopenClosedBrowserPanel.defaultsKey
-        )
+        defaults.set(encoded, forKey: workspaceKey)
+        defaults.removeObject(forKey: browserKey)
 
         #expect(
             KeyboardShortcutSettings.conflictResolutionShortcut(
                 for: .reopenClosedBrowserPanel
             ).isUnbound
         )
+    }
+
+    private func restoreDefault(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     @Test func nonRegistrableShowHideDoesNotReserveGlobalSearch() throws {

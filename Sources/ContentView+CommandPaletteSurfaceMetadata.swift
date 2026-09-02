@@ -1,6 +1,31 @@
+import CmuxCommandPalette
 import Foundation
 
 extension ContentView {
+    /// Builds the command-palette rename target from a live Dock panel.
+    /// Keeping the owner/panel lookup here gives both the UI flow and tests a
+    /// single identity-producing path instead of asserting an initializer in
+    /// isolation.
+    @MainActor
+    static func commandPaletteDockRenameTarget(
+        dock: DockSplitStore,
+        panelId: UUID
+    ) -> CommandPaletteRenameTarget? {
+        guard !dock.isRetired,
+              let panel = dock.panels[panelId],
+              let tabId = dock.surfaceId(forPanelId: panelId),
+              let tab = dock.bonsplitController.tab(tabId) else {
+            return nil
+        }
+        return CommandPaletteRenameTarget(
+            kind: .dockTab(
+                ownerId: dock.workspaceId,
+                panelId: panel.id
+            ),
+            currentName: tab.title
+        )
+    }
+
     func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
         switch panelType {
         case .terminal:
