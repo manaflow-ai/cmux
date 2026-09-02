@@ -330,24 +330,6 @@ enum MachineSnapshotBuilder {
 /// through this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
-    /// Retries a short-lived Cloud client bootstrap race without an unbounded loop.
-    struct CloudClientBootstrapRetry {
-        let maxRetries: Int
-
-        init(maxRetries: Int) {
-            self.maxRetries = max(0, maxRetries)
-        }
-
-        func run(attempt: () async -> Bool) async -> Bool {
-            for retry in 0...maxRetries {
-                if await attempt() { return true }
-                guard !Task.isCancelled, retry < maxRetries else { return false }
-                await Task.yield()
-            }
-            return false
-        }
-    }
-
     @Published private(set) var machines: [MachineSnapshot] = []
     @Published private(set) var plan: MachinePlanSnapshot?
     @Published private(set) var isLoading = false
@@ -592,7 +574,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
     private var refreshGeneration = 0
-    private static let maxClientBootstrapRetries = 3
 
     func refresh() {
         guard refreshTask == nil else {
@@ -612,23 +593,7 @@ final class MachinesPanelViewModel: ObservableObject {
                     }
                 }
             }
-            let loaded = await CloudClientBootstrapRetry(maxRetries: Self.maxClientBootstrapRetries).run { [weak self] in
-                guard !Task.isCancelled, let self else { return true }
-                return await self.performRefresh()
-            }
-            guard !Task.isCancelled, let self else { return }
-            if !loaded {
-                // A bounded bootstrap timeout is still a transient readiness
-                // failure. Keep the retry-first state so a slow, valid setup
-                // is never reported as permanently misconfigured.
-                self.lastErrorDescription = String(
-                    localized: "machines.unavailable.title",
-                    defaultValue: "Cloud is unreachable"
-                )
-                self.listProblem = .unreachable
-                self.isLoading = false
-                self.hasLoadedOnce = true
-            }
+            await self?.performRefresh()
         }
     }
 
@@ -686,6 +651,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
+        refreshGeneration += 1
         refreshTask?.cancel()
         refreshTask = nil
         refreshRequestedWhileLoading = false
@@ -710,14 +676,21 @@ final class MachinesPanelViewModel: ObservableObject {
         isLoading = false
     }
 
-    private func performRefresh() async -> Bool {
-        guard !Task.isCancelled else { return true }
+    private func performRefresh() async {
+        guard !Task.isCancelled else { return }
         guard let client = VMClient.shared else {
-            return false
+            lastErrorDescription = String(
+                localized: "machines.unavailable.title",
+                defaultValue: "Cloud is unreachable"
+            )
+            listProblem = .unreachable
+            isLoading = false
+            hasLoadedOnce = true
+            return
         }
         do {
             let page = try await client.listPage()
-            guard !Task.isCancelled else { return true }
+            guard !Task.isCancelled else { return }
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -748,7 +721,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 listProblem = nil
                 hasLoadedOnce = false
                 isLoading = false
-                return true
+                return
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
@@ -756,9 +729,8 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        guard !Task.isCancelled else { return true }
+        guard !Task.isCancelled else { return }
         isLoading = false
         hasLoadedOnce = true
-        return true
     }
 }
