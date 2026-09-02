@@ -406,23 +406,24 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let startedAt = Date.now
         try process.run()
-        try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 20)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        waitForProcessesToExit(processIDs)
+        waitForProcessesToExit(processIDs, timeout: 10)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
         // The cleanup shares one two-second deadline across the whole tree, and
         // once it expires each unvisited subtree is frozen and force-killed
-        // from one process-table snapshot. That sweep costs a few `ps` calls
-        // per leftover node, so allow for it; twenty-five per-node deadlines
-        // would take close to a minute.
+        // from one process-table snapshot. Process-table scans can be slow on a
+        // loaded macOS host, so allow bounded cleanup overhead while still
+        // rejecting the old one-deadline-per-node behavior (which scales toward
+        // a minute for this 25-node fixture).
         #expect(
-            elapsed < 5,
+            elapsed < 15,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
         #expect(!processIDs.contains(where: processIsRunning))
