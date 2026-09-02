@@ -13,6 +13,7 @@ import json
 import pathlib
 import re
 import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -385,6 +386,44 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, cleanup_run)
         self.assertIn("CMUX_KEYCHAIN_CREATED", cleanup_run)
+
+    def test_keychain_cleanup_parses_indented_quoted_paths(self) -> None:
+        document = load()
+        cleanup_step = next(
+            step
+            for step in document["jobs"]["build-sign-notarize"]["steps"]
+            if step.get("name") == "Cleanup keychain"
+        )
+        cleanup_run = cleanup_step["run"]
+        parser_start = cleanup_run.index("  keychains=()")
+        parser_end = cleanup_run.index(
+            "  if ((${#keychains[@]} > 0));", parser_start
+        )
+        parser = cleanup_run[parser_start:parser_end]
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8") as backup:
+            backup.write(
+                '    "/Users/runner/Library/Keychains/login.keychain-db"\n'
+                '    "/Library/Keychains/System.keychain"\n'
+            )
+            backup.flush()
+            harness = f'''\
+set -euo pipefail
+backup="$1"
+{parser}
+printf '<%s>\\n' "${{keychains[@]}}"
+'''
+            result = subprocess.run(
+                ["bash", "-c", harness, "keychain-parser", backup.name],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "</Users/runner/Library/Keychains/login.keychain-db>\n"
+            "</Library/Keychains/System.keychain>\n",
+        )
 
     def test_release_asset_guard_uses_step_success_without_dead_outputs(self) -> None:
         document = load()
