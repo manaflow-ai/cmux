@@ -23,8 +23,8 @@ import {
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
-  VM_MEMORY_OPTIONS_MB,
   defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
@@ -373,15 +373,18 @@ export async function POST(request: Request): Promise<Response> {
             details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
           });
         }
-        if (!VM_MEMORY_OPTIONS_MB.includes(memoryMb)) {
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        if (!memoryOptionsMb.includes(memoryMb)) {
           // The pricing page promises every machine is the plan machine, so a
           // smaller request is refused rather than quietly under-delivered.
+          // The plan default is always accepted, so operator overrides cannot
+          // make an omitted size fail.
           return vmErrorResponse({
             error: "vm_memory_unsupported",
             status: 400,
             message: "The requested Cloud VM size is not offered.",
-            action: `Omit \`memoryMb\`, or choose one of: ${VM_MEMORY_OPTIONS_MB.join(", ")} MB.`,
-            details: { requestedMemoryMb: memoryMb, memoryOptionsMb: [...VM_MEMORY_OPTIONS_MB], planId: entitlements.planId },
+            action: `Omit \`memoryMb\`, or choose one of: ${memoryOptionsMb.join(", ")} MB.`,
+            details: { requestedMemoryMb: memoryMb, memoryOptionsMb: [...memoryOptionsMb], planId: entitlements.planId },
           });
         }
         setSpanAttributes(span, {

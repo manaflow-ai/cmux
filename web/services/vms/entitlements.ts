@@ -161,6 +161,22 @@ export function maxMemoryMbForPlan(
   );
 }
 
+/**
+ * Sizes a plan accepts: the catalog entries at or below the plan's ceiling,
+ * plus the plan's configured default, so an operator memory override
+ * (CMUX_VM_*_DEFAULT_MEMORY_MB / _MAX_MEMORY_MB) always names an accepted
+ * size instead of turning every create into a 400.
+ */
+export function memoryOptionsMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): readonly number[] {
+  const max = maxMemoryMbForPlan(planId, env);
+  const options = new Set(VM_MEMORY_OPTIONS_MB.filter((mb) => mb <= max));
+  options.add(defaultMemoryMbForPlan(planId, env));
+  return [...options].sort((a, b) => a - b);
+}
+
 /** Size a plan gets when it doesn't ask for one; never above the plan's max. */
 export function defaultMemoryMbForPlan(
   planId: string | null | undefined,

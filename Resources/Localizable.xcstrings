@@ -149147,6 +149147,23 @@
         }
       }
     },
+    "pricing.native.compare.concurrent.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50 per user"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーごとに 50"
+          }
+        }
+      }
+    },
     "pricing.native.compare.custom": {
       "extractionState": "manual",
       "localizations": {
@@ -150292,13 +150309,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The same Cloud VM allowance as Pro"
+            "value": "Up to 50 Cloud VMs per user"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro と同じ Cloud VM 枠"
+            "value": "ユーザーごとに最大 50 台の Cloud VM"
           }
         }
       }

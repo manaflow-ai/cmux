@@ -432,7 +432,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "The same Cloud VM allowance as Pro"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -606,7 +606,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.concurrent", defaultValue: "Concurrent Cloud VMs"),
             free: .text(String(localized: "pricing.native.compare.concurrent.free", defaultValue: "1")),
             pro: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "50")),
-            team: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "50")),
+            team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "50 per user")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(

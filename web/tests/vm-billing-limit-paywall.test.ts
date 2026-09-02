@@ -6,6 +6,7 @@ import {
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
   maxMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   vcpusForMemoryMb,
   vmDiskMb,
   vmFreeAccessWindowDays,
@@ -92,6 +93,15 @@ describe("Cloud VM memory allowance", () => {
     expect(vmDiskMb({})).toBe(204800);
     expect(vmDiskMb({ CMUX_VM_DISK_MB: "65536" })).toBe(65536);
     expect(() => vmDiskMb({ CMUX_VM_DISK_MB: "0" })).toThrow();
+  });
+
+  test("accepted sizes follow the plan ceiling and always include the configured default", () => {
+    expect(memoryOptionsMbForPlan("pro", {})).toEqual([20480]);
+    // An operator default below the catalog stays creatable, so an omitted
+    // size never 400s after an override.
+    expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "8192" })).toEqual([8192, 20480]);
+    // A lower ceiling trims the catalog and keeps the (clamped) default.
+    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "16384" })).toEqual([16384]);
   });
 
   test("memory defaults and caps are independently env-overridable", () => {
