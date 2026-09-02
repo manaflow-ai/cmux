@@ -412,7 +412,7 @@ fn renderable_cell_text(text: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ghostty_vt::{Callbacks, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, CursorInfo, CursorShape, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
 
@@ -545,6 +545,68 @@ mod tests {
 
         let clipped_tail = draw_crop(2);
         assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
+    }
+
+    #[test]
+    fn cropped_grid_places_a_wide_cell_cursor_on_the_lead_cell() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界bc".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let mut render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        // A terminal cursor may be reported on the trailing spacer of a wide
+        // grapheme. The renderer must use the lead column for its placement.
+        render.frame.cursor = Some(CursorInfo {
+            x: 2,
+            y: 0,
+            shape: CursorShape::Block,
+            blinking: false,
+        });
+
+        let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 3, height: 1 }, source_x: 1 },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        assert_eq!(cursor, Some((0, 0)));
+
+        // Cropping from the spacer itself must not leave a cursor on a blank
+        // partial-glyph cell.
+        let mut output = RatatuiTerminal::new(TestBackend::new(2, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 2, height: 1 }, source_x: 2 },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+        assert_eq!(cursor, None);
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {
