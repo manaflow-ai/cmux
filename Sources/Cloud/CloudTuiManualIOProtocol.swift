@@ -142,6 +142,15 @@ struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
+    /// Checks that the control socket still responds. Used by the attachment
+    /// read watchdog when the remote PTY has no output.
+    func ping(requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "ping",
+        ]
+    }
+
     /// Advertises this connection as the native Ghostty mirror.  The server
     /// only adds capabilities it recognizes, so sending these to an older
     /// daemon is safe and leaves the byte attach fallback available.

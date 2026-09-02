@@ -1,6 +1,17 @@
 import CmuxTerminal
 import Foundation
 
+/// Clock seam for bounded, cancellable manual-I/O deadlines.
+protocol CloudTuiManualIOClock: Sendable {
+    func sleep(for duration: Duration) async throws
+}
+
+struct SystemCloudTuiManualIOClock: CloudTuiManualIOClock {
+    func sleep(for duration: Duration) async throws {
+        try await Task.sleep(for: duration)
+    }
+}
+
 /// Owns one native cloud-terminal attachment.
 ///
 /// The session is the only bridge between a remote cmux-tui PTY and a local
@@ -26,6 +37,7 @@ final class CloudTuiManualMirrorSession {
         case attach
         case resize
         case claim
+        case ping
     }
 
     private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
@@ -42,6 +54,8 @@ final class CloudTuiManualMirrorSession {
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var runtimeSampleTask: Task<Void, Never>?
+    private var readWatchdogTask: Task<Void, Never>?
+    private var requestWatchdogTasks: [UInt64: Task<Void, Never>] = [:]
     private var socketPath: String?
     private var nextRequestID: UInt64 = 1
     private var pendingRequests: [UInt64: RequestKind] = [:]
@@ -66,12 +80,18 @@ final class CloudTuiManualMirrorSession {
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: Phase = .idle
 
+    private static let handshakeTimeout: Duration = .seconds(5)
+    private static let requestTimeout: Duration = .seconds(5)
+    private static let readTimeout: Duration = .seconds(15)
+    private static let leaseCapability = "view-attachment-lease-v1"
+
     init(
         machineID: String,
         terminalID: String,
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
+        clock: any CloudTuiManualIOClock = SystemCloudTuiManualIOClock(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
         self.machineID = machineID
@@ -80,10 +100,17 @@ final class CloudTuiManualMirrorSession {
         geometryClaimEligible = initiallyClaimsGeometry
         self.onNeedsReconnect = onNeedsReconnect
         self.commandBuilder = commandBuilder
+        self.clock = clock
         inputRouter = CloudTuiManualIOInputRouter(
             surfaceID: remoteSurfaceID,
             commandBuilder: commandBuilder
         )
+    }
+
+    private let clock: any CloudTuiManualIOClock
+
+    static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
+        capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
     /// Binds the local Ghostty surface. The pane installs the same callbacks
@@ -306,6 +333,9 @@ final class CloudTuiManualMirrorSession {
         eventTask = nil
         runtimeSampleTask?.cancel()
         runtimeSampleTask = nil
+        readWatchdogTask?.cancel()
+        readWatchdogTask = nil
+        cancelAllRequestWatchdogs()
         inputRouter.invalidate()
         if let connection,
            wasAttached,
@@ -339,6 +369,7 @@ final class CloudTuiManualMirrorSession {
         eventTask = Task { @MainActor [weak self, connection] in
             for await frame in connection.events {
                 guard let self, self.connection === connection else { return }
+                self.noteReadFrame()
                 self.handle(frame: frame)
             }
             guard let self,
@@ -399,6 +430,9 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected() {
+        readWatchdogTask?.cancel()
+        readWatchdogTask = nil
+        cancelAllRequestWatchdogs()
         connection?.close()
         connection = nil
         inputRouter.setConnection(nil)
@@ -425,6 +459,7 @@ final class CloudTuiManualMirrorSession {
         error: String?
     ) {
         guard let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        cancelRequestWatchdog(requestID)
         switch kind {
         case .identify:
             guard ok else {
@@ -446,10 +481,15 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected()
                 return
             }
+            guard !Self.requiresLeaseToken(capabilities: Array(serverCapabilities), lease: lease) else {
+                transitionToDisconnected()
+                return
+            }
             attachResponseReceived = true
             remoteLease = lease
             phase = .attached
             if let connection { inputRouter.setConnection(connection) }
+            if let connection { armReadWatchdog(on: connection) }
             resumeSizingIfNeeded()
         case .resize:
             guard ok else {
@@ -509,6 +549,8 @@ final class CloudTuiManualMirrorSession {
                 sendResize(next)
             }
             reconcileRemoteGrid()
+        case .ping:
+            if let connection { armReadWatchdog(on: connection) }
         }
     }
 
@@ -517,6 +559,7 @@ final class CloudTuiManualMirrorSession {
     private func sendIdentify(on connection: CloudTuiManualIOConnection) {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .identify
+        armRequestWatchdog(requestID, timeout: Self.handshakeTimeout)
         connection.send(commandBuilder.identify(requestID: requestID))
     }
 
@@ -533,6 +576,7 @@ final class CloudTuiManualMirrorSession {
     private func sendClientInfo(on connection: CloudTuiManualIOConnection) {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .clientInfo
+        armRequestWatchdog(requestID, timeout: Self.requestTimeout)
         connection.send(
             commandBuilder.setClientInfo(
                 name: "cmux cloud terminal",
@@ -557,6 +601,7 @@ final class CloudTuiManualMirrorSession {
             requestID: requestID
         ) else { return }
         pendingRequests[requestID] = .attach
+        armRequestWatchdog(requestID, timeout: Self.handshakeTimeout)
         connection.send(command)
     }
 
@@ -573,6 +618,7 @@ final class CloudTuiManualMirrorSession {
         guard let connection, attachResponseReceived else { return }
         let requestID = takeRequestID()
         pendingRequests[requestID] = .resize
+        armRequestWatchdog(requestID, timeout: Self.requestTimeout)
         if let remoteLease,
            let command = commandBuilder.resizeAttachedView(
                surfaceID: remoteSurfaceID,
@@ -606,6 +652,7 @@ final class CloudTuiManualMirrorSession {
         claimInFlight = true
         let requestID = takeRequestID()
         pendingRequests[requestID] = .claim
+        armRequestWatchdog(requestID, timeout: Self.requestTimeout)
         connection.send(
             commandBuilder.claimGeometry(
                 surfaceID: remoteSurfaceID,
@@ -664,6 +711,61 @@ final class CloudTuiManualMirrorSession {
     private func takeRequestID() -> UInt64 {
         defer { nextRequestID = nextRequestID == UInt64.max ? 1 : nextRequestID + 1 }
         return nextRequestID
+    }
+
+    private func armRequestWatchdog(_ requestID: UInt64, timeout: Duration) {
+        requestWatchdogTasks[requestID]?.cancel()
+        requestWatchdogTasks[requestID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard self.pendingRequests[requestID] != nil else { return }
+            self.transitionToDisconnected()
+        }
+    }
+
+    private func cancelRequestWatchdog(_ requestID: UInt64) {
+        requestWatchdogTasks.removeValue(forKey: requestID)?.cancel()
+    }
+
+    private func cancelAllRequestWatchdogs() {
+        for task in requestWatchdogTasks.values { task.cancel() }
+        requestWatchdogTasks.removeAll(keepingCapacity: false)
+    }
+
+    private func armReadWatchdog(on connection: CloudTuiManualIOConnection) {
+        readWatchdogTask?.cancel()
+        readWatchdogTask = Task { @MainActor [weak self, connection] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: Self.readTimeout)
+            } catch {
+                return
+            }
+            guard self.connection === connection, self.phase == .attached else { return }
+            let requestID = self.takeRequestID()
+            self.pendingRequests[requestID] = .ping
+            self.armRequestWatchdog(requestID, timeout: Self.requestTimeout)
+            connection.send(self.commandBuilder.ping(requestID: requestID))
+        }
+    }
+
+    private func noteReadFrame() {
+        guard phase == .attached, let connection else { return }
+        // Any event proves the socket is live. A pending ping is no longer
+        // needed, so retire it and restart the idle deadline.
+        let pingIDs = pendingRequests.compactMap { entry in
+            if case .ping = entry.value { return entry.key }
+            return nil
+        }
+        for requestID in pingIDs {
+            pendingRequests.removeValue(forKey: requestID)
+            cancelRequestWatchdog(requestID)
+        }
+        armReadWatchdog(on: connection)
     }
 
     private static func isUnsupportedClaimError(_ error: String?) -> Bool {
