@@ -5125,6 +5125,82 @@ mod tests {
         }));
     }
 
+    #[tokio::test]
+    async fn detach_close_keeps_generation_reserved_until_control_drain() {
+        let h = harness(None, None);
+        h.open_with_transport("p1", "main", "transport-a").await;
+        let pty = h.spawned()[0].clone();
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        {
+            let mut state = pty.state.lock().unwrap();
+            state.write_entered = Some(TestArc::clone(&entered));
+            state.write_release = Some(TestArc::clone(&release));
+        }
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("held"),
+        });
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let input_context =
+            h.context_with_transport("supervised", h.owner.clone(), Some("transport-a"));
+        let runtime = tokio::runtime::Handle::current();
+        let input_task =
+            thread::spawn(move || runtime.block_on(manager.handle_frame(&input, &input_context)));
+        entered.wait();
+
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let detach = thread::spawn(move || manager.detach_transport("transport-a"));
+        for _ in 0..100 {
+            if h.manager
+                .inner
+                .attachments
+                .lock()
+                .unwrap()
+                .get("p1")
+                .is_some_and(|attachment| attachment.close_pending.load(Ordering::SeqCst))
+            {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert!(
+            h.manager
+                .inner
+                .attachments
+                .lock()
+                .unwrap()
+                .get("p1")
+                .is_some_and(|attachment| attachment.close_pending.load(Ordering::SeqCst)),
+            "detach must mark the generation as closing before draining control operations"
+        );
+
+        let replacement = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&replacement, &h.context("supervised", h.owner.clone())).await;
+        assert_eq!(h.spawned().len(), 1, "same-ID open must wait for old control drain");
+        assert!(
+            h.sent()
+                .iter()
+                .any(|frame| { frame["type"] == "pty_error" && frame["code"] == "bad_request" })
+        );
+
+        release.wait();
+        input_task.join().expect("input operation");
+        detach.join().expect("detach operation");
+        h.manager.handle_frame(&replacement, &h.context("supervised", h.owner.clone())).await;
+        assert_eq!(h.spawned().len(), 2, "same-ID open succeeds after old control kill");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn async_close_waits_for_control_operation_across_workers() {
         let h = harness(None, None);

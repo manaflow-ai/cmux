@@ -817,6 +817,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn late_close_registration_waits_for_queued_events() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-late-order-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control late-order socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) =
+                listener.accept().await.expect("accept control late-order socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for event handler");
+            stream.write_all(b"{\"event\":\"queued\"}\n").await.expect("write queued event");
+            drop(stream);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect late-order socket");
+        accepted_rx.await.expect("wait for control late-order server");
+        let entered = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let entered_for_handler = Arc::clone(&entered);
+        let release_for_handler = Arc::clone(&release);
+        let seen_for_event = Arc::clone(&seen);
+        control.on_event(Box::new(move |_| {
+            seen_for_event.lock().expect("event order lock").push("event");
+            entered_for_handler.wait();
+            release_for_handler.wait();
+        }));
+        start_tx.send(()).expect("start late-order event");
+        entered.wait();
+        control.wait_reader_done().await;
+
+        let seen_for_close = Arc::clone(&seen);
+        let control_for_close = Arc::clone(&control);
+        let close_registration = std::thread::spawn(move || {
+            control_for_close.on_close(Box::new(move || {
+                seen_for_close.lock().expect("close order lock").push("close");
+            }));
+        });
+        std::thread::yield_now();
+        assert!(!close_registration.is_finished(), "late close must wait for event drain");
+        release.wait();
+        close_registration.join().expect("late close registration");
+        assert_eq!(*seen.lock().expect("event order lock"), vec!["event", "close"]);
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("join control late-order server")
+            .expect("late-order server task");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
         let socket_path =
             std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
