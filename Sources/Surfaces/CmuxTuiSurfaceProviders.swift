@@ -136,7 +136,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
-/// session, so a local pane closing never touches them (`projectionDidEnd` is a no-op).
+/// session, so a local pane closing never touches them (`projectionDidEnd` is a no-op);
+/// killing is `closeTerminal`, which the workspace's cloud close gate calls when the
+/// person picks Kill Process (`Workspace+CloudTerminalClose.swift`).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     enum ProviderError: Error, LocalizedError {
@@ -506,7 +508,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduleRefresh()
     }
 
-    /// The terminal lives in the machine's session; only the local pane went away.
+    /// The terminal lives in the machine's session; only the local pane went away
+    /// (a detach). A kill went through `closeTerminal` before the pane closed.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         materializedPanels.remove(projection.panelID)
     }

@@ -36,6 +36,7 @@ struct SettingsRowAnchorResolutionTests {
     /// fails if a curated search result has no backing anchor, and
     /// ``rowAnchorsAreUniqueAcrossRows`` fails if two rows collide on one id.
     static let rowConfigPaths: [String] = [
+        "app.closeCloudTerminal",
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.focusPaneOnFirstClick",

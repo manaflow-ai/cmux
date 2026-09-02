@@ -150,6 +150,28 @@ struct AgentIntegrationSettingsStoreTests {
     }
 }
 
+@Suite("CloudTerminalCloseStore")
+struct CloudTerminalCloseStoreTests {
+    @Test func neverSetDefaultsToAsk() {
+        let store = CloudTerminalCloseStore(defaults: makeScratchDefaults())
+        #expect(store.action == .ask)
+    }
+
+    @Test func storedActionRoundTrips() {
+        let defaults = makeScratchDefaults()
+        let store = CloudTerminalCloseStore(defaults: defaults)
+        store.setAction(.kill)
+        #expect(defaults.string(forKey: "closeCloudTerminalAction") == "kill")
+        #expect(CloudTerminalCloseStore(defaults: defaults).action == .kill)
+    }
+
+    @Test func unrecognizedStoredValueReadsAsAsk() {
+        let defaults = makeScratchDefaults()
+        defaults.set("explode", forKey: "closeCloudTerminalAction")
+        #expect(CloudTerminalCloseStore(defaults: defaults).action == .ask)
+    }
+}
+
 @Suite("QuitConfirmationStore")
 struct QuitConfirmationStoreTests {
     @Test func neverSetDefaultsToAlways() {

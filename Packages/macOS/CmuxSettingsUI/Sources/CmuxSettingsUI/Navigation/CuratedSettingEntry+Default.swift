@@ -56,6 +56,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "telemetry", title: "Send anonymous telemetry", synonyms: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: "Warn Before Quit", synonyms: "app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(section: .app, id: "warn-before-closing-tab", title: "Warn Before Closing Tab", synonyms: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+            .init(section: .app, id: "close-cloud-terminal", title: "Closing a Cloud Terminal", synonyms: "app.closeCloudTerminal cloud terminal close detach kill process pty command-w cmd-w remote machine"),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Tab Close Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),

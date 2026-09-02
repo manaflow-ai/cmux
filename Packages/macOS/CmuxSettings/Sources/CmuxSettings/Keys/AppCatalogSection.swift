@@ -137,6 +137,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "warnBeforeQuitShortcut"
     )
 
+    public let closeCloudTerminal = DefaultsKey<CloudTerminalCloseAction>(
+        id: "app.closeCloudTerminal",
+        defaultValue: .ask,
+        userDefaultsKey: "closeCloudTerminalAction"
+    )
+
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
         defaultValue: true,

@@ -70,6 +70,24 @@ Default: `always` for stable and nightly builds. DEV builds always behave as `ne
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `app.closeCloudTerminal`
+
+Controls what closing a pane that shows a cloud terminal (a terminal running in a machine's cmux-tui session) does to the terminal. Cmd+W, the tab close button, the pane close button, and Close Tab all go through it. The tab and terminal context menus always offer both verbs (`Detach Terminal`, `Kill Process`).
+
+- `ask`: prompt with Detach, Kill Process, or Cancel. "Remember my choice" writes `detach` or `kill` here.
+- `detach`: close the pane and keep the terminal running on the machine; reopen it from the Cloud sidebar.
+- `kill`: end the terminal's process on the machine, then close the pane.
+
+Default: `ask`.
+
+```json
+{
+  "app": {
+    "closeCloudTerminal": "detach"
+  }
+}
+```
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.

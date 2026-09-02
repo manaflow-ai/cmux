@@ -1870,6 +1870,7 @@
           "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
+          "closeCloudTerminal": "クラウドターミナルを表示するペインを閉じたときにマシン上のターミナルをどうするか: ask（デタッチ / プロセスを終了 を確認）、detach（実行を続ける）、kill（プロセスを終了）。タブとターミナルのコンテキストメニューには常に両方の操作があります。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"

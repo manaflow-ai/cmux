@@ -784,6 +784,77 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testCloseCloudTerminalImportsEnumFromCmuxJSON() throws {
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().closeCloudTerminal.userDefaultsKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "closeCloudTerminal": "kill"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), CloudTerminalCloseAction.kill.rawValue)
+            XCTAssertEqual(CloudTerminalCloseStore(defaults: defaults).action, .kill)
+        }
+    }
+
+    func testCloseCloudTerminalRejectsUnknownValue() throws {
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().closeCloudTerminal.userDefaultsKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.set(CloudTerminalCloseAction.detach.rawValue, forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "closeCloudTerminal": "explode"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(CloudTerminalCloseStore(defaults: defaults).action, .detach)
+        }
+    }
+
     func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
         let defaults = UserDefaults.standard
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey

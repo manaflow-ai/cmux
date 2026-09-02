@@ -1369,7 +1369,7 @@ extension CMUXCLI {
             return
         }
         print(String(
-            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
+            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running when the pane detaches)."),
             agent, selection.id, terminalId, workspaceId
         ))
         print(String(

@@ -535,6 +535,13 @@
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "closeCloudTerminal": {
+          "type": "string",
+          "enum": ["ask", "detach", "kill"],
+          "default": "ask",
+          "descriptionKey": "schemaDescriptions.app.closeCloudTerminal",
+          "description": "What closing a pane that shows a cloud terminal does to the terminal on its machine: ask (prompt Detach / Kill Process), detach (keep it running), or kill (end its process). The tab and terminal context menus always offer both verbs."
+        },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",
           "default": false,

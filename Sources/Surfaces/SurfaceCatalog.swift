@@ -664,7 +664,8 @@ final class SurfaceCatalog {
         projections.insert(projection)
     }
 
-    /// A pane went away (closed, or its workspace closed). Remote resources live on.
+    /// A pane went away (closed, or its workspace closed). Remote resources live on;
+    /// a kill is a separate provider verb (`closeTerminal`) the close gate runs first.
     func endProjections(panelID: UUID) {
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty else { return }

@@ -1947,6 +1947,7 @@
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
+          "closeCloudTerminal": "What closing a pane that shows a cloud terminal does to the terminal on its machine: ask (prompt Detach / Kill Process), detach (keep it running), or kill (end its process). The tab and terminal context menus always offer both verbs.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
