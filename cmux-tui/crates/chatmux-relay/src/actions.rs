@@ -1136,6 +1136,21 @@ impl ProcessSupervisor {
     }
 }
 
+impl Drop for ProcessSupervisor {
+    fn drop(&mut self) {
+        let lifecycle = match self.lifecycle.get_mut() {
+            Ok(lifecycle) => lifecycle,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        lifecycle.state = SupervisorState::Closed;
+        let tasks = std::mem::take(&mut lifecycle.tasks);
+        for task in tasks {
+            task.cancellation.cancel();
+            task.handle.abort();
+        }
+    }
+}
+
 #[cfg(unix)]
 struct ProcessGroupGuard {
     pid: Option<u32>,
@@ -1434,11 +1449,13 @@ async fn run_spec(
             }, if kill_deadline.is_some() => {
                 if exited.is_some() {
                     #[cfg(unix)]
-                    if process_group_exists(pid) {
+                    if (!cancelled || timed_out) && process_group_exists(pid) {
                         signal_process_group(pid, true);
                     }
                     #[cfg(not(unix))]
-                    signal_process_group(pid, true);
+                    if !cancelled || timed_out {
+                        signal_process_group(pid, true);
+                    }
                 } else {
                     // See the timeout branch above: never fall back to a
                     // numeric PID after a process-group signal fails.
