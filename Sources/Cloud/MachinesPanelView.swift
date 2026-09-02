@@ -524,10 +524,10 @@ struct MachinesPanelView: View {
     /// way past it in one line. A plan with no machines at all has no ceiling
     /// to cite: upgrading is what grants access in the first place.
     private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
-        if plan.maxActiveVms <= 0 {
+        guard let maxActiveVms = plan.maxActiveVms, maxActiveVms > 0 else {
             return String(
                 localized: "machines.empty.upgrade.none",
-                defaultValue: "Subscribe to cmux Pro to use up to 5 machines"
+                defaultValue: "Subscribe to cmux Pro for unlimited machines"
             )
         }
         if plan.isSingleMachinePlan {
@@ -538,13 +538,20 @@ struct MachinesPanelView: View {
         }
         return String(
             format: String(localized: "machines.empty.upgrade", defaultValue: "Upgrade to use more than %d machines"),
-            plan.maxActiveVms
+            maxActiveVms
         )
     }
 
-    /// Paid plans: "Your plan includes 5 machines" under the create button, so
-    /// the empty state answers "what do I get" before the meter shows a count.
+    /// Paid plans: "Your plan includes unlimited machines" under the create
+    /// button, so the empty state answers "what do I get" before the meter
+    /// shows a count.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
+        guard let maxActiveVms = plan.maxActiveVms else {
+            return String(
+                localized: "machines.empty.planIncludes.unlimited",
+                defaultValue: "Your plan includes unlimited machines"
+            )
+        }
         if plan.isSingleMachinePlan {
             return String(
                 localized: "machines.empty.planIncludes.single",
@@ -553,7 +560,7 @@ struct MachinesPanelView: View {
         }
         return String(
             format: String(localized: "machines.empty.planIncludes", defaultValue: "Your plan includes %d machines"),
-            plan.maxActiveVms
+            maxActiveVms
         )
     }
 }
@@ -582,7 +589,7 @@ private struct MachinePlanMeter: View {
     private var meterText: String { plan.countLabel }
 
     private var meterHelp: String {
-        if plan.isAtLimit && !plan.isPaidPlan {
+        if plan.isAtLimit && !plan.isPaidPlan, let maxActiveVms = plan.maxActiveVms {
             if plan.isSingleMachinePlan {
                 return String(
                     localized: "machines.meter.help.atLimit.single",
@@ -592,7 +599,7 @@ private struct MachinePlanMeter: View {
             return String(
                 localized: "machines.meter.help.atLimit",
                 defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(plan.maxActiveVms))
+            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
         }
         return String(
             localized: "machines.meter.help",

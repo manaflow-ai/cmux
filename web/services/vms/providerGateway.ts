@@ -7,6 +7,7 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type ProviderId,
   type SnapshotRef,
@@ -17,6 +18,7 @@ import {
   type VMStatus,
   type VMStats,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./drivers";
@@ -49,7 +51,7 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     command: string,
-    options?: { timeoutMs?: number },
+    options?: ExecOptions,
   ) => Effect.Effect<ExecResult, VmProviderOperationError>;
   readonly openPort?: (
     provider: ProviderId,
@@ -76,6 +78,7 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
@@ -174,13 +177,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return impl.openCmuxRemote(vmId, options);
     }),
-  approveCmuxRemoteEnrollment: (provider, vmId, invitationId) =>
+  approveCmuxRemoteEnrollment: (provider, vmId, invitationId, options) =>
     providerEffect(provider, "approveCmuxRemoteEnrollment", () => {
       const impl = getProvider(provider);
       if (!impl.approveCmuxRemoteEnrollment) {
         throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
       }
-      return impl.approveCmuxRemoteEnrollment(vmId, invitationId);
+      return impl.approveCmuxRemoteEnrollment(vmId, invitationId, options);
     }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", () => getProvider(provider).openSSH(vmId)),

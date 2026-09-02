@@ -61,7 +61,7 @@ struct NewMachineSheet: View {
                 label(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("", selection: $model.kind) {
-                        ForEach(VMMachineKind.allCases, id: \.self) { kind in
+                        ForEach(model.selectableKinds, id: \.self) { kind in
                             Text(kind.displayName).tag(kind)
                         }
                     }

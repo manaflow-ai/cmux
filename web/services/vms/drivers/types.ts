@@ -2,9 +2,9 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
+export type ProviderId = "freestyle";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["e2b", "freestyle", "daytona", "blaxel"];
+const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
@@ -61,7 +61,7 @@ export type VMHandle = {
   provider: ProviderId;
   providerVmId: string;
   status: VMStatus;
-  image: string; // e.g. "cmux-sandbox:v0-71a954b8e53b" for e2b
+  image: string; // the provider snapshot id the machine booted from
   createdAt: number;
   providerMetadata?: Record<string, unknown>;
 };
@@ -69,7 +69,6 @@ export type VMHandle = {
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
-  bakedFreestyleSignedAdmin?: boolean;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
@@ -109,7 +108,7 @@ export type SSHEndpoint = {
   };
   /**
    * Opaque identity/token handle the driver needs later to revoke these credentials.
-   * Freestyle uses its identity id; E2B returns an empty string (no identities there yet).
+   * Freestyle uses its identity id.
    * The VM workflow stores this in Postgres and calls `revokeSSHIdentity` on destroy and before
    * minting a replacement identity, so unreferenced tokens don't pile up on the provider side.
    */
@@ -197,6 +196,11 @@ export type CmuxRemoteApprovalResult = {
   state: "approved" | "pending" | "already_enrolled";
 };
 
+export type CmuxRemoteApprovalOptions = {
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
+};
+
 export type AttachOptions = {
   /**
    * Workspace attaches need a cmuxd RPC endpoint so browser panels can proxy remote
@@ -224,6 +228,12 @@ export type ExecResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+};
+
+export type ExecOptions = {
+  readonly timeoutMs?: number;
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
 };
 
 export type SnapshotRef = {
@@ -271,7 +281,7 @@ export interface VMProvider {
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
 
-  exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
+  exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
@@ -283,28 +293,33 @@ export interface VMProvider {
   fork?(vmId: string): Promise<VMHandle>;
 
   // Session transports this driver supports. Undefined means the legacy set (`websocket`
-  // and/or `ssh` via openAttach/openSSH). A driver that lists only `cmux-remote` (Blaxel)
+  // and/or `ssh` via openAttach/openSSH). A driver that lists only `cmux-remote`
   // never serves openAttach: workflows fail such requests with
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
   // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease (E2B/Daytona/Freestyle), or SSH.
+  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
+  // and throws here; the seam stays for a provider that serves a raw PTY again.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
-  // Blaxel machines run only this daemon; providers that have not been migrated leave
-  // this undefined.
+  // Every cmux Cloud machine runs this daemon; providers that have not been migrated
+  // leave this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
   // Optional: approve the pending enrollment a previous openCmuxRemote invited.
-  approveCmuxRemoteEnrollment?(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult>;
+  approveCmuxRemoteEnrollment?(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult>;
 
   // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
   // sshd is running (some providers need an explicit start step).
   openSSH(vmId: string): Promise<SSHEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
-  // if the driver doesn't mint revocable credentials (e.g. E2B), must not throw on unknown
+  // if the driver doesn't mint revocable credentials, must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
   revokeSSHIdentity(identityHandle: string): Promise<void>;
 

@@ -51,7 +51,10 @@ final class NewMachineModel {
     let imageKinds: [VMImageKindOption]
 
     var name: String = ""
-    var kind: VMMachineKind = .desktop
+    /// Defaults to a kind the backend says it can actually serve (see
+    /// ``selectableKinds``), so the sheet never opens preselected on a kind
+    /// whose create can only fail with an image config error.
+    var kind: VMMachineKind
     var memoryMb: Int
     /// Why the create could not be launched; nil once a retry starts. Failures
     /// of the create itself never land here: by then the sheet is gone and the
@@ -75,7 +78,20 @@ final class NewMachineModel {
         self.imageKinds = imageKinds
         self.submit = submit
         self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId)
+        self.kind = Self.selectableKinds(imageKinds: imageKinds).first ?? .base
     }
+
+    /// Kinds the sheet offers: what the backend reports it can provision, and
+    /// every kind when it reports none (an older control plane that predates
+    /// `limits.imageKinds`, where refusing to offer anything would be worse).
+    static func selectableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
+        let servable = VMMachineKind.allCases.filter { kind in
+            imageKinds.contains { $0.kind == kind }
+        }
+        return servable.isEmpty ? VMMachineKind.allCases : servable
+    }
+
+    var selectableKinds: [VMMachineKind] { Self.selectableKinds(imageKinds: imageKinds) }
 
     var isBaseSetup: Bool {
         if case .base = mode { return true }
@@ -102,13 +118,21 @@ final class NewMachineModel {
     }
 
     /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
+    /// Uncapped plans read "2 machines in use".
     var planMeterText: String? {
         guard let plan else { return nil }
+        guard let maxActiveVms = plan.maxActiveVms else {
+            if plan.activeCount == 1 {
+                return String(localized: "machines.new.plan.unlimited.single", defaultValue: "1 machine in use")
+            }
+            let format = String(localized: "machines.new.plan.unlimited", defaultValue: "%1$d machines in use")
+            return String(format: format, plan.activeCount)
+        }
         // The new machine counts toward the ceiling once it exists.
         let format = plan.isSingleMachinePlan
             ? String(localized: "machines.new.plan.single", defaultValue: "%1$d of 1 machine in use")
             : String(localized: "machines.new.plan.multi", defaultValue: "%1$d of %2$d machines in use")
-        return String(format: format, plan.activeCount, plan.maxActiveVms)
+        return String(format: format, plan.activeCount, maxActiveVms)
     }
 
     /// The free plan's access window, so nobody is surprised a week later.
