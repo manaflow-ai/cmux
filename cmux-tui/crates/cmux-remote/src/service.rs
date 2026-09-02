@@ -588,7 +588,10 @@ impl PendingOpenGuard {
         }
         self.state.store(STREAM_LOCAL_FIN | STREAM_REMOTE_FIN | STREAM_RESET, Ordering::Release);
         self.failure.send_replace(Some(StreamFailure::Reset(reason.into())));
-        self.closed.lock().await.insert_on(self.id, legal_tombstone_lane_mask(self.service));
+        self.closed.lock().await.insert_on(
+            self.id,
+            rejected_open_tombstone_lane_mask(self.service, open_lane(self.service)),
+        );
         self.registrations.lock().await.remove(&self.id);
         self.cleanup.spawn(
             self.endpoint.clone(),
@@ -619,7 +622,10 @@ impl Drop for PendingOpenGuard {
         let id = self.id;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed.lock().await.insert_on(id, legal_tombstone_lane_mask(service));
+                closed
+                    .lock()
+                    .await
+                    .insert_on(id, rejected_open_tombstone_lane_mask(service, open_lane(service)));
                 registrations.lock().await.remove(&id);
                 cleanup.spawn(endpoint, generation, lane, id, None);
             });
