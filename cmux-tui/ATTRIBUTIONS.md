@@ -10,6 +10,9 @@
 - Pi bundled-launcher correction commit: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - Manifest snapshot commit: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - First-acquisition OSC retention commit: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
+- Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
+  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
+  Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
 
 Derived material and vendored material:
 
