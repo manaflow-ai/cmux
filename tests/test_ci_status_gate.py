@@ -202,6 +202,8 @@ def test_workflow_is_base_owned_with_limited_check_publication() -> None:
     assert "pull_request_review:" in text
     assert "workflow_run:" in text
     assert "pull_request:" not in text
+    assert "refs/heads/main" in text
+    assert "github.sha" not in text
     assert "ci-status-gate:" in text
     assert "ci-status:" in text
     assert "needs: ci-status-gate" in text
