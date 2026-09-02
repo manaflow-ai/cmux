@@ -45,7 +45,7 @@ mod unix {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex, Weak};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -75,6 +75,7 @@ mod unix {
         #[cfg(test)]
         read_waiting: Mutex<Option<oneshot::Sender<()>>>,
         dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
+        close_signal_tx: std::sync::mpsc::SyncSender<()>,
     }
 
     enum Dispatch {
@@ -99,6 +100,9 @@ mod unix {
             // while the worker waits on this same mutex.
             let _close_handler = self.close_handler.lock().expect("control close lock");
             let _ = self.dispatch_tx.try_send(Dispatch::Closed);
+            // Keep closure delivery independent from the bounded event FIFO.
+            // The event queue may be full while the worker is in a callback.
+            let _ = self.close_signal_tx.try_send(());
         }
     }
 
@@ -133,6 +137,7 @@ mod unix {
         };
         let (read_half, write_half) = stream.into_split();
         let (dispatch_tx, dispatch_rx) = std::sync::mpsc::sync_channel(MAX_EVENT_QUEUE);
+        let (close_signal_tx, close_signal_rx) = std::sync::mpsc::sync_channel(1);
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
             event_handler: Mutex::new(None),
@@ -147,16 +152,26 @@ mod unix {
             #[cfg(test)]
             read_waiting: Mutex::new(None),
             dispatch_tx,
+            close_signal_tx,
         });
-        let weak_shared: Weak<Shared> = Arc::downgrade(&shared);
+        let worker_shared = Arc::clone(&shared);
         std::thread::Builder::new()
             .name("chatmux-relay-control-events".to_owned())
             .spawn(move || {
+                let shared = worker_shared;
+                let invoke_close = |shared: &Arc<Shared>| {
+                    if !shared.deliberate.load(Ordering::SeqCst) {
+                        let handler =
+                            shared.close_handler.lock().expect("control close lock").take();
+                        if let Some(handler) = handler {
+                            handler();
+                        }
+                    }
+                };
                 loop {
                     let dispatch = match dispatch_rx.recv_timeout(Duration::from_millis(50)) {
                         Ok(dispatch) => dispatch,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            let Some(shared) = weak_shared.upgrade() else { break };
                             if shared.closed.load(Ordering::SeqCst) {
                                 Dispatch::Closed
                             } else {
@@ -165,7 +180,6 @@ mod unix {
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
-                    let Some(shared) = weak_shared.upgrade() else { break };
                     match dispatch {
                         Dispatch::Event(event) => {
                             // Closure is settled before the marker is queued,
@@ -178,15 +192,23 @@ mod unix {
                             }
                         }
                         Dispatch::Closed => {
-                            if !shared.deliberate.load(Ordering::SeqCst) {
-                                let handler =
-                                    shared.close_handler.lock().expect("control close lock").take();
-                                if let Some(handler) = handler {
-                                    handler();
-                                }
-                            }
+                            invoke_close(&shared);
                             break;
                         }
+                    }
+                    // A close signal has its own one-slot channel, so it
+                    // cannot be lost when the event FIFO is full. Drain all
+                    // events accepted before EOF, then invoke close once.
+                    if close_signal_rx.try_recv().is_ok() || shared.closed.load(Ordering::SeqCst) {
+                        while let Ok(Dispatch::Event(event)) = dispatch_rx.try_recv() {
+                            let handler =
+                                shared.event_handler.lock().expect("control event lock").clone();
+                            if let Some(handler) = handler {
+                                handler(&event);
+                            }
+                        }
+                        invoke_close(&shared);
+                        break;
                     }
                 }
             })
@@ -644,6 +666,10 @@ mod tests {
 
         let closed_wait = closed.notified();
         tokio::pin!(closed_wait);
+        // Drop the public handle while the worker is blocked in the first
+        // callback. Closure delivery must retain its own shared state until
+        // the queued events and close notification are drained.
+        drop(control);
         release_tx.send(()).expect("release first event callback");
         tokio::time::timeout(Duration::from_secs(2), &mut closed_wait)
             .await
