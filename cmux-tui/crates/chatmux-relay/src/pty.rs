@@ -523,20 +523,28 @@ impl ControlLease {
                 let control = Arc::clone(&self.control);
                 let lease = Arc::clone(self);
                 handle.spawn(async move {
-                    let _ = tokio::time::timeout(
-                        Duration::from_millis(CONTROL_TIMEOUT_MS),
-                        control.send_reliable("detach-attached-view", params),
-                    )
-                    .await;
+                    let _ = detach_control_with_deadline(&control, params).await;
                     lease.finish_count();
                 });
                 return;
             }
-            if !self.control.send("detach-attached-view", params) {
-                // No Tokio runtime is available for the reliable path. The
-                // transport is already closing, so retire local ownership.
-                // Runtime callers use send_reliable above before this point.
-            }
+            // PTY callbacks can run on a non-Tokio thread. Keep the same
+            // writer-acceptance ordering there by owning a short-lived
+            // current-thread runtime until the bounded send completes.
+            let control = Arc::clone(&self.control);
+            let lease = Arc::clone(self);
+            std::thread::spawn(move || {
+                let fallback_params = params.clone();
+                if let Ok(runtime) =
+                    tokio::runtime::Builder::new_current_thread().enable_all().build()
+                {
+                    let _ = runtime.block_on(detach_control_with_deadline(&control, params));
+                } else {
+                    let _ = control.send("detach-attached-view", fallback_params);
+                }
+                lease.finish_count();
+            });
+            return;
         }
         self.finish_count();
     }
@@ -1516,7 +1524,12 @@ async fn request_control_with_cancellation(
 }
 
 async fn detach_control_with_deadline(control: &Arc<dyn ControlHandle>, params: Value) -> bool {
-    control.send_reliable("detach-attached-view", params).await
+    tokio::time::timeout(
+        Duration::from_millis(CONTROL_TIMEOUT_MS),
+        control.send_reliable("detach-attached-view", params),
+    )
+    .await
+    .unwrap_or(false)
 }
 // ---------------------------------------------------------------------------
 // A viewer PTY control that pumps its events into the framing sinks
@@ -2432,12 +2445,11 @@ impl Inner {
         if context.cancellation.is_cancelled() {
             if detach_supported {
                 if let Some(lease) = lease.as_deref() {
-                    let _ = control
-                        .send_reliable(
-                            "detach-attached-view",
-                            json!({ "surface": surface_id, "lease": lease }),
-                        )
-                        .await;
+                    let _ = detach_control_with_deadline(
+                        &control,
+                        json!({ "surface": surface_id, "lease": lease }),
+                    )
+                    .await;
                 }
             }
             self.end_control_if_unshared(&control);
