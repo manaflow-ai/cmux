@@ -196,6 +196,23 @@ import Testing
         #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
 
         #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
+
+        let legacy = [
+            "id": "vivid-newt/terminal/term_legacy",
+            "key": "term_legacy",
+            "remote_workspace": ["id": "ws_main", "name": "main"],
+        ] as [String: Any]
+        if case .legacy = CMUXCLI.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {
+            // Whole-workspace opens may use the legacy terminal/workspace edge.
+        } else {
+            Issue.record("legacy workspace resources must remain openable as a group")
+        }
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement(
+            "term_legacy",
+            machine: "vivid-newt",
+            workspaceID: "ws_main",
+            in: ["resources": [legacy]]
+        ) == .unavailable, "an exact terminal selector still requires a tab id")
     }
 
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
