@@ -55,7 +55,7 @@ for (const name of requested) {
 const sizes = requested as VmImageSizeName[];
 const replaceSlug = hasFlag("--replace-slug");
 
-const FIREWALL = { rules: [{ action: "allow" as const, source: {}, destination: { public: true } }] };
+const FIREWALL = { rules: [{ action: "allow" as const, source: {}, destination: { public: true as const } }] };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Exec = { exec: (options: { command: string; timeoutMs?: number; linuxUser?: string }) => Promise<{ stdout?: string | null; stderr?: string | null; statusCode?: number | null }> };

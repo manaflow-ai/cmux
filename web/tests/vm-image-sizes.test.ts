@@ -139,10 +139,8 @@ describe("imageManifestProblems with sizes", () => {
       ],
     };
     const problems = imageManifestProblems(bad);
-    expect(problems).toEqual(expect.arrayContaining([
-      expect.stringContaining("freestyle/base: defaults mix sized and size-less entries"),
-      expect.stringContaining("freestyle/base/lg: 2 entries flagged defaultForKind"),
-      expect.stringContaining("d: size huge is not on the ladder"),
-    ]));
+    expect(problems.some((problem) => problem.includes("freestyle/base: defaults mix sized and size-less entries"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/base/lg: 2 entries flagged defaultForKind"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("d: size huge is not on the ladder"))).toBe(true);
   });
 });
