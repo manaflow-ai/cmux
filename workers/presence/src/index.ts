@@ -14,6 +14,14 @@
 //                                         ({endpointId, revoked}); the DO
 //                                         broadcasts, closes that device's
 //                                         sockets, and refuses its mints
+//   GET  /v1/control/devices              dashboard read model: every device
+//                                         row with status, revoked, version,
+//                                         track, ack watermark, and connected
+//                                         state, plus the head revision
+//   POST /v1/control/devices/retire       mark one device retired
+//                                         ({endpointId}); cleanup, not a
+//                                         security action — un-retires on the
+//                                         device's next hello
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
@@ -36,7 +44,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
-import { parseRevocationRequest } from "./controlPlane";
+import { parseRetireRequest, parseRevocationRequest } from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -167,6 +175,44 @@ export default {
         headers,
         body: JSON.stringify(parsed),
       }));
+    }
+
+    if (url.pathname === "/v1/control/devices/retire") {
+      // Dashboard device retire: cleanup status flip, same verification and
+      // forwarding shape as revoke (rebuilt headers, strict-parsed body,
+      // account DO derived from the VERIFIED user id).
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const body = await readBoundedJson(request, 1_024);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseRetireRequest(body.value);
+      if (parsed === null) return json({ error: "invalid_request" }, 400);
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      headers.set("content-type", "application/json");
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(parsed),
+      }));
+    }
+
+    if (url.pathname === "/v1/control/devices") {
+      // Dashboard read model. Read-only; the DO never creates overlay rows
+      // for a GET, so this cannot mutate account state.
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     if (url.pathname === "/v1/connectivity/invalidate") {

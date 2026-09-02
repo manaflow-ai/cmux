@@ -186174,6 +186174,57 @@
         }
       }
     },
+    "settings.mobile.manageDevices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントのデバイス"
+          }
+        }
+      }
+    },
+    "settings.mobile.manageDevices.openButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスを管理"
+          }
+        }
+      }
+    },
+    "settings.mobile.manageDevices.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See every Mac and iPhone signed into your account, check versions and sync state, and revoke lost devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントにサインインしているすべての Mac と iPhone を確認し、バージョンや同期状態を見たり、紛失したデバイスを失効させたりできます。"
+          }
+        }
+      }
+    },
     "settings.mobile.pairDevice": {
       "extractionState": "manual",
       "localizations": {

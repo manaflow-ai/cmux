@@ -157,6 +157,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:workspace-layouts",
         "setting:app:desktop-notifications",
         "setting:account:account",
+        "setting:mobile:manage-devices",
         "setting:mobile:pairDevice",
         "setting:mobile:phone-push-forwarding",
         "setting:mobile:phone-push-mode",

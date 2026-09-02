@@ -89,6 +89,12 @@ public protocol SettingsHostActions: AnyObject {
     /// package can't open it directly.
     func openMobilePairingWindow()
 
+    /// Absolute URL of the account device dashboard on the host's web origin
+    /// (cmux.com in production, the dev web origin for dev builds). The host
+    /// owns origin resolution; `nil` hides the Manage Devices row for
+    /// package-only hosts.
+    func devicesDashboardURL() -> URL?
+
     /// Plays the currently configured notification sound so the user
     /// can preview it from the Settings UI.
     func previewNotificationSound(value: String, customFilePath: String)
@@ -321,6 +327,9 @@ public extension SettingsHostActions {
     /// Default no-op for hosts without a Computer Use Screen Recording settings route.
     func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
+
+    /// Default hidden row for package previews and tests without a web origin.
+    func devicesDashboardURL() -> URL? { nil }
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.
     func sleepyModePreview() {}

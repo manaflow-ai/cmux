@@ -17,6 +17,7 @@ import {
   CONTROL_REFRESH_INTERVAL_MS,
   ControlPlaneCore,
   MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT,
+  parseRetireRequest,
   parseRevocationRequest,
   type CtlAttachment,
   type CtlSocket,
@@ -129,6 +130,33 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       if (parsed === null) return json({ error: "invalid_request" }, 400);
       const result = await this.core.handleRevocation(parsed);
       return json({ ok: true, ...result }, 200);
+    }
+    // Dashboard device retire (remove-as-cleanup), same trust model as revoke.
+    if (request.method === "POST"
+      && new URL(request.url).pathname === "/v1/control/devices/retire") {
+      if (!request.headers.get("x-control-account-id")?.trim()) {
+        return json({ error: "account_required" }, 403);
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const parsed = parseRetireRequest(body);
+      if (parsed === null) return json({ error: "invalid_request" }, 400);
+      const result = await this.core.handleRetire(parsed);
+      return json({ ok: true, ...result }, 200);
+    }
+    // Dashboard read model: the account device list with lifecycle status,
+    // revoked flags, version/track, ack watermarks, and live-socket state.
+    // Read-only; never creates overlay rows.
+    if (request.method === "GET"
+      && new URL(request.url).pathname === "/v1/control/devices") {
+      if (!request.headers.get("x-control-account-id")?.trim()) {
+        return json({ error: "account_required" }, 403);
+      }
+      return json(await this.core.dashboardSnapshot(), 200);
     }
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return json({ error: "websocket_required" }, 400);
