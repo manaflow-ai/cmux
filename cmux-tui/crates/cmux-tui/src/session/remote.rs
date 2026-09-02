@@ -361,7 +361,7 @@ impl RemoteTreeCache {
         let Some(location) = self.surface_tabs.get(&surface_id).copied() else {
             return false;
         };
-        self.view.update_surface_title_at(surface_id, location, title).is_some()
+        self.view.update_surface_title_at(surface_id, location, &title).is_some()
     }
 
     fn title_generation(&self) -> u64 {

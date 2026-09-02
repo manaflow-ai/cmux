@@ -7230,64 +7230,105 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
         next.active_workspace = index;
     }
 
+    let mut screen_updates = Vec::new();
+    let mut pane_updates = Vec::new();
+    let mut tab_updates = Vec::new();
     for previous_workspace in previous.workspaces() {
         let Some(next_workspace_index) = workspace_indices.get(&previous_workspace.id).copied()
         else {
             continue;
         };
-        let next_workspace = &mut next.workspaces_mut()[next_workspace_index];
-        let screen_indices = next_workspace
-            .screens
-            .iter()
-            .enumerate()
-            .map(|(index, screen)| (screen.id, index))
-            .collect::<HashMap<_, _>>();
+        let Some(screen_indices) = next.workspaces().get(next_workspace_index).map(|workspace| {
+            workspace
+                .screens
+                .iter()
+                .enumerate()
+                .map(|(index, screen)| (screen.id, index))
+                .collect::<HashMap<_, _>>()
+        }) else {
+            continue;
+        };
         if let Some(active) =
             previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
             && let Some(index) = screen_indices.get(&active).copied()
         {
-            next_workspace.active_screen = index;
+            screen_updates.push((next_workspace_index, index));
         }
 
         for previous_screen in &previous_workspace.screens {
             let Some(next_screen_index) = screen_indices.get(&previous_screen.id).copied() else {
                 continue;
             };
-            let next_screen = &mut next_workspace.screens[next_screen_index];
-            let pane_indices = next_screen
-                .panes
-                .iter()
-                .enumerate()
-                .map(|(index, pane)| (pane.id, index))
-                .collect::<HashMap<_, _>>();
+            let Some((zoomed_pane, pane_indices)) = next
+                .workspaces()
+                .get(next_workspace_index)
+                .and_then(|workspace| workspace.screens.get(next_screen_index))
+                .map(|screen| {
+                    (
+                        screen.zoomed_pane,
+                        screen
+                            .panes
+                            .iter()
+                            .enumerate()
+                            .map(|(index, pane)| (pane.id, index))
+                            .collect::<HashMap<_, _>>(),
+                    )
+                })
+            else {
+                continue;
+            };
             if let Some(zoomed_pane) =
-                next_screen.zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
+                zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
             {
-                next_screen.active_pane = zoomed_pane;
-            } else if next_screen.zoomed_pane.is_none()
+                pane_updates.push((next_workspace_index, next_screen_index, zoomed_pane));
+            } else if zoomed_pane.is_none()
                 && pane_indices.contains_key(&previous_screen.active_pane)
             {
-                next_screen.active_pane = previous_screen.active_pane;
+                pane_updates.push((
+                    next_workspace_index,
+                    next_screen_index,
+                    previous_screen.active_pane,
+                ));
             }
 
             for previous_pane in &previous_screen.panes {
                 let Some(next_pane_index) = pane_indices.get(&previous_pane.id).copied() else {
                     continue;
                 };
-                let next_pane = &mut next_screen.panes[next_pane_index];
-                let tab_indices = next_pane
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .map(|(index, tab)| (tab.surface, index))
-                    .collect::<HashMap<_, _>>();
+                let Some((pane_id, tab_indices)) = next
+                    .workspaces()
+                    .get(next_workspace_index)
+                    .and_then(|workspace| workspace.screens.get(next_screen_index))
+                    .and_then(|screen| screen.panes.get(next_pane_index))
+                    .map(|pane| {
+                        (
+                            pane.id,
+                            pane.tabs
+                                .iter()
+                                .enumerate()
+                                .map(|(index, tab)| (tab.surface, index))
+                                .collect::<HashMap<_, _>>(),
+                        )
+                    })
+                else {
+                    continue;
+                };
                 if let Some(active) = previous_pane.active_surface()
                     && let Some(index) = tab_indices.get(&active).copied()
                 {
-                    next_pane.active_tab = index;
+                    tab_updates.push((next_workspace_index, next_screen_index, pane_id, index));
                 }
             }
         }
+    }
+    for (workspace_index, screen_index) in screen_updates {
+        next.set_active_screen(workspace_index, screen_index);
+    }
+    for (workspace_index, screen_index, pane_id) in pane_updates {
+        next.set_active_pane(workspace_index, screen_index, pane_id);
+    }
+    for (workspace_index, screen_index, pane_id, tab_index) in tab_updates {
+        next.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
     }
 }
 
@@ -10263,12 +10304,8 @@ impl App {
                 }
                 self.follow_sidebar_workspace(workspace);
                 self.tree.active_workspace = workspace;
-                if let Some(workspace_view) = self.tree.workspaces_mut().get_mut(workspace) {
-                    workspace_view.active_screen = screen;
-                    if let Some(screen_view) = workspace_view.screens.get_mut(screen) {
-                        screen_view.active_pane = pane;
-                    }
-                }
+                self.tree.set_active_screen(workspace, screen);
+                self.tree.set_active_pane(workspace, screen, pane);
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
             }
@@ -12837,14 +12874,22 @@ impl App {
         else {
             return;
         };
+        let Some(pane_id) = self
+            .tree
+            .workspaces()
+            .get(workspace_index)
+            .and_then(|workspace| workspace.screens.get(screen_index))
+            .and_then(|screen| screen.panes.get(pane_index))
+            .map(|pane| pane.id)
+        else {
+            return;
+        };
         self.tree.active_workspace = workspace_index;
-        let Some(workspace) = self.tree.workspaces_mut().get_mut(workspace_index) else { return };
-        workspace.active_screen = screen_index;
-        let Some(screen) = workspace.screens.get_mut(screen_index) else { return };
-        let Some(pane_id) = screen.panes.get(pane_index).map(|pane| pane.id) else { return };
-        screen.active_pane = pane_id;
-        if let Some(pane) = screen.panes.get_mut(pane_index) {
-            pane.active_tab = tab_index;
+        if !self.tree.set_active_screen(workspace_index, screen_index)
+            || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
+            || !self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index)
+        {
+            return;
         }
         self.pane_focus_history.record(pane_id);
         self.claim_active_terminal_geometry(true);
@@ -12942,7 +12987,7 @@ impl App {
             };
             if self
                 .tree
-                .update_surface_title_at(surface, [workspace, screen, pane, tab], title.to_string())
+                .update_surface_title_at(surface, [workspace, screen, pane, tab], title.as_ref())
                 .is_some_and(|changed| changed)
             {
                 changed = true;
@@ -16537,15 +16582,9 @@ impl App {
         }
         let Some((workspace_index, screen_index, pane_id, tab_index)) = location else { return };
         self.tree.active_workspace = workspace_index;
-        if let Some(workspace) = self.tree.workspaces_mut().get_mut(workspace_index) {
-            workspace.active_screen = screen_index;
-            if let Some(screen) = workspace.screens.get_mut(screen_index) {
-                screen.active_pane = pane_id;
-                if let Some(pane) = screen.panes.iter_mut().find(|pane| pane.id == pane_id) {
-                    pane.active_tab = tab_index;
-                }
-            }
-        }
+        self.tree.set_active_screen(workspace_index, screen_index);
+        self.tree.set_active_pane(workspace_index, screen_index, pane_id);
+        self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
         self.sidebar_workspace_selection =
             workspace_index.min(self.tree.workspaces().len().saturating_sub(1));
         self.pane_focus_history.record(pane_id);
@@ -21760,14 +21799,11 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            let focused = if let Some(screen) = self.tree.active_workspace_mut_screen()
-                && screen.panes.iter().any(|candidate| candidate.id == pane)
-            {
-                screen.active_pane = pane;
-                true
-            } else {
-                false
-            };
+            let workspace_index = self.tree.active_workspace;
+            let screen_index =
+                self.tree.active_workspace().map(|workspace| workspace.active_screen);
+            let focused = screen_index
+                .is_some_and(|screen| self.tree.set_active_pane(workspace_index, screen, pane));
             if focused {
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
@@ -21782,16 +21818,20 @@ impl App {
         delta: Option<isize>,
     ) {
         let pane = pane.or_else(|| self.active_pane());
-        if let Some(pane_id) = pane
-            && let Some(pane) = self.tree.pane_mut(pane_id)
-            && !pane.tabs.is_empty()
-        {
-            if let Some(index) = index.filter(|index| *index < pane.tabs.len()) {
-                pane.active_tab = index;
-            } else if let Some(delta) = delta {
-                pane.active_tab = ((pane.active_tab as isize + delta)
-                    .rem_euclid(pane.tabs.len() as isize))
-                    as usize;
+        if let Some(pane_id) = pane {
+            let target = self.tree.pane(pane_id).and_then(|pane| {
+                if pane.tabs.is_empty() {
+                    return None;
+                }
+                index.filter(|index| *index < pane.tabs.len()).or_else(|| {
+                    delta.map(|delta| {
+                        ((pane.active_tab as isize + delta).rem_euclid(pane.tabs.len() as isize))
+                            as usize
+                    })
+                })
+            });
+            if let Some(target) = target {
+                self.tree.set_pane_active_tab(pane_id, target);
             }
         }
         self.claim_active_terminal_geometry(true);
@@ -21799,18 +21839,20 @@ impl App {
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
-        if let Some(workspace) = self.tree.active_workspace_mut()
-            && !workspace.screens.is_empty()
-        {
-            if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
-                workspace.active_screen = index;
-                selected = true;
-            } else if let Some(delta) = delta {
-                workspace.active_screen = ((workspace.active_screen as isize + delta)
-                    .rem_euclid(workspace.screens.len() as isize))
-                    as usize;
-                selected = true;
+        let target = self.tree.active_workspace().and_then(|workspace| {
+            if workspace.screens.is_empty() {
+                return None;
             }
+            index.filter(|index| *index < workspace.screens.len()).or_else(|| {
+                delta.map(|delta| {
+                    ((workspace.active_screen as isize + delta)
+                        .rem_euclid(workspace.screens.len() as isize)) as usize
+                })
+            })
+        });
+        if let Some(target) = target {
+            let workspace_index = self.tree.active_workspace;
+            selected = self.tree.set_active_screen(workspace_index, target);
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);

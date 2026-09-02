@@ -271,6 +271,84 @@ impl TreeView {
         self.workspaces.get(self.active_workspace)
     }
 
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_screen(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+    ) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(workspace_index) else { return false };
+        if screen_index >= workspace.screens.len() {
+            return false;
+        }
+        workspace.active_screen = screen_index;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_pane(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+        pane_id: PaneId,
+    ) -> bool {
+        let Some(screen) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+        else {
+            return false;
+        };
+        if !screen.panes.iter().any(|pane| pane.id == pane_id) {
+            return false;
+        }
+        screen.active_pane = pane_id;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_tab(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+        pane_id: PaneId,
+        tab_index: usize,
+    ) -> bool {
+        let Some(pane) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.iter_mut().find(|pane| pane.id == pane_id))
+        else {
+            return false;
+        };
+        if tab_index >= pane.tabs.len() {
+            return false;
+        }
+        pane.active_tab = tab_index;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_pane_active_tab(&mut self, pane_id: PaneId, tab_index: usize) -> bool {
+        let Some((workspace_index, screen_index, pane_index)) = self.pane_location(pane_id) else {
+            return false;
+        };
+        let Some(pane) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.get_mut(pane_index))
+        else {
+            return false;
+        };
+        if pane.id != pane_id || tab_index >= pane.tabs.len() {
+            return false;
+        }
+        pane.active_tab = tab_index;
+        true
+    }
+
     pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
         self.invalidate_location_index();
         self.workspaces.get_mut(self.active_workspace)
@@ -320,7 +398,7 @@ impl TreeView {
             .filter(|tab| tab.surface == id)
     }
 
-    pub(crate) fn update_surface_title(&mut self, id: SurfaceId, title: String) -> bool {
+    pub(crate) fn update_surface_title(&mut self, id: SurfaceId, title: &str) -> bool {
         let (workspace_index, screen_index, pane_index, tab_index) = match self.surface_location(id)
         {
             Some(location) => location,
@@ -338,7 +416,7 @@ impl TreeView {
         &mut self,
         id: SurfaceId,
         [workspace_index, screen_index, pane_index, tab_index]: [usize; 4],
-        title: String,
+        title: &str,
     ) -> Option<bool> {
         let Some(tab) = self
             .workspaces
@@ -353,7 +431,9 @@ impl TreeView {
             return None;
         }
         let changed = tab.title != title;
-        tab.title = title;
+        if changed {
+            tab.title = title.to_owned();
+        }
         Some(changed)
     }
 
@@ -1295,7 +1375,7 @@ mod tests {
         }));
 
         let index_before = tree.location_index() as *const TreeLocationIndex;
-        assert!(tree.update_surface_title(7, "renamed".to_string()));
+        assert!(tree.update_surface_title(7, "renamed"));
         let index_after = tree.location_index() as *const TreeLocationIndex;
 
         assert!(std::ptr::eq(index_before, index_after));
@@ -1326,6 +1406,7 @@ mod tests {
         assert!(tree.set_active_screen(0, 0));
         assert!(tree.set_active_pane(0, 0, 3));
         assert!(tree.set_active_tab(0, 0, 3, 0));
+        assert!(tree.set_pane_active_tab(3, 0));
         let index_after = tree.location_index() as *const TreeLocationIndex;
 
         assert!(std::ptr::eq(index_before, index_after));
