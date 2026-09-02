@@ -307,7 +307,7 @@ extension TerminalController {
             } else {
                 let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                     group.resources,
-                    title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
+                    title: CloudTreeNodeActions.localWorkspaceTitle(hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
                     focus: focus,
                     host: .app
                 )

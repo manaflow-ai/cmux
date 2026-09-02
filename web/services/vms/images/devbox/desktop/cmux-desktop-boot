@@ -1,0 +1,17 @@
+#!/bin/sh
+# cmux devbox desktop supervisor (/usr/local/bin/cmux-desktop-boot).
+#
+# Runs as the work user `ubuntu` (the cmux-desktop systemd unit sets
+# User=ubuntu, HOME=/home/ubuntu, DISPLAY=:1) and keeps the desktop up: start-vnc.sh
+# is idempotent, so re-running it every 30 s against a healthy desktop is a
+# cheap no-op probe and brings back any component that died mid-life.
+#
+# The "First Run" marker pre-accepts Chrome's first-run/ToS dialog, so the
+# dock's Chrome opens straight to a page on a fresh machine and in anything
+# resumed from its snapshot.
+mkdir -p "$HOME/.config/google-chrome" 2>/dev/null
+touch "$HOME/.config/google-chrome/First Run" 2>/dev/null
+while true; do
+  bash /usr/local/bin/start-vnc.sh || true
+  sleep 30
+done

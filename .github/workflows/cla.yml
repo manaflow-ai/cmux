@@ -18,14 +18,17 @@ permissions: {}
 jobs:
   CLAAssistant:
     name: "CLA Assistant"
+    # Comment admission is a coarse filter: GitHub appends CRLF to plain
+    # comments, so equality would drop real declarations. The action does the
+    # exact match itself and ignores anything else.
     if: >-
       github.event_name == 'pull_request_target' ||
       (
         github.event.issue.pull_request &&
         github.event.comment.user.type == 'User' &&
         (
-          github.event.comment.body == 'recheck' ||
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          contains(github.event.comment.body, 'recheck') ||
+          contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
         )
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -47,7 +50,7 @@ jobs:
     steps:
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@72bff98aa0f3824cb519baaeaa68d044c970c377
+        uses: manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
