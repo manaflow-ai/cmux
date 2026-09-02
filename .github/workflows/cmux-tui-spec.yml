@@ -32,6 +32,9 @@ jobs:
       - name: Test inventory checker
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
 
+      - name: Test frontend documentation protocol
+        run: python3 cmux-tui/scripts/test_frontend_docs.py
+
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
 

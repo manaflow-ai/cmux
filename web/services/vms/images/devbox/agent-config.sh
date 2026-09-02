@@ -1,5 +1,5 @@
 # cmux Cloud devbox agent config generator (/etc/cmux/agent-config.sh).
-# Parity sources: web/services/vms/images/blaxel/agent-config.sh (byte-identical
+# Parity sources: the chatmux devbox agent-config (byte-identical
 # body below the header; vm-devbox-image.test.ts pins it) and chatmux
 # infra/sandbox-images/agent-config.sh. Sourced from
 # /etc/profile.d/cmux-agents.sh (login/exec shells) and the bashrc chain
@@ -12,7 +12,7 @@
 # harness config is written only when missing, so a user who edits or
 # deletes one keeps control.
 #
-# Create-time envs are not replayed on every provider (Blaxel resurrect;
+# Create-time envs are not replayed on every provider (resurrect;
 # Freestyle has no VM-level create env at all), so shells that see the boot
 # env persist it 0600 on disk, and shells that do not re-source the
 # persisted copy. The persisted file always mirrors the newest boot env.

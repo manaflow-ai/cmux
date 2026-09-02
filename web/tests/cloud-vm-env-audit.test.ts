@@ -4,6 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ALERT_SINK_KEY,
+  ALERT_SINK_UNCONFIGURED_ACK_KEY,
+  alertSinkAuditEnvKeys,
+  auditAlertSink,
+} from "../scripts/cloud-vm/alertSinkAudit.mjs";
+import {
   auditCloudVmProviderCoherence,
   auditProviderReadiness,
   CODE_DEFAULT_PROVIDER,
@@ -44,63 +50,63 @@ const realManifest = JSON.parse(
 ) as Manifest;
 
 describe("cloud VM provider coherence audit", () => {
-  test("the exact 2026-08-26 production env fails on the code-default leg", () => {
-    // Prod state during the outage: a fully coherent freestyle default, while
-    // shipped CLIs hardcode blaxel image ids and no blaxel env existed. The
-    // old key-presence audit passed this env.
+  test("an env default that is not the code default fails on the code-default leg", () => {
+    // The 2026-08-26 outage shape: a fully coherent env default for one
+    // provider, while shipped clients send the code default's image ids and no
+    // env existed for it. The old key-presence audit passed this env.
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "e2b",
+        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
+        E2B_API_KEY: "x",
+      },
+      realManifest,
+    ) as Coherence;
+    expect(result.selected?.provider).toBe("e2b");
+    expect(result.codeDefault?.provider).toBe("freestyle");
+    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+  });
+
+  test("no default provider set means the code default (freestyle) must be ready", () => {
+    const result = auditCloudVmProviderCoherence(
+      { E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f", E2B_API_KEY: "x" },
+      realManifest,
+    ) as Coherence;
+    expect(result.selected?.provider).toBe("freestyle");
+    expect(result.codeDefault).toBeNull();
+    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+    expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY");
+  });
+
+  test("the freestyle devbox snapshot is not deployable until it is re-baked on the public platform", () => {
+    // The only freestyle manifest entry was baked against the retired
+    // beta-api.freestyle.sh endpoint and carries validationStatus "unknown".
+    // The audit must keep failing until a public-platform bake replaces it, so
+    // nobody ships a default provider that cannot boot a machine.
     const result = auditCloudVmProviderCoherence(
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-17agfasevrc18c8f15nn",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
         FREESTYLE_API_KEY: "x",
-        BL_API_KEY: "x",
-        BL_WORKSPACE: "manaflow",
       },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
-    expect(result.codeDefault?.provider).toBe("blaxel");
-    expect(result.problems.join("\n")).toContain("BLAXEL_SANDBOX_IMAGE is not set");
+    expect(result.problems.join("\n")).toContain("validationStatus");
   });
 
-  test("no default provider set means the code default (blaxel) must be ready", () => {
-    const result = auditCloudVmProviderCoherence(
-      { FREESTYLE_SANDBOX_SNAPSHOT: "sh-17agfasevrc18c8f15nn", FREESTYLE_API_KEY: "x" },
-      realManifest,
-    ) as Coherence;
-    expect(result.selected?.provider).toBe("blaxel");
-    expect(result.codeDefault).toBeNull();
-    expect(result.problems.join("\n")).toContain("BLAXEL_SANDBOX_IMAGE is not set");
-    expect(result.problems.join("\n")).toContain("BL_API_KEY");
-  });
-
-  test("a coherent blaxel production env passes", () => {
-    const result = auditCloudVmProviderCoherence(
-      {
-        CMUX_VM_DEFAULT_PROVIDER: "blaxel",
-        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
-        BL_API_KEY: "x",
-        BL_WORKSPACE: "manaflow",
-      },
-      realManifest,
-    ) as Coherence;
-    expect(result.selected?.provider).toBe("blaxel");
-    expect(result.codeDefault).toBeNull();
-    expect(result.problems).toEqual([]);
-  });
-
-  test("a deliberate freestyle rollback passes only with blaxel still provisionable", () => {
+  test("a coherent e2b rollback passes only with the code default still provisionable", () => {
     const rollbackEnv = {
-      CMUX_VM_DEFAULT_PROVIDER: "freestyle",
-      FREESTYLE_SANDBOX_SNAPSHOT: "sh-17agfasevrc18c8f15nn",
+      CMUX_VM_DEFAULT_PROVIDER: "e2b",
+      E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
+      E2B_API_KEY: "x",
+      FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
       FREESTYLE_API_KEY: "x",
-      BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
-      BL_API_KEY: "x",
-      BL_WORKSPACE: "manaflow",
     };
     const result = auditCloudVmProviderCoherence(rollbackEnv, realManifest) as Coherence;
-    expect(result.problems).toEqual([]);
-    expect(result.codeDefault?.provider).toBe("blaxel");
+    expect(result.codeDefault?.provider).toBe("freestyle");
+    // Still not clean: the code default's snapshot has not been re-baked.
+    expect(result.problems.join("\n")).toContain("validationStatus");
   });
 
   test("an image value outside the manifest is a problem", () => {
@@ -124,7 +130,7 @@ describe("cloud VM provider coherence audit", () => {
   test("a manifest entry that never passed validation is a problem", () => {
     const result = auditProviderReadiness(
       "freestyle",
-      { FREESTYLE_SANDBOX_SNAPSHOT: "sh-w2otfp1g287lzrpuc2gr", FREESTYLE_API_KEY: "x" },
+      { FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b", FREESTYLE_API_KEY: "x" },
       realManifest,
     ) as { problems: string[] };
     expect(result.problems.join("\n")).toContain("validationStatus");
@@ -143,10 +149,9 @@ describe("sensitive env placeholders", () => {
   test("a Sensitive image value is itself a problem", () => {
     const result = auditCloudVmProviderCoherence(
       {
-        CMUX_VM_DEFAULT_PROVIDER: "blaxel",
-        BLAXEL_SANDBOX_IMAGE: "[SENSITIVE]",
-        BL_API_KEY: "x",
-        BL_WORKSPACE: "manaflow",
+        CMUX_VM_DEFAULT_PROVIDER: "e2b",
+        E2B_CMUXD_WS_TEMPLATE: "[SENSITIVE]",
+        E2B_API_KEY: "x",
       },
       realManifest,
     ) as Coherence;
@@ -189,11 +194,11 @@ describe("audit constants stay tied to the runtime", () => {
 });
 
 describe("required runtime env keys cover the production provider path", () => {
-  test("blaxel credentials, cron auth, and the alert sink are required", () => {
+  test("freestyle credentials, cron auth, and the alert sink are required", () => {
     for (const key of [
-      "BL_API_KEY",
-      "BL_WORKSPACE",
-      "BLAXEL_SANDBOX_IMAGE",
+      "FREESTYLE_API_KEY",
+      "FREESTYLE_SANDBOX_SNAPSHOT",
+      "CMUX_VM_FREESTYLE_ENABLED",
       "CRON_SECRET",
       "CMUX_ALERTS_SLACK_WEBHOOK_URL",
     ]) {
@@ -201,14 +206,17 @@ describe("required runtime env keys cover the production provider path", () => {
     }
   });
 
-  test("off-only kill switches and the desktop selector stay recommended, not required", () => {
-    // Unset means enabled for kill switches, and desktop creates fall back to
-    // the generic BLAXEL_SANDBOX_IMAGE selector, so requiring these would
-    // fail a healthy deployment.
-    for (const key of ["CMUX_VM_BLAXEL_ENABLED", "BLAXEL_SANDBOX_DESKTOP_IMAGE"]) {
-      expect(recommendedRuntimeEnvKeys).toContain(key);
+  test("no removed provider's env keys are still demanded", () => {
+    for (const key of ["BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED"]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
     }
+  });
+
+  test("an off-only kill switch for a non-default provider stays recommended, not required", () => {
+    // Unset means enabled, so requiring presence would fail a healthy deployment.
+    expect(recommendedRuntimeEnvKeys).toContain("CMUX_VM_DAYTONA_ENABLED");
+    expect(requiredRuntimeEnvKeys).not.toContain("CMUX_VM_DAYTONA_ENABLED");
   });
 
   test("the free-provisioning escape hatch is never required or recommended", () => {
@@ -218,6 +226,60 @@ describe("required runtime env keys cover the production provider path", () => {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
     }
+  });
+
+  test("the alert-sink acknowledgement is never required or recommended", () => {
+    for (const key of alertSinkAuditEnvKeys) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+    }
+  });
+});
+
+describe("alert sink audit", () => {
+  const webhook = "https://hooks.slack.com/services/T0/B0/x";
+  const ack = "no Slack webhook provisioned; dropped alerts reach Sentry/PostHog. lawrence 2026-09-01";
+
+  test("a configured sink waives nothing and has no problems", () => {
+    const result = auditAlertSink({ [ALERT_SINK_KEY]: webhook });
+    expect(result.configured).toBe(true);
+    expect(result.acknowledged).toBe(false);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("neither key waives nothing, so the sink stays missing-required", () => {
+    const result = auditAlertSink({});
+    expect(result.configured).toBe(false);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("a recorded acknowledgement waives the sink and exposes the reason", () => {
+    const result = auditAlertSink({ [ALERT_SINK_UNCONFIGURED_ACK_KEY]: ` ${ack} ` });
+    expect(result.acknowledged).toBe(true);
+    expect(result.reason).toBe(ack);
+    expect(result.waivedRequiredKeys).toEqual([ALERT_SINK_KEY]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("an empty or Sensitive acknowledgement fails instead of waiving", () => {
+    for (const value of ["", "   ", "[SENSITIVE]"]) {
+      const result = auditAlertSink({ [ALERT_SINK_UNCONFIGURED_ACK_KEY]: value });
+      expect(result.waivedRequiredKeys).toEqual([]);
+      expect(result.problems.length).toBe(1);
+      expect(result.problems[0]).toContain(ALERT_SINK_UNCONFIGURED_ACK_KEY);
+    }
+  });
+
+  test("an acknowledgement next to a configured sink is a stale-config problem", () => {
+    const result = auditAlertSink({
+      [ALERT_SINK_KEY]: webhook,
+      [ALERT_SINK_UNCONFIGURED_ACK_KEY]: ack,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems.join("\n")).toContain("stale");
   });
 });
 
