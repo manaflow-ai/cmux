@@ -23,6 +23,7 @@ let authorizedTeams: Array<{
   manageAccounts: true,
 }];
 const metricsTeamIds: string[] = [];
+const requestBoundaryEvents: string[] = [];
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
@@ -30,9 +31,21 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("next/server", () => ({
+  connection: async () => {
+    requestBoundaryEvents.push("connection");
+  },
+  // The usage ledger defers its ClickHouse insert past the response with
+  // `after`; the render under test only needs the callback to be accepted.
+  after: (task: () => unknown) => {
+    void task;
+  },
+}));
+
 mock.module("next/headers", () => ({
-  headers: async () =>
-    new Headers(
+  headers: async () => {
+    requestBoundaryEvents.push("headers");
+    return new Headers(
       scopedTeamId
         ? {
           cookie: `cmux_coderouter_organization=${
@@ -40,7 +53,8 @@ mock.module("next/headers", () => ({
           }`,
         }
         : undefined,
-    ),
+    );
+  },
 }));
 
 mock.module("next/navigation", () => ({
@@ -68,6 +82,7 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   getStackServerApp: () => ({
     getAuthJson: async () => {
+      requestBoundaryEvents.push("stack");
       if (!authJsonAvailable) throw new Error("Stack refresh unavailable");
       return { accessToken: "test-access-token" };
     },
@@ -83,7 +98,10 @@ mock.module("../services/vms/auth", () => ({
     if (!authorizationAvailable) throw authorizationFailure;
     return await operation(new AbortController().signal);
   },
-  verifySubrouterRequest: async () => ({ id: "user-1", selectedTeamId }),
+  verifySubrouterRequest: async () => {
+    requestBoundaryEvents.push("verify");
+    return { id: "user-1", selectedTeamId };
+  },
   SubrouterAuthorizationUnavailableError:
     TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
@@ -221,6 +239,7 @@ describe("coderouter dashboard", () => {
     metricsTeamIds.length = 0;
     machineMetricsCalls.length = 0;
     machineMetricsKind = "ready";
+    requestBoundaryEvents.length = 0;
     selectedTeamId = "team-1";
     scopedTeamId = null;
     authorizedTeams = [{
@@ -229,6 +248,24 @@ describe("coderouter dashboard", () => {
       use: true,
       manageAccounts: true,
     }];
+  });
+
+  test("opts out of prerendering before reading request headers or Stack session state", async () => {
+    // With cacheComponents, Next runs this page during a prerender and a
+    // runtime prefetch, where headers() resolves but sync randomness (the
+    // Stack SDK's UUID generator) aborts with "blocking-prerender-crypto".
+    // connection() must be awaited before any of that work starts.
+    authorizationAvailable = true;
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(requestBoundaryEvents[0]).toBe("connection");
+    expect(requestBoundaryEvents).toEqual(
+      ["connection", "headers", "verify", "stack"],
+    );
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {

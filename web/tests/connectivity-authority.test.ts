@@ -20,6 +20,7 @@ const USER: AuthedUser = {
   teamIds: [],
   userBillingPlanId: null,
   billingPlanId: null,
+  billingSeats: null,
 };
 
 const snapshot = {

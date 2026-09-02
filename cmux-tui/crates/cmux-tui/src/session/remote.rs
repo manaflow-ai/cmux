@@ -1890,9 +1890,15 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
-                let value = serde_json::from_str::<Value>(&message);
+                let value = match serde_json::from_str::<Value>(&message) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let reason = format!("remote JSON decode failed: {error}");
+                        zeroize_string(&mut message);
+                        break Some(reason);
+                    }
+                };
                 zeroize_string(&mut message);
-                let Ok(value) = value else { continue };
                 let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
@@ -6822,6 +6828,81 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
         assert!(session.pending.lock().unwrap().is_empty());
     }
 

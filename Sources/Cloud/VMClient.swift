@@ -273,9 +273,17 @@ struct VMSummary {
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
+    /// The machine's address on its owner's private network (reachable over
+    /// the WireGuard tunnel); nil for machines created before private networking.
+    var addressIPv4: String?
+    var addressIPv6: String?
 
     /// The name to show people: the label when set, otherwise the machine id.
     var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+
+    /// The address to hand a person who asked for "the IP": v4 when the network
+    /// allocated one (shorter, pasteable anywhere), else v6.
+    var preferredPrivateAddress: String? { addressIPv4 ?? addressIPv6 }
 
     /// Whether the machine has a screen: the server's word first, image name second.
     var resolvedKind: VMMachineKind { kind ?? VMMachineKind.inferred(fromImage: image) }
@@ -585,6 +593,10 @@ actor VMClient {
                 summary.displayName = label
             }
             summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+            if let address = dict["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
