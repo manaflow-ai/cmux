@@ -453,8 +453,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let replacementScript = root.appendingPathComponent("replacement.sh")
+        let delayedLauncher = root.appendingPathComponent("delayed-launcher.sh")
         let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        let handlerDone = root.appendingPathComponent("handler.done")
         let eventToken = UUID().uuidString.lowercased()
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -467,6 +469,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """.write(to: replacementScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: replacementScript.path)
         try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        /bin/sleep 0.5
+        /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" &
+        printf '%s\\n' "$!" > "$CMUX_TEST_REPLACEMENT_PID"
+        : > "$CMUX_TEST_HANDLER_DONE"
+        """.write(to: delayedLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: delayedLauncher.path)
+        try """
         #!/usr/bin/perl
         use POSIX qw(setsid);
         setsid() or exit 125;
@@ -477,10 +488,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            # Delay the replacement until the handler has started. The cleanup
-            # handshake must wait for its completion before the parent can
-            # disappear and reparent the replacement.
-            trap 'trap "" TERM; /bin/sleep 0.5; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!" > "$CMUX_TEST_REPLACEMENT_PID"; exit 143' TERM
+            # Delay a detached replacement and wait for its completion marker.
+            # The cleanup handshake must wait for this handler before the
+            # parent can disappear and reparent the replacement.
+            trap 'trap "" TERM; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_DELAYED_LAUNCHER" </dev/null >/dev/null 2>&1 & while [ ! -f "$CMUX_TEST_HANDLER_DONE" ]; do /bin/sleep 0.01; done; exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -512,6 +523,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_SETID_LAUNCHER": setIDLauncher.path,
+            "CMUX_TEST_DELAYED_LAUNCHER": delayedLauncher.path,
+            "CMUX_TEST_HANDLER_DONE": handlerDone.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
         ]) { _, override in override }
