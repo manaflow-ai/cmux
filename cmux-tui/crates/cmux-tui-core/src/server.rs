@@ -5087,15 +5087,23 @@ impl ServedSocketLease {
     }
 
     /// Capture a bound listener only while its pathname still names it.
+    ///
+    /// Platforms without a listener identity keep the listener usable but
+    /// return an unlinked lease. Such leases stop the listener and leave the
+    /// publication in place, so an unverified path is never removed.
     pub fn claim_bound(path: PathBuf, listener: &transport::Listener) -> std::io::Result<Self> {
         let identity = SocketPathIdentity::capture(&path)?;
-        if listener.matches_path(&path)? != Some(true) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AddrNotAvailable,
-                "session socket listener identity could not be verified",
-            ));
-        }
-        Ok(Self { path, identity, linked: true, listener: None })
+        let linked = match listener.matches_path(&path)? {
+            Some(true) => true,
+            Some(false) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    "session socket path changed while claiming listener",
+                ));
+            }
+            None => false,
+        };
+        Ok(Self { path, identity, linked, listener: None })
     }
 
     /// Return the public path owned by this lease.
