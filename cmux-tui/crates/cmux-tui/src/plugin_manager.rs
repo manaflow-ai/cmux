@@ -972,6 +972,7 @@ mod tests {
             "hg::https://example.com/team/plugin",
             "ftp://example.com/team/plugin.git",
             "git://token@example.com/team/plugin.git",
+            "--separate-git-dir=/tmp/attacker",
         ] {
             assert!(
                 validate_git_source(source).is_err(),
@@ -990,6 +991,9 @@ mod tests {
             "SERVICE_PASSWORD",
             "OPENAI_API_KEY",
             "SSH_PRIVATE_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "DOCKER_AUTH_CONFIG",
+            "SSH_AUTH_SOCK",
         ] {
             assert!(is_sensitive_env_name(name), "secret environment name: {name}");
         }
