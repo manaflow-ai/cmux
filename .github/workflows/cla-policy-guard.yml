@@ -16,7 +16,7 @@ jobs:
     # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
     # not be able to redirect it to a persistent or contributor-controlled
     # machine.
-    runs-on: ubuntu-24.04 # github-hosted-required
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
