@@ -136,14 +136,8 @@ fn draw_render_frame_with_catalog(
     }
 
     render.frame.cursor.and_then(|cursor| {
-        cropped_cursor_position(
-            cursor,
-            render.frame.styled_rows(),
-            source_x,
-            live_cols,
-            live_rows,
-        )
-        .map(|(x, y)| (rect.x + x, rect.y + y))
+        cropped_cursor_position(cursor, render.frame.styled_rows(), source_x, live_cols, live_rows)
+            .map(|(x, y)| (rect.x + x, rect.y + y))
     })
 }
 
@@ -657,12 +651,8 @@ mod tests {
         };
         // A terminal cursor may be reported on the trailing spacer of a wide
         // grapheme. The renderer must use the lead column for its placement.
-        render.frame.cursor = Some(CursorInfo {
-            x: 2,
-            y: 0,
-            shape: CursorShape::Block,
-            blinking: false,
-        });
+        render.frame.cursor =
+            Some(CursorInfo { x: 2, y: 0, shape: CursorShape::Block, blinking: false });
 
         let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
         let mut cursor = None;
@@ -670,7 +660,10 @@ mod tests {
             .draw(|frame| {
                 cursor = draw_render_frame_with_catalog(
                     frame,
-                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 3, height: 1 }, source_x: 1 },
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 3, height: 1 },
+                        source_x: 1,
+                    },
                     &render,
                     &Theme::default(),
                     &ChromeTheme::dark(),
@@ -690,14 +683,17 @@ mod tests {
             .draw(|frame| {
                 cursor = draw_render_frame_with_catalog(
                     frame,
-                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 2, height: 1 }, source_x: 2 },
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 2, height: 1 },
+                        source_x: 2,
+                    },
                     &render,
                     &Theme::default(),
                     &ChromeTheme::dark(),
                     crate::localization::catalog_for_locale("en_US.UTF-8"),
                     |_, _| false,
                 );
-        })
+            })
             .unwrap();
         assert_eq!(cursor, None);
 
@@ -868,7 +864,11 @@ mod tests {
             let cell = VtCell { text: text.to_string(), width, ..VtCell::default() };
             let mut target = ratatui::buffer::Cell::default();
             apply_cell(&mut target, &cell, &resolver, None);
-            assert_eq!(target.cell_width(), columns, "Ghostty width {width:?} must remain authoritative");
+            assert_eq!(
+                target.cell_width(),
+                columns,
+                "Ghostty width {width:?} must remain authoritative"
+            );
             let expected_diff_option = forced
                 .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
                 .unwrap_or(CellDiffOption::None);
@@ -896,7 +896,10 @@ mod tests {
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
-                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 4, height: 1 }, source_x: 0 },
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 4, height: 1 },
+                        source_x: 0,
+                    },
                     &render,
                     &Theme::default(),
                     &ChromeTheme::dark(),
