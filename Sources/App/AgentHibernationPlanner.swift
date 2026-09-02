@@ -32,9 +32,10 @@ enum AgentHibernationPlanner {
         )
     }
 
-    /// Returns pressure candidates in deterministic hibernation order.
-    /// Oldest activity wins; UUID is a stable tie-breaker across dictionary and
-    /// workspace traversal order.
+    /// Returns candidates in the order used by the hibernation lifecycle.
+    /// Scheduled reclaim selects the oldest activity first. Pressure reclaim
+    /// considers every eligible candidate, so its encounter order has no effect
+    /// on eligibility and avoids sorting an unbounded collection.
     static func orderedPanelKeys(
         inputs: [AgentHibernationPlannerInput],
         settings: AgentHibernationSettings.Values,
@@ -70,7 +71,12 @@ enum AgentHibernationPlanner {
                             now - input.lastActivityAt >= settings.idleSeconds
                     )
             }
-            .sorted { lhs, rhs in
+
+        guard !trigger.isMemoryPressure else {
+            return eligible.map(\.key)
+        }
+
+        let orderedEligible = eligible.sorted { lhs, rhs in
                 if lhs.lastActivityAt == rhs.lastActivityAt {
                     if lhs.key.workspaceId != rhs.key.workspaceId {
                         return lhs.key.workspaceId.uuidString < rhs.key.workspaceId.uuidString
@@ -79,10 +85,6 @@ enum AgentHibernationPlanner {
                 }
                 return lhs.lastActivityAt < rhs.lastActivityAt
             }
-
-        if trigger.isMemoryPressure {
-            return eligible.map(\.key)
-        }
-        return eligible.prefix(scheduledExcess ?? 0).map(\.key)
+        return orderedEligible.prefix(scheduledExcess ?? 0).map(\.key)
     }
 }

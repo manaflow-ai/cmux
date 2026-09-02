@@ -339,14 +339,14 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func pressureEvictionOrderIsOldestActivityThenPanelID() {
+    func scheduledHibernationOrdersOldestActivityFirst() {
         let workspaceID = UUID()
         let older = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
         let newer = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
         let settings = AgentHibernationSettings.Values(
-            enabled: false,
+            enabled: true,
             idleSeconds: 60,
-            maxLiveTerminals: 8,
+            maxLiveTerminals: 1,
             confirmationSeconds: 5
         )
         let ordered = AgentHibernationPlanner.orderedPanelKeys(
@@ -374,10 +374,10 @@ struct AgentHibernationPlannerSwiftTests {
             ],
             settings: settings,
             now: 300,
-            trigger: .aggregateMemoryPressure
+            trigger: .scheduled
         )
 
-        #expect(ordered == [older, newer])
+        #expect(ordered == [older])
     }
 
     @Test

@@ -46,6 +46,8 @@ final class MemoryPressureMonitor {
     @ObservationIgnored
     private var sampleTimer: DispatchSourceTimer?
     @ObservationIgnored
+    private var initialSamplingTask: Task<Void, Never>?
+    @ObservationIgnored
     private var activeSystemSeverity: MemoryPressureSeverity = .normal
     @ObservationIgnored
     private var activeSystemSeverityExpiresAt: Date?
@@ -77,9 +79,33 @@ final class MemoryPressureMonitor {
     func start() {
         startMemoryPressureSourceIfNeeded()
         startSampleTimerIfNeeded()
-        Task { @MainActor [weak self] in
-            await self?.samplePhysicalFootprint(at: .now)
+        initialSamplingTask?.cancel()
+        initialSamplingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.samplePhysicalFootprint(at: .now)
+            guard !Task.isCancelled else { return }
+            self.initialSamplingTask = nil
         }
+    }
+
+    /// Stops event delivery and cancels any in-flight initial sample.
+    ///
+    /// The monitor is normally stopped as part of application termination;
+    /// keeping this lifecycle operation explicit prevents a late sample from
+    /// mutating observable state after its owner has begun teardown.
+    func stop() {
+        initialSamplingTask?.cancel()
+        initialSamplingTask = nil
+        sampleTimer?.cancel()
+        sampleTimer = nil
+        memoryPressureSource?.cancel()
+        memoryPressureSource = nil
+        activeSystemSeverity = .normal
+        activeSystemSeverityExpiresAt = nil
+        currentSeverity = .normal
+        physicalFootprintBytes = nil
+        aggregateMemoryPressure = nil
+        lastAppliedSampledAt = .distantPast
     }
 
     func samplePhysicalFootprint(at sampledAt: Date = .now) async {
@@ -88,6 +114,7 @@ final class MemoryPressureMonitor {
             using: aggregateSampler,
             at: sampledAt
         )
+        guard !Task.isCancelled else { return }
         apply(
             systemSeverity: heldSystemSeverity(at: sampledAt),
             physicalFootprintBytes: footprintBytes,
@@ -170,7 +197,7 @@ final class MemoryPressureMonitor {
         let footprintSampler = self.footprintSampler
         let aggregateSampler = self.aggregateSampler
         timer.setEventHandler { [weak self] in
-            let sampledAt = Date()
+            let sampledAt = Date.now
             let footprintBytes = footprintSampler.physicalFootprintBytes()
             let aggregateSample = aggregateSampler.sample(at: sampledAt)
             Task { @MainActor in

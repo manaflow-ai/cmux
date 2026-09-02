@@ -251,7 +251,7 @@ private nonisolated struct DarwinMemoryPressureAvailableMemory: Sendable {
                 )
             }
         }
-        guard result == KERN_SUCCESS else { return nil }
+        guard result == KERN_SUCCESS, count > 0 else { return nil }
 
         let pages = [
             UInt64(statistics.free_count),
@@ -262,6 +262,7 @@ private nonisolated struct DarwinMemoryPressureAvailableMemory: Sendable {
             total = overflow ? UInt64.max : sum
         }
         let pageSize = UInt64(vm_kernel_page_size)
+        guard pageSize > 0 else { return nil }
         let (bytes, overflow) = pages.multipliedReportingOverflow(by: pageSize)
         return overflow ? UInt64.max : bytes
     }

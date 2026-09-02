@@ -13,8 +13,11 @@ extension AgentHibernationController {
         isPressureStillCritical: @escaping @MainActor () -> Bool,
         onHibernationCompleted: @escaping @MainActor (Int) -> Void
     ) -> Bool {
-        guard memoryPressureEvaluation == nil,
-              isPressureStillCritical() else {
+        guard isPressureStillCritical() else {
+            clearMemoryPressureConfirmations()
+            return false
+        }
+        guard memoryPressureEvaluation == nil else {
             return false
         }
 
@@ -22,9 +25,13 @@ extension AgentHibernationController {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             var awaitsTeardownCompletion = false
+            var preserveConfirmations = false
             defer {
                 if !awaitsTeardownCompletion {
-                    self.finishMemoryPressureEvaluation(requestID: requestID)
+                    self.finishMemoryPressureEvaluation(
+                        requestID: requestID,
+                        clearConfirmations: !preserveConfirmations
+                    )
                 }
             }
 
@@ -34,30 +41,10 @@ extension AgentHibernationController {
                   isPressureStillCritical() else {
                 return
             }
-            let initialEvaluation = self.evaluate(
+            let evaluation = self.evaluate(
                 index: index,
                 settings: settings,
                 now: now,
-                trigger: .systemMemoryPressure
-            )
-            guard initialEvaluation.hasCandidates else { return }
-
-            do {
-                try await ContinuousClock().sleep(for: .seconds(settings.confirmationSeconds))
-            } catch {
-                return
-            }
-            guard isPressureStillCritical() else { return }
-            let confirmationIndex = await RestorableAgentSessionIndex
-                .loadIncludingProcessDetectedSnapshots()
-            guard !Task.isCancelled,
-                  isPressureStillCritical() else {
-                return
-            }
-            let confirmationEvaluation = self.evaluate(
-                index: confirmationIndex,
-                settings: AgentHibernationSettings.values(),
-                now: .now,
                 trigger: .systemMemoryPressure,
                 teardownShouldProceed: isPressureStillCritical,
                 onHibernationCompleted: { [weak self] hibernatedCount in
@@ -65,7 +52,8 @@ extension AgentHibernationController {
                     onHibernationCompleted(hibernatedCount)
                 }
             )
-            awaitsTeardownCompletion = confirmationEvaluation.beganTeardowns
+            preserveConfirmations = evaluation.hasCandidates
+            awaitsTeardownCompletion = evaluation.beganTeardowns
         }
         memoryPressureEvaluation = (requestID, task)
         return true
@@ -96,11 +84,12 @@ extension AgentHibernationController {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             var awaitsTeardownCompletion = false
+            var preserveConfirmations = false
             defer {
                 if !awaitsTeardownCompletion {
                     self.finishMemoryPressureEvaluation(
                         requestID: requestID,
-                        clearConfirmations: false
+                        clearConfirmations: !preserveConfirmations
                     )
                 }
             }
@@ -125,6 +114,7 @@ extension AgentHibernationController {
                     onHibernationCompleted(hibernatedCount)
                 }
             )
+            preserveConfirmations = evaluation.hasCandidates
             awaitsTeardownCompletion = evaluation.beganTeardowns
         }
         memoryPressureEvaluation = (requestID, task)

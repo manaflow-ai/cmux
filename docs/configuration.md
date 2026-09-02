@@ -141,14 +141,15 @@ memory ceiling or a limit on cmux.
 At warning or critical aggregate pressure, cmux posts a localized visible
 notification. While the same complete pressure remains through the existing
 confirmation window, cmux considers every currently eligible idle, non-visible
-agent through the ordinary lossless Agent Hibernation lifecycle. Candidates are
-ordered oldest-activity first with the panel UUID as a stable tie-breaker. The
-existing `idle` lifecycle state, terminal-input check, transcript/process
-identity validation, and visible-panel protection remain required; if those
-proofs are unavailable, that candidate is left running. This policy never caps
-memory use, caps the number of agents/panes/processes, throttles or blocks new
-work, or terminates active or visible work. Hibernated agents resume from their
-saved session exactly as routine Agent Hibernation does.
+agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
+routine pass retains its oldest-activity ordering; the pressure pass considers
+all eligible agents, so its encounter order does not limit or prioritize which
+agents are eligible. The existing `idle` lifecycle state, terminal-input check,
+transcript/process identity validation, and visible-panel protection remain
+required; if those proofs are unavailable, that candidate is left running. This
+policy never caps memory use, caps the number of agents/panes/processes,
+throttles or blocks new work, or terminates active or visible work. Hibernated
+agents resume from their saved session exactly as routine Agent Hibernation does.
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 

@@ -24,21 +24,29 @@ nonisolated struct MemoryPressureAggregateAccountingResult: Equatable, Sendable 
 }
 
 /// Sums process footprints once per PID, even when roots overlap.
+///
+/// The returned PID arrays preserve first-seen order. The sampler does not need
+/// sorted diagnostics, and retaining encounter order keeps each pressure sample
+/// linear in the number of process records.
 nonisolated struct MemoryPressureAggregateAccounting: Sendable {
     func summarize(
         _ processes: [MemoryPressureAggregateProcessFootprint]
     ) -> MemoryPressureAggregateAccountingResult {
         var bytesByPID: [Int: UInt64] = [:]
-        var duplicatePIDs: Set<Int> = []
+        var uniquePIDs: [Int] = []
+        var duplicatePIDs: [Int] = []
+        var duplicatePIDSet: Set<Int> = []
         for process in processes where process.pid > 0 {
             guard bytesByPID[process.pid] == nil else {
-                duplicatePIDs.insert(process.pid)
+                if duplicatePIDSet.insert(process.pid).inserted {
+                    duplicatePIDs.append(process.pid)
+                }
                 continue
             }
             bytesByPID[process.pid] = process.bytes
+            uniquePIDs.append(process.pid)
         }
 
-        let uniquePIDs = bytesByPID.keys.sorted()
         let aggregateBytes = uniquePIDs.reduce(into: UInt64(0)) { total, pid in
             let bytes = bytesByPID[pid] ?? 0
             let (sum, overflow) = total.addingReportingOverflow(bytes)
@@ -47,7 +55,7 @@ nonisolated struct MemoryPressureAggregateAccounting: Sendable {
         return MemoryPressureAggregateAccountingResult(
             aggregateBytes: aggregateBytes,
             uniquePIDs: uniquePIDs,
-            duplicatePIDs: duplicatePIDs.sorted()
+            duplicatePIDs: duplicatePIDs
         )
     }
 }
