@@ -2140,6 +2140,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
         case "workspace.equalize_splits":
             return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
+        case "workspace.rebuild_from_template":
+            return v2Result(id: id, self.v2WorkspaceRebuildFromTemplate(params: params))
         case "workspace.remote.configure":
             return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.foreground_auth_ready":
@@ -2526,6 +2528,7 @@ class TerminalController {
             "workspace.previous",
             "workspace.last",
             "workspace.equalize_splits",
+            "workspace.rebuild_from_template",
             "workspace.remote.configure",
             "workspace.remote.foreground_auth_ready",
             "workspace.remote.reconnect",
@@ -4088,6 +4091,78 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "equalized": success
             ])
+        }
+        return result
+    }
+
+    /// Apply the workspace-set template to a workspace — the socket
+    /// counterpart of the "Rebuild Workspace Layout" menu item.
+    ///
+    /// A workspace restored from an older layout comes back with whatever
+    /// panels it had at quit time, and a panel's startup command only runs
+    /// when the panel is *created* from the template. So a set of workspaces
+    /// declared to run an agent can be sitting on bare shells with no way to
+    /// fix them in bulk: the menu item only ever acts on one focused
+    /// workspace. This verb makes that scriptable.
+    ///
+    /// `mode` picks how hard it applies:
+    ///   - "rebuild" (default) closes every panel and recreates the template,
+    ///     running each panel's command. Destructive: anything running in the
+    ///     workspace is torn down, which is why it is opt-in per call.
+    ///   - "reconcile" is additive — it fills in missing template panels and
+    ///     leaves existing ones alone, only doing a full rebuild when the
+    ///     workspace has never been materialized.
+    ///
+    /// `agent` ("claude" / "codex") retargets the agent pane the same way
+    /// Duplicate Workspace does, leaving other panels untouched.
+    private func v2WorkspaceRebuildFromTemplate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let mode = (v2String(params, "mode") ?? "rebuild").lowercased()
+        guard mode == "rebuild" || mode == "reconcile" else {
+            return .err(code: "invalid_params",
+                        message: "mode must be 'rebuild' or 'reconcile'", data: nil)
+        }
+        var agent: WorkspaceAgent?
+        if let agentRaw = v2String(params, "agent") {
+            guard let parsed = WorkspaceAgent(argument: agentRaw) else {
+                return .err(code: "invalid_params",
+                            message: "Unknown agent '\(agentRaw)'", data: nil)
+            }
+            agent = parsed
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let base: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id)
+            ]
+            if mode == "reconcile" {
+                guard let summary = WorkspaceSetImporter.reconcileWorkspace(ws) else {
+                    result = .err(code: "unavailable",
+                                  message: "No workspace-set template for this workspace",
+                                  data: base)
+                    return
+                }
+                result = .ok(base.merging([
+                    "mode": summary.action,
+                    "panels": summary.panelCount
+                ]) { _, new in new })
+                return
+            }
+            guard let panelCount = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(ws, agent: agent) else {
+                result = .err(code: "unavailable",
+                              message: "No workspace-set template for this workspace",
+                              data: base)
+                return
+            }
+            result = .ok(base.merging([
+                "mode": "rebuild",
+                "panels": panelCount
+            ]) { _, new in new })
         }
         return result
     }

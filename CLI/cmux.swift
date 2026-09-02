@@ -2370,6 +2370,18 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.select", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
+        case "rebuild-workspace":
+            let workspaceArg = optionValue(commandArgs, name: "--workspace")
+                ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            var params: [String: Any] = [:]
+            if let workspaceArg, let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client) {
+                params["workspace_id"] = wsId
+            }
+            if let mode = optionValue(commandArgs, name: "--mode") { params["mode"] = mode }
+            if let agent = optionValue(commandArgs, name: "--agent") { params["agent"] = agent }
+            let payload = try client.sendV2(method: "workspace.rebuild_from_template", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
         case "rename-workspace", "rename-window":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -7789,6 +7801,31 @@ struct CMUXCLI {
             Example:
               cmux close-workspace --workspace workspace:2
             """
+        case "rebuild-workspace":
+            return """
+            Usage: cmux rebuild-workspace [--workspace <id|ref|index>] [--mode <rebuild|reconcile>] [--agent <claude|codex>]
+
+            Apply the workspace-set template to a workspace — the scriptable form of
+            the "Rebuild Workspace Layout" menu item.
+
+            A workspace restored from a previous session keeps the panels it had at
+            quit time, and a panel's startup command only runs when the panel is
+            created from the template. This is how a workspace declared to run an
+            agent ends up sitting on a bare shell; rebuilding recreates the declared
+            panels and runs their commands again.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to rebuild (default: $CMUX_WORKSPACE_ID, then current)
+              --mode <rebuild|reconcile>   rebuild (default) closes every panel and recreates
+                                           the template, tearing down anything running in it;
+                                           reconcile only fills in missing template panels
+              --agent <claude|codex>       Retarget the agent pane to this agent
+
+            Example:
+              cmux rebuild-workspace --workspace workspace:6
+              cmux rebuild-workspace --workspace workspace:6 --mode reconcile
+            """
+
         case "select-workspace":
             return """
             Usage: cmux select-workspace --workspace <id|ref|index>
@@ -14896,6 +14933,7 @@ struct CMUXCLI {
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
+          rebuild-workspace [--workspace <id|ref>] [--mode <rebuild|reconcile>] [--agent <claude|codex>]
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
           current-workspace
