@@ -79,7 +79,9 @@ import {
   listUserVms,
   revokeUserIdentityLeasesForAccountDeletion,
   runVmWorkflow,
+  type VmModelPlaneRevoker,
 } from "../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
@@ -873,6 +875,7 @@ async function destroyPersonalCloudVms(
         providerVmId: string;
         provider: ProviderId;
         afterProviderDestroy: () => void;
+        modelPlane: VmModelPlaneRevoker;
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -881,6 +884,7 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => {
           destructiveCleanupStarted = true;
         },
+        modelPlane: vmModelPlaneRevoker(),
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);

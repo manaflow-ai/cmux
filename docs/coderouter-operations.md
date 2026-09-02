@@ -115,6 +115,35 @@ the authenticated output if it contains a principal identifier.
   bounded failure reason and HTTP status, never a team scope, team ID,
   Endpoint credential, request body, prompt, or model output.
 
+### Customer per-machine usage
+
+- Publish `docs/posthog/coderouter-vm-usage-30d.hogql` as the
+  `coderouter-vm-usage-30d` Endpoint (required `team_scope` and `vm_id`
+  string variables) and `docs/posthog/coderouter-team-machines-30d.hogql` as
+  the `coderouter-team-machines-30d` Endpoint (required `team_scope`). Both
+  live in the same CodeRouter project and reuse
+  `POSTHOG_CODEROUTER_ENDPOINT_SECRET`, `POSTHOG_CODEROUTER_ENVIRONMENT_ID`,
+  `POSTHOG_CODEROUTER_API_HOST`, and `CODEROUTER_ANALYTICS_SCOPE_SECRET`.
+  `POSTHOG_CODEROUTER_VM_ENDPOINT_NAME` and
+  `POSTHOG_CODEROUTER_MACHINES_ENDPOINT_NAME` override the Endpoint names
+  when a renamed copy is published; leave them unset otherwise.
+- `vm_id` is the cmux `cloud_vms.id` UUID carried on `$ai_generation` as
+  `coderouter_vm_id` when the route token was bound to a Cloud VM. It is an
+  opaque server-minted identifier, not personal data, and is only ever
+  queried after the server confirms the machine belongs to the requesting
+  billing team.
+- `GET /api/coderouter/vm-usage?vmId=<uuid>` (dashboard or app session auth,
+  `404 vm_not_found` for machines outside the team),
+  `GET /api/coderouter/vm-usage/team` (same auth, one row per owned machine
+  joined with `cloud_vms.display_name`), and
+  `GET /api/coderouter/vm-usage/self` (VM-bound route token via the Freestyle
+  edge, `403 vm_bound_token_required` for CLI tokens) serve the same
+  30-day totals and daily series as the team dashboard. The dashboard
+  Machines card reads the team Endpoint through the same service.
+- Caching, timeout, fail-closed behavior, and the `coderouter.analytics_query`
+  Sentry error match the team-usage Endpoint. Loads emit
+  `coderouter_vm_usage_viewed` with only a surface and outcome.
+
 Hexclave Analytics remains the authorization system around this data, but is
 not the metrics store today: its hosted custom-event ingestion currently
 accepts only `$page-view` and `$click`. Reconsider it when Hexclave exposes a

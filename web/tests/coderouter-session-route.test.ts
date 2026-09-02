@@ -22,7 +22,7 @@ describe("coderouter hosted entitlement", () => {
   test("validates an existing principal-scoped route session cheaply", async () => {
     const authenticate = async (token: string) =>
       token === "crt_valid"
-        ? { teamId: "team_1", stackUserId: "stack-user-1" }
+        ? { teamId: "team_1", stackUserId: "stack-user-1", vmId: null }
         : null;
     const GET = makeCoderouterSessionGetHandler(authenticate);
 

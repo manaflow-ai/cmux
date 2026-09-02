@@ -81,14 +81,34 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
-   * Machine-level environment injected at create time (e.g. the coderouter
-   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
-   * be secrets: drivers must pass them to the provider's create call only and
-   * never echo them into VMHandle.providerMetadata, which is persisted.
-   * Providers without machine-level env support ignore it.
+   * Machine-level environment delivered at create time (the coderouter
+   * model-plane env: OPENAI_BASE_URL plus placeholder keys). Treat values as
+   * secrets anyway: drivers pass them to the provider's create call or write
+   * them into the guest only, and never echo them into
+   * VMHandle.providerMetadata, which is persisted. Providers without
+   * machine-level env support ignore it.
    */
   envs?: Readonly<Record<string, string>>;
+  /**
+   * Per-domain request headers the provider's TLS edge injects into every
+   * request the guest makes to `domain` (the coderouter route token and the
+   * VM id). Header values are secrets: drivers pass them to the provider's
+   * create call only, never persist them, and never write them into the guest.
+   * Providers without an injecting edge must refuse them rather than drop them.
+   */
+  edgeRules?: readonly VmEdgeRule[];
 };
+
+/** One edge header-injection rule; see CreateOptions.edgeRules. */
+export type VmEdgeRule = {
+  /** Exact host name the guest dials (no port, no scheme). */
+  readonly domain: string;
+  /** Headers the edge sets on every request to `domain`, overwriting the guest's. */
+  readonly headers: Readonly<Record<string, string>>;
+};
+
+/** Create-time inputs a restore-from-snapshot shares with a fresh create. */
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata">;
 
 export type SSHEndpoint = {
   transport: "ssh";
@@ -289,7 +309,7 @@ export interface VMProvider {
   openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
-  restore(snapshotId: string): Promise<VMHandle>;
+  restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 
   // Session transports this driver supports. Undefined means the legacy set (`websocket`

@@ -167,6 +167,7 @@ const {
   VmCreateCreditsInsufficientError,
   VmCreateDisabledError,
   VmCreateFailedError,
+  VmModelPlaneError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
@@ -1074,6 +1075,57 @@ describe("VM REST auth", () => {
     });
   });
 
+  test("maps a coderouter outage during create to a retryable 503 without leaking the cause", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmModelPlaneError({ kind: "unavailable", cause: new Error("Freestyle database connection refused") }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-model-plane", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_model_plane_unavailable",
+      phase: "create",
+      retryable: true,
+      ui: { severity: "warning", retryable: true },
+    });
+    expect(payload.action).toContain("retry");
+    expectNoCloudVmImplementationLeaks(payload);
+  });
+
+  test("maps a coderouter entitlement block during create to a 402 upgrade response", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(new VmModelPlaneError({ kind: "entitlement", cause: new Error("pro_required") }));
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-model-plane-402", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_model_plane_entitlement",
+      retryable: false,
+      upgradeRequired: true,
+      upgradeUrl: "https://coderouter.dev",
+    });
+    expect(payload.action).toContain("https://coderouter.dev");
+    expectNoCloudVmImplementationLeaks(payload);
+  });
+
   test("credit exhaustion on user-scoped billing names the account, not a team", async () => {
     getUser.mockResolvedValue({
       id: "user-1",
@@ -1630,7 +1682,12 @@ describe("VM REST auth", () => {
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
+      modelPlane: expect.objectContaining({}),
     });
+    // Token revocation runs inside the workflow: the route only supplies the revoker.
+    const destroyCalls = (destroyVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const destroyInput = destroyCalls.at(-1)?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    expect(typeof destroyInput?.modelPlane?.revoke).toBe("function");
 
     runVmWorkflow.mockResolvedValue({
       transport: "websocket",

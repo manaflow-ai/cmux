@@ -24,9 +24,12 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_route_session_revoked"
   | "coderouter_organization_catalog_viewed"
   | "coderouter_metrics_loaded"
+  | "coderouter_vm_usage_viewed"
   | "coderouter_route_health"
   | "coderouter_cli_command_started"
   | "coderouter_cli_command_completed"
+  | "coderouter_claude_upstream_set"
+  | "coderouter_claude_upstream_removed"
   | "coderouter_model_request_completed";
 
 type AnalyticsScalar = string | number | boolean;
@@ -174,7 +177,9 @@ function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
     event === "coderouter_account_limit_reached" ||
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
-    event === "coderouter_route_session_revoked";
+    event === "coderouter_route_session_revoked" ||
+    event === "coderouter_claude_upstream_set" ||
+    event === "coderouter_claude_upstream_removed";
 }
 
 function eventProperties(
@@ -259,12 +264,23 @@ function eventProperties(
         ? { outcome, failure_stage: failureStage }
         : null;
     }
+    case "coderouter_vm_usage_viewed": {
+      const surface = enumValue(input.surface, [
+        "dashboard",
+        "vm_usage_api",
+        "team_machines_api",
+        "vm_self_api",
+      ]);
+      const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
+      return surface && outcome ? { surface, outcome } : null;
+    }
     case "coderouter_route_health": {
       const provider = routeProvider(input.provider);
       const agent = enumValue(input.agent, [
         "codex",
         "opencode",
         "pi",
+        "claude",
         "other",
         "unknown",
       ]);
@@ -287,6 +303,7 @@ function eventProperties(
         "upstream_response",
       ]);
       if (!provider || !agent || !outcome || !failureStage) return null;
+      const vmId = analyticsVmId(input.vm_id);
       return {
         provider,
         agent,
@@ -297,11 +314,19 @@ function eventProperties(
         attempt_bucket: attemptBucket(input.attempt_count),
         refresh_bucket: attemptBucket(input.refresh_retry_count),
         response_streamed: input.response_streamed === true,
+        ...(vmId ? { vm_id: vmId } : {}),
       };
     }
     case "coderouter_cli_command_started":
     case "coderouter_cli_command_completed":
       return cliCommandProperties(input);
+    case "coderouter_claude_upstream_set": {
+      const upstreamKind = claudeUpstreamKind(input.upstream_kind);
+      if (!upstreamKind || typeof input.replaced !== "boolean") return null;
+      return { upstream_kind: upstreamKind, replaced: input.replaced };
+    }
+    case "coderouter_claude_upstream_removed":
+      return {};
   }
 }
 
@@ -380,6 +405,8 @@ function aiUsageProperties(
     outputTokens,
     totalTokens,
   });
+  const vmId = analyticsVmId(input.vm_id);
+  const upstreamKind = claudeUpstreamKind(input.upstream_kind);
   return {
     $ai_model: model,
     $ai_provider: provider,
@@ -395,7 +422,21 @@ function aiUsageProperties(
     coderouter_unpriced_tokens: estimate.unpricedTokens,
     coderouter_pricing_version: CODEROUTER_API_RATE_CARD_VERSION,
     coderouter_team_scope: teamScope,
+    ...(vmId ? { coderouter_vm_id: vmId } : {}),
+    ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
   };
+}
+
+/**
+ * Cloud VM id a bound route token attributes usage to. The id is an opaque
+ * server-minted UUID (no personal data), so it is forwarded as-is after a
+ * shape check that keeps free-form strings out of the closed schema.
+ */
+function analyticsVmId(value: AnalyticsScalar | null | undefined): string | null {
+  return typeof value === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(value)
+    ? value
+    : null;
 }
 
 function safeCount(value: AnalyticsScalar | null | undefined): number {
@@ -447,7 +488,11 @@ function lifecycleSource(value: unknown): string | null {
 }
 
 function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "unknown"]);
+  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
+}
+
+function claudeUpstreamKind(value: unknown): string | null {
+  return enumValue(value, ["anthropic_api_key", "anthropic_oauth", "bedrock"]);
 }
 
 function aiProvider(value: AnalyticsScalar | null | undefined): string {
@@ -471,14 +516,21 @@ function authSurface(value: unknown): string | null {
   return enumValue(value, [
     "responses",
     "models",
+    "messages",
+    "count_tokens",
     "opencode_config",
     "opencode_proxy",
     "session_validation",
+    "vm_usage",
   ]);
 }
 
 function authReason(value: unknown): string | null {
-  return enumValue(value, ["missing_route_token", "invalid_route_token"]);
+  return enumValue(value, [
+    "missing_route_token",
+    "invalid_route_token",
+    "vm_mismatch",
+  ]);
 }
 
 function enumValue<const Value extends string>(

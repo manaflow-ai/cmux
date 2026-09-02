@@ -24,11 +24,13 @@ import {
   isVmDatabaseError,
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
+  type VmModelPlaneError,
   type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -471,7 +473,50 @@ export function vmCreateLikeErrorResponse(
       details: { amount: err.amount },
     });
   }
+  if (isVmModelPlaneError(err)) {
+    return vmModelPlaneErrorResponse(err, input.operation);
+  }
   return null;
+}
+
+export const CODEROUTER_UPGRADE_URL = "https://coderouter.dev";
+
+/**
+ * The machine could not be wired to coderouter, so no provider machine was
+ * created. `unavailable` is a coderouter outage (retry); `entitlement` is the
+ * team's coderouter plan (fix at coderouter.dev, then retry).
+ */
+export function vmModelPlaneErrorResponse(
+  err: VmModelPlaneError,
+  phase: "create" | VmCreateLikeOperation = "create",
+): Response {
+  if (err.kind === "entitlement") {
+    return vmErrorResponse({
+      error: "vm_model_plane_entitlement",
+      status: 402,
+      message: "This team's coderouter plan does not include model access for Cloud VMs.",
+      reason: "coderouter blocked model access for this team.",
+      action: `Upgrade coderouter for this team at ${CODEROUTER_UPGRADE_URL}, then retry.`,
+      phase,
+      retryable: false,
+      displayTitle: "coderouter upgrade required",
+      extra: { upgradeRequired: true, upgradeUrl: CODEROUTER_UPGRADE_URL },
+      details: { upgradeRequired: true, upgradeUrl: CODEROUTER_UPGRADE_URL },
+    });
+  }
+  return vmErrorResponse({
+    error: "vm_model_plane_unavailable",
+    status: 503,
+    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    reason: "coderouter is unavailable.",
+    action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
+    phase,
+    retryable: true,
+    retryAfterSeconds: 30,
+    displayTitle: "coderouter is unavailable",
+    displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
+    details: { retryable: true },
+  });
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
@@ -516,6 +561,10 @@ export async function vmWorkflowErrorResponse(
         supportedTransports: [...workflowError.supported],
       },
     });
+  }
+
+  if (isVmModelPlaneError(workflowError)) {
+    return vmModelPlaneErrorResponse(workflowError);
   }
 
   if (isVmCreateDisabledError(workflowError)) {

@@ -7,6 +7,7 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VmEdgeRule,
   VMHandle,
   VMStatus,
 } from "./drivers";
@@ -27,12 +28,15 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
+  VmModelPlaneError,
   VmNotFoundError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
@@ -90,6 +94,29 @@ export type BaseVmEntry = VmEntry & {
 };
 
 export type CloudVmSessionEntry = CloudVmSessionRow;
+
+/**
+ * What the machine gets from the coderouter model plane: guest env (base
+ * URLs, placeholder keys, the VM id) and the edge rules that inject the real
+ * credential. Provisioned once the VM row exists, before the provider call.
+ */
+export type VmModelPlaneMaterials = {
+  readonly envs: Readonly<Record<string, string>>;
+  readonly edgeRules: readonly VmEdgeRule[];
+};
+
+/**
+ * The model-plane seam the routes inject (services/vms/modelPlaneGateway.ts).
+ * `provision` rejects with VmModelPlaneError to fail the create; `revoke` is
+ * idempotent and called best-effort on destroy and on every create rollback.
+ */
+export type VmModelPlaneProvisioner = {
+  readonly provision: (cloudVmId: string) => Promise<VmModelPlaneMaterials>;
+  readonly revoke: (cloudVmId: string) => Promise<void>;
+};
+
+/** The revoke half alone, for paths that only end a machine. */
+export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
@@ -192,6 +219,8 @@ export function renameVm(input: {
 
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
+  /** Revokes coderouter tokens for machines the provider reports gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -212,7 +241,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron"),
+      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     let updated = 0;
@@ -315,11 +344,12 @@ export function createVm(input: {
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
   /**
-   * Machine-level env injected at provider create (e.g. the coderouter
-   * model-plane vars). May hold secrets: passed to the driver only, never
-   * persisted in the VM row or providerMetadata.
+   * Wires the machine to coderouter. Provisioned after the row exists (its id
+   * is the token binding) and before the provider call; a failure fails the
+   * create. Omitted only by the local-dev kill switch, which creates an
+   * unwired machine.
    */
-  readonly envs?: Readonly<Record<string, string>>;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -350,6 +380,37 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
+    const materials = yield* measureVmEffect(
+      input.timing,
+      "model_plane_provision",
+      provisionModelPlane(input.modelPlane, create.vm.id),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
+            message: errorMessage(err.cause),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              operation: "model_plane_provision",
+              kind: err.kind,
+              message: errorMessage(err.cause),
+            },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -362,11 +423,13 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
-        envs: input.envs,
+        envs: materials?.envs,
+        edgeRules: materials?.edgeRules,
       }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
+          revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
@@ -405,6 +468,7 @@ export function createVm(input: {
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* rollbackProviderCreate(providers, input.provider, handle);
+          yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markCreateFailed({
             id: create.vm.id,
@@ -427,6 +491,41 @@ export function createVm(input: {
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * Runs the injected model-plane provisioning for a row that now exists. The
+ * gateway rejects with VmModelPlaneError; anything else is treated as
+ * coderouter being unavailable so the row is marked with a retryable code.
+ */
+function provisionModelPlane(
+  modelPlane: VmModelPlaneProvisioner | undefined,
+  cloudVmId: string,
+): Effect.Effect<VmModelPlaneMaterials | null, VmModelPlaneError> {
+  if (!modelPlane) return Effect.succeed(null);
+  return Effect.tryPromise({
+    try: () => modelPlane.provision(cloudVmId),
+    catch: (cause) => (isVmModelPlaneError(cause) ? cause : new VmModelPlaneError({ kind: "unavailable", cause })),
+  });
+}
+
+/**
+ * Best-effort token revocation for a machine that is gone or never came up.
+ * A failed revoke is logged, never fails the caller: the token stays bound to
+ * a VM id no edge will ever inject again, so it is unusable anyway.
+ */
+function revokeModelPlane(
+  modelPlane: VmModelPlaneRevoker | undefined,
+  cloudVmId: string,
+): Effect.Effect<void> {
+  if (!modelPlane) return Effect.void;
+  return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+      })
+    ),
+  );
 }
 
 export function openBaseVm(input: {
@@ -729,6 +828,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Same contract as createVm: the restored machine gets its own token and edge rule. */
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -752,6 +853,7 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
+      modelPlane: input.modelPlane,
       timing: input.timing,
     });
   });
@@ -969,6 +1071,7 @@ function beginCreateWithLazyProviderRefresh(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
     readonly timing?: VmTimingSink;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
@@ -994,6 +1097,7 @@ function refreshActiveLimitProviderStatuses(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
   },
 ): Effect.Effect<void, VmDatabaseError, never> {
   return Effect.gen(function* () {
@@ -1020,7 +1124,7 @@ function refreshActiveLimitProviderStatuses(
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
+      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -1052,6 +1156,7 @@ function reconcileObservedProviderStatus(
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
   usageEventSource: string,
+  modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
@@ -1073,6 +1178,7 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     if (dbStatus === "destroyed") {
+      yield* revokeModelPlane(modelPlane, vm.id);
       yield* repo.recordUsageEvent({
         userId: vm.userId,
         billingTeamId: vm.billingTeamId,
@@ -1416,6 +1522,8 @@ export function destroyVm(input: {
   readonly providerVmId: string;
   readonly provider?: ProviderId;
   readonly afterProviderDestroy?: () => void;
+  /** Revokes the machine's coderouter tokens once the provider machine is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1430,6 +1538,7 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    yield* revokeModelPlane(input.modelPlane, vm.id);
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but

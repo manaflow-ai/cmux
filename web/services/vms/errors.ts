@@ -109,6 +109,28 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/**
+ * Why the machine's coderouter model plane could not be provisioned.
+ * `entitlement`: the billing team's hosted entitlement blocks token issuance
+ * (402, fix the plan). `unavailable`: coderouter itself failed (503, retry).
+ */
+export type VmModelPlaneFailureKind = "entitlement" | "unavailable";
+
+/** Failure codes stored on the VM row for each {@link VmModelPlaneFailureKind}. */
+export const VM_MODEL_PLANE_FAILURE_CODES = {
+  entitlement: "model_plane_entitlement",
+  unavailable: "model_plane_unavailable",
+} as const satisfies Record<VmModelPlaneFailureKind, string>;
+
+/**
+ * The create was refused before any provider call because the machine could
+ * not be wired to coderouter. The row is marked failed and any credit refunded.
+ */
+export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
+  readonly kind: VmModelPlaneFailureKind;
+  readonly cause: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
@@ -125,7 +147,8 @@ export type VmWorkflowError =
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
-  | VmAccountDeletionIdentityRevocationError;
+  | VmAccountDeletionIdentityRevocationError
+  | VmModelPlaneError;
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -183,6 +206,10 @@ export function isVmAccountDeletionIdentityRevocationError(
   return (err as { _tag?: string } | null)?._tag === "VmAccountDeletionIdentityRevocationError";
 }
 
+export function isVmModelPlaneError(err: unknown): err is VmModelPlaneError {
+  return (err as { _tag?: string } | null)?._tag === "VmModelPlaneError";
+}
+
 export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
   return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
 }
@@ -217,6 +244,7 @@ const vmWorkflowErrorTagRecord = {
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,
   VmAccountDeletionIdentityRevocationError: true,
+  VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));

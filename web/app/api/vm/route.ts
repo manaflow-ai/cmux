@@ -13,7 +13,7 @@ import {
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
-import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
+import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -426,17 +426,14 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.idempotency_key_set": !!idempotencyKey,
         });
 
-        // Wire the machine to coderouter: mint a per-machine route token and
-        // hand it over as create-time env (the baked image materializes agent
-        // configs from it). Best-effort: a coderouter outage or entitlement
-        // block ships an unwired machine, never a failed create.
-        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
-          mintVmModelPlaneEnvBestEffort({
-            teamId: entitlements.billingTeamId,
-            stackUserId: user.id,
-            requestUrl: request.url,
-          }));
-        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
+        // Wire the machine to coderouter inside the workflow: the route token
+        // is bound to the VM row id, so provisioning runs after the row exists
+        // and before the provider call, and a failure fails the create.
+        const modelPlane = vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        });
+        setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
 
         let created;
         try {
@@ -453,7 +450,7 @@ export async function POST(request: Request): Promise<Response> {
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
-            envs: modelPlaneEnvs ?? undefined,
+            modelPlane,
             timing,
           }));
         } catch (err) {

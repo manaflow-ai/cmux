@@ -1,45 +1,81 @@
-// Cloud VM model-plane env v1: when a Cloud VM is created, mint a coderouter
-// route token for the creating user's billing team and hand the machine the
-// same env the `cr` CLI would configure locally:
+// Cloud VM model plane: how a machine reaches coderouter without holding a
+// credential. At create, the control plane mints one route token bound to
+// the cmux Cloud VM row id and hands the provider an edge rule for the
+// coderouter host. The provider's TLS edge injects `x-coderouter-route-token`
+// and `x-cmux-vm-id` into every request the guest makes to that host; the
+// guest env carries only OPENAI_BASE_URL / ANTHROPIC_BASE_URL and a public
+// placeholder key. coderouter rejects the token when the injected VM id
+// differs from the binding, so a rule cannot be reused for another machine.
 //
-//   OPENAI_BASE_URL = <web origin>/v1     (the Responses-compatible data plane)
-//   OPENAI_API_KEY  = crt_...             (30-day route token, sha256-stored)
-//   CMUX_CODEROUTER_URL = <web origin>    (origin for future config fetches,
-//                                          e.g. /api/coderouter/opencode/config)
-//
-// The baked image's /etc/cmux/agent-config.sh materializes harness configs
-// from these vars at first shell and persists them on the machine's durable
-// home volume, because provider create-time envs do not survive a resurrect.
-// Minting is best-effort by design: a coderouter outage or an entitlement
-// block must never fail a VM create, it only ships an unwired machine.
+// Provisioning is mandatory: a coderouter outage or an entitlement block
+// fails the create and the workflow rolls the machine back. The only
+// exception is the local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0,
+// which creates an unwired machine (no env, no rule, still no secret). Never
+// set it in production. Tokens never rotate; destroy revokes them.
 import { coderouterEntitlement } from "./entitlement";
-import { issueRouteToken } from "./repository";
-import { captureCoderouterError } from "../errors";
+import { issueRouteToken, revokeRouteTokensForVm } from "./repository";
+import { ROUTE_TOKEN_HEADER, VM_ID_HEADER, VM_PLACEHOLDER_API_KEY } from "./routeTokenAuth";
+import type { VmEdgeRule } from "../vms/drivers/types";
 
 export const VM_ROUTE_TOKEN_LABEL = "vm";
+export const DEFAULT_CODEROUTER_EDGE_ORIGIN = "https://coderouter.dev";
+export const CODEROUTER_EDGE_ORIGIN_ENV = "CMUX_CODEROUTER_EDGE_ORIGIN";
 
 export type VmModelPlaneInput = {
   readonly teamId: string;
   readonly stackUserId: string;
-  /** Any URL on the serving origin (typically request.url); only the origin is kept. */
-  readonly requestUrl: string;
+  /** The `cloud_vms.id` the token is bound to; the edge sends it as `x-cmux-vm-id`. */
+  readonly cloudVmId: string;
 };
+
+export type VmModelPlaneProvision = {
+  /** Guest env: base URLs, placeholder keys, the VM id. Never a token. */
+  readonly envs: Record<string, string>;
+  /** Edge header injection for the coderouter host. Holds the token. */
+  readonly edgeRules: readonly VmEdgeRule[];
+};
+
+/** The team's hosted entitlement blocks token issuance. Not retryable. */
+export class VmModelPlaneEntitlementError extends Error {
+  constructor(
+    public readonly teamId: string,
+    public readonly basis: string,
+  ) {
+    super(`coderouter entitlement blocks Cloud VM model-plane provisioning for team ${teamId} (${basis})`);
+    this.name = "VmModelPlaneEntitlementError";
+  }
+}
+
+/** Token issuance or its prerequisites failed (database, config). Retryable. */
+export class VmModelPlaneUnavailableError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = "VmModelPlaneUnavailableError";
+  }
+}
 
 export type VmModelPlaneDependencies = {
   readonly issueToken: typeof issueRouteToken;
+  readonly revokeTokensForVm: typeof revokeRouteTokensForVm;
   readonly entitlement: typeof coderouterEntitlement;
   readonly hostedProRequired: () => boolean;
-  readonly enabled: () => boolean;
+  /** The raw CMUX_CODEROUTER_EDGE_ORIGIN value; validated by {@link coderouterEdgeOrigin}. */
+  readonly edgeOriginEnv: () => string | undefined;
 };
 
 const defaultDependencies: VmModelPlaneDependencies = {
   issueToken: issueRouteToken,
+  revokeTokensForVm: revokeRouteTokensForVm,
   entitlement: coderouterEntitlement,
   hostedProRequired: () => process.env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
-  enabled: () => vmModelPlaneEnabled(process.env.CMUX_VM_CODEROUTER_ENV_ENABLED),
+  edgeOriginEnv: () => process.env[CODEROUTER_EDGE_ORIGIN_ENV],
 };
 
-/** Kill switch: set CMUX_VM_CODEROUTER_ENV_ENABLED=0 to create unwired VMs. */
+/**
+ * Local-dev kill switch: CMUX_VM_CODEROUTER_ENV_ENABLED=0 creates unwired
+ * machines (no env, no edge rule). It exists so a checkout without a
+ * coderouter database can still create machines. Never set it in production.
+ */
 export function vmModelPlaneEnabled(flag: string | undefined): boolean {
   if (flag === undefined) return true;
   switch (flag.trim().toLowerCase()) {
@@ -55,44 +91,101 @@ export function vmModelPlaneEnabled(flag: string | undefined): boolean {
 }
 
 /**
- * Mint the model-plane env for one new machine, or null when the feature is
- * disabled or the team's hosted entitlement blocks token issuance. Throws on
- * infrastructure errors; use {@link mintVmModelPlaneEnvBestEffort} from
- * request paths that must not fail.
+ * The origin guests dial for coderouter. Defaults to the public host; a
+ * Vercel preview can be tested by pointing CMUX_CODEROUTER_EDGE_ORIGIN at it.
+ * Must be a bare https origin: the edge rule matches a host name, so a path,
+ * query, explicit port, or plain http is a configuration error.
  */
-export async function mintVmModelPlaneEnv(
-  input: VmModelPlaneInput,
-  dependencies: VmModelPlaneDependencies = defaultDependencies,
-): Promise<Record<string, string> | null> {
-  if (!dependencies.enabled()) return null;
-  if (dependencies.hostedProRequired()) {
-    const entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
-    if (!entitlement.allowed) return null;
+export function coderouterEdgeOrigin(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_CODEROUTER_EDGE_ORIGIN;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${CODEROUTER_EDGE_ORIGIN_ENV} must be an https:// origin, got ${JSON.stringify(value)}`);
   }
-  const origin = new URL(input.requestUrl).origin;
-  const { token } = await dependencies.issueToken(
-    input.teamId,
-    input.stackUserId,
-    VM_ROUTE_TOKEN_LABEL,
-  );
+  if (url.protocol !== "https:" || url.port || url.username || url.password) {
+    throw new Error(`${CODEROUTER_EDGE_ORIGIN_ENV} must be a bare https:// origin without port or credentials`);
+  }
+  if ((url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
+    throw new Error(`${CODEROUTER_EDGE_ORIGIN_ENV} must not carry a path, query, or fragment`);
+  }
+  return url.origin;
+}
+
+/** The guest env for one origin and VM id. No token anywhere. */
+export function vmModelPlaneEnvs(origin: string, cloudVmId: string): Record<string, string> {
   return {
     OPENAI_BASE_URL: `${origin}/v1`,
-    OPENAI_API_KEY: token,
+    OPENAI_API_KEY: VM_PLACEHOLDER_API_KEY,
     CMUX_CODEROUTER_URL: origin,
+    ANTHROPIC_BASE_URL: origin,
+    ANTHROPIC_API_KEY: VM_PLACEHOLDER_API_KEY,
+    CMUX_VM_ID: cloudVmId,
   };
 }
 
-export async function mintVmModelPlaneEnvBestEffort(
+/**
+ * Mint the machine's route token and build its edge rule and env. Throws
+ * {@link VmModelPlaneEntitlementError} when the team's hosted entitlement
+ * blocks issuance and {@link VmModelPlaneUnavailableError} for everything
+ * else; callers fail the create on either.
+ */
+export async function provisionVmModelPlane(
   input: VmModelPlaneInput,
   dependencies: VmModelPlaneDependencies = defaultDependencies,
-): Promise<Record<string, string> | null> {
+): Promise<VmModelPlaneProvision> {
+  let origin: string;
   try {
-    return await mintVmModelPlaneEnv(input, dependencies);
-  } catch (error) {
-    captureCoderouterError(error, {
-      operation: "mint_vm_model_plane_env",
-      route: "/api/vm",
-    });
-    return null;
+    origin = coderouterEdgeOrigin(dependencies.edgeOriginEnv());
+  } catch (err) {
+    throw new VmModelPlaneUnavailableError(errorMessage(err), err);
   }
+  if (dependencies.hostedProRequired()) {
+    let entitlement: Awaited<ReturnType<typeof coderouterEntitlement>>;
+    try {
+      entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
+    } catch (err) {
+      throw new VmModelPlaneUnavailableError(`coderouter entitlement check failed: ${errorMessage(err)}`, err);
+    }
+    if (!entitlement.allowed) {
+      throw new VmModelPlaneEntitlementError(input.teamId, entitlement.basis);
+    }
+  }
+  let token: string;
+  try {
+    ({ token } = await dependencies.issueToken(
+      input.teamId,
+      input.stackUserId,
+      VM_ROUTE_TOKEN_LABEL,
+      { vmId: input.cloudVmId },
+    ));
+  } catch (err) {
+    throw new VmModelPlaneUnavailableError(`coderouter route token issue failed: ${errorMessage(err)}`, err);
+  }
+  return {
+    envs: vmModelPlaneEnvs(origin, input.cloudVmId),
+    edgeRules: [
+      {
+        domain: new URL(origin).hostname,
+        headers: {
+          [ROUTE_TOKEN_HEADER]: token,
+          [VM_ID_HEADER]: input.cloudVmId,
+        },
+      },
+    ],
+  };
+}
+
+/** Revoke every route token bound to the machine. Idempotent. */
+export async function revokeVmModelPlane(
+  cloudVmId: string,
+  dependencies: VmModelPlaneDependencies = defaultDependencies,
+): Promise<void> {
+  await dependencies.revokeTokensForVm(cloudVmId);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

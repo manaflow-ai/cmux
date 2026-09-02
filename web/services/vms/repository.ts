@@ -26,6 +26,7 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VM_MODEL_PLANE_FAILURE_CODES,
   isVmAccountDeletionInProgressError,
   isVmCreateDisabledError,
   isVmLimitExceededError,
@@ -351,6 +352,11 @@ const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  // Model-plane failures happen before any provider call: a coderouter outage
+  // clears on its own and an entitlement block clears when the plan changes,
+  // so a same-key retry must reach provisioning again.
+  VM_MODEL_PLANE_FAILURE_CODES.unavailable,
+  VM_MODEL_PLANE_FAILURE_CODES.entitlement,
 ]);
 
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {

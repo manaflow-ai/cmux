@@ -21,13 +21,19 @@ import {
   loadCoderouterTeamMetrics,
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
+import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
 import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
 import {
+  describeClaudeUpstream,
+  type ClaudeUpstreamDescription,
+} from "@/services/coderouter/claudeUpstream";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
+import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
 
 // Account authorization and the hosted account list must stay fresh for each
 // request. Keep the current tab visible while this page resolves instead of
@@ -166,9 +172,10 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
-  const [accountState, metrics] = await Promise.all([
+  const [accountState, metrics, claudeUpstream] = await Promise.all([
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
+    loadClaudeUpstream(selectedTeam.id),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -206,6 +213,20 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         locale={locale}
         metrics={metrics}
         teamName={selectedTeam.name}
+      />
+
+      <ClaudeUpstreamSection
+        teamId={selectedTeam.id}
+        current={claudeUpstream.kind === "ok" ? claudeUpstream.upstream : null}
+        canManage={selectedTeam.manageAccounts}
+        loadFailed={claudeUpstream.kind === "error"}
+      />
+
+      <MachineUsageSection
+        locale={locale}
+        t={tPage}
+        teamName={selectedTeam.name}
+        usage={await loadMachineUsage(selectedTeam.id)}
       />
 
       {accountState.kind === "notConfigured" ? (
@@ -509,6 +530,18 @@ async function loadAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+type ClaudeUpstreamState =
+  | { readonly kind: "ok"; readonly upstream: ClaudeUpstreamDescription | null }
+  | { readonly kind: "error" };
+
+async function loadClaudeUpstream(teamId: string): Promise<ClaudeUpstreamState> {
+  try {
+    return { kind: "ok", upstream: await describeClaudeUpstream(teamId) };
   } catch {
     return { kind: "error" };
   }
