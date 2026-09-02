@@ -1782,6 +1782,10 @@ class TerminalController {
         let localViewportSession = await LocalTerminalViewportSession(
             connectionID: connectionID
         )
+        // Make the disconnect invariant explicit: no connection-local
+        // viewport can survive the handler even if a future refactor retains
+        // the session briefly during teardown.
+        defer { localViewportSession.clear() }
         let peerHasSameUID = transport.peerHasSameUID(socket)
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         var holdsPreauthorizationSlot = initialSlotHeld
