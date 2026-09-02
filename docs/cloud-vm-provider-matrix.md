@@ -22,7 +22,7 @@ Legacy attach requests with no transport, or with `transport: "websocket"`, fail
 
 The checked-in image manifest is the source of truth for images that current cmux can create. Clients normally request a machine kind and let the server select that kind's default manifest entry. A client-requested image must also be in the manifest unless a local development override explicitly permits an unlisted image.
 
-The manifest retains old image entries for rollback and audit history. Listing an image does not change its guest contents, so a legacy snapshot without cmux-tui cannot serve the current transport and should be recreated from a current manifest entry. Current create relies on the baked image and supervisor; attach installs or heals cmux-tui when needed. Restore starts from the snapshot and best-effort heals the daemon.
+The manifest retains old image entries for rollback and audit history. Listing an image does not change its guest contents, so a legacy snapshot without cmux-tui is not itself cmux-remote-ready; attach can install or heal cmux-tui, and a failed repair requires recreation from a current manifest entry. Current create relies on the baked image and supervisor. Restore starts from the snapshot and best-effort heals the daemon.
 
 ## Capability and error guidance
 
