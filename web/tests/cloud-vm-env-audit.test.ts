@@ -80,6 +80,7 @@ describe("cloud VM provider coherence audit", () => {
     const result = auditCloudVmProviderCoherence(
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        CMUX_VM_FREESTYLE_ENABLED: "1",
         FREESTYLE_SANDBOX_SNAPSHOT: "sh-749d7644e9b04ca38c0718b56a9b767b",
         FREESTYLE_API_KEY: "x",
       },
@@ -88,6 +89,19 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.selected?.provider).toBe("freestyle");
     expect(result.codeDefault).toBeNull();
     expect(result.problems).toEqual([]);
+  });
+
+  test("a disabled Freestyle flag fails the selected default audit", () => {
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        CMUX_VM_FREESTYLE_ENABLED: "0",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-749d7644e9b04ca38c0718b56a9b767b",
+        FREESTYLE_API_KEY: "x",
+      },
+      realManifest,
+    ) as Coherence;
+    expect(result.problems.join("\n")).toContain("CMUX_VM_FREESTYLE_ENABLED disables provider freestyle");
   });
 
   test("the retired beta-api freestyle snapshot is still not deployable", () => {
