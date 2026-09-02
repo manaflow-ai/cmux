@@ -179,6 +179,7 @@ extension AppDelegate {
                 movement,
                 tabManager: routedTabs,
                 preferredWindow: event.window,
+                useResponderFallback: true,
                 allowMissingDestinationSplit: !event.isARepeat
             ) {
                 NSSound.beep()
@@ -203,12 +204,16 @@ extension AppDelegate {
         _ movement: SurfacePaneMovement,
         tabManager: TabManager?,
         preferredWindow: NSWindow?,
+        useResponderFallback: Bool = false,
         allowMissingDestinationSplit: Bool = true
     ) -> Bool {
-        if let dock = focusedDockStoreForShortcut(
-            action: movement.shortcutAction,
-            preferredWindow: preferredWindow
-        ) {
+        let dock = useResponderFallback
+            ? focusedDockStoreForShortcut(
+                action: movement.shortcutAction,
+                preferredWindow: preferredWindow
+            )
+            : focusedDockStoreForMenu(preferredWindow: preferredWindow)
+        if let dock {
             return dock.performShortcutCommand(
                 .moveSurfaceToPane(
                     movement,
