@@ -229,7 +229,7 @@ struct SurfaceSelectionTests {
             (() => {
               window.getSelection().removeAllRanges();
               document.dispatchEvent(new Event('selectionchange'));
-              return document.hasFocus();
+              return window.getSelection().isCollapsed;
             })()
             """
         )
