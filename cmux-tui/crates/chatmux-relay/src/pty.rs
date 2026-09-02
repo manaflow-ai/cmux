@@ -3389,6 +3389,11 @@ mod tests {
             !replacement_task.is_finished(),
             "same-ID replacement must wait for the closing publication"
         );
+        assert!(
+            !h.sent()
+                .iter()
+                .any(|frame| { frame["type"] == "pty_error" && frame["code"] == "bad_request" })
+        );
         assert!(!h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
