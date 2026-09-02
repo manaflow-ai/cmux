@@ -3042,6 +3042,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exit_after_live_trust_downgrade_is_not_published() {
+        let h = harness(None, None);
+        let live_auth = Arc::new(StdMutex::new(("supervised".to_owned(), h.owner.clone())));
+        let flip_auth = Arc::new(AtomicBool::new(false));
+        let mut context = h.context("supervised", h.owner.clone());
+        let live_auth_for_context = Arc::clone(&live_auth);
+        let flip_auth_for_context = Arc::clone(&flip_auth);
+        context.live_auth = Arc::new(move || {
+            let mut auth = live_auth_for_context.lock().unwrap();
+            let snapshot = auth.clone();
+            if flip_auth_for_context.load(Ordering::SeqCst) {
+                auth.0 = "observe".to_owned();
+            }
+            snapshot
+        });
+        let live_auth_for_authorized = Arc::clone(&live_auth);
+        context.live_authorized = Arc::new(move |actor| {
+            let (trust, owner) = live_auth_for_authorized.lock().unwrap().clone();
+            !trust.is_empty() && (trust != "observe" || owner.as_deref() == Some(actor))
+        });
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_other",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        flip_auth.store(true, Ordering::SeqCst);
+        pty.exit(0);
+        assert!(!h.sent().iter().any(|f| f["type"] == "pty_exit"));
+        assert!(h.sent().iter().any(|f| ty(f) == "pty_error" && f["code"] == "trust_revoked"));
+        assert_eq!(h.manager.attachment_count(), 0);
+        assert!(pty.state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
     async fn close_requires_current_trust() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
