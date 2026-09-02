@@ -485,7 +485,9 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
                 anyhow::bail!("plugin git URL must not contain embedded credentials");
             }
         }
-    } else if let Some(at) = source.find('@') {
+    } else if !is_local_git_path(source)
+        && let Some(at) = source.find('@')
+    {
         // Also cover scp-like sources such as `user:password@host:path`.
         // A plain `git@host:path` remains valid.
         let component_start = source[..at].rfind(['/', '\\']).map_or(0, |index| index + 1);
@@ -508,6 +510,17 @@ fn is_sensitive_env_name(name: &str) -> bool {
         || name == "API_KEY"
         || name.ends_with("_API_KEY")
         || name == "AUTHORIZATION"
+}
+
+fn is_local_git_path(source: &str) -> bool {
+    source.starts_with('/')
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || source.starts_with("~/")
+        || (source.len() >= 3
+            && source.as_bytes()[0].is_ascii_alphabetic()
+            && source.as_bytes()[1] == b':'
+            && matches!(source.as_bytes()[2], b'/' | b'\\'))
 }
 
 fn is_safe_plugin_build_env_name(name: &str) -> bool {
