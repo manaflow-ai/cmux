@@ -84,10 +84,12 @@ cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
 cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them
 cmux surface new-terminal --machine <id> --cwd /root/work/app -- bun test          # a terminal on the machine, opened as a pane
-cmux notify --title "Cloud build done" --body "…"
+cmux notify --title "Cloud build done" --body "…"   # inside a machine too: lands on the Mac pane showing this terminal
 ```
 
 The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open` — never guess raw provider URLs.
+
+`cmux notify` run inside a machine reaches the user's Mac as data: the machine's daemon records it and the Mac shows it on the pane displaying the terminal it ran in (or at workspace level wherever the machine is open; nowhere if nothing of the machine is on screen). Keep `--title`/`--body` short (128 B / 1 KiB caps, 5 per burst then 1 per second); `--subtitle` folds into the body; Mac selectors (`--workspace`, `--surface`, `--window`, `--tab`, `--panel`) and `--reply` are ignored there, and nothing can be typed back into the machine from the notification.
 
 A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
 

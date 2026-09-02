@@ -73,12 +73,31 @@ actor CloudMachineLink {
     /// change; ends when the link dies.
     let changes: AsyncStream<Void>
     private let changesContinuation: AsyncStream<Void>.Continuation
+    /// Notification upserts parsed off the same event stream (`CloudMachineNotificationEvent`),
+    /// already sanitized and capped; snapshot replays are never on it. Bounded: under a
+    /// flood the oldest unread notification is dropped rather than growing memory. Ends
+    /// with `changes` when the link dies.
+    let notifications: AsyncStream<CloudMachineNotificationEvent>
+    private let notificationsContinuation: AsyncStream<CloudMachineNotificationEvent>.Continuation
+    /// Identifies the current events subprocess so a stale reader task cannot restart it.
+    private var eventsGeneration: UInt64 = 0
+    private var eventsRestartWindowStart: UInt64 = 0
+    private var eventsRestartCount = 0
+
+    /// Lines the events pipe may hold ahead of its reader; ticks are idempotent and
+    /// notifications are best-effort, so newest-wins is the right overflow policy.
+    static let eventsLineBacklog = 1024
+    /// Restarts of a dead events subscription tolerated per minute while the link lives.
+    static let maxEventsRestartsPerMinute = 5
 
     init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
         (changes, changesContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        (notifications, notificationsContinuation) = AsyncStream<CloudMachineNotificationEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(64)
+        )
     }
 
     var isConnected: Bool { connected != nil && state == .connected }
@@ -234,14 +253,47 @@ actor CloudMachineLink {
             return
         }
         eventsProcess = process
+        eventsGeneration &+= 1
+        let generation = eventsGeneration
         let continuation = changesContinuation
-        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        Task.detached {
+        let notificationsContinuation = notificationsContinuation
+        let lines = CloudLinkPipe.lines(
+            from: stdout.fileHandleForReading,
+            bufferingPolicy: .bufferingNewest(Self.eventsLineBacklog)
+        )
+        Task.detached { [weak self] in
             for await line in lines where !line.isEmpty {
                 continuation.yield()
+                // Only delta notification upserts raise notifications; the snapshot item
+                // replays the daemon's durable ledger on every (re)connect and is skipped.
+                if case .delta(let events) = CloudMachineNotificationEvent.parse(line: line) {
+                    for event in events {
+                        notificationsContinuation.yield(event)
+                    }
+                }
             }
-            // The link's own exit handler reports the state change.
+            // EOF with the link still alive means the daemon ended just this stream (a
+            // `gap` after a slow read, a resync); the link's own exit handler reports link
+            // death. Restart so notifications are not silently lost for the link's lifetime.
+            await self?.eventsSubscriptionDidEnd(generation: generation, socketPath: socketPath)
         }
+    }
+
+    private func eventsSubscriptionDidEnd(generation: UInt64, socketPath: String) async {
+        guard generation == eventsGeneration else { return }
+        eventsProcess = nil
+        guard state == .connected, connected != nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        if now &- eventsRestartWindowStart > 60_000_000_000 {
+            eventsRestartWindowStart = now
+            eventsRestartCount = 0
+        }
+        guard eventsRestartCount < Self.maxEventsRestartsPerMinute else { return }
+        eventsRestartCount += 1
+        try? await Task.sleep(for: .seconds(1))
+        guard generation == eventsGeneration, state == .connected, connected != nil, eventsProcess == nil else { return }
+        startEventsSubscription(socketPath: socketPath)
+        changesContinuation.yield()
     }
 
     private func drainStderr(_ handle: FileHandle) {
@@ -270,6 +322,7 @@ actor CloudMachineLink {
         }
         changesContinuation.yield()
         changesContinuation.finish()
+        notificationsContinuation.finish()
     }
 
     private func removeInviteFile() {
@@ -305,9 +358,13 @@ enum CloudLinkPipe {
     }
 
     /// Lines (without their newline; a trailing CR is dropped) as they arrive; a final
-    /// unterminated line is delivered at EOF. One consumer.
-    static func lines(from handle: FileHandle) -> AsyncStream<String> {
-        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+    /// unterminated line is delivered at EOF. One consumer. A line longer than
+    /// `LineBuffer.maxLineBytes` is discarded rather than buffered (see there).
+    static func lines(
+        from handle: FileHandle,
+        bufferingPolicy: AsyncStream<String>.Continuation.BufferingPolicy = .unbounded
+    ) -> AsyncStream<String> {
+        AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
             let buffer = LineBuffer()
             handle.readabilityHandler = { fh in
                 let data = fh.availableData
@@ -347,19 +404,38 @@ enum CloudLinkPipe {
         return (lines, Data(pending))
     }
 
-    private final class LineBuffer {
+    final class LineBuffer {
+        /// The daemon caps one message at 4 MiB; a longer "line" is not a message but a
+        /// broken or hostile peer. It is discarded up to its next newline instead of being
+        /// held in memory for as long as the peer withholds the newline.
+        static let maxLineBytes = 4 * 1024 * 1024
+
         private var pending = Data()
+        private var discardingOversizedLine = false
 
         func append(_ data: Data) -> [String] {
+            var data = data
+            if discardingOversizedLine {
+                guard let newline = data.firstIndex(of: 0x0A) else { return [] }
+                data = Data(data[data.index(after: newline)...])
+                discardingOversizedLine = false
+            }
             pending.append(data)
             let split = CloudLinkPipe.splitLines(pending)
             pending = split.rest
+            if pending.count > Self.maxLineBytes {
+                pending = Data()
+                discardingOversizedLine = true
+            }
             return split.lines
         }
 
         func flush() -> String? {
-            defer { pending = Data() }
-            guard !pending.isEmpty else { return nil }
+            defer {
+                pending = Data()
+                discardingOversizedLine = false
+            }
+            guard !pending.isEmpty, !discardingOversizedLine else { return nil }
             var line = String(decoding: pending, as: UTF8.self)
             if line.hasSuffix("\r") { line.removeLast() }
             return line

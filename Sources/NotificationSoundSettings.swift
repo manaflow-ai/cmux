@@ -375,6 +375,7 @@ nonisolated enum NotificationSoundSettings {
         title: String,
         subtitle: String,
         body: String,
+        origin: TerminalNotificationOrigin = .local,
         defaults: UserDefaults = .standard
     ) {
         let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
@@ -403,6 +404,9 @@ nonisolated enum NotificationSoundSettings {
             commandEnvironment["CMUX_NOTIFICATION_TITLE"] = title
             commandEnvironment["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
             commandEnvironment["CMUX_NOTIFICATION_BODY"] = body
+            // Remote-origin text (ssh relay, cloud machine) is untrusted data; the
+            // command can gate on this instead of trusting every notification alike.
+            commandEnvironment["CMUX_NOTIFICATION_ORIGIN"] = origin.wireValue
             let environment = commandEnvironment
             Task.detached(priority: .utility) {
                 defer { releaseCustomCommandAdmission() }

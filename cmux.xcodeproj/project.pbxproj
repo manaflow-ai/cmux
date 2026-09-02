@@ -622,6 +622,10 @@
 		C6D4C5A38097BB05AB98E460 /* CloudAgentSkillLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */; };
 		E0C1BF3A1CF2C22FF100B77B /* CloudMachineLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49DC04B459E0132708ACD366 /* CloudMachineLink.swift */; };
 		5C6CEB17F0A6776F357BAF09 /* CloudMachineLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */; };
+		E61F4BFC8BE669F6F803A6C4 /* CloudMachineNotificationDeliveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E02969E6ADDA928A50ACDC /* CloudMachineNotificationDeliveryTests.swift */; };
+		283C524A12C95600812CE858 /* CloudMachineNotificationEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E759E669378E3C42AA594CB /* CloudMachineNotificationEvent.swift */; };
+		7DA5167642629C0CDE0A65E9 /* CloudMachineNotificationEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D21E61EF35EB05F23E8F75 /* CloudMachineNotificationEventTests.swift */; };
+		F37F1655CA84E8D1330670B5 /* CloudMachineNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB532F19B6A7A5F3B181B3E /* CloudMachineNotificationGate.swift */; };
 		0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9143D900F124494A55F859F /* CloudMachinesFeature.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
@@ -1704,6 +1708,7 @@
 		D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000010 /* NotificationsPopoverMetrics.swift */; };
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
+		71BE5F4B462988ACEF8E0A74 /* NotificationTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D7B1C276813C0AE8559363 /* NotificationTextSanitizer.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
 		0A1107110000000000000001 /* OllamaAgentDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */; };
@@ -2617,6 +2622,7 @@
 		A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */; };
 		7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */; };
 		A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */; };
+		A81DE4ADDEA067DD03A2F99F /* TerminalNotificationOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFD376C98BBC676BC79CF5B6 /* TerminalNotificationOrigin.swift */; };
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
 		468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */; };
 		79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */; };
@@ -3719,6 +3725,10 @@
 		763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudAgentSkillLauncherTests.swift; sourceTree = "<group>"; };
 		49DC04B459E0132708ACD366 /* CloudMachineLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineLink.swift; sourceTree = "<group>"; };
 		874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineLinkManager.swift; sourceTree = "<group>"; };
+		A6E02969E6ADDA928A50ACDC /* CloudMachineNotificationDeliveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineNotificationDeliveryTests.swift; sourceTree = "<group>"; };
+		0E759E669378E3C42AA594CB /* CloudMachineNotificationEvent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineNotificationEvent.swift; sourceTree = "<group>"; };
+		91D21E61EF35EB05F23E8F75 /* CloudMachineNotificationEventTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineNotificationEventTests.swift; sourceTree = "<group>"; };
+		2BB532F19B6A7A5F3B181B3E /* CloudMachineNotificationGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineNotificationGate.swift; sourceTree = "<group>"; };
 		D9143D900F124494A55F859F /* CloudMachinesFeature.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachinesFeature.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
@@ -4717,6 +4727,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D77690000000000000000010 /* NotificationsPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverMetrics.swift; sourceTree = "<group>"; };
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
+		83D7B1C276813C0AE8559363 /* NotificationTextSanitizer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationTextSanitizer.swift; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaAgentDetectionTests.swift; sourceTree = "<group>"; };
@@ -5617,6 +5628,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDirectInteractionTests.swift; sourceTree = "<group>"; };
 		7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationLiveRetargetDelivery.swift; sourceTree = "<group>"; };
 		A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationOpenPanelFallbackTests.swift; sourceTree = "<group>"; };
+		FFD376C98BBC676BC79CF5B6 /* TerminalNotificationOrigin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalNotificationOrigin.swift; sourceTree = "<group>"; };
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
 		468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyDeliveryIdentity.swift; sourceTree = "<group>"; };
 		79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyInFlightStore.swift; sourceTree = "<group>"; };
@@ -6471,6 +6483,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */,
 				874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */,
 				49DC04B459E0132708ACD366 /* CloudMachineLink.swift */,
+				2BB532F19B6A7A5F3B181B3E /* CloudMachineNotificationGate.swift */,
+				0E759E669378E3C42AA594CB /* CloudMachineNotificationEvent.swift */,
 				47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */,
 				8C4E59490776669AA7257527 /* CloudTuiClientPaths.swift */,
 				48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */,
@@ -7617,6 +7631,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */,
 				C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */,
 				A5F10000000000000000000C /* TerminalNotification.swift */,
+				FFD376C98BBC676BC79CF5B6 /* TerminalNotificationOrigin.swift */,
+				83D7B1C276813C0AE8559363 /* NotificationTextSanitizer.swift */,
 				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
 				468110000000000000000008 /* TerminalNotificationClickAction.swift */,
@@ -8892,6 +8908,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */,
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
+				A6E02969E6ADDA928A50ACDC /* CloudMachineNotificationDeliveryTests.swift */,
+				91D21E61EF35EB05F23E8F75 /* CloudMachineNotificationEventTests.swift */,
 				877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */,
 				C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */,
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
@@ -10092,6 +10110,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */,
 				E0C1BF3A1CF2C22FF100B77B /* CloudMachineLink.swift in Sources */,
 				5C6CEB17F0A6776F357BAF09 /* CloudMachineLinkManager.swift in Sources */,
+				283C524A12C95600812CE858 /* CloudMachineNotificationEvent.swift in Sources */,
+				F37F1655CA84E8D1330670B5 /* CloudMachineNotificationGate.swift in Sources */,
 				0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */,
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
@@ -10710,6 +10730,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
+				71BE5F4B462988ACEF8E0A74 /* NotificationTextSanitizer.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				C67540090000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
 				A5001670 /* OneShotTerminalLauncherStore.swift in Sources */,
@@ -11346,6 +11367,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				468110000000000000000007 /* TerminalNotificationClickAction.swift in Sources */,
 				B7F00008 /* TerminalNotificationDeliveryDecision.swift in Sources */,
 				7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */,
+				A81DE4ADDEA067DD03A2F99F /* TerminalNotificationOrigin.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */,
 				79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */,
@@ -12069,6 +12091,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					799100000000000000000003 /* CLIWorkspaceStableIDTests.swift in Sources */,
 				7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */,
 				C6D4C5A38097BB05AB98E460 /* CloudAgentSkillLauncherTests.swift in Sources */,
+				E61F4BFC8BE669F6F803A6C4 /* CloudMachineNotificationDeliveryTests.swift in Sources */,
+				7DA5167642629C0CDE0A65E9 /* CloudMachineNotificationEventTests.swift in Sources */,
 				C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */,
 				C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */,
 				C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */,

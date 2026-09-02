@@ -193,6 +193,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private let links: CloudMachineLinkManager
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
+    private var notificationWatcher: Task<Void, Never>?
+    /// Bounded handoff into the notification store, shared by every machine so one consumer
+    /// keeps arrival order (same shape as the ssh-tmux mirror's `paneNotificationIngress`).
+    static let notificationIngress = GhosttyDesktopNotificationIngress()
+    /// Admission control shared by every machine, so the fleet bucket is one bucket.
+    static var notificationGate = CloudMachineNotificationGate()
     /// Daemon deltas coalesce here: one re-read in flight, at most one queued behind it.
     private lazy var refreshCoalescer = SurfaceRefreshCoalescer { [weak self] in
         await self?.refresh(force: false)
@@ -230,6 +236,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func stop() {
         changeWatcher?.cancel()
         changeWatcher = nil
+        notificationWatcher?.cancel()
+        notificationWatcher = nil
         refreshCoalescer.cancel()
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
@@ -303,6 +311,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         watchChanges(link: link)
+        watchNotifications(link: link)
         if warmSnapshot, info.remoteWorkspaces == nil {
             scheduleRefresh()
         }
@@ -697,6 +706,130 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 self?.scheduleRefresh()
             }
         }
+    }
+
+    // MARK: - Notifications from the machine
+
+    /// Notifications posted inside the machine (`cmux notify` → the daemon's ledger) arrive
+    /// on the link's event stream as data. They pass the shared gate, are attributed by
+    /// this Mac's catalog — the machine id is this provider's own, the terminal id is the
+    /// only thing an event may name — and enter the store as a remote-origin notification:
+    /// display, sound, badge, global hooks, phone forwarding; never a reply affordance, a
+    /// click action, a project hook, or anything that runs on the machine's behalf.
+    private func watchNotifications(link: CloudMachineLink) {
+        guard notificationWatcher == nil else { return }
+        notificationWatcher = Task { [weak self] in
+            for await event in link.notifications {
+                guard let self else { return }
+                self.deliverCloudNotification(event)
+            }
+            await MainActor.run { [weak self] in
+                self?.notificationWatcher = nil
+            }
+        }
+    }
+
+    private func deliverCloudNotification(_ event: CloudMachineNotificationEvent) {
+        let decision = Self.notificationGate.admit(machineID: machineID, event: event)
+        guard decision == .allowed else {
+            Self.logNotificationDrop(machineID: machineID, reason: String(describing: decision), event: event)
+            return
+        }
+        guard let appDelegate = AppDelegate.shared else { return }
+        let target = Self.notificationTarget(
+            terminalID: event.terminalID,
+            machine: machine,
+            projections: catalog.projections,
+            isLive: { projection in
+                guard let workspace = appDelegate.workspaceFor(tabId: projection.workspaceID) else { return false }
+                return workspace.panels[projection.panelID] != nil
+            },
+            isSelectedWorkspace: { workspaceID in
+                appDelegate.tabManagerFor(tabId: workspaceID)?.selectedTabId == workspaceID
+            },
+            isFocusedPanel: { projection in
+                appDelegate.workspaceFor(tabId: projection.workspaceID)?.focusedPanelId == projection.panelID
+            }
+        )
+        guard let target else {
+            Self.logNotificationDrop(machineID: machineID, reason: "unprojected", event: event)
+            return
+        }
+        let workspace = appDelegate.workspaceFor(tabId: target.workspaceID)
+        let surfaceID: UUID? = target.panelID.map { panelID in
+            workspace?.surfaceOwnershipTarget(for: panelID)?.surfaceID ?? panelID
+        }
+        let terminalTitle = event.terminalID.flatMap { terminalID in
+            catalog.resources[SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)]?.title
+        }.flatMap { $0.isEmpty ? nil : $0 }
+        let title = event.title.isEmpty ? (terminalTitle ?? info.name) : event.title
+        let enqueued = Self.notificationIngress.submit(GhosttyDesktopNotificationRequest(
+            tabId: target.workspaceID,
+            surfaceId: surfaceID,
+            // The emitter runs on the machine: never a local project-hook lookup.
+            hookDirectory: nil,
+            title: title,
+            body: event.body,
+            subtitle: info.name,
+            origin: .cloudVM(machineID: machineID)
+        ))
+        #if DEBUG
+        cmuxDebugLog(
+            "cloud.notification.deliver machine=\(machineID) term=\(event.terminalID?.suffix(8) ?? "-") workspace=\(target.workspaceID.uuidString.prefix(8)) surface=\(surfaceID?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) bodyLen=\(event.body.count) enqueued=\(enqueued ? 1 : 0)"
+        )
+        #endif
+    }
+
+    /// Never logs title or body: they are the machine's bytes.
+    private static func logNotificationDrop(machineID: String, reason: String, event: CloudMachineNotificationEvent) {
+        #if DEBUG
+        cmuxDebugLog(
+            "cloud.notification.drop machine=\(machineID) reason=\(reason) term=\(event.terminalID?.suffix(8) ?? "-") titleLen=\(event.title.count) bodyLen=\(event.body.count)"
+        )
+        #endif
+    }
+
+    /// Host-owned attribution. The machine controls only the terminal id; the machine half
+    /// of every key is this provider's, so an event can never reach another machine's panes,
+    /// and no workspace or surface UUID is ever read from an event.
+    ///
+    /// 1. A projected terminal → that pane (if shown in several: the focused pane of a
+    ///    selected workspace, else any selected workspace, else the catalog's own order).
+    /// 2. Otherwise (session-wide, or a terminal no pane shows — a detached `cmux vm agent`
+    ///    run, a pane the user closed) → a workspace-level notification wherever the user
+    ///    is looking at this machine.
+    /// 3. Nothing of the machine on screen → nil; the caller drops it.
+    nonisolated static func notificationTarget(
+        terminalID: String?,
+        machine: SurfaceMachineID,
+        projections: Set<SurfaceProjection>,
+        isLive: (SurfaceProjection) -> Bool,
+        isSelectedWorkspace: (UUID) -> Bool = { _ in false },
+        isFocusedPanel: (SurfaceProjection) -> Bool = { _ in false }
+    ) -> (workspaceID: UUID, panelID: UUID?)? {
+        let onMachine = projections.filter { $0.resource.machine == machine && isLive($0) }
+        if let terminalID {
+            let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+            let candidates = Array(onMachine.filter { $0.resource == resource })
+            if let chosen = primaryProjection(among: candidates, isSelectedWorkspace: isSelectedWorkspace, isFocusedPanel: isFocusedPanel) {
+                return (chosen.workspaceID, chosen.panelID)
+            }
+        }
+        guard let chosen = primaryProjection(among: Array(onMachine), isSelectedWorkspace: isSelectedWorkspace, isFocusedPanel: isFocusedPanel) else {
+            return nil
+        }
+        return (chosen.workspaceID, nil)
+    }
+
+    private nonisolated static func primaryProjection(
+        among candidates: [SurfaceProjection],
+        isSelectedWorkspace: (UUID) -> Bool,
+        isFocusedPanel: (SurfaceProjection) -> Bool
+    ) -> SurfaceProjection? {
+        let ordered = candidates.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        return ordered.first { isSelectedWorkspace($0.workspaceID) && isFocusedPanel($0) }
+            ?? ordered.first { isSelectedWorkspace($0.workspaceID) }
+            ?? ordered.first
     }
 
     /// Daemon deltas arrive in bursts; `SurfaceRefreshCoalescer` turns any number of them

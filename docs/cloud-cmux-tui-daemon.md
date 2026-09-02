@@ -287,3 +287,48 @@ over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
 `vm.desktop_open` projects `<id>/display/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
+
+## Notifications from a machine
+
+`cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
+translating to `notification create --title … --body … [--level …] --terminal
+$CMUX_TUI_TERMINAL_ID` on the machine's own session. The daemon appends it to
+its durable notification ledger and the v2 `session.events` stream carries it
+as a delta:
+
+```
+{"protocol":"cmux.protocol/2","type":"stream_item",…,"item":{"kind":"delta",…,
+ "changes":[{"kind":"upsert","resource":"notification","id":"notification_<32hex>",
+   "value":{"id":…,"session_id":…,"title":…,"body":…,"level":…,"created_at_ms":…,
+            "unread":…,"terminal_id":"term_<32hex>"}}]}}
+```
+
+The Mac already follows that stream over the headless link (`CloudMachineLink`,
+`CloudTuiCommandLine.eventsArguments`). `CloudMachineNotificationEvent` parses
+exactly that one resource kind out of it — the first `kind:"snapshot"` item
+replays the whole ledger on every (re)connect and is never interpreted — and
+`CmuxTuiSurfaceProvider` attributes it through the surface catalog: the link that
+produced the line names the machine, the event may only name one of that
+machine's `term_…` ids, and the catalog projection of that resource names the
+local pane. No pane showing the terminal → a workspace-level notification in a
+workspace showing the machine; nothing of the machine on screen → dropped.
+
+### Trust boundary
+
+The Mac never executes anything on behalf of the machine. Control flows one way
+(Mac → daemon); everything on the event stream is data, parsed by a strict,
+bounded parser (64 KiB per line before JSON, 4 MiB line cap on the pipe, 128 B
+titles, 1 KiB bodies, escape/control/bidi characters stripped, 16 notification
+changes per delta, 5-burst/1-per-second per machine plus a fleet bucket,
+notification-id and identical-content de-duplication). The event's session id,
+timestamps, unread flag, `extra`, and any UUID-looking field are ignored, so a
+machine can neither address another machine's panes nor a local surface. The
+notification enters `TerminalNotificationStore` with origin `cloud-vm:<machine>`:
+display, sound, badge, global `cmux.json` hooks, `notifications.command` (both
+with `CMUX_NOTIFICATION_ORIGIN`), and phone forwarding — never a reply shape,
+click action, agent context, sound override, or project hooks from a local
+directory. There is no reverse RPC, no listener on the Mac, and no
+`CMUX_SOCKET*` / workspace / surface identity in the machine's environment; the
+`cmux ssh` reverse relay stays gated off for machines. This is the `cmux ssh`
+*policy* (notification-only, host-attributed, no remote selectors) without its
+*transport* (a request channel into the Mac).

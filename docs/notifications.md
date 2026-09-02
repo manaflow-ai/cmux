@@ -54,6 +54,34 @@ cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval neede
 cmux notify --title "Done" --tab 0 --panel 1
 ```
 
+## Notifications from cmux Cloud machines
+
+`cmux notify` also works inside a cmux Cloud machine, so agent hooks configured there reach
+your Mac. The in-machine `cmux` posts the notification into the machine's own cmux-tui
+session (`notification create`, tagged with the terminal it ran in); the Mac reads it off the
+machine's event stream it already follows and shows it on the pane that displays that
+terminal — or, when no pane shows the terminal (a detached `cmux vm agent` run, a pane you
+closed), as a workspace-level notification wherever you are looking at that machine. Nothing
+of the machine is on screen: it is dropped.
+
+Inside a machine:
+
+- `--title`, `--body`, and `--level info|warning|error` are honored; `--subtitle` is folded
+  into the body (cmux-tui has no subtitle field) and the machine's name becomes the subtitle
+  on the Mac.
+- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, and `--reply` are ignored: the
+  Mac decides where a machine's notification lands, and a machine never sees a Mac
+  workspace, surface, or socket.
+- Text is treated as untrusted: escape sequences, control characters, and bidi/invisible
+  characters are stripped, titles are capped at 128 bytes and bodies at 1 KiB, and each
+  machine gets a burst of 5 notifications refilling at 1 per second (identical text within
+  5 seconds is collapsed).
+- A machine's notification shows a banner, sound, sidebar unread marker, and phone
+  forwarding, and runs your **global** `~/.config/cmux/cmux.json` hooks and
+  `notifications.command` with `CMUX_NOTIFICATION_ORIGIN=cloud-vm:<machine>`. It never gets a
+  reply affordance, a click action, agent context, or project `cmux.json` hooks from a local
+  directory.
+
 ## Navigation
 
 Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
@@ -115,6 +143,11 @@ Hook input and output use this shape:
     "pending": false,
     "isSubagent": true
   },
+  "origin": {
+    "kind": "cloud-vm",
+    "value": "cloud-vm:vivid-newt",
+    "machine": "vivid-newt"
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -141,6 +174,16 @@ Notifications that originate from an agent completion signal (agent hooks instal
 | `isSubagent` | `true` when the event came from a nested subagent session |
 
 The `agent` object is omitted entirely for non-agent notifications (plain `cmux notify`, OSC 9/99/777 escape sequences, notifications from older cmux CLIs), and individual fields are omitted when unknown. Hooks cannot modify it — patches to `agent` in hook output are ignored. The same context is exported to the hook process environment as `CMUX_NOTIFICATION_AGENT_KIND`, `CMUX_NOTIFICATION_AGENT_CATEGORY`, `CMUX_NOTIFICATION_AGENT_PENDING` (`0`/`1`), and `CMUX_NOTIFICATION_AGENT_IS_SUBAGENT` (`0`/`1`); each variable is set only when the corresponding field is present.
+
+### Origin
+
+The `origin` object is present only for notifications whose text came from somewhere other than this Mac: `kind` is `ssh-relay` (a `cmux ssh` host) or `cloud-vm` (a cmux Cloud machine, with `machine` set to its id), and `value` is the same string the hook process sees in `CMUX_NOTIFICATION_ORIGIN` — `local`, `ssh-relay:<workspace uuid>`, or `cloud-vm:<machine>`. Hooks cannot modify it. `notifications.command` receives the same `CMUX_NOTIFICATION_ORIGIN` variable. Treat remote-origin `title`, `subtitle`, and `body` as untrusted text: use them as data (`"$CMUX_NOTIFICATION_BODY"` in quotes), never interpolate them into a command, an `osascript` source string, or an `eval`. A hook that wants to stay quiet for machines can gate on it:
+
+```sh
+case "$CMUX_NOTIFICATION_ORIGIN" in
+  cloud-vm:*) printf '{"effects":{"sound":false}}' ;;
+esac
+```
 
 With no hooks configured, notification behavior is exactly cmux's built-in default — configuring a hook is the explicit opt-in that hands the delivery decision to your script. For example, to keep every built-in behavior except the banner/sound/flash for subagent completions:
 
