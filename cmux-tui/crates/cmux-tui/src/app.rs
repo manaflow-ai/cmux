@@ -27942,8 +27942,7 @@ mod tests {
     #[test]
     fn cell_drag_selects_both_halves_of_a_wide_glyph() {
         let drag_selection = |name: &str, start: u16, end: u16| {
-            let (mut app, mux, surface, content) =
-                selection_fixture(name, "foo 界 bar".as_bytes());
+            let (mut app, mux, surface, content) = selection_fixture(name, "foo 界 bar".as_bytes());
             let press = MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column: content.x + start,
