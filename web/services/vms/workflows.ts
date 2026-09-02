@@ -94,6 +94,9 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   readonly displayName: string | null;
+  /** The machine's address on its owner's private network, when it has one. */
+  readonly addressIpv4: string | null;
+  readonly addressIpv6: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -1856,6 +1859,19 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // Backfill: machines created before address recording learn their private
+    // address on first attach, so "Copy IP Address" appears for them too.
+    const learned = endpoint.networkAddresses;
+    if (learned && repo.mergeProviderMetadata) {
+      const metadata = vm.providerMetadata ?? {};
+      const patch = {
+        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
+        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
+      };
+      if (Object.keys(patch).length) {
+        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }
     return endpoint;
   });
 }
@@ -2555,6 +2571,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   if (!row.providerVmId) {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
+  const metadata = row.providerMetadata ?? {};
+  const addressIpv4 = metadata["networkIpv4"];
+  const addressIpv6 = metadata["networkIpv6"];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -2563,6 +2582,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
+    addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
+    addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };
 }
 

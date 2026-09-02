@@ -574,7 +574,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn enqueue_agent_hook_pending(
+    pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
         origin: &str,
@@ -825,7 +825,7 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
-    pub fn commit_agent_projection_with_hook_state(
+    pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -847,7 +847,7 @@ impl WorkspaceRegistry {
         )
     }
 
-    pub fn commit_agent_projection_with_hook_state_and_sequence(
+    pub(crate) fn commit_agent_projection_with_hook_state_and_sequence(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -883,7 +883,7 @@ impl WorkspaceRegistry {
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
 
-    pub fn commit_agent_projection(
+    pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
