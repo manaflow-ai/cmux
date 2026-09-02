@@ -2610,6 +2610,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delayed_frame_for_evicted_tombstone_is_fatal() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        stream.close().await.unwrap();
+
+        // Model a stalled lane whose frame is delayed while other lanes churn
+        // through the global ID-counted tombstone window.
+        let mut closed = client.closed.lock().await;
+        for id in 100_000..100_000 + MAX_CLOSED_STREAM_TOMBSTONES as u64 {
+            closed.insert(id * 2 + 1);
+        }
+        assert!(!closed.ids.contains(&stream_id));
+        drop(closed);
+
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"delayed"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let mut fatal = client.subscribe_fatal();
+        tokio::time::timeout(Duration::from_secs(1), fatal.changed()).await.unwrap().unwrap();
+        assert!(
+            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
+        );
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn mux_payload_after_a_lane_fin_resets_before_the_aggregate_fin() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
