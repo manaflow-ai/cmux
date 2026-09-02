@@ -28537,8 +28537,8 @@ mod tests {
         app.content_area = Rect { x: 0, y: 0, width: 80, height: 24 };
         app.viewport_layout = layout;
         app.viewport_virtual_width = pane_count * 80;
-        app.tree = TreeView {
-            workspaces: vec![WorkspaceView {
+        app.tree = TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 3,
                 resource_id: None,
                 key: "workspace".to_string(),
@@ -28547,11 +28547,10 @@ mod tests {
                 screens: vec![screen],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            ..TreeView::default()
-        };
+            1,
+            Some(1),
+            0,
+        );
 
         app.reclip_viewport_panes();
         app.viewport_offset = (pane_count - 1) * 80;
@@ -28684,8 +28683,8 @@ mod tests {
             (2, VirtualRect { x: 80, y: 0, width: 53, height: 24 }),
         ];
         app.viewport_virtual_width = 133;
-        app.tree = TreeView {
-            workspaces: vec![WorkspaceView {
+        app.tree = TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 3,
                 resource_id: None,
                 key: "workspace".to_string(),
@@ -28750,11 +28749,10 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            ..TreeView::default()
-        };
+            1,
+            Some(1),
+            0,
+        );
         let started_at = Instant::now();
         let mut motion = ViewportMotion::new(started_at);
         motion.retarget(53, true, started_at);
@@ -39788,11 +39786,8 @@ mod tests {
         if active_surface != created_surface {
             tabs.push(tab(active_surface));
         }
-        TreeView {
-            workspace_revision: 0,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 4,
                 resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
@@ -39820,8 +39815,10 @@ mod tests {
                     }],
                 }],
             }],
-            ..TreeView::default()
-        }
+            0,
+            Some(1),
+            0,
+        )
     }
 
     #[test]
@@ -45459,11 +45456,8 @@ mod tests {
     }
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
-        TreeView {
-            workspace_revision: 0,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 4,
                 resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
@@ -45505,8 +45499,10 @@ mod tests {
                     }],
                 }],
             }],
-            ..TreeView::default()
-        }
+            0,
+            Some(1),
+            0,
+        )
     }
 
     #[test]

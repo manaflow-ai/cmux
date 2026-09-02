@@ -284,8 +284,8 @@ mod tests {
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
     fn tree() -> TreeView {
-        TreeView {
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 1,
                 resource_id: None,
                 key: "workspace-1".into(),
@@ -313,11 +313,10 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            ..TreeView::default()
-        }
+            1,
+            Some(1),
+            0,
+        )
     }
 
     fn tab(surface: SurfaceId, title: &str) -> TabView {

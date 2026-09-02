@@ -183,6 +183,21 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    pub(crate) fn from_parts(
+        workspaces: Vec<WorkspaceView>,
+        workspace_revision: u64,
+        pane_revision: Option<u64>,
+        active_workspace: usize,
+    ) -> Self {
+        Self {
+            workspaces,
+            workspace_revision,
+            pane_revision,
+            active_workspace,
+            location_index: OnceLock::new(),
+        }
+    }
+
     /// Retain the server's authoritative tab topology, removing only tabs
     /// with explicit detach/retire evidence. The local surface mirror is a
     /// lazy cache and can be empty during startup or reconnect.
