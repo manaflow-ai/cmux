@@ -327,9 +327,15 @@ fn classify_daemon_loss(
 
 fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
     line.clear();
+    let mut bytes = Vec::new();
     loop {
         let available = reader.fill_buf()?;
         if available.is_empty() {
+            if bytes.is_empty() {
+                return Ok(0);
+            }
+            *line = String::from_utf8(bytes)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             return Ok(line.len());
         }
         let (chunk_len, has_newline) = match available.iter().position(|byte| *byte == b'\n') {
@@ -343,11 +349,11 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
             ));
         }
         let chunk = &available[..chunk_len];
-        let text = std::str::from_utf8(chunk)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-        line.push_str(text);
+        bytes.extend_from_slice(chunk);
         reader.consume(chunk_len);
         if has_newline {
+            *line = String::from_utf8(bytes)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             return Ok(line.len());
         }
     }
