@@ -1281,7 +1281,7 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport(&transport_id);
+    runtime.pty.detach_transport_async(&transport_id).await;
     result
 }
 
