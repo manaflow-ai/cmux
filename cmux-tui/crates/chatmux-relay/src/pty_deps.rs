@@ -17,7 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -991,6 +991,12 @@ async fn is_executable(path: &Path) -> bool {
 /// Keeping the canonical absolute path in `CmuxTui` avoids a second PATH
 /// lookup after validation, so a changed PATH cannot select another binary.
 async fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    // `Command::current_dir` leaves the base for a relative program path
+    // platform-specific. Reject relative candidates instead of allowing the
+    // relay process cwd to disagree with the requested launch cwd.
+    if !path.is_absolute() {
+        return None;
+    }
     let canonical = tokio::fs::canonicalize(path).await.ok()?;
     is_executable(&canonical).await.then_some(canonical)
 }
@@ -1007,6 +1013,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, OnceLock, mpsc};
     use std::thread;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestControl {
         kills: TestArc<AtomicUsize>,
