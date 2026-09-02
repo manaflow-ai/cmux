@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -23,6 +23,10 @@ const skipAttach = rest.includes("--skip-attach");
 // metadata key the entitlements layer reads (cmuxVmPlan). Required to
 // exercise provisioning now that free plans are gated (vm_requires_pro).
 const paid = rest.includes("--paid");
+// --edge-check proves the coderouter edge model plane from inside the guest:
+// no route token on disk, the injected token reaches coderouter, and one
+// codex turn completes through the edge.
+const edgeCheck = rest.includes("--edge-check");
 const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
@@ -229,6 +233,44 @@ try {
       attachTransport = attached.transport;
     }
 
+    let edge;
+    if (edgeCheck) {
+      const exec = async (command, timeoutMs = 120_000) => {
+        const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ command, timeoutMs }),
+        }, timeoutMs + 30_000);
+        const text = await response.text();
+        if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
+        return JSON.parse(text);
+      };
+      const guestEnv = "export HOME=/root; export PATH=/opt/mise/shims:$PATH; . /root/.config/cmux/model-plane.env;";
+      const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
+      const steered = /coderouter/.test(hosts.stdout ?? "");
+      // Any crt_ string under the agent config roots means a token leaked into the guest.
+      const leak = await exec("grep -rsl 'crt_' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
+      const tokenOnDisk = (leak.stdout ?? "").trim();
+      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$OPENAI_BASE_URL/models"`);
+      const modelsStatus = (models.stdout ?? "").trim();
+      const codex = await exec(`${guestEnv} cd /root && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20`, 240_000);
+      const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
+      edge = {
+        hostsSteered: steered,
+        tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
+        modelsStatus,
+        codexExit: codex.exitCode,
+        codexPong: /pong/i.test(codexOut),
+        codexTail: codexOut.slice(-400),
+      };
+      const problems = [];
+      if (!steered) problems.push("guest /etc/hosts is not steered to the edge for the coderouter origin");
+      if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
+      if (modelsStatus !== "200") problems.push(`GET $OPENAI_BASE_URL/models from the guest returned ${modelsStatus || "nothing"}`);
+      if (!edge.codexPong) problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
+      if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")}`);
+    }
+
     const destroyStartedAt = performance.now();
     const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
       method: "DELETE",
@@ -246,6 +288,7 @@ try {
       ...(skipAttach
         ? { attachSkipped: true }
         : { attachTransport, attachDurationMs }),
+      ...(edge ? { edge } : {}),
       destroyed: true,
       destroyDurationMs,
     });
