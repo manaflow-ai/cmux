@@ -46,7 +46,7 @@ final class KeyboardShortcutLegacyResolutionCache: @unchecked Sendable {
 
     func invalidate() {
         hasCachedValue.storeRelease(false)
-        generation.advanceRelaxed()
+        _ = generation.advanceRelaxed()
     }
 
     func value(resolving: () -> Bool) -> Bool {
