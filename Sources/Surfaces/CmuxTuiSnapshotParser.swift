@@ -390,8 +390,106 @@ struct CmuxTuiSnapshotParser: Sendable {
         from state: CloudVMState,
         matching resourceIDs: Set<SurfaceResourceID>
     ) -> [SurfaceResource] {
-        guard let snapshot = state.snapshotObject() else { return [] }
-        return resources(fromSnapshot: snapshot, machine: state.machine, only: resourceIDs)
+        guard !resourceIDs.isEmpty else { return [] }
+
+        // Row-local deltas use the typed graph directly. The graph was accepted
+        // at a full snapshot boundary, and applyingTypedDelta checked the changed
+        // relationship neighborhood, so decoding rawSnapshot here would repeat
+        // the full-document validation on every title or agent update.
+        let workspaces = Dictionary(uniqueKeysWithValues: state.workspaces.map { ($0.id, $0) })
+        let screens = Dictionary(uniqueKeysWithValues: state.screens.map { ($0.id, $0) })
+        let panes = Dictionary(uniqueKeysWithValues: state.panes.map { ($0.id, $0) })
+        let tabs = Dictionary(uniqueKeysWithValues: state.tabs.map { ($0.id, $0) })
+        let agents = Dictionary(uniqueKeysWithValues: state.agents.map { ($0.terminalID, $0) })
+
+        func workspace(for tab: CloudVMTabState) -> SurfaceRemoteWorkspace? {
+            guard let pane = panes[tab.paneID],
+                  let screen = screens[pane.screenID],
+                  let workspace = workspaces[screen.workspaceID]
+            else { return nil }
+            return SurfaceRemoteWorkspace(
+                id: workspace.id,
+                name: workspace.name,
+                index: workspace.index,
+                focused: workspace.focused
+            )
+        }
+
+        func view(for tab: CloudVMTabState) -> SurfaceRemoteView? {
+            guard let workspace = workspace(for: tab) else { return nil }
+            return SurfaceRemoteView(
+                tabID: tab.id,
+                workspace: workspace,
+                screenID: panes[tab.paneID].flatMap { screens[$0.screenID]?.id },
+                paneID: tab.paneID,
+                name: tab.name,
+                index: tab.index,
+                focused: tab.focused
+            )
+        }
+
+        var resources: [SurfaceResource] = []
+        for resourceID in resourceIDs where resourceID.machine == state.machine {
+            switch resourceID.kind {
+            case .terminal:
+                guard let terminal = state.terminals.first(where: { $0.id == resourceID.key }) else { continue }
+                let tabIDs = uniquePreservingOrder(terminal.tabIDs)
+                if terminal.lifecycle == SurfaceLifecycle.exited.rawValue, tabIDs.isEmpty { continue }
+                var resource = SurfaceResource(
+                    id: resourceID,
+                    title: terminal.title,
+                    detail: terminal.cwd,
+                    lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
+                        ?? (terminal.running == true ? .running : .exited),
+                    agent: agents[terminal.id].map {
+                        SurfaceAgentBadge(state: $0.state, source: $0.source)
+                    },
+                    remoteWorkspace: nil,
+                    port: nil,
+                    url: nil
+                )
+                resource.remoteViews = tabIDs.compactMap { tabID in
+                    guard let tab = tabs[tabID],
+                          tab.contentKind == "terminal",
+                          tab.contentID == terminal.id
+                    else { return nil }
+                    return view(for: tab)
+                }
+                resource.remoteWorkspace = resource.remoteViews?.first?.workspace
+                resources.append(resource)
+            case .browser:
+                guard let browser = state.browsers.first(where: { $0.id == resourceID.key }) else { continue }
+                let remoteView: SurfaceRemoteView? = tabs[browser.tabID].flatMap { tab in
+                    guard tab.contentKind == "browser", tab.contentID == browser.id else { return nil }
+                    return view(for: tab)
+                }
+                var resource = SurfaceResource(
+                    id: resourceID,
+                    title: browser.title.isEmpty ? browser.url : browser.title,
+                    detail: browser.url.isEmpty ? nil : browser.url,
+                    lifecycle: browser.status == "failed" ? .exited : .running,
+                    agent: nil,
+                    remoteWorkspace: remoteView?.workspace,
+                    port: localhostPort(fromURL: browser.url),
+                    url: browser.url.isEmpty ? nil : browser.url
+                )
+                resource.remoteViews = remoteView.map { [$0] } ?? []
+                resources.append(resource)
+            case .display:
+                var views: [SurfaceRemoteView] = []
+                for tab in state.tabs where tab.contentKind == "display" && tab.contentID == resourceID.key {
+                    if let remoteView = view(for: tab) { views.append(remoteView) }
+                }
+                guard !views.isEmpty else { continue }
+                var resource = display(machine: state.machine, key: resourceID.key)
+                resource.remoteViews = views
+                resource.remoteWorkspace = views.first?.workspace
+                resources.append(resource)
+            default:
+                continue
+            }
+        }
+        return resources.sorted(by: resourceComesBefore)
     }
 
     /// Applies one contiguous `session.delta` batch to the complete raw graph,
@@ -573,11 +671,449 @@ struct CmuxTuiSnapshotParser: Sendable {
             "generation": cursor.generation,
             "revision": String(cursor.revision),
         ]
-        guard let next = Self.state(fromSnapshot: snapshot, machine: state.machine) else { return nil }
+        guard let rawSnapshot = canonicalJSONData(snapshot),
+              let next = Self.applyingTypedDelta(
+                  changes,
+                  to: state,
+                  cursor: cursor,
+                  snapshot: snapshot,
+                  rawSnapshot: rawSnapshot
+              )
+        else { return nil }
         return CloudVMStateDeltaApplication(
             state: next,
             impact: deltaImpact(changes, previous: state, next: next)
         )
+    }
+
+    /// Applies the typed part of a delta without reparsing the complete remote
+    /// document. The raw document was already patched above and remains the
+    /// authority. Typed rows are changed only for entities named by this batch;
+    /// relationship checks then cover those rows and their immediate edges.
+    private static func applyingTypedDelta(
+        _ changes: [[String: Any]],
+        to state: CloudVMState,
+        cursor: CloudVMCursor,
+        snapshot: [String: Any],
+        rawSnapshot: Data
+    ) -> CloudVMState? {
+        var next = state
+        next.cursor = cursor
+        next.rawSnapshot = rawSnapshot
+        var changedPaneIDs = Set<String>()
+        var opaqueResources = Set<String>()
+
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]),
+                  let operation = nonEmptyString(change["kind"]),
+                  let id = deltaIdentity(change, resource: resource)
+            else { return nil }
+            let value = change["value"] as? [String: Any]
+
+            switch (resource, operation) {
+            case ("workspace", "upsert"):
+                let existingIndex = next.workspaces.firstIndex(where: { $0.id == id })
+                let fallbackIndex = existingIndex.map { next.workspaces[$0].index } ?? next.workspaces.count
+                guard let value,
+                      let decoded = workspaceState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let existingIndex {
+                    next.workspaces[existingIndex] = decoded
+                } else {
+                    next.workspaces.append(decoded)
+                }
+            case ("screen", "upsert"):
+                let existingIndex = next.screens.firstIndex(where: { $0.id == id })
+                let fallbackIndex = existingIndex.map { next.screens[$0].index } ?? next.screens.count
+                guard let value,
+                      let decoded = screenState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let existingIndex {
+                    next.screens[existingIndex] = decoded
+                } else {
+                    next.screens.append(decoded)
+                }
+            case ("pane", "upsert"):
+                guard let value,
+                      let decoded = paneState(
+                          from: value,
+                          fallbackTabIDs: next.panes.first(where: { $0.id == id })?.tabIDs ?? []
+                      )
+                else { return nil }
+                if let index = next.panes.firstIndex(where: { $0.id == id }) {
+                    next.panes[index] = decoded
+                } else {
+                    next.panes.append(decoded)
+                }
+                changedPaneIDs.insert(id)
+            case ("tab", "upsert"):
+                let old = next.tabs.first { $0.id == id }
+                let fallbackIndex = old?.index ?? next.tabs.count
+                guard let value,
+                      let decoded = tabState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let old {
+                    if old.paneID != decoded.paneID {
+                        changedPaneIDs.insert(old.paneID)
+                        changedPaneIDs.insert(decoded.paneID)
+                    }
+                } else {
+                    changedPaneIDs.insert(decoded.paneID)
+                }
+                if let index = next.tabs.firstIndex(where: { $0.id == id }) {
+                    next.tabs[index] = decoded
+                } else {
+                    next.tabs.append(decoded)
+                }
+            case ("terminal", "upsert"):
+                guard let value,
+                      let decoded = terminalState(from: value)
+                else { return nil }
+                if let index = next.terminals.firstIndex(where: { $0.id == id }) {
+                    next.terminals[index] = decoded
+                } else {
+                    next.terminals.append(decoded)
+                }
+            case ("browser", "upsert"):
+                guard let value,
+                      let decoded = browserState(from: value)
+                else { return nil }
+                if let index = next.browsers.firstIndex(where: { $0.id == id }) {
+                    next.browsers[index] = decoded
+                } else {
+                    next.browsers.append(decoded)
+                }
+            case ("agent", "upsert"):
+                guard let value else { return nil }
+                guard applyAgentUpsert(value: value, change: change, to: &next) else { return nil }
+            case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+                opaqueResources.insert(resource)
+            case ("workspace", "delete"):
+                next.workspaces.removeAll { $0.id == id }
+            case ("screen", "delete"):
+                next.screens.removeAll { $0.id == id }
+            case ("pane", "delete"):
+                if let pane = next.panes.first(where: { $0.id == id }) {
+                    changedPaneIDs.insert(pane.id)
+                }
+                next.panes.removeAll { $0.id == id }
+            case ("tab", "delete"):
+                if let tab = next.tabs.first(where: { $0.id == id }) {
+                    changedPaneIDs.insert(tab.paneID)
+                }
+                next.tabs.removeAll { $0.id == id }
+            case ("terminal", "delete"):
+                next.terminals.removeAll { $0.id == id }
+            case ("browser", "delete"):
+                next.browsers.removeAll { $0.id == id }
+            case ("agent", "delete"):
+                guard applyAgentDelete(change: change, to: &next) else { return nil }
+            case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+                opaqueResources.insert(resource)
+            default:
+                return nil
+            }
+        }
+
+        // A tab move/create/delete changes the derived pane child list. This is
+        // a topology path, so the affected panes are the only rows rescanned.
+        for paneID in changedPaneIDs {
+            guard let index = next.panes.firstIndex(where: { $0.id == paneID }) else { continue }
+            next.panes[index].tabIDs = next.tabs.filter { $0.paneID == paneID }.map(\.id)
+        }
+        for resource in opaqueResources {
+            refreshOpaqueEntities(resource: resource, snapshot: snapshot, state: &next)
+        }
+        guard deltaRelationshipsAreConsistent(changes, previous: state, next: next) else { return nil }
+        return next
+    }
+
+    private static func deltaIdentity(_ change: [String: Any], resource: String) -> String? {
+        let value = change["value"] as? [String: Any]
+        if resource == "agent" {
+            return nonEmptyString(change["id"])
+                ?? nonEmptyString(change["terminal_id"])
+                ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+        }
+        return nonEmptyString(change["id"])
+    }
+
+    private static func workspaceState(from value: [String: Any], fallbackIndex: Int) -> CloudVMWorkspaceState? {
+        guard let id = nonEmptyString(value["id"]) else { return nil }
+        return CloudVMWorkspaceState(
+            id: id,
+            name: nonEmptyString(value["name"]) ?? id,
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false
+        )
+    }
+
+    private static func screenState(from value: [String: Any], fallbackIndex: Int) -> CloudVMScreenState? {
+        guard let id = nonEmptyString(value["id"]),
+              let workspaceID = nonEmptyString(value["workspace_id"])
+        else { return nil }
+        return CloudVMScreenState(
+            id: id,
+            workspaceID: workspaceID,
+            name: nonEmptyString(value["name"]),
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false,
+            layout: value["layout"].flatMap(canonicalJSONData)
+        )
+    }
+
+    private static func paneState(from value: [String: Any], fallbackTabIDs: [String]) -> CloudVMPaneState? {
+        guard let id = nonEmptyString(value["id"]),
+              let screenID = nonEmptyString(value["screen_id"])
+        else { return nil }
+        return CloudVMPaneState(
+            id: id,
+            screenID: screenID,
+            name: nonEmptyString(value["name"]),
+            focused: value["focused"] as? Bool ?? false,
+            zoomed: value["zoomed"] as? Bool ?? false,
+            tabIDs: fallbackTabIDs
+        )
+    }
+
+    private static func tabState(from value: [String: Any], fallbackIndex: Int) -> CloudVMTabState? {
+        guard let id = nonEmptyString(value["id"]),
+              let paneID = nonEmptyString(value["pane_id"]),
+              let contentKind = nonEmptyString(value["content_kind"]),
+              let contentID = nonEmptyString(value["content_id"])
+        else { return nil }
+        return CloudVMTabState(
+            id: id,
+            paneID: paneID,
+            name: nonEmptyString(value["name"]),
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false,
+            contentKind: contentKind,
+            contentID: contentID
+        )
+    }
+
+    private static func terminalState(from value: [String: Any]) -> CloudVMTerminalState? {
+        guard let id = nonEmptyString(value["id"]) else { return nil }
+        var tabIDs: [String] = []
+        if let rawTabIDs = value["tab_ids"] {
+            guard let decodedTabIDs = rawTabIDs as? [String],
+                  decodedTabIDs.allSatisfy({ nonEmptyString($0) != nil })
+            else { return nil }
+            tabIDs = uniquePreservingOrder(decodedTabIDs)
+        }
+        if let rawTabID = value["tab_id"], !(rawTabID is NSNull) {
+            guard let tabID = nonEmptyString(rawTabID) else { return nil }
+            if tabIDs.isEmpty { tabIDs = [tabID] }
+        }
+        return CloudVMTerminalState(
+            id: id,
+            tabIDs: tabIDs,
+            title: (value["title"] as? String) ?? "",
+            cwd: nonEmptyString(value["cwd"]),
+            lifecycle: (value["lifecycle"] as? String) ?? ((value["running"] as? Bool) == true ? "running" : "exited"),
+            cols: integer(value["cols"]),
+            rows: integer(value["rows"]),
+            running: value["running"] as? Bool
+        )
+    }
+
+    private static func browserState(from value: [String: Any]) -> CloudVMBrowserState? {
+        guard let id = nonEmptyString(value["id"]),
+              let tabID = nonEmptyString(value["tab_id"])
+        else { return nil }
+        return CloudVMBrowserState(
+            id: id,
+            tabID: tabID,
+            url: (value["url"] as? String) ?? "",
+            title: (value["title"] as? String) ?? "",
+            status: (value["status"] as? String) ?? ""
+        )
+    }
+
+    private static func agentState(from value: [String: Any]) -> CloudVMAgentState? {
+        guard let terminalID = nonEmptyString(value["terminal_id"]),
+              let state = nonEmptyString(value["state"])
+        else { return nil }
+        return CloudVMAgentState(
+            id: nonEmptyString(value["id"]),
+            terminalID: terminalID,
+            state: state,
+            source: nonEmptyString(value["source"])
+        )
+    }
+
+    private static func applyAgentUpsert(
+        value: [String: Any],
+        change: [String: Any],
+        to state: inout CloudVMState
+    ) -> Bool {
+        guard var decoded = agentState(from: value),
+              let terminalID = nonEmptyString(value["terminal_id"])
+        else { return false }
+        let explicitID = nonEmptyString(change["id"])
+        let targetIndex = explicitID.flatMap { id in state.agents.firstIndex { $0.id == id } }
+            ?? state.agents.firstIndex { $0.terminalID == terminalID }
+        if targetIndex == nil, explicitID != nil,
+           state.agents.contains(where: { $0.id == nil }) {
+            // An explicit id cannot safely claim an unrelated legacy id-less row.
+            return false
+        }
+        if let targetIndex {
+            if explicitID == nil, decoded.id == nil, let existingID = state.agents[targetIndex].id {
+                decoded.id = existingID
+            }
+            state.agents[targetIndex] = decoded
+        } else {
+            state.agents.append(decoded)
+        }
+        return true
+    }
+
+    private static func applyAgentDelete(change: [String: Any], to state: inout CloudVMState) -> Bool {
+        let explicitID = nonEmptyString(change["id"])
+        let terminalID = nonEmptyString(change["terminal_id"])
+            ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+        if let explicitID,
+           let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
+            if let terminalID, state.agents[index].terminalID != terminalID { return false }
+            state.agents.remove(at: index)
+            return true
+        }
+        guard let terminalID,
+              let index = state.agents.firstIndex(where: { $0.id == nil && $0.terminalID == terminalID })
+        else { return false }
+        state.agents.remove(at: index)
+        return true
+    }
+
+    private static func refreshOpaqueEntities(
+        resource: String,
+        snapshot: [String: Any],
+        state: inout CloudVMState
+    ) {
+        let key = snapshotKey(for: resource)
+        let values: [[String: Any]]
+        if let object = snapshot[key] as? [String: Any] {
+            values = [object]
+        } else {
+            values = (snapshot[key] as? [[String: Any]]) ?? []
+        }
+        state.otherEntities.removeAll { $0.kind == key }
+        state.otherEntities.append(contentsOf: entityValues(kind: key, objects: values))
+        state.otherEntities.sort {
+            if $0.kind != $1.kind { return $0.kind < $1.kind }
+            let leftID = $0.id ?? ""
+            let rightID = $1.id ?? ""
+            if leftID != rightID { return leftID < rightID }
+            return $0.payload.lexicographicallyPrecedes($1.payload)
+        }
+    }
+
+    private static func snapshotKey(for resource: String) -> String {
+        switch resource {
+        case "machine", "machines": return "machine"
+        case "session", "sessions": return "session"
+        case "workspace", "workspaces": return "workspaces"
+        case "screen", "screens": return "screens"
+        case "pane", "panes": return "panes"
+        case "tab", "tabs": return "tabs"
+        case "terminal", "terminals": return "terminals"
+        case "browser", "browsers": return "browsers"
+        case "client", "clients": return "clients"
+        case "notification", "notifications": return "notifications"
+        case "agent", "agents": return "agents"
+        case "pairing_request", "pairing_requests": return "pairing_requests"
+        case "frontend_projection", "frontend_projections": return "frontend_projections"
+        case "sidebar_view", "sidebar_views": return "sidebar_views"
+        default: return resource
+        }
+    }
+
+    /// Checks only the foreign-key neighborhood touched by a delta. The prior
+    /// state was accepted at a full snapshot boundary, so unrelated rows cannot
+    /// become invalid without being named by this batch.
+    private static func deltaRelationshipsAreConsistent(
+        _ changes: [[String: Any]],
+        previous: CloudVMState,
+        next: CloudVMState
+    ) -> Bool {
+        var affectedTerminalIDs = Set<String>()
+        var affectedBrowserIDs = Set<String>()
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]),
+                  let operation = nonEmptyString(change["kind"]),
+                  let id = deltaIdentity(change, resource: resource)
+            else { return false }
+            switch resource {
+            case "workspace":
+                if operation == "delete" {
+                    guard !next.screens.contains(where: { $0.workspaceID == id }) else { return false }
+                } else {
+                    guard next.workspaces.contains(where: { $0.id == id }) else { return false }
+                }
+            case "screen":
+                if operation == "delete" {
+                    guard !next.panes.contains(where: { $0.screenID == id }) else { return false }
+                } else if let screen = next.screens.first(where: { $0.id == id }) {
+                    guard next.workspaces.contains(where: { $0.id == screen.workspaceID }) else { return false }
+                } else { return false }
+            case "pane":
+                if operation == "delete" {
+                    guard !next.tabs.contains(where: { $0.paneID == id }) else { return false }
+                } else if let pane = next.panes.first(where: { $0.id == id }) {
+                    guard next.screens.contains(where: { $0.id == pane.screenID }) else { return false }
+                } else { return false }
+            case "tab":
+                let old = previous.tabs.first { $0.id == id }
+                let current = next.tabs.first { $0.id == id }
+                for tab in [old, current].compactMap({ $0 }) {
+                    if let terminalID = tab.contentKind == "terminal" ? tab.contentID : nil {
+                        affectedTerminalIDs.insert(terminalID)
+                    }
+                    if let browserID = tab.contentKind == "browser" ? tab.contentID : nil {
+                        affectedBrowserIDs.insert(browserID)
+                    }
+                }
+                if operation != "delete" {
+                    guard let tab = current,
+                          next.panes.contains(where: { $0.id == tab.paneID })
+                    else { return false }
+                }
+            case "terminal":
+                affectedTerminalIDs.insert(id)
+            case "browser":
+                affectedBrowserIDs.insert(id)
+            case "agent":
+                let terminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+                    ?? nonEmptyString(change["terminal_id"])
+                guard terminalID != nil else { return false }
+            default:
+                break
+            }
+        }
+        for terminalID in affectedTerminalIDs {
+            guard let terminal = next.terminals.first(where: { $0.id == terminalID }) else { continue }
+            for tabID in terminal.tabIDs {
+                guard let tab = next.tabs.first(where: { $0.id == tabID }) else { continue }
+                guard tab.contentKind == "terminal", tab.contentID == terminalID else { return false }
+            }
+        }
+        for browserID in affectedBrowserIDs {
+            guard let browser = next.browsers.first(where: { $0.id == browserID }) else { continue }
+            if let tab = next.tabs.first(where: { $0.id == browser.tabID }) {
+                guard tab.contentKind == "browser", tab.contentID == browserID else { return false }
+            }
+        }
+        // Agent terminal relationships are unique in the public schema. Check
+        // the compact set once only when a batch touches an agent row.
+        if changes.contains(where: { nonEmptyString($0["resource"]) == "agent" }) {
+            var seen = Set<String>()
+            for agent in next.agents {
+                guard seen.insert(agent.terminalID).inserted else { return false }
+            }
+        }
+        return true
     }
 
     private static func deltaImpact(

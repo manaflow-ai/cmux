@@ -61280,6 +61280,23 @@
         }
       }
     },
+    "cloudTree.menu.renameTerminalAllViews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename all views…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのビューを名称変更…"
+          }
+        }
+      }
+    },
     "cloudTree.menu.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {

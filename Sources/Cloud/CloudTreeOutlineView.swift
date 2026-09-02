@@ -633,10 +633,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal, remoteView: row.remoteView)
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
-                    // The name rides the terminal's daemon tab, so a zero-view pool
-                    // terminal has nothing to rename until it is projected somewhere.
-                    if row.remoteView != nil {
-                        items.append(item(String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameTerminal(row.resource, row.remoteView) })
+                    // A tab-specific row renames one view. A pool row with several
+                    // views has no single safe target, so expose the explicit
+                    // all-views operation. A detached zero-view resource has no
+                    // daemon tab to rename and keeps this item hidden.
+                    let canRename = row.remoteView != nil
+                        || row.resource.remoteViews?.isEmpty == false
+                        || row.resource.remoteWorkspace != nil
+                    if canRename {
+                        let key = row.remoteView == nil
+                            ? "cloudTree.menu.renameTerminalAllViews"
+                            : "cloudTree.menu.renameTerminal"
+                        let fallback = row.remoteView == nil ? "Rename all views\u{2026}" : "Rename\u{2026}"
+                        items.append(item(String(localized: key, defaultValue: fallback)) { [nodeActions] in
+                            nodeActions.renameTerminal(row.resource, row.remoteView)
+                        })
                     }
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }

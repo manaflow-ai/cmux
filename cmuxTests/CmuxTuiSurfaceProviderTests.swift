@@ -811,6 +811,12 @@ import Testing
         let terminal = try #require(CmuxTuiSnapshotParser.resources(from: next).first { $0.id.key == "term_build" })
         #expect(terminal.remoteViews?.first?.name == "renamed")
         #expect(terminal.title == "cargo test")
+        let targetedTerminal = try #require(CmuxTuiSnapshotParser.resources(
+            from: next,
+            matching: [SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")]
+        ).first)
+        #expect(targetedTerminal.remoteViews?.first?.name == "renamed")
+        #expect(targetedTerminal.title == "cargo test")
         let notification = try #require(next.entity(kind: "notification", id: "notice-1"))
         let notificationObject = try #require(JSONSerialization.jsonObject(with: notification.payload) as? [String: Any])
         #expect(notificationObject["body"] as? String == "passed")
