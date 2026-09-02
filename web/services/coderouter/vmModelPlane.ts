@@ -7,6 +7,11 @@
 //   CMUX_CODEROUTER_URL = <web origin>    (origin for future config fetches,
 //                                          e.g. /api/coderouter/opencode/config)
 //
+// The image's agent-config.sh derives the Anthropic pair from these on every
+// shell (ANTHROPIC_BASE_URL = CMUX_CODEROUTER_URL, whose /v1/messages the
+// plane serves; ANTHROPIC_AUTH_TOKEN = the same route token), so Claude Code
+// routes through the plane without any extra minted env.
+//
 // The baked image's /etc/cmux/agent-config.sh materializes harness configs
 // from these vars at first shell and persists them on the machine's durable
 // home volume, because provider create-time envs do not survive a resurrect.
@@ -69,7 +74,17 @@ export async function mintVmModelPlaneEnv(
     const entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
     if (!entitlement.allowed) return null;
   }
-  const origin = new URL(input.requestUrl).origin;
+  const url = new URL(input.requestUrl);
+  // The route token rides this origin as a bearer from inside the machine, so
+  // it must never leave over cleartext. Loopback stays allowed for local dev
+  // (the same rule the cr CLI enforces for --server).
+  if (
+    url.protocol !== "https:" &&
+    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  ) {
+    throw new Error("coderouter model-plane origin must use HTTPS");
+  }
+  const origin = url.origin;
   const { token } = await dependencies.issueToken(
     input.teamId,
     input.stackUserId,

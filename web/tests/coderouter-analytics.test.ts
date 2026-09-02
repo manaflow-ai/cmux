@@ -333,6 +333,7 @@ describe("streaming model usage extraction", () => {
       model: "gpt-test",
       inputTokens: 120,
       cachedInputTokens: 80,
+      cacheCreationInputTokens: 0,
       outputTokens: 30,
       totalTokens: 150,
     });

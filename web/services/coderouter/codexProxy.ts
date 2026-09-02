@@ -202,6 +202,10 @@ async function proxyCodexRequestWith(
     }
     if (upstream.status === 401) {
       refreshRetries++;
+      // The rejected response is never handed to the caller: drop its body
+      // and forget it so an exhausted pool answers no_usable_account.
+      await upstream.body?.cancel().catch(() => undefined);
+      upstream = null;
       addCoderouterBreadcrumb(
         "refresh",
         "Refreshing rejected credential",
@@ -218,13 +222,12 @@ async function proxyCodexRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider === "codex") {
-          upstream = await sendCodex(
-            request.clone(),
-            forwardedHeaders,
-            refreshed,
-          );
-        }
+        if (refreshed.provider !== "codex") continue;
+        upstream = await sendCodex(
+          request.clone(),
+          forwardedHeaders,
+          refreshed,
+        );
       } catch (error) {
         failureStage = "credential_refresh";
         reportCoderouterFailure("provider_refresh", error, {
@@ -235,6 +238,9 @@ async function proxyCodexRequestWith(
       }
     }
     if (upstream.status === 429) {
+      const limited = upstream;
+      await limited.body?.cancel().catch(() => undefined);
+      upstream = null;
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),
@@ -243,7 +249,7 @@ async function proxyCodexRequestWith(
           status: 429,
         },
       );
-      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+      await dependencies.cooldown(account.id, rateLimitDelay(limited.headers));
       continue;
     }
     break;
@@ -295,9 +301,15 @@ async function proxyCodexRequestWith(
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: upstream.body !== null,
   });
-  const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity.teamId, usage);
-  });
+  const observedBody = observeModelUsage(
+    upstream.body,
+    (usage) => captureModelUsage(identity.teamId, usage),
+    (error) =>
+      reportCoderouterFailure("upstream_transport", error, {
+        provider: "codex",
+        stage: "response_stream",
+      }),
+  );
   return new Response(observedBody, {
     status: upstream.status,
     headers: responseHeaders,
@@ -450,7 +462,7 @@ async function sendCodex(
   } as RequestInit & { duplex: "half" });
 }
 
-function rateLimitDelay(headers: Headers): number {
+export function rateLimitDelay(headers: Headers): number {
   const retryAfter = headers.get("retry-after");
   if (retryAfter && /^\d+$/.test(retryAfter)) {
     return Number(retryAfter) * 1_000;
@@ -468,7 +480,7 @@ function rateLimitDelay(headers: Headers): number {
   return 60_000;
 }
 
-function bearerToken(request: Request): string | null {
+export function bearerToken(request: Request): string | null {
   const routed = request.headers.get("x-coderouter-route-token")?.trim();
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
@@ -476,7 +488,7 @@ function bearerToken(request: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-function jsonError(
+export function jsonError(
   error: string,
   status: number,
   headers?: HeadersInit,

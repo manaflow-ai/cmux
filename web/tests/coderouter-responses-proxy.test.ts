@@ -151,6 +151,16 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs).toHaveLength(2);
   });
 
+  test("a rate limit on the last account yields no_usable_account, never the discarded 429", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    upstreamStatuses = [429];
+    const response = await proxy(responsesRequest({ session_id: "session-last" }));
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("no_usable_account");
+    expect(cooldowns).toEqual(["acct-1"]);
+  });
+
   test("returns no_usable_account when selection is exhausted", async () => {
     accountsToServe = [];
     const response = await proxy(responsesRequest({ session_id: "session-dry" }));

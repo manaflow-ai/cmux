@@ -265,6 +265,7 @@ function eventProperties(
         "codex",
         "opencode",
         "pi",
+        "claude",
         "other",
         "unknown",
       ]);
@@ -367,6 +368,10 @@ function aiUsageProperties(
     inputTokens,
     safeCount(input.cached_input_tokens),
   );
+  const cacheCreationInputTokens = Math.min(
+    inputTokens - cachedInputTokens,
+    safeCount(input.cache_creation_input_tokens),
+  );
   const outputTokens = safeCount(input.output_tokens);
   const totalTokens = Math.max(
     inputTokens + outputTokens,
@@ -377,6 +382,7 @@ function aiUsageProperties(
     model,
     inputTokens,
     cachedInputTokens,
+    cacheCreationInputTokens,
     outputTokens,
     totalTokens,
   });
@@ -385,6 +391,7 @@ function aiUsageProperties(
     $ai_provider: provider,
     $ai_input_tokens: inputTokens,
     $ai_cache_read_input_tokens: cachedInputTokens,
+    $ai_cache_creation_input_tokens: cacheCreationInputTokens,
     $ai_cache_reporting_exclusive: false,
     $ai_output_tokens: outputTokens,
     ...(estimate.pricedTokens > 0
@@ -447,7 +454,7 @@ function lifecycleSource(value: unknown): string | null {
 }
 
 function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "unknown"]);
+  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
 }
 
 function aiProvider(value: AnalyticsScalar | null | undefined): string {
@@ -470,6 +477,7 @@ function aiProvider(value: AnalyticsScalar | null | undefined): string {
 function authSurface(value: unknown): string | null {
   return enumValue(value, [
     "responses",
+    "messages",
     "models",
     "opencode_config",
     "opencode_proxy",

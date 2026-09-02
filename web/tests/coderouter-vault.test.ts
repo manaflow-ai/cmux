@@ -13,7 +13,7 @@ const codex = {
 };
 
 describe("coderouter vault", () => {
-  test("accepts complete Codex and OpenCode Go credentials", () => {
+  test("accepts complete Codex, OpenCode Go, and Claude credentials", () => {
     expect(parseCredential(codex)).toEqual(codex);
     expect(parseCredential({
       provider: "opencode-go",
@@ -25,12 +25,25 @@ describe("coderouter vault", () => {
       orgName: "Personal",
       expiresAt: Date.now() + 3_600_000,
     })?.provider).toBe("opencode-go");
+    const claude = {
+      provider: "claude",
+      accessToken: "access",
+      refreshToken: "refresh",
+      accountId: "claude-account-1",
+      email: "person@example.com",
+      subscriptionType: "max",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    };
+    expect(parseCredential(claude)).toEqual(claude);
+    expect(
+      parseCredential({ ...claude, subscriptionType: undefined })?.provider,
+    ).toBe("claude");
   });
 
   test("rejects incomplete secrets before they reach Stack", () => {
     expect(parseCredential({ ...codex, refreshToken: "" })).toBeNull();
     expect(parseCredential({ ...codex, expiresAt: "soon" })).toBeNull();
-    expect(parseCredential({ ...codex, provider: "claude" })).toBeNull();
+    expect(parseCredential({ ...codex, provider: "gemini" })).toBeNull();
   });
 
   test("fails closed on malformed Stack server metadata", () => {

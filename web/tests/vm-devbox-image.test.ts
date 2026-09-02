@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -325,9 +325,75 @@ describe("devbox image template", () => {
         },
       });
       expect(pi).not.toContain("crt_test");
+      // claude: the onboarding skip is seeded token-free; the endpoint and
+      // bearer live only in the derived shell env, never in a file.
+      const claudeState = readFileSync(path.join(home, ".claude.json"), "utf8");
+      expect(JSON.parse(claudeState)).toEqual({ hasCompletedOnboarding: true });
+      expect(claudeState).not.toContain("crt_test");
       // opencode: the config endpoint is unreachable here, so nothing may be
       // written (the next shell retries).
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("claude env derives from the model plane on fresh boot and resurrect", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-claude-env-"));
+    const script = `. ${path.join(templateDir, "agent-config.sh")} && printf '%s\\n%s\\n' "$ANTHROPIC_BASE_URL" "$ANTHROPIC_AUTH_TOKEN"`;
+    // A closed loopback port keeps the opencode config fetch hermetic (instant
+    // connection refused, no DNS) while still exercising the derivation.
+    const origin = "http://127.0.0.1:9";
+    try {
+      // Fresh boot: derived from the boot env.
+      const boot = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          OPENAI_BASE_URL: `${origin}/v1`,
+          OPENAI_API_KEY: "crt_test",
+          CMUX_CODEROUTER_URL: origin,
+        },
+        encoding: "utf8",
+      });
+      expect(boot.status).toBe(0);
+      expect(boot.stdout).toBe(`${origin}\ncrt_test\n`);
+      // The onboarding seed is owner-only like every other generated file.
+      expect(statSync(path.join(home, ".claude.json")).mode & 0o777).toBe(0o600);
+      // Resurrect: no boot env, only the persisted model-plane.env written
+      // above; the Anthropic pair must still derive so an older machine gains
+      // Claude routing on its next shell.
+      const resurrect = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          OPENAI_BASE_URL: "",
+          OPENAI_API_KEY: "",
+          CMUX_CODEROUTER_URL: "",
+        },
+        encoding: "utf8",
+      });
+      expect(resurrect.status).toBe(0);
+      expect(resurrect.stdout).toBe(`${origin}\ncrt_test\n`);
+      // A user's own values stay in control: set-if-unset never overrides.
+      const overridden = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "https://user.invalid",
+          ANTHROPIC_AUTH_TOKEN: "user-token",
+          OPENAI_BASE_URL: "",
+          OPENAI_API_KEY: "",
+          CMUX_CODEROUTER_URL: "",
+        },
+        encoding: "utf8",
+      });
+      expect(overridden.status).toBe(0);
+      expect(overridden.stdout).toBe("https://user.invalid\nuser-token\n");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -405,6 +471,30 @@ describe("devbox image template", () => {
       await server.close();
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  test("ble.sh tput caches are baked so the first pane opens clean (Blaxel parity)", () => {
+    // Both cache homes ble.sh resolves are seeded at bake time; cmux-bashrc's
+    // runtime copy (shared with Blaxel) then only has to refresh stale files.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // E2B strips backslash escapes from RUN lines, so the pty feed is `echo
+    // exit`, never printf (pinned separately above for the whole file).
+    expect(dockerfile).toContain("echo exit | TERM=\"$term\"");
+    // The seed shell loads ble.sh through the rc chain, so the bake must come
+    // after the chain is installed or it silently generates nothing.
+    expect(dockerfile.indexOf("mkdir -p /etc/cmux/blesh-cache-seed")).toBeGreaterThan(
+      dockerfile.indexOf("'[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc"),
+    );
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    // The Freestyle bake and the remote verify replay the same contract.
+    const freestyle = readScript("build-devbox-freestyle.ts");
+    expect(freestyle).toContain('"blesh-cache-seed"');
+    expect(freestyle).toContain("test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux");
+    expect(readScript("verify-devbox-image.ts")).toContain("blesh-seed-ok");
   });
 
   test("claude transcript retention is pinned everywhere", () => {

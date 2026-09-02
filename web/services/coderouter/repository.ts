@@ -794,16 +794,19 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(rows) ? rows as readonly Record<string, unknown>[] : [];
 }
 
+export type AccountCooldownReason = "rate_limited" | "auth_rejected";
+
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
+  reason: AccountCooldownReason = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
   await cloudDb()
     .update(coderouterAccounts)
     .set({
       cooldownUntil: new Date(Date.now() + bounded),
-      lastFailureCode: "rate_limited",
+      lastFailureCode: reason,
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId));

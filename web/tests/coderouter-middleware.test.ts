@@ -38,6 +38,22 @@ describe("coderouter middleware", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  test("does not localize the Anthropic-compatible data-plane routes", () => {
+    for (
+      const pathname of ["/v1/messages", "/v1/messages/count_tokens"]
+    ) {
+      const response = middleware(
+        new NextRequest(`https://coderouter.dev${pathname}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+    }
+  });
+
   test("does not localize Pi's Codex-compatible data-plane route", () => {
     const response = middleware(
       new NextRequest("https://coderouter.dev/v1/codex/responses", {

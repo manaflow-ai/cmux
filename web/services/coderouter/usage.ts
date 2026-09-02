@@ -6,8 +6,10 @@ import {
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { CLAUDE_OAUTH_BETA } from "./claudeOAuth";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
@@ -43,7 +45,10 @@ async function loadAccountsWithUsage(teamId: string) {
   );
   const providerStartedAt = performance.now();
   const withUsage = await Promise.all(accounts.map(async (account) => {
-    if (account.provider !== "codex" || account.state !== "active") {
+    if (
+      account.state !== "active" ||
+      (account.provider !== "codex" && account.provider !== "claude")
+    ) {
       return account;
     }
     try {
@@ -53,16 +58,27 @@ async function loadAccountsWithUsage(teamId: string) {
         expectedRevision: credentialsByAccount.get(account.id)?.credentialRevision ?? 0,
         known: credentialsByAccount.get(account.id),
       });
-      if (credential.provider !== "codex") return account;
-      const response = await fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
-        headers: {
-          authorization: `Bearer ${credential.accessToken}`,
-          "chatgpt-account-id": credential.accountId,
-          "user-agent": "coderouter/0.2",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(5_000),
-      }));
+      if (credential.provider !== account.provider) return account;
+      const response = await fetchProviderRead(() =>
+        credential.provider === "codex"
+          ? fetch(CODEX_USAGE_URL, {
+            headers: {
+              authorization: `Bearer ${credential.accessToken}`,
+              "chatgpt-account-id": credential.accountId,
+              "user-agent": "coderouter/0.2",
+            },
+            cache: "no-store",
+            signal: AbortSignal.timeout(5_000),
+          })
+          : fetch(CLAUDE_USAGE_URL, {
+            headers: {
+              authorization: `Bearer ${credential.accessToken}`,
+              "anthropic-beta": CLAUDE_OAUTH_BETA,
+              "user-agent": "coderouter/0.2",
+            },
+            cache: "no-store",
+            signal: AbortSignal.timeout(5_000),
+          }));
       if (!response.ok) {
         reportCoderouterFailure(
           response.status === 429 ? "provider_rate_limit" : "provider_usage",
@@ -72,7 +88,9 @@ async function loadAccountsWithUsage(teamId: string) {
         return { ...account, usageError: `HTTP ${response.status}` };
       }
       const usage: unknown = await response.json();
-      const cooldownMs = usageCooldown(usage);
+      // Cooldown inference reads the codex rate_limit shape; Claude accounts
+      // cool down through the data plane's 429 handling instead.
+      const cooldownMs = account.provider === "codex" ? usageCooldown(usage) : null;
       if (cooldownMs !== null) {
         await markAccountCooldown(account.id, cooldownMs);
       }

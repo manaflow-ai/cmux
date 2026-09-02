@@ -144,6 +144,18 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
       ...(orgName ? { orgName } : {}),
     };
   }
+  if (provider === "claude") {
+    const subscriptionType = optionalBoundedString(value.subscriptionType, 128);
+    return {
+      provider,
+      accessToken,
+      refreshToken,
+      accountId,
+      email,
+      expiresAt,
+      ...(subscriptionType ? { subscriptionType } : {}),
+    };
+  }
   return null;
 }
 

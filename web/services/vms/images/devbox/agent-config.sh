@@ -5,7 +5,8 @@
 # /etc/profile.d/cmux-agents.sh (login/exec shells) and the bashrc chain
 # (interactive shells).
 #
-# Materializes per-harness model-proxy configs from the machine's boot env
+# Materializes per-harness model-proxy configs (claude, codex, pi, opencode)
+# from the machine's boot env
 # (OPENAI_BASE_URL / OPENAI_API_KEY / CMUX_CODEROUTER_URL, minted at VM
 # create from the creator's coderouter team; see
 # web/services/coderouter/vmModelPlane.ts). Idempotent and silent: each
@@ -34,6 +35,28 @@ cmux_write_agent_configs() {
     )
   elif [ -f "$HOME/.config/cmux/model-plane.env" ]; then
     . "$HOME/.config/cmux/model-plane.env" 2>/dev/null || true
+  fi
+
+  # claude: Claude Code reads its endpoint and bearer token straight from the
+  # environment, so the machine's route token doubles as ANTHROPIC_AUTH_TOKEN
+  # and the plane origin as ANTHROPIC_BASE_URL (Claude Code appends
+  # /v1/messages, which the plane serves). Derived on every shell rather than
+  # persisted so a rotated route token needs no rewrite and machines minted
+  # before Claude routing gain it on their next shell. Set-if-unset keeps a
+  # user's own explicit values in control.
+  if [ -n "${OPENAI_API_KEY-}" ] && [ -n "${CMUX_CODEROUTER_URL-}" ]; then
+    export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-$CMUX_CODEROUTER_URL}"
+    export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-$OPENAI_API_KEY}"
+  fi
+
+  # claude: with ANTHROPIC_AUTH_TOKEN in the env there is no login step, so
+  # skip the first-run wizard and land straight in the REPL. Write-once;
+  # Claude Code owns the file afterwards, and no secret lands in it.
+  if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ] && [ ! -e "$HOME/.claude.json" ]; then
+    (
+      umask 077
+      printf '%s\n' '{ "hasCompletedOnboarding": true }' > "$HOME/.claude.json" 2>/dev/null
+    )
   fi
 
   # codex: a CUSTOM provider, not the built-in openai one. WebSockets are

@@ -168,6 +168,7 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && mv /tmp/ble-nightly /usr/local/share/blesh \
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
+
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY seed-history /etc/cmux/seed-history
 RUN bash -n /etc/cmux/bashrc \
@@ -214,7 +215,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
   && mkdir -p /tmp/agent-config-check \
-  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://example.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_check" ]' \
+  && grep -q 'hasCompletedOnboarding' /tmp/agent-config-check/.claude.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.claude.json \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
@@ -230,9 +233,12 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && echo "export OPENAI_API_KEY='crt_persisted'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && echo "export CMUX_CODEROUTER_URL='https://resurrect.invalid'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
+  && env HOME=/tmp/agent-config-resurrect bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://resurrect.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_persisted" ]' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
+  && test ! -e /root/.claude.json \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \

@@ -40,12 +40,15 @@ export default function middleware(incomingRequest: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
-  // localized page. Keep this explicit in addition to the matcher exclusion
-  // so direct middleware tests and future matcher edits fail safely.
+  // OpenAI- and Anthropic-compatible coderouter traffic is a machine
+  // endpoint, never a localized page. Keep this explicit in addition to the
+  // matcher exclusion so direct middleware tests and future matcher edits
+  // fail safely.
   if (
     pathname === "/v1/responses" ||
-    pathname === "/v1/codex/responses"
+    pathname === "/v1/codex/responses" ||
+    pathname === "/v1/messages" ||
+    pathname === "/v1/messages/count_tokens"
   ) {
     return NextResponse.next();
   }

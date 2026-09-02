@@ -1,4 +1,4 @@
-export type CodeRouterProvider = "codex" | "opencode-go";
+export type CodeRouterProvider = "codex" | "opencode-go" | "claude";
 
 export type CodexCredential = {
   readonly provider: "codex";
@@ -21,7 +21,20 @@ export type OpenCodeGoCredential = {
   readonly expiresAt: number;
 };
 
-export type CodeRouterCredential = CodexCredential | OpenCodeGoCredential;
+export type ClaudeCredential = {
+  readonly provider: "claude";
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly accountId: string;
+  readonly email: string;
+  readonly subscriptionType?: string;
+  readonly expiresAt: number;
+};
+
+export type CodeRouterCredential =
+  | CodexCredential
+  | OpenCodeGoCredential
+  | ClaudeCredential;
 
 export type VaultAccount = {
   readonly revision: number;

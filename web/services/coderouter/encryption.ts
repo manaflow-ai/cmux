@@ -194,7 +194,7 @@ function assertIdentity(input: {
   if (
     !input.accountId ||
     !input.teamId ||
-    !["codex", "opencode-go"].includes(input.provider) ||
+    !["codex", "opencode-go", "claude"].includes(input.provider) ||
     !Number.isSafeInteger(input.credentialRevision) ||
     input.credentialRevision < 1
   ) {
@@ -265,6 +265,25 @@ function parseCredential(value: unknown): CodeRouterCredential | null {
       expiresAt,
       ...(value.orgId ? { orgId: value.orgId } : {}),
       ...(value.orgName ? { orgName: value.orgName } : {}),
+    };
+  }
+  if (value.provider === "claude") {
+    if (
+      value.subscriptionType !== undefined &&
+      typeof value.subscriptionType !== "string"
+    ) {
+      return null;
+    }
+    return {
+      provider: "claude",
+      accessToken,
+      refreshToken,
+      accountId,
+      email,
+      expiresAt,
+      ...(value.subscriptionType
+        ? { subscriptionType: value.subscriptionType }
+        : {}),
     };
   }
   return null;

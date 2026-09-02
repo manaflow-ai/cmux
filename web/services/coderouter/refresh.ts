@@ -12,6 +12,11 @@ import {
 } from "./encryption";
 import type { CodeRouterCredential } from "./types";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import {
+  CLAUDE_OAUTH_BETA,
+  CLAUDE_OAUTH_CLIENT_ID,
+  CLAUDE_OAUTH_TOKEN_URL,
+} from "./claudeOAuth";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -182,6 +187,26 @@ export async function refreshProviderCredential(
     };
   }
 
+  if (credential.provider === "claude") {
+    // Refreshes go to the platform token endpoint and must carry the OAuth
+    // beta header, mirroring what the Claude CLI itself sends.
+    const token = await postJson(
+      CLAUDE_OAUTH_TOKEN_URL,
+      {
+        grant_type: "refresh_token",
+        refresh_token: credential.refreshToken,
+        client_id: CLAUDE_OAUTH_CLIENT_ID,
+      },
+      { "anthropic-beta": CLAUDE_OAUTH_BETA },
+    );
+    return {
+      ...credential,
+      accessToken: requiredString(token, "access_token"),
+      refreshToken: optionalString(token, "refresh_token") ?? credential.refreshToken,
+      expiresAt: Date.now() + optionalPositiveNumber(token, "expires_in", 3_600) * 1_000,
+    };
+  }
+
   const token = await postJson("https://console.opencode.ai/auth/device/token", {
     grant_type: "refresh_token",
     refresh_token: credential.refreshToken,
@@ -213,6 +238,10 @@ async function postForm(
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
     cache: "no-store",
+    // A refresh body carries the refresh token; a 307/308 would replay it to
+    // wherever the provider points. Token endpoints never redirect
+    // legitimately, so fail instead of following.
+    redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);
@@ -221,12 +250,16 @@ async function postForm(
 async function postJson(
   url: string,
   body: Record<string, string>,
+  extraHeaders: Record<string, string> = {},
 ): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...extraHeaders },
     body: JSON.stringify(body),
     cache: "no-store",
+    // Same rationale as postForm: never replay a refresh token to a
+    // redirect target.
+    redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);
