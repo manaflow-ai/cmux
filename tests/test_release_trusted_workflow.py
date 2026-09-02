@@ -365,6 +365,18 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         setup_bun = next(step for step in sign_steps if step.get("name") == "Setup Bun")
         self.assertEqual(setup_bun.get("with", {}).get("bun-version"), "1.3.14")
 
+    def test_release_xcode_version_is_exactly_pinned(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        select_step = next(step for step in sign_steps if step.get("name") == "Select Xcode")
+        select_run = select_step["run"]
+        self.assertIn("/Applications/Xcode_26.5.app/Contents/Developer", select_run)
+        self.assertIn('expected_xcode_version="26.5"', select_run)
+        self.assertIn("actual_xcode_version", select_run)
+        self.assertIn("xcodebuild -version", select_run)
+        self.assertIn("Refusing release build with unexpected Xcode version", select_run)
+        self.assertNotIn("for candidate in /Applications/Xcode*.app", select_run)
+
     def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
         document = load()
         sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
