@@ -508,11 +508,11 @@ mod tests {
         };
         let mut cache = ProjectionRowsCache::default();
         let mut builds = 0;
-        let first = cache.get_or_build("tabs", revision, || {
+        let first = cache.get_or_build(0, "tabs", revision, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
-        let second = cache.get_or_build("tabs", revision, || {
+        let second = cache.get_or_build(0, "tabs", revision, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
@@ -522,11 +522,18 @@ mod tests {
         assert_eq!(builds, 1);
 
         let changed = ProjectionRevision { sidebar: 8, ..revision };
-        let third = cache.get_or_build("tabs", changed, || {
+        let third = cache.get_or_build(0, "tabs", changed, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
         assert_eq!(third, first);
         assert_eq!(builds, 2);
+
+        let duplicate_id = cache.get_or_build(1, "tabs", revision, || {
+            builds += 1;
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &[], 0, &collapsed)
+        });
+        assert!(duplicate_id.is_empty(), "distinct view indexes must not reuse rows by duplicate id");
+        assert_eq!(builds, 3);
     }
 }

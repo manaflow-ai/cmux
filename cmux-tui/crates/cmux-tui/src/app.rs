@@ -44000,14 +44000,14 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.projection_rows(0);
         app.projection_rows(1);
-        let workspace_before = app.projection_rows_cache.revision_for("workspace-view").unwrap();
-        let agent_before = app.projection_rows_cache.revision_for("agent-view").unwrap();
+        let workspace_before = app.projection_rows_cache.revision_for(0).unwrap();
+        let agent_before = app.projection_rows_cache.revision_for(1).unwrap();
 
         app.bump_agent_generation(surface.id);
         app.projection_rows(0);
         app.projection_rows(1);
-        let workspace_after = app.projection_rows_cache.revision_for("workspace-view").unwrap();
-        let agent_after = app.projection_rows_cache.revision_for("agent-view").unwrap();
+        let workspace_after = app.projection_rows_cache.revision_for(0).unwrap();
+        let agent_after = app.projection_rows_cache.revision_for(1).unwrap();
 
         assert_eq!(workspace_before, workspace_after);
         assert_ne!(agent_before, agent_after);
@@ -44044,8 +44044,8 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.projection_rows(0);
         app.projection_rows(1);
-        let first_before = app.projection_rows_cache.revision_for("first-view").unwrap();
-        let second_before = app.projection_rows_cache.revision_for("second-view").unwrap();
+        let first_before = app.projection_rows_cache.revision_for(0).unwrap();
+        let second_before = app.projection_rows_cache.revision_for(1).unwrap();
         let workspace_id = app.tree.workspaces().first().unwrap().id;
 
         app.projection_rail_state_mut(0)
@@ -44054,8 +44054,8 @@ mod tests {
         app.bump_projection_rows_generation(0);
         app.projection_rows(0);
         app.projection_rows(1);
-        let first_after = app.projection_rows_cache.revision_for("first-view").unwrap();
-        let second_after = app.projection_rows_cache.revision_for("second-view").unwrap();
+        let first_after = app.projection_rows_cache.revision_for(0).unwrap();
+        let second_after = app.projection_rows_cache.revision_for(1).unwrap();
 
         assert_ne!(first_before.rail, first_after.rail);
         assert_eq!(first_before.sidebar, first_after.sidebar);
@@ -44083,11 +44083,11 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sidebar_workspace_selection = 0;
         app.projection_rows(0);
-        let before = app.projection_rows_cache.revision_for("agent-view").unwrap();
+        let before = app.projection_rows_cache.revision_for(0).unwrap();
 
         app.bump_agent_generation(second_surface.id);
         app.projection_rows(0);
-        let after = app.projection_rows_cache.revision_for("agent-view").unwrap();
+        let after = app.projection_rows_cache.revision_for(0).unwrap();
 
         assert_eq!(before, after);
 
