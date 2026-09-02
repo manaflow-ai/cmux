@@ -2,17 +2,17 @@ use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::Mux;
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
-use crate::Mux;
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -2290,10 +2290,11 @@ mod tests {
             .find(|record| record.kind == "terminal.output")
             .expect("terminal output retained across writer recovery");
         assert_eq!(output.terminal_output.as_deref(), Some(b"must survive retry".as_slice()));
-        assert!(output
-            .subjects
-            .iter()
-            .any(|subject| { subject.kind == "terminal" && subject.id == terminal_id.as_str() }));
+        assert!(
+            output.subjects.iter().any(|subject| {
+                subject.kind == "terminal" && subject.id == terminal_id.as_str()
+            })
+        );
 
         drop(injector);
         drop(mux);
@@ -2414,11 +2415,13 @@ mod tests {
             Err(JournalIngressTrySendError::Failed { error, .. })
                 if error.contains("admission is closed")
         ));
-        assert!(sender
-            .send_durable(JournalIngressEvent::TerminalBarrier)
-            .unwrap_err()
-            .to_string()
-            .contains("admission is closed"));
+        assert!(
+            sender
+                .send_durable(JournalIngressEvent::TerminalBarrier)
+                .unwrap_err()
+                .to_string()
+                .contains("admission is closed")
+        );
     }
 
     #[test]
