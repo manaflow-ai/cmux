@@ -5671,6 +5671,77 @@ impl GraphicIdentity {
             && self.surface == other.surface
             && self.rect == other.rect
     }
+
+    fn layout_key(self) -> GraphicLayoutKey {
+        GraphicLayoutKey {
+            session_generation: self.session_generation,
+            surface: self.surface,
+            x: self.rect.x,
+            y: self.rect.y,
+            width: self.rect.width,
+            height: self.rect.height,
+        }
+    }
+
+    fn route_key(self) -> GraphicRouteKey {
+        GraphicRouteKey { layout: self.layout_key(), pointer_frame_seq: self.pointer_frame_seq }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicLayoutKey {
+    session_generation: u64,
+    surface: SurfaceId,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicRouteKey {
+    layout: GraphicLayoutKey,
+    pointer_frame_seq: Option<u64>,
+}
+
+struct GraphicRouteIndex {
+    routes: HashMap<GraphicRouteKey, bool>,
+    routed_layouts: HashSet<GraphicLayoutKey>,
+}
+
+const GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT: usize = 8;
+
+impl GraphicRouteIndex {
+    fn build(app: &App, graphics: &[GraphicIdentity]) -> Self {
+        let mut routes = HashMap::with_capacity(graphics.len());
+        let mut routed_layouts = HashSet::with_capacity(graphics.len());
+        for &graphic in graphics {
+            let route_key = graphic.route_key();
+            let route_valid = graphic.pointer_frame_seq.is_some_and(|frame_seq| {
+                app.session.surface(graphic.surface).is_some_and(|surface| {
+                    surface.browser_pointer_frame_is_in_current_route(frame_seq)
+                })
+            });
+            routes
+                .entry(route_key)
+                .and_modify(|existing| *existing |= route_valid)
+                .or_insert(route_valid);
+            if route_valid {
+                routed_layouts.insert(route_key.layout);
+            }
+        }
+        Self { routes, routed_layouts }
+    }
+
+    fn has_match(&self, graphic: GraphicIdentity, other: &Self) -> bool {
+        let route_key = graphic.route_key();
+        if other.routes.contains_key(&route_key) {
+            return true;
+        }
+        graphic.pointer_frame_seq.is_some()
+            && self.routes.get(&route_key).copied().unwrap_or(false)
+            && other.routed_layouts.contains(&route_key.layout)
+    }
 }
 
 fn bounding_rect(first: Rect, second: Rect) -> Rect {
@@ -12592,20 +12663,38 @@ impl App {
         previous: &[GraphicIdentity],
         next: &[GraphicIdentity],
     ) -> Option<Rect> {
-        previous
-            .iter()
-            .filter(|graphic| {
-                !next
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            })
-            .chain(next.iter().filter(|graphic| {
-                !previous
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            }))
-            .map(|graphic| graphic.rect)
-            .reduce(bounding_rect)
+        if previous.len().saturating_add(next.len()) <= GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT {
+            return previous
+                .iter()
+                .filter(|graphic| {
+                    !next
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                })
+                .chain(next.iter().filter(|graphic| {
+                    !previous
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                }))
+                .map(|graphic| graphic.rect)
+                .reduce(bounding_rect);
+        }
+        let previous_index = GraphicRouteIndex::build(self, previous);
+        let next_index = GraphicRouteIndex::build(self, next);
+        let mut changed = None;
+        for &graphic in previous {
+            if !previous_index.has_match(graphic, &next_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        for &graphic in next {
+            if !next_index.has_match(graphic, &previous_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        changed
     }
 
     fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
