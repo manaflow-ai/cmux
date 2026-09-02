@@ -1858,15 +1858,49 @@ mod tests {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
             ("node", vec!["node", "--inspect-port", "claude"]),
-            ("python3.12", vec!["python3.12", "-S", "codex"]),
             ("python3.12", vec!["python3.12", "-o", "claude"]),
             ("python3.12", vec!["python3.12", "-m", "some_module", "codex"]),
+            ("python3.12", vec!["python3.12", "--check-hash-based-pycs", "codex"]),
         ] {
             let job =
                 ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
             assert!(
                 identify_job(ManifestSet::bundled(), &job).is_none(),
                 "option value must not identify an agent: {argv:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn python_boolean_site_flag_preserves_script_and_eval_boundaries() {
+        let script = ForegroundJob {
+            process_group_id: 7,
+            processes: vec![process(7, "python3.12", &["python3.12", "-S", "/tmp/codex"])],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &script).unwrap().0.id(), "codex");
+
+        let eval = ForegroundJob {
+            process_group_id: 8,
+            processes: vec![process(8, "python3.12", &["python3.12", "-S", "-c", "codex"])],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &eval).is_none());
+    }
+
+    #[test]
+    fn python_exit_options_do_not_expose_following_tokens() {
+        for argv in [
+            vec!["python3.12", "-h", "codex"],
+            vec!["python3.12", "-V", "claude"],
+            vec!["python3.12", "--help", "/tmp/pi"],
+            vec!["python3.12", "--version", "/tmp/codex"],
+        ] {
+            let job = ForegroundJob {
+                process_group_id: 9,
+                processes: vec![process(9, "python3.12", &argv)],
+            };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "exit option must not identify a following token: {argv:?}",
             );
         }
     }
