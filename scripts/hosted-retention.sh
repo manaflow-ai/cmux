@@ -377,7 +377,6 @@ cmux_hosted_retention_run_impl() (
   local candidate_scan_status_file
   local candidate_scan_find_status
   local candidate_scan_filter_status
-  local candidate_scan_limit
   local candidate_relative
   local candidate_scan_error=0
   local candidate_order_file
