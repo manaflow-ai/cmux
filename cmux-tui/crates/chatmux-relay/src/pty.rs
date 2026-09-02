@@ -1854,10 +1854,8 @@ impl Inner {
         {
             return;
         }
-        // The gate protects the final lifecycle check. Do not hold it across
-        // the transport callback because a stalled sink must not block detach
-        // or trust revocation.
-        drop(delivery);
+        // send_live is a bounded, non-blocking transport enqueue. Keep the
+        // gate through it so concurrent output and exit frames retain order.
         let frame = json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
@@ -1865,6 +1863,7 @@ impl Inner {
             "dataB64": BASE64.encode(chunk),
         });
         (auth.send_live)(frame, Arc::clone(&attachment.delivery_live));
+        drop(delivery);
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
@@ -5431,8 +5430,10 @@ mod tests {
                     if live.load(Ordering::Acquire) {
                         sent.lock().unwrap().push(frame);
                     }
-                    entered.wait();
-                    release.wait();
+                    thread::spawn(move || {
+                        entered.wait();
+                        release.wait();
+                    });
                 })
             },
             buffered_amount: Arc::new(|| 0),
