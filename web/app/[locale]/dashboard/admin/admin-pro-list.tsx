@@ -63,6 +63,9 @@ type Snapshot = {
   };
 };
 
+/** The server-rendered roster, passed from the page so nothing waits on a button. */
+export type ProListSnapshotProps = Snapshot;
+
 type ScanState = {
   readonly status: "idle" | "scanning" | "done" | "error";
   readonly scanned: number;
@@ -92,10 +95,35 @@ const MAX_SCAN_PAGES = 200;
 const buttonClass =
   "border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-foreground";
 
-export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) => void }) {
+export function AdminProList({
+  initialSnapshot,
+  onPickQuery,
+}: {
+  initialSnapshot: Snapshot | null;
+  onPickQuery?: (query: string) => void;
+}) {
   const t = useTranslations("dashboard.admin");
-  const [state, setState] = useState<ListState>({ kind: "idle" });
+  const [state, setState] = useState<ListState>(() =>
+    initialSnapshot
+      ? loadedState(initialSnapshot)
+      : { kind: "error", message: t("errors.billing") },
+  );
   const runSeq = useRef(0);
+  const started = useRef(false);
+
+  // Streams the directory scans as soon as the section is on screen. A
+  // callback ref runs once per mount without an effect; reload restarts it.
+  function startOnMount(node: HTMLElement | null) {
+    if (!node || started.current) return;
+    started.current = true;
+    if (initialSnapshot) {
+      const seq = ++runSeq.current;
+      void walk("users", seq);
+      void walk("teams", seq);
+    } else {
+      void load();
+    }
+  }
 
   async function load() {
     const seq = ++runSeq.current;
@@ -120,24 +148,7 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
       return;
     }
     if (seq !== runSeq.current) return;
-    setState({
-      kind: "loaded",
-      snapshot: {
-        subscribers: snapshot.subscribers ?? [],
-        teamSubscriptions: snapshot.teamSubscriptions ?? [],
-        pendingGrants: snapshot.pendingGrants ?? [],
-        truncated: {
-          subscribers: snapshot.truncated?.subscribers === true,
-          teamSubscriptions: snapshot.truncated?.teamSubscriptions === true,
-          pendingGrants: snapshot.truncated?.pendingGrants === true,
-        },
-      },
-      userGrants: [],
-      teamGrants: [],
-      userScan: { status: "scanning", scanned: 0, pages: 0 },
-      teamScan: { status: "scanning", scanned: 0, pages: 0 },
-      loadedAt: new Date().toISOString(),
-    });
+    setState(loadedState(snapshot));
     // Manual grants need a directory walk; run both walks after the snapshot
     // is on screen so the Stripe list is never blocked on them.
     void walk("users", seq);
@@ -205,7 +216,7 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
   }
 
   return (
-    <section className="border border-border p-3">
+    <section ref={startOnMount} className="border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-medium">{t("list.title")}</h2>
@@ -217,11 +228,7 @@ export function AdminProList({ onPickQuery }: { onPickQuery?: (query: string) =>
           disabled={state.kind === "loading"}
           className={buttonClass}
         >
-          {state.kind === "loading"
-            ? t("list.loading")
-            : state.kind === "loaded"
-              ? t("list.reload")
-              : t("list.load")}
+          {state.kind === "loading" ? t("list.loading") : t("list.reload")}
         </button>
       </div>
 
@@ -406,6 +413,27 @@ function LoadedList({
       </Block>
     </div>
   );
+}
+
+function loadedState(snapshot: Snapshot): Extract<ListState, { kind: "loaded" }> {
+  return {
+    kind: "loaded",
+    snapshot: {
+      subscribers: snapshot.subscribers ?? [],
+      teamSubscriptions: snapshot.teamSubscriptions ?? [],
+      pendingGrants: snapshot.pendingGrants ?? [],
+      truncated: {
+        subscribers: snapshot.truncated?.subscribers === true,
+        teamSubscriptions: snapshot.truncated?.teamSubscriptions === true,
+        pendingGrants: snapshot.truncated?.pendingGrants === true,
+      },
+    },
+    userGrants: [],
+    teamGrants: [],
+    userScan: { status: "scanning", scanned: 0, pages: 0 },
+    teamScan: { status: "scanning", scanned: 0, pages: 0 },
+    loadedAt: new Date().toISOString(),
+  };
 }
 
 function Stat({ label, value, pending }: { label: string; value: string; pending?: boolean }) {
