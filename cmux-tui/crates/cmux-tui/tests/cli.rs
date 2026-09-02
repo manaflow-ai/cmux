@@ -4039,6 +4039,10 @@ fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> Str
 fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
+        // Keep plugin builds and their Git subprocesses away from the real
+        // home directory. The config parent is created by each test and is
+        // unique to that test invocation.
+        .env("HOME", config_path.parent().expect("plugin config has a parent"))
         .env("XDG_DATA_HOME", data_home)
         .env("CMUX_MUX_CONFIG", config_path)
         .env_remove("CMUX_TUI_CONFIG")
