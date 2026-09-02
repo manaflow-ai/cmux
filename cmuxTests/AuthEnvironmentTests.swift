@@ -84,6 +84,26 @@ struct AuthEnvironmentTests {
         ) == nil)
     }
 
+    @Test("production auth cannot be redirected to a staging Iroh broker")
+    func productionAuthCannotBeRedirectedToStagingIrohBroker() {
+        let staging = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(staging?.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: false
+        )
+        #expect(release?.absoluteString == "https://cmux.com")
+    }
+
     @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
     func deviceRegistryPublishesToSharedStagingInDebug() {
         let localVMAPI = URL(string: "http://localhost:9450")!

@@ -325,6 +325,17 @@ enum AuthEnvironment {
         environment: [String: String],
         isDebugBuild: Bool
     ) -> URL? {
+        // A production-auth or Release process must never be redirected to a
+        // staging broker by ambient launch environment. Release/TestFlight
+        // artifacts get their origins from build settings, and this runtime
+        // guard is the final defense for an already-installed app.
+        if !isDebugBuild
+            || resolvedStackAuthEnvironment(
+                environment: environment,
+                isDebugBuild: isDebugBuild
+            ) == .production {
+            return validatedIrohBrokerURL("https://cmux.com")
+        }
         if let explicit = environment["CMUX_IROH_BROKER_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !explicit.isEmpty {
