@@ -220,7 +220,7 @@ pub fn run(
     // Older daemons do not accept geometry in the attach request. Apply the
     // requested initial size explicitly after claiming authority so the
     // first replay uses the embedder's dimensions on that compatibility path.
-    if !remote.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY) {
+    if !remote.supports_pipe_io_initial_size() {
         if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
             return Ok(attach_failure_exit_reason(&error, surface));
         }
