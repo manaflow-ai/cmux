@@ -791,7 +791,7 @@ mod detach {
             let _ = sender.send(outcome);
         });
         let outcome = deadline.map_or_else(
-            || receiver.recv().unwrap_or(Handoff::TimedOut),
+            || receiver.recv_timeout(Duration::from_secs(5)).unwrap_or(Handoff::TimedOut),
             |deadline| {
                 receiver
                     .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
