@@ -607,7 +607,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Darwin's snapshot carries the kernel birth timestamp, while the
           # termination token also retains the pid version for the force path.
           cmux_ssh_auth_root_snapshot_matches_termination_identity() {
-            [ -n "$cmux_ssh_auth_root_termination_identity" ] || return 0
+            # A failed identity probe cannot authorize even the initial root
+            # record. Keep the helper fail-closed instead of falling back to
+            # PID and PPID matching.
+            [ -n "$cmux_ssh_auth_root_termination_identity" ] || return 1
             /usr/bin/awk \
               -v cmux_candidate="$1" \
               -v cmux_termination="$cmux_ssh_auth_root_termination_identity" '
@@ -1498,11 +1501,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # identity journal remains valid after reparenting.
           cmux_ssh_auth_record_dynamic_members || true
           cmux_ssh_auth_ack_term_event
-          # Missing marker proof is a cleanup failure. Let the EXIT trap resume
-          # verified stops and terminate only the identity-fenced root; never
-          # let an empty dynamic journal declare cleanup complete.
+          # Missing marker proof cannot authorize a replacement, but the
+          # original owned journal is already identity-fenced. Continue through
+          # the bounded force phase so verified descendants do not survive a
+          # discovery-tool failure. The EXIT trap will still force the known
+          # root and will leave any unclaimed replacement untouched.
           if [ "$cmux_ssh_auth_dynamic_discovery_failed" = 1 ]; then
-            exit 0
+            cmux_ssh_auth_cleanup_needs_root_abort=1
           fi
 
           # Rebuild ownership from exact identities and descendants. Marker-FD
@@ -1621,7 +1626,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_kill_failed=0
           cmux_ssh_auth_signal_verified_batch KILL \
             "$cmux_ssh_auth_kill_candidates" /dev/null || cmux_ssh_auth_kill_failed=1
-          if [ "$cmux_ssh_auth_kill_failed" = 0 ]; then
+          if [ "$cmux_ssh_auth_kill_failed" = 0 ] &&
+             [ "$cmux_ssh_auth_dynamic_discovery_failed" = 0 ]; then
             cmux_ssh_auth_cleanup_complete=1
           else
             cmux_ssh_auth_cleanup_needs_root_abort=1
