@@ -83,7 +83,7 @@ extension DockSplitStore {
         _ paneId: PaneID,
         window: NSWindow? = nil
     ) {
-        guard containsPane(paneId) else { return }
+        guard containsPane(paneId.id) else { return }
         if let tab = bonsplitController.selectedTab(inPane: paneId),
            let panelId = surfaceIdToPanelId[tab.id] {
             focusPanelFromDockInteraction(panelId, window: window)
