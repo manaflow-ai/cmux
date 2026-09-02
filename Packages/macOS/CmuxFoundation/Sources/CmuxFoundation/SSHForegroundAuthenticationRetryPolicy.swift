@@ -338,7 +338,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             esac
           fi
           cmux_ssh_auth_cleanup_fallback_checks=0
-          cmux_ssh_auth_cleanup_has_time() {
+          cmux_ssh_auth_get_remaining_millis() {
             if [ -n "$cmux_ssh_auth_cleanup_deadline_millis" ]; then
               cmux_ssh_auth_cleanup_now_millis=$(
                 "$cmux_ssh_auth_cleanup_clock_command" \
@@ -349,11 +349,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               case "$cmux_ssh_auth_cleanup_now_millis" in
                 ''|*[!0-9]*) return 1 ;;
               esac
-              [ "$cmux_ssh_auth_cleanup_now_millis" -lt "$cmux_ssh_auth_cleanup_deadline_millis" ]
+              cmux_ssh_auth_remaining_millis=$((cmux_ssh_auth_cleanup_deadline_millis - cmux_ssh_auth_cleanup_now_millis))
+              [ "$cmux_ssh_auth_remaining_millis" -gt 0 ]
               return $?
             fi
             cmux_ssh_auth_cleanup_fallback_checks=$((cmux_ssh_auth_cleanup_fallback_checks + 1))
-            [ "$cmux_ssh_auth_cleanup_fallback_checks" -le 4 ]
+            if [ "$cmux_ssh_auth_cleanup_fallback_checks" -le 4 ]; then
+              # Without a monotonic clock, keep the same bounded fallback used
+              # by cleanup_has_time and expose one conservative wait interval.
+              cmux_ssh_auth_remaining_millis=1000
+              return 0
+            fi
+            cmux_ssh_auth_remaining_millis=0
+            return 1
+          }
+          cmux_ssh_auth_cleanup_has_time() {
+            cmux_ssh_auth_get_remaining_millis
           }
           umask 077 || cmux_ssh_auth_setup_abort
           cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || cmux_ssh_auth_setup_abort
@@ -371,6 +382,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_root_identity_candidate="$cmux_ssh_auth_state_dir/root-identity-candidate"
           cmux_ssh_auth_dynamic_members="$cmux_ssh_auth_state_dir/dynamic-members"
           cmux_ssh_auth_marker_holders="$cmux_ssh_auth_state_dir/marker-holders"
+          cmux_ssh_auth_marker_lsof_output="$cmux_ssh_auth_state_dir/marker-lsof"
           cmux_ssh_auth_root_identity=
           cmux_ssh_auth_event_token="${4:-${CMUX_SSH_AUTH_EVENT_TOKEN:-}}"
           case "$cmux_ssh_auth_event_token" in
@@ -395,6 +407,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_signal_backend=portable
           cmux_ssh_auth_snapshot_format=
           cmux_ssh_auth_cleanup_needs_root_abort=0
+          cmux_ssh_auth_dynamic_discovery_failed=0
           if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
             cmux_ssh_auth_signal_backend=darwin
           fi
@@ -600,52 +613,106 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # PGID, and kernel start identity, then follow only current descendants.
           # No pathname opener or numeric process-group reuse can authorize an
           # unrelated process.
+          cmux_ssh_auth_dynamic_discovery_abort() {
+            cmux_ssh_auth_dynamic_discovery_failed=1
+            cmux_ssh_auth_cleanup_needs_root_abort=1
+            return 1
+          }
           cmux_ssh_auth_record_dynamic_members() {
-            cmux_ssh_auth_take_snapshot || return 1
-            : > "$cmux_ssh_auth_marker_holders" || return 1
-            if [ -s "$cmux_ssh_auth_marker_identity_path" ]; then
+            if ! cmux_ssh_auth_take_snapshot; then
+              cmux_ssh_auth_dynamic_discovery_abort
+              return 1
+            fi
+            if ! : > "$cmux_ssh_auth_marker_holders"; then
+              cmux_ssh_auth_dynamic_discovery_abort
+              return 1
+            fi
+            if [ -n "$cmux_ssh_auth_event_token" ]; then
+              if [ ! -s "$cmux_ssh_auth_marker_identity_path" ]; then
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
+              fi
               cmux_ssh_auth_marker_device_hex=
               cmux_ssh_auth_marker_device=
               cmux_ssh_auth_marker_inode=
-              if IFS=' ' read -r cmux_ssh_auth_marker_device_hex cmux_ssh_auth_marker_device cmux_ssh_auth_marker_inode \
-                < "$cmux_ssh_auth_marker_identity_path" &&
-                 [ -n "$cmux_ssh_auth_marker_device_hex" ] &&
-                 [ -n "$cmux_ssh_auth_marker_device" ] &&
-                 [ -n "$cmux_ssh_auth_marker_inode" ]; then
-                # The marker is unlinked after the authentication shell opens
-                # descriptor 7. Match the anonymous file by device and inode,
-                # so a pathname opener cannot seed destructive ownership.
-                if [ -n "$cmux_ssh_auth_lsof_command" ]; then
-                  "$cmux_ssh_auth_lsof_command" -n -w -a -d 7 -F pfiD 2>/dev/null |
-                  /usr/bin/awk \
-                    -v cmux_marker_device="$cmux_ssh_auth_marker_device" \
-                    -v cmux_marker_device_hex="$cmux_ssh_auth_marker_device_hex" \
-                    -v cmux_marker_inode="$cmux_ssh_auth_marker_inode" '
-                      /^p[0-9]+$/ {
-                        cmux_lsof_pid = substr($0, 2)
-                        cmux_lsof_fd = ""
-                        cmux_lsof_device = ""
-                        next
-                      }
-                      /^f/ {
-                        cmux_lsof_fd = substr($0, 2)
-                        cmux_lsof_device = ""
-                        next
-                      }
-                      /^D/ { cmux_lsof_device = substr($0, 2); next }
-                      /^i/ {
-                        if (cmux_lsof_fd ~ /^7/ &&
-                            (cmux_lsof_device == cmux_marker_device ||
-                             cmux_lsof_device == cmux_marker_device_hex) &&
-                            substr($0, 2) == cmux_marker_inode) {
-                          print cmux_lsof_pid
-                        }
-                      }
-                    ' > "$cmux_ssh_auth_marker_holders" || : > "$cmux_ssh_auth_marker_holders"
-                fi
+              if ! IFS=' ' read -r cmux_ssh_auth_marker_device_hex cmux_ssh_auth_marker_device cmux_ssh_auth_marker_inode \
+                < "$cmux_ssh_auth_marker_identity_path" ||
+                 [ -z "$cmux_ssh_auth_marker_device_hex" ] ||
+                 [ -z "$cmux_ssh_auth_marker_device" ] ||
+                 [ -z "$cmux_ssh_auth_marker_inode" ]; then
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
+              fi
+              # The marker is unlinked after the authentication shell opens
+              # descriptor 7. Match the anonymous file by device and inode,
+              # so a pathname opener cannot seed destructive ownership.
+              if [ -z "$cmux_ssh_auth_lsof_command" ]; then
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
+              fi
+              if ! : > "$cmux_ssh_auth_marker_lsof_output"; then
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
+              fi
+              "$cmux_ssh_auth_lsof_command" -n -w -a -d 7 -F pfiD \
+                > "$cmux_ssh_auth_marker_lsof_output" 2>/dev/null
+              cmux_ssh_auth_marker_lsof_status=$?
+              case "$cmux_ssh_auth_marker_lsof_status" in
+                0|1) ;;
+                *)
+                  cmux_ssh_auth_dynamic_discovery_abort
+                  return 1
+                  ;;
+              esac
+              if /usr/bin/awk \
+                -v cmux_marker_device="$cmux_ssh_auth_marker_device" \
+                -v cmux_marker_device_hex="$cmux_ssh_auth_marker_device_hex" \
+                -v cmux_marker_inode="$cmux_ssh_auth_marker_inode" '
+                  function parse_error() { cmux_parse_error = 1 }
+                  /^p/ {
+                    if ($0 !~ /^p[0-9]+$/) parse_error()
+                    else {
+                      cmux_lsof_pid = substr($0, 2)
+                      cmux_lsof_fd = ""
+                      cmux_lsof_device = ""
+                    }
+                    next
+                  }
+                  /^f/ {
+                    if ($0 !~ /^f.+$/) parse_error()
+                    else {
+                      cmux_lsof_fd = substr($0, 2)
+                      cmux_lsof_device = ""
+                    }
+                    next
+                  }
+                  /^D/ {
+                    if ($0 !~ /^D.+$/) parse_error()
+                    else cmux_lsof_device = substr($0, 2)
+                    next
+                  }
+                  /^i/ {
+                    if ($0 !~ /^i[0-9]+$/ || cmux_lsof_pid !~ /^[0-9]+$/ ||
+                        cmux_lsof_fd !~ /^7/) {
+                      parse_error()
+                    } else if (cmux_lsof_device != "" &&
+                               (cmux_lsof_device == cmux_marker_device ||
+                                cmux_lsof_device == cmux_marker_device_hex) &&
+                               substr($0, 2) == cmux_marker_inode) {
+                      print cmux_lsof_pid
+                    }
+                    next
+                  }
+                  { parse_error() }
+                  END { exit cmux_parse_error ? 1 : 0 }
+                ' "$cmux_ssh_auth_marker_lsof_output" > "$cmux_ssh_auth_marker_holders"; then
+                :
+              else
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
               fi
             fi
-            /usr/bin/awk '
+            if ! /usr/bin/awk '
               FILENAME == ARGV[1] {
                 # PPID is lineage metadata and can change when a TERM handler
                 # outlives its parent. PID, PGID, and the kernel birth token
@@ -698,7 +765,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 }
               }
             ' "$cmux_ssh_auth_members" "$cmux_ssh_auth_marker_holders" \
-              "$cmux_ssh_auth_snapshot" >> "$cmux_ssh_auth_dynamic_members"
+              "$cmux_ssh_auth_snapshot" >> "$cmux_ssh_auth_dynamic_members"; then
+              cmux_ssh_auth_dynamic_discovery_abort
+              return 1
+            fi
+            return 0
           }
 
           # The generated authentication wrapper publishes the nonce only after
@@ -717,51 +788,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 8<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
-            if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
-              # POSIX sh has no timed-read primitive. Use one bounded select
-              # call when Perl is available, and fail open when it is not.
-              cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
-              if [ -n "$cmux_ssh_auth_perl_command" ]; then
-                cmux_ssh_auth_term_event_writer=$(
-                  "$cmux_ssh_auth_perl_command" -MIO::Select -e '
-                    use strict;
-                    use warnings;
-                    use Fcntl qw(O_RDWR O_NONBLOCK);
-                    my ($path, $timeout) = @ARGV;
-                    sysopen(my $fifo, $path, O_RDWR | O_NONBLOCK) or exit 1;
-                    my $select = IO::Select->new($fifo);
-                    if ($select->can_read($timeout)) {
-                      my $line = <$fifo>;
-                      print $line if defined $line;
-                    }
-                  ' "$cmux_ssh_auth_term_event_fifo" 5 2>/dev/null || true
-                )
-              fi
-              if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
-                cmux_ssh_auth_term_event_received=1
-              else
-                exec 9>&-
-              fi
-              return 0
+            # POSIX sh has no portable timed FIFO read. Use one Perl select
+            # with the remaining monotonic budget, so process startup and the
+            # wait itself cannot extend the shared cleanup deadline. The
+            # helper already requires Perl for every process-table snapshot.
+            if [ -n "$cmux_ssh_auth_perl_command" ] &&
+               cmux_ssh_auth_get_remaining_millis; then
+              cmux_ssh_auth_term_event_writer=$(
+                "$cmux_ssh_auth_perl_command" -MIO::Select -e '
+                  use strict;
+                  use warnings;
+                  use Fcntl qw(O_RDWR O_NONBLOCK);
+                  my ($path, $timeout_millis) = @ARGV;
+                  exit 0 unless defined $timeout_millis && $timeout_millis =~ /\A[1-9][0-9]*\z/;
+                  sysopen(my $fifo, $path, O_RDWR | O_NONBLOCK) or exit 1;
+                  my $select = IO::Select->new($fifo);
+                  if ($select->can_read($timeout_millis / 1000)) {
+                    my $line = <$fifo>;
+                    print $line if defined $line;
+                  }
+                ' "$cmux_ssh_auth_term_event_fifo" \
+                  "$cmux_ssh_auth_remaining_millis" 2>/dev/null || true
+              )
             fi
-            # macOS /bin/sh accepts only an integer read timeout. Five bounded
-            # reads give scheduler pressure time to deliver the handler without
-            # relying on a non-POSIX shell timer. The FIFO stays open across
-            # retries.
-            cmux_ssh_auth_term_event_wait_attempt=0
-            while [ "$cmux_ssh_auth_term_event_received" != 1 ] &&
-                  [ "$cmux_ssh_auth_term_event_wait_attempt" -lt 5 ]; do
-              if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
-                # The FIFO directory and payload both carry the random,
-                # per-attempt nonce. Process ownership is established by the
-                # marker FD journal, not by a PID that can be reused.
-                if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
-                  cmux_ssh_auth_term_event_received=1
-                fi
-              fi
-              cmux_ssh_auth_term_event_wait_attempt=$((cmux_ssh_auth_term_event_wait_attempt + 1))
-            done
-            if [ "$cmux_ssh_auth_term_event_received" != 1 ]; then
+            if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
+              cmux_ssh_auth_term_event_received=1
+            else
               exec 9>&-
             fi
           }
@@ -1160,6 +1212,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_kill_candidates" \
               "$cmux_ssh_auth_root_identity_file" "$cmux_ssh_auth_root_identity_candidate" \
               "$cmux_ssh_auth_dynamic_members" "$cmux_ssh_auth_marker_holders" \
+              "$cmux_ssh_auth_marker_lsof_output" \
               2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
           }
@@ -1266,6 +1319,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # identity journal remains valid after reparenting.
           cmux_ssh_auth_record_dynamic_members || true
           cmux_ssh_auth_ack_term_event
+          # Missing marker proof is a cleanup failure. Let the EXIT trap resume
+          # verified stops and terminate only the identity-fenced root; never
+          # let an empty dynamic journal declare cleanup complete.
+          if [ "$cmux_ssh_auth_dynamic_discovery_failed" = 1 ]; then
+            exit 0
+          fi
 
           # Rebuild ownership from exact identities and descendants. Marker-FD
           # identities catch a replacement that outlives its parent without
@@ -1493,7 +1552,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 ''|*[!0-9:]*|:*|*:) false ;;
                 *) true ;;
               esac && [ -n "$cmux_ssh_auth_marker_device_hex" ] &&
-                ( set -C; printf '%s %s %s\n' "$cmux_ssh_auth_marker_device_hex" "$cmux_ssh_auth_marker_device" "$cmux_ssh_auth_marker_inode" > "$cmux_ssh_auth_marker_identity_path" ) 2>/dev/null; then
+                ( set -C; printf '%s %s %s\\n' "$cmux_ssh_auth_marker_device_hex" "$cmux_ssh_auth_marker_device" "$cmux_ssh_auth_marker_inode" > "$cmux_ssh_auth_marker_identity_path" ) 2>/dev/null; then
                 cmux_ssh_auth_marker_owned=1
               else
                 exec 7>&-
