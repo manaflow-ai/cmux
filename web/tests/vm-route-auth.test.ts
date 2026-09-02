@@ -27,7 +27,6 @@ const VM_ENV_KEYS = [
   "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_SANDBOX_SNAPSHOT",
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
-  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
   "CMUX_VM_FREE_MAX_MEMORY_MB",
   "CMUX_VM_PAID_MAX_MEMORY_MB",
@@ -408,7 +407,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 5,
+      maxActiveVms: null,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -1393,7 +1392,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 5,
+      maxActiveVms: null,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });

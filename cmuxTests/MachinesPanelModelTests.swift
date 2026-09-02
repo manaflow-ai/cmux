@@ -110,6 +110,15 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertEqual(paid?.isAtLimit, false)
         XCTAssertEqual(paid?.isPaidPlan, true)
+
+        // Paid plans ship uncapped: no count ever reaches the limit.
+        let uncapped = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 400,
+            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0)
+        )
+        XCTAssertEqual(uncapped?.isAtLimit, false)
+        XCTAssertNil(uncapped?.maxActiveVms)
+        XCTAssertEqual(uncapped?.isSingleMachinePlan, false)
     }
 
     func testMachinesModeIsRegisteredEverywhere() {
@@ -312,6 +321,19 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
         XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
+
+        let unlimited = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 7,
+            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0),
+            now: now
+        )
+        XCTAssertEqual(unlimited?.countLabel, "7 machines")
+        let unlimitedSingle = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 1,
+            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0),
+            now: now
+        )
+        XCTAssertEqual(unlimitedSingle?.countLabel, "1 machine")
     }
 
     func testPlanSnapshotFallsBackToEarliestLocalExpiry() {

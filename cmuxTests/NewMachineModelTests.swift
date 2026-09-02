@@ -144,6 +144,13 @@ final class NewMachineModelTests: XCTestCase {
         let (proModel, _) = makeModel(plan: pro)
         XCTAssertEqual(proModel.planMeterText, "2 of 5 machines in use")
         XCTAssertNil(proModel.freeAccessNoteText)
+
+        let uncapped = MachinePlanSnapshot(activeCount: 2, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
+        let (uncappedModel, _) = makeModel(plan: uncapped)
+        XCTAssertEqual(uncappedModel.planMeterText, "2 machines in use")
+        let uncappedOne = MachinePlanSnapshot(activeCount: 1, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
+        let (uncappedOneModel, _) = makeModel(plan: uncappedOne)
+        XCTAssertEqual(uncappedOneModel.planMeterText, "1 machine in use")
     }
 
     func testSelectedImageFollowsTheKind() {

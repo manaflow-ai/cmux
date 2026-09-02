@@ -269,10 +269,11 @@ public protocol SettingsHostActions: AnyObject {
 public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let planLabel: String
     public let activeMachines: Int
-    public let maxMachines: Int
+    /// Active-machine ceiling; nil when the plan has no cap.
+    public let maxMachines: Int?
     public let isPaidPlan: Bool
 
-    public init(planLabel: String, activeMachines: Int, maxMachines: Int, isPaidPlan: Bool) {
+    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
         self.planLabel = planLabel
         self.activeMachines = activeMachines
         self.maxMachines = maxMachines
