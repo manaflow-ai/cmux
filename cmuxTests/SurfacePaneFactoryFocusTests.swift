@@ -58,6 +58,48 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
     }
 
+    /// Cmd+D from a cloud pane (`routeCloudPaneTerminalSplit`) lands in the split
+    /// handler with the same gate; the new pane must take focus when asked.
+    @Test func focusedSplitFocusesTheNewPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let before = try #require(workspace.focusedPanelId)
+
+        let created = try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: nil,
+            workingDirectory: nil,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true
+        )
+
+        #expect(created.panelID != before)
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(workspace.paneId(forPanelId: created.panelID) != paneID)
+    }
+
+    /// A projected browser (VM desktop or port preview) goes through the same create
+    /// handler as a terminal; `focus: true` must select it too.
+    @Test func focusedBrowserTabIsSelected() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let before = try #require(workspace.focusedPanelId)
+
+        let created = try SurfacePaneFactory.makeBrowserPane(
+            url: SurfacePaneFactory.blankURL,
+            at: .tab(workspaceID: workspace.id, paneID: paneID.id.uuidString, index: nil),
+            focus: true
+        )
+
+        #expect(created.panelID != before)
+        #expect(workspace.focusedPanelId == created.panelID)
+        let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
+        #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
