@@ -116,6 +116,7 @@ public actor MobileIrxRuntimeComposition {
     private var authObservationTask: Task<Void, Never>?
     private var activeAccountID: String?
     private var lifecycleEpoch: UInt64 = 0
+    private var lastProvisioningFailure: CompositionError?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
@@ -238,6 +239,7 @@ public actor MobileIrxRuntimeComposition {
 
     private func startProvisioning(for sessionIdentity: AuthenticatedSessionIdentity) {
         provisioningTask?.cancel()
+        lastProvisioningFailure = nil
         let epoch = lifecycleEpoch
         provisioningTask = Task { [weak self] in
             guard let self else { return }
@@ -247,6 +249,7 @@ public actor MobileIrxRuntimeComposition {
                     epoch: epoch
                 )
             } catch {
+                self.lastProvisioningFailure = error as? CompositionError
                 Self.journal.record(
                     "client-runtime", "provisioning-terminal",
                     ["error": String(describing: error)]
@@ -542,10 +545,21 @@ public actor MobileIrxRuntimeComposition {
         // while the broker actor accepted the push. Never rotate credentials
         // into that stale endpoint generation or kick its autopilot.
         guard isCurrent(epoch) else { return false }
-        await endpointSupervisor.rotateCredentials(accepted)
+        let endpointEpoch = await endpointSupervisor.currentLifecycleEpoch
+        guard isCurrent(epoch) else { return false }
+        await endpointSupervisor.rotateCredentials(
+            accepted,
+            expectedLifecycleEpoch: endpointEpoch
+        )
         guard isCurrent(epoch) else { return false }
         await autopilot.kick()
         return true
+    }
+
+    /// The last terminal provisioning failure, if the owner needs to present
+    /// recovery guidance or expose a retry action.
+    public func provisioningFailure() -> CompositionError? {
+        lastProvisioningFailure
     }
 
     /// The event-driven relay race: a pushed hint that disagrees with the
@@ -584,6 +598,7 @@ public actor MobileIrxRuntimeComposition {
         _ = session
         do {
             _ = try await provisionedBroker(epoch: epoch)
+            lastProvisioningFailure = nil
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
