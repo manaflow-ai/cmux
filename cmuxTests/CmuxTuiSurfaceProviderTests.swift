@@ -346,6 +346,8 @@ import Testing
             ) == nil
         )
         #expect(CmuxTuiSnapshotParser.resourceRevision(from: [:]) == nil)
+    }
+
     @Test func synchronizableStateRejectsDuplicateIdentityRows() {
         var snapshot = Self.sessionSnapshot
         snapshot["cursor"] = ["generation": "g1", "revision": "1"]
