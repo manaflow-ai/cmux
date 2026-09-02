@@ -45563,7 +45563,7 @@ mod tests {
         preserve_client_view(&previous, &mut refreshed);
 
         assert_eq!(refreshed.active_workspace().unwrap().id, expected_active_workspace);
-        for workspace in &refreshed.workspaces() {
+        for workspace in refreshed.workspaces() {
             let pane = &workspace.screens[0].panes[0];
             assert_eq!(pane.active_surface(), expected_surfaces.get(&workspace.id).copied());
         }

@@ -7902,7 +7902,9 @@ mod tests {
             0,
         );
 
+        assert!(cache.view.location_index.get().is_none());
         assert!(cache.update_title(4, "server title".to_string()));
+        assert!(cache.view.location_index.get().is_none());
         assert_eq!(cache.view.workspaces()[0].screens[0].panes[0].tabs[0].title, "server title");
         assert_eq!(cache.view.workspaces()[1].screens[0].panes[0].tabs[0].title, "other title");
         assert!(!cache.update_title(99, "missing".to_string()));
