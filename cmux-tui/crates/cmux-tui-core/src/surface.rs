@@ -8351,7 +8351,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exited_host_byte_attach_serves_final_replay() {
+    fn exited_terminal_final_replay_serves_byte_attach() {
         const MARKER: &str = "exited-byte-final-replay";
         let mux = Mux::new_for_test("exited-host-byte-attach", SurfaceOptions::default());
         let surface = exited_host_surface("byte-attach", 92, &mux);
@@ -8368,7 +8368,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exited_host_render_attach_serves_final_frame() {
+    fn exited_terminal_final_replay_serves_render_attach() {
         const MARKER: &str = "exited-render-final-frame";
         let mux = Mux::new_for_test("exited-host-render-attach", SurfaceOptions::default());
         let surface = exited_host_surface("render-attach", 93, &mux);
@@ -8391,7 +8391,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn already_dead_host_publishes_exited_state_before_attach() {
+    fn exited_terminal_final_replay_publishes_state_for_already_dead_host() {
         let mux = Mux::new_for_test("already-dead-host-attach", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(94, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -8416,7 +8416,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn hosted_exit_and_attach_never_expose_a_dead_connected_gap() {
+    fn exited_terminal_final_replay_closes_the_exit_attach_race() {
         for iteration in 0..64 {
             let mux = Mux::new_for_test(
                 format!("hosted-exit-attach-race-{iteration}"),
@@ -8449,7 +8449,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_dead_render_attach_releases_the_global_permit() {
+    fn exited_terminal_final_replay_releases_rejected_render_permit() {
         let mux = Mux::new_for_test("dead-render-attach-permit", SurfaceOptions::default());
         let dead =
             Surface::spawn_for_test(200, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
