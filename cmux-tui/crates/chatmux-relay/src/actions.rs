@@ -1392,7 +1392,7 @@ async fn run_spec(
                 // hard bound for processes that ignore TERM.
                 if exited.is_some() {
                     #[cfg(unix)]
-                    if process_group_guard.armed {
+                    if process_group_exists(pid) {
                         signal_process_group(pid, false);
                     }
                     #[cfg(not(unix))]
@@ -1434,7 +1434,7 @@ async fn run_spec(
             }, if kill_deadline.is_some() => {
                 if exited.is_some() {
                     #[cfg(unix)]
-                    if process_group_guard.armed {
+                    if process_group_exists(pid) {
                         signal_process_group(pid, true);
                     }
                     #[cfg(not(unix))]
@@ -1535,6 +1535,15 @@ where
     let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
     let group = -(pid as i32);
     send(group, signal) == 0
+}
+
+#[cfg(unix)]
+fn process_group_exists(pid: Option<u32>) -> bool {
+    let Some(pid) = pid else { return false };
+    // A process group cannot be reused while any descendant remains in it,
+    // so checking the group before signalling makes post-reap timeout cleanup
+    // safe without keeping the cancellation guard armed.
+    unsafe { libc::kill(-(pid as i32), 0) == 0 }
 }
 
 #[cfg(unix)]
