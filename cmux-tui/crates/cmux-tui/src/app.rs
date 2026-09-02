@@ -28120,6 +28120,19 @@ mod tests {
     }
 
     #[test]
+    fn selection_for_click_propagates_missing_terminal_range() {
+        let (app, mux, surface, _) =
+            selection_fixture("selection-for-click-missing-range-test", b"alpha");
+
+        assert!(
+            app.selection_for_click(surface.id, (10, 0), SelectionMode::Word).is_none(),
+            "a semantic click without a terminal range must return no selection"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn a_single_cell_press_does_not_store_a_zero_length_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
@@ -43842,7 +43855,7 @@ mod tests {
 
         let first_screen_pane = app
             .tree
-            .workspaces
+            .workspaces()
             .first()
             .and_then(|workspace| workspace.screens.first())
             .map(|screen| screen.active_pane)
@@ -44033,7 +44046,7 @@ mod tests {
         app.projection_rows(1);
         let first_before = app.projection_rows_cache.revision_for("first-view").unwrap();
         let second_before = app.projection_rows_cache.revision_for("second-view").unwrap();
-        let workspace_id = app.tree.workspaces.first().unwrap().id;
+        let workspace_id = app.tree.workspaces().first().unwrap().id;
 
         app.projection_rail_state_mut(0)
             .collapsed
