@@ -3892,13 +3892,14 @@ impl RemoteSession {
         identity_refresh: bool,
         deadline: RequestDeadline,
     ) -> anyhow::Result<TreeView> {
-        let _refresh = if let RequestDeadline::Until(deadline) = deadline {
-            self.tree_refresh
-                .try_lock_for(deadline.saturating_duration_since(Instant::now()))
-                .ok_or(RemoteRequestError::Timeout)?
-        } else {
-            self.tree_refresh.lock()
+        let refresh_timeout = match deadline {
+            RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
+            RequestDeadline::Attach => remote_write_timeout(),
+            RequestDeadline::Fixed(timeout) => timeout,
+            RequestDeadline::Until(deadline) => deadline.saturating_duration_since(Instant::now()),
         };
+        let _refresh =
+            self.tree_refresh.try_lock_for(refresh_timeout).ok_or(RemoteRequestError::Timeout)?;
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
