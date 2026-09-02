@@ -7,6 +7,8 @@ on:
     branches:
       - main
     types: [opened, edited, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
   # A PR event can arrive before CI has published its checks. Re-evaluate when
   # the base-owned CI workflow completes so a transient missing-check failure
   # is replaced by the exact-head result.
@@ -17,7 +19,7 @@ on:
 permissions:
   contents: read
   actions: read
-  checks: read
+  checks: write
   pull-requests: read
 
 concurrency:
@@ -26,14 +28,14 @@ concurrency:
 
 jobs:
   ci-status-gate:
-    name: ci-status-gate
-    if: ${{ github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') }}
+    name: CI status gate publisher
+    if: ${{ github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
-      checks: read
+      checks: write
       pull-requests: read
     steps:
       - name: Checkout trusted gate
@@ -71,7 +73,7 @@ jobs:
     # Keep the historical required context until the ruleset switches to
     # ci-status-gate. This alias is also base-owned, so PR workflow edits
     # cannot forge the legacy result.
-    if: ${{ always() && (github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')) }}
+    if: ${{ always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:

@@ -30,7 +30,7 @@ def test_sensitive_ci_inputs_have_two_trusted_owners() -> None:
         assert entries.get(pattern) == TRUSTED_OWNERS, pattern
 
 
-def test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers() -> None:
+def test_gate_workflow_is_base_owned_and_limited() -> None:
     text = GATE_WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target:" in text
     assert "pull_request_review:" in text
@@ -47,5 +47,5 @@ def test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers() -> None:
 
 if __name__ == "__main__":
     test_sensitive_ci_inputs_have_two_trusted_owners()
-    test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers()
+    test_gate_workflow_is_base_owned_and_limited()
     print("PASS: bootstrap CI governance contract")

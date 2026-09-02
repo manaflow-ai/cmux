@@ -30,6 +30,7 @@ MATRIX_PATTERN = re.compile(r"^app-host unit tests \((\d+)/(\d+)\)$")
 CHECK_NAME_ALIASES = {"GhosttyKit release check": "ghosttykit-release-check"}
 ADVISORY_CHECKS = {"ci-status", "ci-status-advisory", "ci-status-validator-canary"}
 ROUTE_NAMES = contract.ROUTE_NAMES
+PUBLISHED_CHECKS = ("ci-status-gate", "ci-status")
 TRUSTED_REVIEWER_IDS = {
     38676809: "austinywang",
     67667005: "azooz2003-bit",
@@ -158,6 +159,104 @@ class GitHubAPI:
             return json.loads(result.stdout)
         except json.JSONDecodeError as error:
             raise GateError("GitHub API returned invalid JSON") from error
+
+    def write(self, method: str, endpoint: str, payload: Mapping[str, Any]) -> object:
+        """Send one narrow Checks API write using the trusted workflow token."""
+
+        if method not in {"POST", "PATCH"}:
+            raise GateError("unsupported GitHub API write method")
+        args = [
+            "gh",
+            "api",
+            endpoint,
+            "--method",
+            method,
+            "--header",
+            "Accept: application/vnd.github+json",
+            "--input",
+            "-",
+        ]
+        environment = os.environ.copy()
+        if self.token:
+            environment["GH_TOKEN"] = self.token
+        try:
+            result = subprocess.run(
+                args,
+                check=False,
+                env=environment,
+                input=json.dumps(payload, separators=(",", ":")),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise GateError(f"GitHub API write failed: {error}") from error
+        if result.returncode != 0:
+            detail = result.stderr.strip().splitlines()[-1:] or ["unknown API error"]
+            raise GateError(f"GitHub API write failed: {detail[0]}")
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise GateError("GitHub API write returned invalid JSON") from error
+
+    def publish_check(
+        self,
+        name: str,
+        head_sha: str,
+        conclusion: str,
+        summary: str,
+    ) -> None:
+        """Create or update one Actions check run on the exact PR head."""
+
+        if name not in PUBLISHED_CHECKS:
+            raise GateError("unsupported published check name")
+        head_sha = _as_sha(head_sha, "published check head SHA")
+        if conclusion not in {"success", "failure"}:
+            raise GateError("published check conclusion is malformed")
+        if not isinstance(summary, str) or not summary:
+            raise GateError("published check summary is malformed")
+        payload = self.get(
+            f"repos/{self.repository}/commits/{head_sha}/check-runs?check_name={name}&per_page=100",
+            paginate=True,
+        )
+        rows = _page_rows(payload, "check_runs")
+        candidates = [
+            row
+            for row in rows
+            if row.get("name") == name
+            and row.get("head_sha") == head_sha
+            and isinstance(row.get("app"), Mapping)
+            and row["app"].get("id") == ACTIONS_APP_ID
+            and isinstance(row.get("id"), int)
+            and not isinstance(row.get("id"), bool)
+        ]
+        latest = max(candidates, key=lambda row: row["id"]) if candidates else None
+        endpoint = (
+            f"repos/{self.repository}/check-runs/{latest['id']}"
+            if latest is not None
+            else f"repos/{self.repository}/check-runs"
+        )
+        method = "PATCH" if latest is not None else "POST"
+        response = self.write(
+            method,
+            endpoint,
+            {
+                "name": name,
+                "head_sha": head_sha,
+                "status": "completed",
+                "conclusion": conclusion,
+                "external_id": f"cmux-{name}-{head_sha}",
+                "output": {"title": name, "summary": summary},
+            },
+        )
+        if not isinstance(response, Mapping):
+            raise GateError("GitHub returned a malformed published check")
+        if response.get("name") != name or response.get("head_sha") != head_sha:
+            raise GateError("published check does not target the exact PR head")
+        app = response.get("app")
+        if not isinstance(app, Mapping) or app.get("id") != ACTIONS_APP_ID:
+            raise GateError("published check was created by an unexpected app")
 
 
 def _workflow_blob_sha(api: GitHubAPI, revision: str) -> str:
@@ -361,11 +460,13 @@ def _event_target(
     """Resolve and validate the live pull request and optional CI run ID."""
 
     workflow_run_id: int | None = None
-    if event_name == "pull_request_target":
+    if event_name in {"pull_request_target", "pull_request_review"}:
         pull = event.get("pull_request")
-        number = event.get("number")
+        number = event.get("number") if event_name == "pull_request_target" else None
+        if number is None and isinstance(pull, Mapping):
+            number = pull.get("number")
         if not isinstance(pull, Mapping) or not isinstance(number, int) or isinstance(number, bool):
-            raise GateError("pull_request_target payload is missing pull request data")
+            raise GateError(f"{event_name} payload is missing pull request data")
         event_head_data = pull.get("head")
         event_head = _as_sha(
             event_head_data.get("sha") if isinstance(event_head_data, Mapping) else None,
@@ -451,12 +552,14 @@ def _select_ci_run(
         if run.get("head_sha") != head_sha:
             continue
         pull_requests = run.get("pull_requests")
-        if isinstance(pull_requests, list) and isinstance(pr_number, int):
-            if not any(
+        if isinstance(pull_requests, list):
+            if pull_requests and not any(
                 isinstance(item, Mapping) and item.get("number") == pr_number
                 for item in pull_requests
             ):
                 continue
+        elif pull_requests is not None:
+            raise GateError("CI workflow run pull request association is malformed")
         valid.append(run)
     if not valid:
         raise GateError("no CI workflow run exists for this exact pull request head")
@@ -655,39 +758,78 @@ def _pr_files(api: GitHubAPI, number: int, expected_count: object) -> list[str]:
     return files
 
 
-def _run_gate(api: GitHubAPI, event_name: str, event: Mapping[str, Any]) -> int:
+def _publish_gate_checks(
+    api: GitHubAPI,
+    head_sha: str,
+    conclusion: str,
+    summary: str,
+) -> None:
+    """Publish both the new and legacy contexts for one exact head."""
+
+    for name in PUBLISHED_CHECKS:
+        api.publish_check(name, head_sha, conclusion, summary)
+
+
+def _run_gate(
+    api: GitHubAPI,
+    event_name: str,
+    event: Mapping[str, Any],
+    *,
+    publish: bool = False,
+) -> int:
+    """Evaluate one event and optionally publish head-targeted check runs."""
+
     pull, head_sha, number, workflow_run_id = _event_target(api, event_name, event)
+    print(f"CI status gate for PR #{number}, head {head_sha}")
+    result = 1
     try:
         verify_ci_workflow_revision(api, pull, head_sha)
+        ci_run = _select_ci_run(api, pull, head_sha, workflow_run_id)
+        jobs_payload = api.get(
+            f"repos/{api.repository}/actions/runs/{ci_run['id']}/jobs?per_page=100",
+            paginate=True,
+        )
+        jobs = _page_rows(jobs_payload, "jobs")
+        run_check_ids = _run_check_ids(jobs, head_sha)
+        checks_payload = api.get(
+            f"repos/{api.repository}/commits/{head_sha}/check-runs?per_page=100",
+            paginate=True,
+        )
+        checks = _page_rows(checks_payload, "check_runs")
+        files = _pr_files(api, number, pull.get("changed_files"))
+        failures = validate_snapshot(
+            checks,
+            files,
+            head_sha=head_sha,
+            expected_check_ids=run_check_ids,
+        )
     except WorkflowDefinitionError as error:
-        print("CI status gate failed:", file=sys.stderr)
-        print(f"- {error}", file=sys.stderr)
-        return 1
-    ci_run = _select_ci_run(api, pull, head_sha, workflow_run_id)
-    jobs_payload = api.get(
-        f"repos/{api.repository}/actions/runs/{ci_run['id']}/jobs?per_page=100", paginate=True
-    )
-    jobs = _page_rows(jobs_payload, "jobs")
-    run_check_ids = _run_check_ids(jobs, head_sha)
-    checks_payload = api.get(
-        f"repos/{api.repository}/commits/{head_sha}/check-runs?per_page=100", paginate=True
-    )
-    checks = _page_rows(checks_payload, "check_runs")
-    files = _pr_files(api, number, pull.get("changed_files"))
-    failures = validate_snapshot(
-        checks,
-        files,
-        head_sha=head_sha,
-        expected_check_ids=run_check_ids,
-    )
-    print(f"CI status gate for PR #{number}, head {head_sha}")
+        failures = [str(error)]
+    except GateError as error:
+        failures = [f"gate input error: {error}"]
+
     if failures:
         print("CI status gate failed:", file=sys.stderr)
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
-        return 1
-    print("CI status gate passed.")
-    return 0
+        summary = "CI status validation failed. See the base-owned gate log for details."
+    else:
+        result = 0
+        print("CI status gate passed.")
+        summary = "CI checks passed for the exact pull request head."
+
+    if publish:
+        try:
+            _publish_gate_checks(
+                api,
+                head_sha,
+                "success" if result == 0 else "failure",
+                summary,
+            )
+        except GateError as error:
+            print(f"CI status check publication failed: {error}", file=sys.stderr)
+            return 2
+    return result
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -709,7 +851,12 @@ def main(argv: list[str] | None = None) -> int:
         event = parse_event(args.event_file.read_text(encoding="utf-8"))
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         api = GitHubAPI(repository)
-        return _run_gate(api, os.environ.get("GITHUB_EVENT_NAME", ""), event)
+        return _run_gate(
+            api,
+            os.environ.get("GITHUB_EVENT_NAME", ""),
+            event,
+            publish=True,
+        )
     except (GateError, OSError) as error:
         print(f"CI status gate input error: {error}", file=sys.stderr)
         return 2

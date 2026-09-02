@@ -196,7 +196,7 @@ def test_unexpected_ci_job_is_rejected() -> None:
     assert any("unreviewed-job" in failure for failure in failures)
 
 
-def test_workflow_is_base_owned_and_read_only() -> None:
+def test_workflow_is_base_owned_with_limited_check_publication() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target:" in text
     assert "pull_request_review:" in text
@@ -323,6 +323,50 @@ def test_gate_publisher_targets_both_contexts_on_exact_head() -> None:
         ("ci-status-gate", HEAD_SHA, "success"),
         ("ci-status", HEAD_SHA, "success"),
     ]
+
+
+def test_check_publisher_updates_only_our_exact_head_run() -> None:
+    class CheckAPI(module.GitHubAPI):
+        def __init__(self) -> None:
+            super().__init__("manaflow-ai/cmux", token="test")
+            self.writes: list[tuple[str, str, dict[str, object]]] = []
+            self.existing = False
+
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            assert "check_name=ci-status-gate" in endpoint
+            if self.existing:
+                return [
+                    {
+                        "check_runs": [
+                            {
+                                "id": 77,
+                                "name": "ci-status-gate",
+                                "head_sha": HEAD_SHA,
+                                "app": {"id": module.ACTIONS_APP_ID},
+                            }
+                        ]
+                    }
+                ]
+            return [{"check_runs": []}]
+
+        def write(
+            self, method: str, endpoint: str, payload: dict[str, object]
+        ) -> object:
+            self.writes.append((method, endpoint, payload))
+            return {
+                "name": payload["name"],
+                "head_sha": payload["head_sha"],
+                "app": {"id": module.ACTIONS_APP_ID},
+            }
+
+    api = CheckAPI()
+    api.publish_check("ci-status-gate", HEAD_SHA, "success", "ok")
+    assert api.writes[0][0] == "POST"
+    assert api.writes[0][2]["head_sha"] == HEAD_SHA
+    api.existing = True
+    api.publish_check("ci-status-gate", HEAD_SHA, "failure", "bad")
+    assert api.writes[1][0] == "PATCH"
+    assert api.writes[1][1].endswith("/check-runs/77")
 
 
 def test_pr_file_pagination_accepts_slurped_array_pages() -> None:

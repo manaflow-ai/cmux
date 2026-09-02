@@ -9,7 +9,10 @@ again when the `CI` workflow completes. It checks the live pull request, pins
 the exact head SHA, reads the matching CI workflow run, and fetches check runs
 for that SHA. It derives the changed-file routes with the trusted base
 classifier, then invokes `scripts/ci/check_ci_status.py` from the trusted base
-revision. Missing, stale, pending, failed, or unexpected CI jobs fail closed.
+revision. The publisher uses the narrow `checks: write` permission to create
+or update `ci-status-gate` and `ci-status` check runs on that exact head. No
+repository contents are written. Missing, stale, pending, failed, or
+unexpected CI jobs fail closed.
 
 The `pull_request` workflow remains untrusted. Its `ci-status-advisory` job
 and `ci-status-validator-canary` job are diagnostic only and must not be added
@@ -20,7 +23,11 @@ During rollout, the base-owned gate workflow also publishes the legacy
 `ci-status` context. It mirrors `ci-status-gate` only so an existing
 required-check rule does not become permanently pending. Remove that alias in
 the same ruleset update that makes `ci-status-gate` required. The untrusted
-`pull_request` workflow must never publish the `ci-status` name.
+`pull_request` workflow retains a temporary `ci-status` producer so this
+bootstrap PR can pass the existing rule before the gate workflow is on `main`.
+Remove that producer immediately after the base-owned gate is merged and the
+ruleset switches. The untrusted workflow must never remain a required
+authority.
 
 The base-owned gate compares the blob SHA for `.github/workflows/ci.yml` at
 the live base and head commits. A changed workflow definition is rejected
