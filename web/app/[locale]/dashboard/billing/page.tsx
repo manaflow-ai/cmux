@@ -588,9 +588,18 @@ function priceCopy(
   t: Awaited<ReturnType<typeof getTranslations>>,
   plan: "pro" | "team",
 ): string | null {
-  const unitAmount = stripePrice(subscription)?.unit_amount;
+  const price = stripePrice(subscription);
+  const unitAmount = price?.unit_amount;
   const interval = priceRecurringInterval(subscription);
-  if (typeof unitAmount !== "number" || !Number.isFinite(unitAmount) || !interval) {
+  // unit_amount is in the currency's minor unit; only USD is formatted here.
+  // A non-USD row (possible only for an operator-managed subscription) shows
+  // no figure rather than a false dollar amount.
+  if (
+    price?.currency !== "usd" ||
+    typeof unitAmount !== "number" ||
+    !Number.isFinite(unitAmount) ||
+    !interval
+  ) {
     return null;
   }
   const dollars = unitAmount / 100;

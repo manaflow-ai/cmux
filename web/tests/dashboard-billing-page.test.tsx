@@ -177,14 +177,22 @@ describe("dashboard billing page", () => {
     }
   });
 
-  test("omits the price metric when Stripe sent no amount", async () => {
+  test("omits the price metric when Stripe sent no amount or a non-USD currency", async () => {
     customerRows = [{ id: "cus_123" }];
     subscriptionRows = [
       stripeSubscriptionRow({ cancelAtPeriodEnd: false, unitAmount: null }),
     ];
-    const html = await renderBillingPage();
+    let html = await renderBillingPage();
     expect(html).toContain("cmux Pro");
     expect(html).not.toContain(">Price<");
+
+    // 5000 JPY is not $50.
+    subscriptionRows = [
+      stripeSubscriptionRow({ cancelAtPeriodEnd: false, unitAmount: 5000, currency: "jpy" }),
+    ];
+    html = await renderBillingPage();
+    expect(html).not.toContain(">Price<");
+    expect(html).not.toContain("$50/mo");
   });
 
   test("renders pending cancellation with resume and end-date copy", async () => {
@@ -226,6 +234,8 @@ describe("dashboard billing page", () => {
           plan: "team",
           scope: "team",
           seats: 4,
+          lookupKey: "cmux-team-monthly-60",
+          unitAmount: 6000,
         }),
       ],
     ];
@@ -405,6 +415,7 @@ function stripeSubscriptionRow({
   seats = null,
   lookupKey = "cmux-pro-monthly-50",
   unitAmount = 5000,
+  currency = "usd",
   billingInterval,
   recurringInterval = "month",
 }: {
@@ -415,6 +426,7 @@ function stripeSubscriptionRow({
   seats?: number | null;
   lookupKey?: string;
   unitAmount?: number | null;
+  currency?: string;
   billingInterval?: "month" | "year";
   recurringInterval?: "month" | "year";
 }) {
@@ -435,6 +447,7 @@ function stripeSubscriptionRow({
             price: {
               lookup_key: lookupKey,
               unit_amount: unitAmount,
+              currency,
               recurring: { interval: recurringInterval },
             },
           },

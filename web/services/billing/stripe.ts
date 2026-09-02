@@ -32,14 +32,14 @@ export async function resolveProPrice(interval: BillingInterval): Promise<string
   const overridden = interval === "month"
     ? env.STRIPE_PRO_MONTHLY_50_PRICE_ID
     : env.STRIPE_PRO_YEARLY_480_PRICE_ID;
-  return resolvePlanPrice(PRO_PRICING_USD[interval], interval, overridden, resolvedProPriceIds);
+  return resolvePlanPrice(PRO_PRICING_USD[interval], interval, overridden, resolvedProPriceIds, "pro");
 }
 
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
   const overridden = interval === "month"
     ? env.STRIPE_TEAM_MONTHLY_60_PRICE_ID
     : env.STRIPE_TEAM_YEARLY_576_PRICE_ID;
-  return resolvePlanPrice(TEAM_PRICING_USD[interval], interval, overridden, resolvedTeamPriceIds);
+  return resolvePlanPrice(TEAM_PRICING_USD[interval], interval, overridden, resolvedTeamPriceIds, "team");
 }
 
 /**
@@ -54,14 +54,15 @@ async function resolvePlanPrice(
   interval: BillingInterval,
   overridden: string | undefined,
   cache: Map<BillingInterval, string>,
+  planId: "pro" | "team",
 ): Promise<string> {
   const cached = cache.get(interval);
   if (cached) return cached;
 
   let priceId: string;
   if (overridden) {
-    const price = await stripe().prices.retrieve(overridden);
-    assertPriceMatchesPlan(price, plan, interval, overridden);
+    const price = await stripe().prices.retrieve(overridden, { expand: ["product"] });
+    assertPriceMatchesPlan(price, plan, interval, overridden, planId);
     priceId = price.id;
   } else {
     const prices = await stripe().prices.list({
