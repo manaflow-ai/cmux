@@ -1191,10 +1191,20 @@ impl PtyDeps for RealPtyDeps {
             }
         });
         let result = tokio::select! {
+            biased;
+            // A pre-cancelled owner must win over a concurrently completing
+            // blocking worker so the returned dead handle gets its terminal
+            // exit event and no PTY is handed to a cancelled request.
             result = &mut worker => result,
             _ = cancellation.cancelled() => {
                 cancel_guard.handoff.cancel();
                 worker.abort();
+                // The async owner returns a dead handle when cancellation wins
+                // before the blocking worker can hand its PTY to us. Publish
+                // the terminal event as part of that handoff contract so a
+                // subscriber that attaches to the returned output cannot wait
+                // forever for an exit that the worker will never emit.
+                output.push_exit(1);
                 return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
             }
         };
@@ -1465,7 +1475,7 @@ mod tests {
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn cancellation_before_pty_handoff_publishes_exit_to_late_subscriber() {
         let deps = RealPtyDeps::new(HashMap::new());
         let cancellation = CancellationToken::new();
