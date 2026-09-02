@@ -41,7 +41,15 @@ public actor MobileIrxRuntimeComposition {
         case notSignedIn
         case unsupportedRoute
         case peerNotDiscovered
+        case provisioningExhausted(attempts: Int)
     }
+
+    /// Provisioning is retried only for a bounded launch window. Auth events
+    /// start a fresh window after a later sign-in or account refresh.
+    nonisolated static let provisioningMaxAttempts = 5
+    nonisolated static let provisioningRetryDelays: [Duration] = [
+        .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16),
+    ]
 
     /// Dial-gate refusals from the device-list lease. Deliberately NOT
     /// ``IrxAdmissionDenied``: the peer engine treats these as ordinary
@@ -233,10 +241,17 @@ public actor MobileIrxRuntimeComposition {
         let epoch = lifecycleEpoch
         provisioningTask = Task { [weak self] in
             guard let self else { return }
-            _ = await self.provisionSignedInWithRetry(
-                sessionIdentity: sessionIdentity,
-                epoch: epoch
-            )
+            do {
+                _ = try await self.provisionSignedInWithRetry(
+                    sessionIdentity: sessionIdentity,
+                    epoch: epoch
+                )
+            } catch {
+                Self.journal.record(
+                    "client-runtime", "provisioning-terminal",
+                    ["error": String(describing: error)]
+                )
+            }
         }
     }
 
@@ -246,7 +261,7 @@ public actor MobileIrxRuntimeComposition {
     private func provisionSignedInWithRetry(
         sessionIdentity: AuthenticatedSessionIdentity,
         epoch: UInt64
-    ) async -> Bool {
+    ) async throws -> Bool {
         guard let auth else { return false }
         Self.journal.record("client-runtime", "auth-gate-snapshot-check")
         guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
@@ -254,8 +269,7 @@ public actor MobileIrxRuntimeComposition {
             return false
         }
         Self.journal.record("client-runtime", "auth-gate-signed-in")
-        var delay: Duration = .seconds(1)
-        while !Task.isCancelled {
+        for attempt in 1...Self.provisioningMaxAttempts {
             guard lifecycleEpoch == epoch,
                   await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity)
             else { return false }
@@ -263,8 +277,10 @@ public actor MobileIrxRuntimeComposition {
                 sessionIdentity: sessionIdentity,
                 epoch: epoch
             ) { return true }
-            try? await Task.sleep(for: delay)
-            delay = min(delay * 2, .seconds(30))
+            guard attempt < Self.provisioningMaxAttempts else {
+                throw CompositionError.provisioningExhausted(attempts: attempt)
+            }
+            try await Task.sleep(for: Self.provisioningRetryDelays[attempt - 1])
         }
         return false
     }
@@ -517,10 +533,17 @@ public actor MobileIrxRuntimeComposition {
     /// identity binding, monotonic freshness), then rotate make-before-break
     /// and reset the autopilot timer so push and fallback never double-mint.
     private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async -> Bool {
+        let epoch = lifecycleEpoch
         guard let broker, let endpointSupervisor, let autopilot else { return false }
+        guard isCurrent(epoch) else { return false }
         guard let accepted = await broker.acceptPushedRelayCredentials(credentials)
         else { return false }
+        // Sign-out or an account switch may have deactivated this endpoint
+        // while the broker actor accepted the push. Never rotate credentials
+        // into that stale endpoint generation or kick its autopilot.
+        guard isCurrent(epoch) else { return false }
         await endpointSupervisor.rotateCredentials(accepted)
+        guard isCurrent(epoch) else { return false }
         await autopilot.kick()
         return true
     }
