@@ -57,6 +57,55 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
+    /// Whether the View menu can move the currently owned surface into a new
+    /// workspace. Dock enablement reads its bounded capability snapshot; the
+    /// main workspace keeps the existing rule that at least one surface must
+    /// remain behind.
+    func canMoveFocusedSurfaceToNewWorkspace(
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        if let dock = focusedDockStoreForMenu(
+            preferredWindow: preferredWindow
+        ) {
+            return dock.menuCapabilities.canMoveToNewWorkspace
+        }
+        guard let workspace = tabManager?.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              workspace.panels[panelId] != nil else {
+            return false
+        }
+        return workspace.panels.count > 1
+    }
+
+    /// Executes the View menu's new-workspace move through the focused
+    /// container's existing live-panel transfer path.
+    @discardableResult
+    func moveFocusedSurfaceToNewWorkspace(
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        if let dock = focusedDockStoreForMenu(
+            preferredWindow: preferredWindow
+        ) {
+            guard let panelId = dock.focusedPanelId else { return false }
+            return moveDockSurfaceToNewWorkspace(
+                sourceDock: dock,
+                panelId: panelId,
+                focus: true,
+                focusWindow: false
+            )
+        }
+        guard let panelId = tabManager?.selectedWorkspace?.focusedPanelId else {
+            return false
+        }
+        return moveSurfaceToNewWorkspace(
+            panelId: panelId,
+            focus: true,
+            focusWindow: false
+        ) != nil
+    }
+
     /// Finds the live Dock that owns a pane through the bounded Dock registry.
     /// Used by portal drop targets to route into the Dock's own controller.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {

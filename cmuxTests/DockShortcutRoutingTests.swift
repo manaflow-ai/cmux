@@ -2703,6 +2703,20 @@ struct DockShortcutRoutingTests {
                     destinations.first?.id ==
                         DockSplitStore.dockMoveNewWorkspaceDestinationId
                 )
+                harness.dock.refreshDockMenuCapabilities()
+                #expect(harness.dock.menuCapabilities.canMoveToNewWorkspace)
+
+                let workspaceCountBefore = harness.tabManager.tabs.count
+                #expect(
+                    harness.appDelegate.moveFocusedSurfaceToNewWorkspace(
+                        tabManager: harness.tabManager,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(!harness.dock.containsPanel(panel.id))
+                #expect(
+                    harness.tabManager.tabs.count == workspaceCountBefore + 1
+                )
             }
         }
     }

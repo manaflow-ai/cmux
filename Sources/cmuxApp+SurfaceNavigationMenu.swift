@@ -83,5 +83,24 @@ extension cmuxApp {
                 }
             }
         }
+        Button(
+            String(
+                localized: "command.moveTabToNewWorkspace.title",
+                defaultValue: "Move Tab to New Workspace"
+            )
+        ) {
+            if AppDelegate.shared?.moveFocusedSurfaceToNewWorkspace(
+                tabManager: activeTabManager,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) != true {
+                NSSound.beep()
+            }
+        }
+        .disabled(
+            !(AppDelegate.shared?.canMoveFocusedSurfaceToNewWorkspace(
+                tabManager: activeTabManager,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) ?? false)
+        )
     }
 }

@@ -272,7 +272,8 @@ extension DockSplitStore {
                 || browser?.searchState != nil,
             canCloseOtherTabs: tabs.contains {
                 $0.id != tab.id && !$0.isPinned
-            }
+            },
+            canMoveToNewWorkspace: true
         )
         guard next != menuCapabilities else { return }
         menuCapabilities = next

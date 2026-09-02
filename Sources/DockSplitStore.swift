@@ -20,12 +20,14 @@ struct DockMenuCapabilitySnapshot: Equatable, Sendable {
     let canUseSelection: Bool
     let hasFindSession: Bool
     let canCloseOtherTabs: Bool
+    let canMoveToNewWorkspace: Bool
 
     static let empty = Self(
         isTerminal: false,
         canUseSelection: false,
         hasFindSession: false,
-        canCloseOtherTabs: false
+        canCloseOtherTabs: false,
+        canMoveToNewWorkspace: false
     )
 }
 
