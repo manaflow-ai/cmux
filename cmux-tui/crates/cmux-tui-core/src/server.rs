@@ -4885,6 +4885,21 @@ fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// Remove a stale socket only when the path still names the observed socket.
+fn remove_stale_socket_if_unchanged(
+    path: &Path,
+    observed_identity: SocketPathIdentity,
+) -> std::io::Result<bool> {
+    if !observed_identity.matches_path(path)? {
+        return Ok(false);
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 struct ListenerControl {
     shutdown: Arc<AtomicBool>,
     wake: transport::ListenerWake,
@@ -5251,12 +5266,35 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
+        let stale_identity = match SocketPathIdentity::capture(&path) {
+            Ok(identity) => Some(identity),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData
+                ) =>
+            {
+                None
+            }
+            Err(error) => return Err(error.into()),
+        };
         match transport::connect(&path) {
             Ok(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => std::fs::remove_file(&path)?,
+            Err(_) => {
+                if let Some(identity) = stale_identity {
+                    if !remove_stale_socket_if_unchanged(&path, identity)? && path.exists() {
+                        anyhow::bail!(
+                            "session socket {} changed during stale recovery",
+                            path.display()
+                        );
+                    }
+                } else {
+                    std::fs::remove_file(&path)?;
+                }
+            }
         }
     }
     let listener = transport::listen(&path)?;
