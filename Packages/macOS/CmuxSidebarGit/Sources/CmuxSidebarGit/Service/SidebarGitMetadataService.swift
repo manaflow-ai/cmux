@@ -168,18 +168,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         lastSidebarGitMetadataActivity = activity
 
         guard activity.performsActivePolling else {
-            stopAllWorkspaceGitMetadataWatchers()
-            workspaceGitProbeStateByKey.removeAll()
-            for task in workspaceGitProbeTasksByKey.values {
-                task.cancel()
-            }
-            workspaceGitProbeTasksByKey.removeAll()
-            cancelAllWorkspaceGitSnapshotTasks()
-            workspaceGitTrackedDirectoryByKey.removeAll()
-            workspaceGitCleanIndexSignatureByKey.removeAll()
-            workspaceGitCleanIndexContentSignatureByKey.removeAll()
-            workspaceGitHeadSignatureByKey.removeAll()
-            pullRequestProbing.resetWorkspacePullRequestRefreshState()
+            resetAllWorkspaceGitProbeTracking()
             if activity == .disabled {
                 host?.clearAllSidebarGitMetadata()
             }
@@ -330,13 +319,17 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     public func resetAllWorkspaceGitProbeTracking() {
-        let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
-            .union(workspaceGitProbeTasksByKey.keys)
-        for key in existingProbeKeys {
-            clearWorkspaceGitProbe(key)
-        }
         stopAllWorkspaceGitMetadataWatchers()
+        workspaceGitProbeStateByKey.removeAll()
+        for task in workspaceGitProbeTasksByKey.values {
+            task.cancel()
+        }
+        workspaceGitProbeTasksByKey.removeAll()
+        cancelAllWorkspaceGitSnapshotTasks()
         workspaceGitTrackedDirectoryByKey.removeAll()
+        workspaceGitCleanIndexSignatureByKey.removeAll()
+        workspaceGitCleanIndexContentSignatureByKey.removeAll()
+        workspaceGitHeadSignatureByKey.removeAll()
         pullRequestProbing.resetWorkspacePullRequestRefreshState()
     }
 

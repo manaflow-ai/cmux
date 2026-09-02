@@ -1,4 +1,36 @@
 {
+  "billingRecovery": {
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+  },
+  "vmDesktop": {
+    "invalidTitle": "このデスクトップリンクは無効です",
+    "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",
+    "expiredTitle": "このデスクトップセッションは期限切れです",
+    "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
+  },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM 操作を利用できません",
+      "reason": "このマシン種別ではこの操作を利用できません。",
+      "message": {
+        "snapshot": "この Cloud VM は保存済み状態に対応していません。",
+        "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
+        "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "default": "この Cloud VM は要求された操作に対応していません。"
+      },
+      "action": {
+        "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro が必要です",
+      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
+      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -83,6 +115,13 @@
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
+    "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "genericTitle": "サインインを完了できませんでした",
+    "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
+    "backToSignIn": "サインインに戻る"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -106,7 +145,9 @@
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "管理",
+      "adminPro": "Pro アクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -145,13 +186,14 @@
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
         "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
-        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
+        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。"
       },
       "free": {
         "name": "Free",
         "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
-        "upsellTitle": "クラウドエージェントや共有 CodeRouter が必要になったらアップグレードできます。",
-        "upsellBody": "個人向けクラウド機能には Pro、匿名の集計使用量・コスト分析付き共有 CodeRouter には Team を選択してください。",
+        "upsellTitle": "クラウドエージェントが必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能には Pro、チーム全体の一元請求には Team を選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
         "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
@@ -160,17 +202,17 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
-        "monthlyPrice": "$30/月",
-        "annualPrice": "$24/月（年払い）",
-        "legacyAnnualPrice": "$20/月（年払い）"
+        "monthlyPrice": "${amount}/月",
+        "annualPrice": "${monthly}/月（年払い）",
+        "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月",
-        "annualPrice": "$28/シート/月（年払い）"
+        "price": "${amount}/シート/月",
+        "annualPrice": "${monthly}/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -242,6 +284,146 @@
         "viewPricing": "料金を見る",
         "join": "iOS TestFlightに参加",
         "leave": "TestFlightから退出"
+      }
+    },
+    "admin": {
+      "eyebrow": "管理",
+      "title": "Pro アクセス",
+      "description": "任意のアカウント、チーム、メールに Pro を付与または解除し、有料顧客をダウングレードします。このページを開けるのは確認済みの {domains} アカウントのみです。",
+      "search": {
+        "label": "ユーザー、チーム、またはメールを検索",
+        "placeholder": "メール、名前、チーム、または ID",
+        "button": "検索",
+        "searching": "検索中…",
+        "hint": "メインのメール、表示名、チーム名、または完全一致の ID で検索します。各最大 25 件。すべての変更は確認を求めます。"
+      },
+      "sections": {
+        "users": "ユーザー ({count})",
+        "teams": "チーム ({count})",
+        "pending": "保留中のメール付与 ({count})"
+      },
+      "results": {
+        "user": "ユーザー",
+        "team": "チーム",
+        "email": "メール",
+        "plan": "プラン",
+        "access": "アクセス",
+        "stripe": "Stripe",
+        "grant": "手動付与",
+        "actions": "操作",
+        "empty": "一致するユーザー、チーム、保留中の付与はありません。",
+        "noEmail": "メールなし",
+        "verified": "確認済み",
+        "unverified": "未確認",
+        "members": "{count} 人のメンバー",
+        "noSubscription": "サブスクリプションなし",
+        "cancelling": "期間終了時に解約",
+        "membersUnknown": "メンバー数を取得できません"
+      },
+      "access": {
+        "pro": "Pro",
+        "team": "Team",
+        "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
+      },
+      "grant": {
+        "none": "なし",
+        "current": "{plan}",
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "初回の確認済みサインイン時に適用"
+      },
+      "emailGrant": {
+        "title": "このメールのアカウントはまだありません",
+        "body": "{email} に今すぐ Pro を付与します。そのメールが確認済みのメールボックスで初めてサインインしたときに自動的に適用されます。"
+      },
+      "actions": {
+        "grantPro": "Pro を付与",
+        "grantFounders": "Founders を付与",
+        "grantTeam": "Team を付与",
+        "removeGrant": "付与を解除",
+        "downgrade": "ダウングレード",
+        "resumeSubscription": "サブスクリプションを再開",
+        "revokePending": "取り消し",
+        "saving": "保存中…"
+      },
+      "confirm": {
+        "cancel": "キャンセル",
+        "grant": "付与を確定",
+        "grantTitle": "{plan} を付与しますか？",
+        "grantUserBody": "このアカウントはサブスクリプションなしで全機能の {plan} アクセスを得ます。管理者が解除するまで継続します。",
+        "grantTeamBody": "{count} 人のメンバー全員がサブスクリプションなしで Team アクセスを得ます。管理者が解除するまで継続します。",
+        "grantEmailBody": "付与は今保存され、そのメールの初回の確認済みサインイン時に適用されます。必要であればそれまでにここで取り消せます。",
+        "removeGrantTitle": "手動付与を解除しますか？",
+        "removeGrantBody": "アクセスは直ちに Free になります。",
+        "removeTeamGrantBody": "すべてのメンバーが直ちに Team アクセスを失います。",
+        "removeGrantBodyStripe": "有効な Stripe サブスクリプションが引き続きアクセスを付与します。それも終了するにはダウングレードを使用してください。",
+        "downgradeTitle": "この有料顧客をダウングレードしますか？",
+        "downgradeBody": "Stripe サブスクリプションは現在の期間終了時に解約されます。それまでアクセスは継続し、返金はありません。",
+        "downgradeTeamBody": "チームの Stripe サブスクリプションは現在の期間終了時に解約されます。それまで全メンバーのアクセスは継続し、返金はありません。",
+        "resumeTitle": "サブスクリプションを再開しますか？",
+        "resumeBody": "予定されていた解約が取り消され、サブスクリプションは通常どおり更新されます。",
+        "revokePendingTitle": "この保留中の付与を取り消しますか？",
+        "revokePendingBody": "このメールがサインインしても何も適用されません。",
+        "grantTeamBodyUnknown": "メンバー一覧を読み込めなかったため、この付与の範囲が不明です。再読み込みしてからお試しください。"
+      },
+      "notices": {
+        "granted": "{target} に {plan} を付与しました。",
+        "grantRemoved": "{target} の手動付与を解除しました。",
+        "downgraded": "{target} は現在の期間終了時に解約されます。",
+        "resumed": "{target} のサブスクリプションを再開しました。",
+        "emailGranted": "{target} の初回の確認済みサインイン時に {plan} が適用されます。",
+        "pendingRevoked": "{target} の保留中の付与を取り消しました。",
+        "supersededNotCleared": "付与は記録されましたが、以前の付与が {count} 件のアカウントでまだ有効です。そのメールを検索してユーザー行の「付与を解除」を使用するか、次回サインイン時に解除されます。"
+      },
+      "errors": {
+        "network": "ネットワークエラーです。もう一度お試しください。",
+        "forbidden": "このアカウントは管理者ではありません。確認済みの cmux.com、manaflow.ai、または manaflow.com のメールでサインインしてください。",
+        "notFound": "一致するアカウントまたはサブスクリプションがありません。",
+        "conflict": "このアカウントへの別の変更が進行中か、メールが複数のアカウントに一致します。",
+        "billing": "請求機能は現在利用できません。",
+        "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
+      },
+      "list": {
+        "title": "すべての Pro ユーザー",
+        "description": "Pro アクセスを持つすべてのアカウントとその理由: 請求ミラーの有効な Stripe サブスクリプション、アカウント一覧を走査して見つけた手動付与、初回サインイン待ちの付与。",
+        "load": "一覧を読み込む",
+        "reload": "再読み込み",
+        "loading": "読み込み中…",
+        "stats": {
+          "proUsers": "Pro ユーザー",
+          "subscribers": "Stripe 契約者",
+          "userGrants": "手動付与",
+          "teams": "チーム",
+          "pending": "保留中の付与"
+        },
+        "scanUsers": "アカウント",
+        "scanTeams": "チーム",
+        "scanProgress": "手動付与を探して{label}を走査中… {scanned} 件確認。",
+        "scanDone": "{scanned} 件の{label}を走査しました。",
+        "scanFailed": "{label}の走査は {scanned} 件で停止しました。",
+        "scanTruncated": "一覧の終端に達する前にページ上限に達しました。",
+        "scanning": "走査中…",
+        "empty": "なし。",
+        "sections": {
+          "subscribers": "Stripe Pro 契約者 ({count})",
+          "userGrants": "手動付与ユーザー ({count})",
+          "teams": "Team アクセスを持つチーム ({count})",
+          "pending": "保留中のメール付与 ({count})"
+        },
+        "periodEnd": "期間終了",
+        "userId": "ユーザー ID",
+        "teamId": "チーム ID",
+        "source": "ソース",
+        "detail": "詳細",
+        "sourceStripe": "Stripe サブスクリプション",
+        "sourceGrant": "手動付与",
+        "seats": "{count} シート"
       }
     },
     "aiAccounts": {
@@ -392,6 +574,7 @@
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
+    "jobs": "採用情報",
     "pricing": "料金",
     "github": "GitHub"
   },
@@ -403,8 +586,10 @@
     "pricing": "料金",
     "blog": "ブログ",
     "community": "コミュニティ",
+    "jobs": "採用情報",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "support": "サポート",
     "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
@@ -421,12 +606,85 @@
     "guides": "ガイド",
     "compare": "比較"
   },
+  "jobs": {
+    "metaTitle": "Founding Engineer の採用情報 — cmux",
+    "metaDescription": "cmux の Founding Engineer として、macOS、Windows、Linux、iOS、Cloud にまたがる AI コーディングの未来を一緒につくりませんか。",
+    "section": "採用情報",
+    "eyebrow": "採用中",
+    "title": "Founding Engineer",
+    "tagline": "AI とコーディングの未来をつくる。",
+    "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+    "hiring": "AI とコーディングの未来をつくる、才能あるエンジニアを募集しています。",
+    "whatYoullDo": "仕事内容",
+    "whatYoullDoItems": [
+      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
+      "開発者が AI と仕事をするために最も役立つプロダクトを一緒に生み出す。",
+      "ユーザーフィードバックのループも含め、プロダクトと機能を最初から最後まで担当する。",
+      "常に cmux を実際に使い、テストと検証を重ねながら cmux をつくる。"
+    ],
+    "excitedLead": "次のような経験があると、特にうれしいです：",
+    "excitedItems": [
+      "1日に 10B 以上のトークンを使っている。",
+      "幅広く動けるオールラウンダーで、創造的に問題を解決できる。",
+      "優れたデザイン感覚があり、細部まで丁寧に仕上げる。",
+      "Swift/AppKit、C++、Rust、Go、または Chromium の経験がある。",
+      "オープンソースのメンテナー、元ファウンダー、完成したプロダクトを出荷してきた。",
+      "cmux の PR を送ってレビューを依頼したり、独自の cmux プラグインやワークフローをデモしたりしている。"
+    ],
+    "details": "詳細",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "報酬",
+    "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+    "benefitsLabel": "福利厚生",
+    "benefits": "医療・歯科・眼科保険",
+    "locationLabel": "勤務地",
+    "location": "サンフランシスコ",
+    "applyAriaLabel": "メールで Founding Engineer に応募する",
+    "applyEmailSubject": "cmux Founding Engineer への応募",
+    "applyCta": "メールする",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer の採用情報 — cmux",
+      "metaDescription": "cmux の Founding Designer として、macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com、chatmux にわたる AI とコーディングの未来をデザインしませんか。",
+      "section": "採用情報",
+      "eyebrow": "役割について",
+      "title": "Founding Designer",
+      "tagline": "AI とコーディングの未来をデザインする。",
+      "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+      "hiring": "AI とコーディングの未来をデザインする、才能あるデザイナーを募集しています。",
+      "whatYoullDo": "仕事内容",
+      "whatYoullDoItems": [
+        "cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux など、スタック全体にわたる最先端の開発者ツールをデザインする。",
+        "開発者が AI と仕事をするために最も役立つプロダクトをデザインする。",
+        "ユーザーフィードバックのループも含め、ルック、フィール、インタラクションモデルを最初から最後まで担当する。",
+        "常に cmux を実際に使い、プロトタイプを作り、出荷する。"
+      ],
+      "excitedLead": "次のような経験や姿勢があると、特にうれしいです：",
+      "excitedItems": [
+        "さまざまなアプリのデザインコンポーネントを知り尽くしている。",
+        "デザインの参考例を、いつも周りの人から尋ねられる。",
+        "ネイティブ macOS アプリと開発者ツールに対する、強いこだわりと優れた感覚がある。",
+        "コードでプロトタイプを作り、実際の UI を出荷する。",
+        "タイポグラフィ、モーション、システム思考に精通し、1px の細部や余白にもこだわる。"
+      ],
+      "details": "詳細",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "報酬",
+      "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+      "benefitsLabel": "福利厚生",
+      "benefits": "医療・歯科・眼科保険",
+      "locationLabel": "勤務地",
+      "location": "サンフランシスコ",
+      "applyAriaLabel": "メールで Founding Designer に応募する",
+      "applyEmailSubject": "cmux Founding Designer への応募",
+      "applyCta": "メールする"
+    }
+  },
   "pricing": {
     "metaTitle": "料金 — cmux",
-    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
-    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM と cmux Vault によるセッションバックアップが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と Vault を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
@@ -451,19 +709,18 @@
         "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
         "縦型タブ、ワークスペース、分割ペイン、完了通知",
         "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
-        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "ローカルのセッション履歴",
         "Discord と GitHub でのコミュニティサポート"
       ]
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "CodeRouter: プロバイダーアカウント間のフェイルオーバー、使用量・コスト分析付きルーティング",
+        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク",
+        "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -476,11 +733,11 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter"
+        "チーム全体の一元請求",
+        "優先サポート"
       ]
     },
     "enterprise": {
@@ -490,11 +747,10 @@
       "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
-        "組織全体の使用量・コスト分析を備えたセルフホストの CodeRouter",
         "SSO と SAML サインイン",
         "一元管理と共有チームルール",
         "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
-        "コミット型のクラウド利用とボリューム価格",
+        "カスタムの VM 上限とボリューム価格",
         "SOC 2 と SLA、専任サポート付き"
       ]
     },
@@ -548,24 +804,31 @@
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
-          "free": "VM 1台トライアル",
-          "pro": "月20時間、以降従量課金",
-          "team": "20時間/月、以降は従量課金",
-          "enterprise": "コミット利用"
-        },
-        {
-          "label": "同時 Cloud VM 数",
-          "free": "1",
-          "pro": "従量制",
-          "team": "従量制",
-          "enterprise": "カスタム"
-        },
-        {
-          "label": "CodeRouter: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "false",
+          "pro": "50",
+          "team": "ユーザーごとに 50",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "Cloud VM のサイズ",
+          "free": "false",
+          "pro": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "team": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "ワークスペース",
+          "free": "無制限",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限"
         },
         {
           "label": "iOS アプリ",
@@ -604,7 +867,7 @@
           "enterprise": "true"
         },
         {
-          "label": "コミット利用とボリューム価格",
+          "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -626,41 +889,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM サイズ",
-      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
-      "colSize": "サイズ",
-      "colUse": "おすすめ用途",
-      "colRate": "アクティブ1時間あたり",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "軽いエージェントと短いタスク",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "標準的な開発",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "重いビルドと並列エージェント",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
     "faq": {
       "title": "よくある質問",
       "items": [
         {
           "q": "ターミナルは本当に無料ですか?",
-          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。Cloud VM は有料プランに含まれます。"
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 200 GB ディスク）を利用できます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -668,16 +907,12 @@
           "vault": true
         },
         {
-          "q": "CodeRouterとは何ですか?",
-          "a": "CodeRouter は各リクエストをプロバイダーアカウント間でフェイルオーバー付きでルーティングし、使用量とコストの分析を1か所で提供します。自分のプロバイダーアカウントを持ち込めます。Enterprise では組織全体の管理のために CodeRouter をセルフホストできます。"
-        },
-        {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
-          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+          "a": "いいえ。iOS アプリは内蔵の cmux iroh ネットワークで Mac とペアリングできます。Tailscale などお使いのネットワークを持ち込むこともできます。Enterprise ではセルフホストも可能です。"
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -685,7 +920,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。"
+          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1051,7 +1286,7 @@
         "title": "スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由",
         "summary": "cmuxにまだワークツリーマネージャーがない理由をよく聞かれます。最適なマネージャーは、ワークツリー、別チェックアウト、サンドボックス、VM、GPUクラスタから選べます。",
         "date": "2026年7月23日",
-        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。E2B、Freestyle、Daytona、Modalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
+        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。FreestyleとModalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
         "p2": "役に立つマネージャーは、タスクの文脈からこれらの実行方式を選ぶべきです。これは<zen>cmuxの禅</zen>に沿っています。プリミティブを組み合わせ可能なままにして、使い方はプロジェクトのルールに決めさせます。",
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
         "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
@@ -1752,6 +1987,11 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
+          "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
+          "showInMenuBar": "実行中のコンピュータ操作セッションとフォーカス操作をメニューバーに表示します。"
+        },
         "agentChat": {
           "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
           "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",
@@ -1859,7 +2099,9 @@
           "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
           "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
           "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
-          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。"
+          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
+          "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
+          "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -2913,7 +3155,7 @@
       },
       "modelGateway": {
         "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "body": "接続したプロバイダーアカウントをまたぐホスト型モデルルーティング。",
         "action": "モデルゲートウェイを開く"
       },
       "aiAccounts": {
@@ -4817,6 +5059,52 @@
       "submit": "送信",
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "support": {
+    "metaTitle": "サポート | cmux",
+    "metaDescription": "cmux のサポートを受けられます。メッセージを送信するとメールで返信します。Discord や GitHub でも問い合わせできます。",
+    "section": "サポート",
+    "title": "cmux のサポートを受けられます。",
+    "body": "メッセージを送信すると、メールで返信します。操作内容、期待した結果、実際の結果を書いていただくと、より早く対応できます。",
+    "channels": {
+      "docs": {
+        "label": "ドキュメント",
+        "description": "はじめ方、設定、トラブルシューティングのガイド。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "コミュニティとチームにリアルタイムで質問できます。"
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "バグ報告や機能リクエストを公開の場で送れます。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "メールでの問い合わせはこちらに直接どうぞ。"
+      }
+    },
+    "formAriaLabel": "サポート問い合わせフォーム",
+    "form": {
+      "name": "名前",
+      "email": "メールアドレス",
+      "topic": "トピック",
+      "message": "お困りの内容",
+      "selectPlaceholder": "選択してください",
+      "topicOptions": [
+        "バグ報告",
+        "請求またはサブスクリプション",
+        "アカウントまたはサインイン",
+        "Cloud VM",
+        "機能リクエスト",
+        "その他"
+      ],
+      "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },

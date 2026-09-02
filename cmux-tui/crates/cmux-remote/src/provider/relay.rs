@@ -224,10 +224,13 @@ async fn read_credential_command(
         .kill_on_drop(true);
     let mut child =
         command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| credential_source_error("command stdout was unavailable"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate_child(&mut child).await;
+            return Err(credential_source_error("command stdout was unavailable"));
+        }
+    };
     let result = tokio::time::timeout(source.timeout, async {
         let output = read_limited_credential(stdout).await?;
         let status = child
@@ -243,16 +246,21 @@ async fn read_credential_command(
     match result {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(error)) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child).await;
             Err(error)
         }
         Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child).await;
             Err(credential_source_error("command timed out"))
         }
     }
+}
+
+/// Kill and reap a credential command on every cancellation or failure path.
+/// `kill_on_drop` is best effort and does not guarantee prompt zombie cleanup.
+async fn terminate_child(child: &mut tokio::process::Child) {
+    let _ = child.kill().await;
+    let _ = child.wait().await;
 }
 
 async fn read_limited_credential(
@@ -2218,7 +2226,9 @@ mod tests {
         .expect("relay registration did not become ready")
         .expect("transient initial carrier failure stopped relay registration");
 
-        registration.shutdown().await;
+        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
+            .await
+            .expect("relay registration shutdown did not complete");
         server.await.unwrap();
     }
 

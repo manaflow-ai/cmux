@@ -20,10 +20,13 @@ import Testing
     }
 
     @Test func leadingTitleReservesBackAndTrailingControls() {
-        let expected = 393
+        let expected = min(
+            MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
+            393
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+        )
 
         #expect(cap(393) == expected)
     }
@@ -35,20 +38,22 @@ import Testing
     @Test func noTrailingClusterReservesOnlyBackAndMargins() {
         let contentWidth: CGFloat = 220
         let withoutTrailing = cap(contentWidth, hasTrailingCluster: false)
-        let expected = contentWidth
+        let expected = min(
+            MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
+            contentWidth
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+        )
 
         #expect(withoutTrailing == expected)
     }
 
-    @Test func measuredWidthUsesAllRemainingSpace() {
-        let expected: CGFloat = 800
-            - MobileLeadingToolbarTitleWidth.backButtonReserve
-            - MobileLeadingToolbarTitleWidth.trailingReserveBase
-            - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
-
-        #expect(cap(800) == expected)
+    @Test func wideBarsNeverExpandTheTitlePastTheMaximumCap() {
+        // The title is fixed-max by design: free bar width stays empty
+        // instead of stretching the pill (a flexible title was the
+        // destabilizing input behind the More-menu folds).
+        #expect(cap(800) == MobileLeadingToolbarTitleWidth.maximumMeasuredCap)
+        #expect(cap(1200) == MobileLeadingToolbarTitleWidth.maximumMeasuredCap)
     }
 
     @Test func measuredTrailingItemsReplaceTheConstantEstimate() {
@@ -82,6 +87,33 @@ import Testing
         )
 
         #expect(measured.cap < constantOnly)
+    }
+
+    @Test func zeroMeasurementReservesEveryStructuralItem() {
+        // Remount repro: a workspace reopens straight into a browser with the
+        // Changes chip structurally present but nothing measured yet. The
+        // first pass must reserve for the chip too, or the title over-claims
+        // and the system folds the picker (or the title itself) into the More
+        // menu; a collapse born on the first pass never produces the
+        // attach-then-detach signature the recovery ratchet watches, so it
+        // sticks until the next remount.
+        // 300pt keeps both caps below maximumMeasuredCap so the reserve
+        // delta is observable rather than flattened by the ceiling.
+        let clusterOnly = MobileLeadingToolbarTitleWidth(
+            contentWidth: 300,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            trailingItemCount: 1
+        )
+        let clusterPlusChip = MobileLeadingToolbarTitleWidth(
+            contentWidth: 300,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            trailingItemCount: 2
+        )
+
+        #expect(clusterOnly.cap - clusterPlusChip.cap
+            == MobileLeadingToolbarTitleWidth.unmeasuredTrailingItemReserve)
     }
 
     @Test func zeroMeasurementFallsBackToConstants() {

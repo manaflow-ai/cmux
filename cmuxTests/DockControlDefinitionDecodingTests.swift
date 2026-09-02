@@ -278,7 +278,7 @@ struct DockControlDefinitionDecodingTests {
         let store: DockSplitStore
         switch scope {
         case .workspace:
-            store = workspace.dockSplit
+            store = try #require(workspace.dockSplit)
         case .global:
             store = manager.makeWindowDockStore(windowId: UUID())
         }
@@ -553,7 +553,7 @@ struct DockControlDefinitionDecodingTests {
 
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
-        let store = workspace.dockSplit
+        let store = try #require(workspace.dockSplit)
         defer {
             store.closeAllPanels()
             workspace.teardownAllPanels()
@@ -804,7 +804,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let terminalPanel = try terminalPanel(in: store, panelId: panelId)
@@ -827,12 +827,13 @@ struct DockControlDefinitionDecodingTests {
         defer {
             TerminalController.shared.setActiveTabManager(nil)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
 
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
@@ -863,7 +864,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = try #require(manager.tabs.first)
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
@@ -929,7 +930,7 @@ struct DockControlDefinitionDecodingTests {
             }
 
             let workspace = try #require(manager.tabs.first)
-            let store = workspace.dockSplit
+            let store = workspace.requiredDockSplitForTesting
             let rootPane = try #require(
                 store.bonsplitController.allPaneIds.first
             )

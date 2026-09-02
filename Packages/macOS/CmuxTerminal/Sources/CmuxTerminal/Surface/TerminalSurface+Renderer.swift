@@ -52,6 +52,15 @@ extension TerminalSurface {
         ghostty_surface_set_occlusion(surface, visible)
     }
 
+    /// Applies a visibility-derived occlusion request (portal reveal, canvas
+    /// viewport entry), folding in the hosting window's on-screen state so a
+    /// hidden window can never be un-occluded by a layout transition. Raw
+    /// `setOcclusion` remains for renderer presentation transactions.
+    @MainActor
+    public func applyVisibilityOcclusion(_ visible: Bool) {
+        setOcclusion(visible && rendererWindowVisible)
+    }
+
     /// Whether this surface currently holds realized GPU renderer resources.
     /// Read by `RendererRealizationController` to skip surfaces with nothing to
     /// release. Requires a live runtime surface because the presentation phase
@@ -70,6 +79,38 @@ extension TerminalSurface {
     /// `setVisibleInUI`), so the reclamation controller never releases a visible
     /// surface even if higher-level layout bookkeeping is momentarily stale.
     public var isRendererPortalVisible: Bool { rendererPortalVisible }
+
+    /// Whether the surface can actually be seen: its portal is visible inside a
+    /// window that is itself visible on screen. This is the signal that gates
+    /// occlusion, presentation, and renderer reclamation, so the visible tab of
+    /// a miniaturized or fully covered window is treated the same as a hidden
+    /// tab (no draw cadence, reclaimable GPU swap chain).
+    public var isRendererEffectivelyVisible: Bool {
+        rendererPortalVisible && rendererWindowVisible
+    }
+
+    /// Applies the hosting window's on-screen visibility. Mirrors the portal
+    /// path: a hide stamps the surface's last-visible moment for reclamation
+    /// and occludes the core surface; a show lifts occlusion, or replays the
+    /// presentation transition when the renderer was reclaimed while hidden.
+    @MainActor
+    public func setRendererWindowVisible(_ visible: Bool) {
+        guard visible != rendererWindowVisible else { return }
+        rendererWindowVisible = visible
+        // A hidden portal already has occlusion false and a stamped hide time;
+        // window transitions only matter for the surfaces the portal shows.
+        guard rendererPortalVisible else { return }
+        noteBecameVisibleForRendererReclamation()
+        if visible {
+            if rendererPresentationPhase == .presented {
+                setOcclusion(true)
+            } else {
+                ensureRendererPresented()
+            }
+        } else {
+            setOcclusion(false)
+        }
+    }
 
     /// Whether the native surface view and its pane host have usable drawable
     /// geometry in the same real presentation window. A hidden bootstrap window
@@ -150,7 +191,7 @@ extension TerminalSurface {
         rendererPresentationPhase = .awaitingFirstPresentation
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         guard surface != nil else { return }
-        if rendererPortalVisible, presentationReady {
+        if rendererPortalVisible, rendererWindowVisible, presentationReady {
             rendererPresentationPhase = .presented
             setOcclusion(true)
         } else {
@@ -189,7 +230,9 @@ extension TerminalSurface {
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
         // normalization step that makes first presentation safe and retryable.
-        guard !rendererPortalVisible || !isRendererPresentationReady else { return false }
+        // A visible portal inside a hidden window is NOT protected: nothing on
+        // screen shows it, so its swap chain is reclaimable like a hidden tab's.
+        guard !isRendererEffectivelyVisible || !isRendererPresentationReady else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
@@ -230,6 +273,10 @@ extension TerminalSurface {
         // layout. Do not realize against a windowless/headless/zero-sized layer
         // and then mirror that enqueue as a completed presentation.
         guard presentationReady else { return }
+        // A hidden window has nothing to present into; keep the renderer
+        // released and let `setRendererWindowVisible(true)` replay this
+        // transition when the window comes back on screen.
+        guard rendererWindowVisible else { return }
         guard rendererPresentationPhase != .presented else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()

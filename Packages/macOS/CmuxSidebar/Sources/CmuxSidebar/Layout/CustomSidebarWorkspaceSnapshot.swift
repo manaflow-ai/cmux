@@ -40,6 +40,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         }
     }
 
+    /// The containing workspace group's id (`workspaces[i].group`), or `nil`
+    /// when the workspace is ungrouped.
+    public let groupId: UUID?
     /// The workspace identifier, projected to `workspaces[i].id`.
     public let id: UUID
     /// The stable control-socket handle (e.g. `workspace:16`, the same ref the
@@ -88,6 +91,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let latestSubmittedAt: Date?
     /// Remote projection; omitted when `nil` (`workspaces[i].remote`).
     public let remote: Remote?
+    /// Coding-agent sessions hosted by this workspace's terminals, most
+    /// recent first (`workspaces[i].agents`); the key is omitted when empty.
+    public let agents: [CustomSidebarAgentSnapshot]
 
     /// Creates a workspace snapshot from already-resolved leaf values.
     public init(
@@ -111,8 +117,11 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         latestConversationMessage: String?,
         latestSubmittedMessage: String?,
         latestSubmittedAt: Date?,
-        remote: Remote?
+        remote: Remote?,
+        agents: [CustomSidebarAgentSnapshot] = [],
+        groupId: UUID? = nil
     ) {
+        self.groupId = groupId
         self.id = id
         self.ref = ref
         self.title = title
@@ -134,5 +143,6 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         self.latestSubmittedMessage = latestSubmittedMessage
         self.latestSubmittedAt = latestSubmittedAt
         self.remote = remote
+        self.agents = agents
     }
 }

@@ -3,6 +3,7 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::net::UnixListener;
@@ -75,14 +76,90 @@ impl std::error::Error for UnixSocketError {
     }
 }
 
+/// Owns the pathname for a bound Unix listener and removes it only while the
+/// same socket inode is still published at that pathname.
+///
+/// The cleanup handle is shared with the server wrapper. This lets a wrapper
+/// dropped before its accept task is polled remove the pathname synchronously,
+/// while the listener's own drop remains a safe idempotent fallback.
 #[derive(Debug)]
-pub(crate) struct OwnedUnixListener {
-    listener: UnixListener,
+pub(crate) struct UnixSocketCleanup {
     path: PathBuf,
     device: u64,
     inode: u64,
+    state: Mutex<UnixSocketCleanupState>,
+}
+
+#[derive(Debug)]
+struct UnixSocketCleanupState {
     linked: bool,
-    _path_lock: OwnerFileLock,
+    path_lock: Option<OwnerFileLock>,
+}
+
+#[derive(Debug)]
+struct UnixSocketCleanupGuard(Arc<UnixSocketCleanup>);
+
+impl Drop for UnixSocketCleanupGuard {
+    fn drop(&mut self) {
+        let _ = self.0.unlink_and_release();
+    }
+}
+
+impl UnixSocketCleanup {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn unlink(&self) -> io::Result<()> {
+        self.unlink_inner(false)
+    }
+
+    fn unlink_and_release(&self) -> io::Result<()> {
+        self.unlink_inner(true)
+    }
+
+    fn unlink_inner(&self, release_lock: bool) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.linked {
+            if release_lock {
+                drop(state.path_lock.take());
+            }
+            return Ok(());
+        }
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                state.linked = false;
+                if release_lock {
+                    drop(state.path_lock.take());
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if !metadata.file_type().is_socket()
+            || metadata.dev() != self.device
+            || metadata.ino() != self.inode
+        {
+            state.linked = false;
+            if release_lock {
+                drop(state.path_lock.take());
+            }
+            return Ok(());
+        }
+        fs::remove_file(&self.path)?;
+        state.linked = false;
+        if release_lock {
+            drop(state.path_lock.take());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedUnixListener {
+    listener: UnixListener,
+    cleanup: UnixSocketCleanupGuard,
 }
 
 impl OwnedUnixListener {
@@ -141,19 +218,20 @@ impl OwnedUnixListener {
                 path.display()
             )));
         }
-        let mut lease = Self {
-            listener,
+        let cleanup = Arc::new(UnixSocketCleanup {
             path,
             device: metadata.dev(),
             inode: metadata.ino(),
-            linked: true,
-            _path_lock: path_lock,
-        };
-        if let Err(error) = fs::set_permissions(&lease.path, fs::Permissions::from_mode(0o600)) {
-            let _ = lease.unlink();
+            state: Mutex::new(UnixSocketCleanupState { linked: true, path_lock: Some(path_lock) }),
+        });
+        let lease = Self { listener, cleanup: UnixSocketCleanupGuard(cleanup) };
+        if let Err(error) =
+            fs::set_permissions(lease.cleanup.0.path(), fs::Permissions::from_mode(0o600))
+        {
+            let _ = lease.cleanup.0.unlink_and_release();
             return Err(contextual_io(
                 error,
-                format!("could not secure Unix socket {}", lease.path.display()),
+                format!("could not secure Unix socket {}", lease.cleanup.0.path().display()),
             ));
         }
         Ok(lease)
@@ -163,34 +241,8 @@ impl OwnedUnixListener {
         &self.listener
     }
 
-    fn unlink(&mut self) -> io::Result<()> {
-        if !self.linked {
-            return Ok(());
-        }
-        let metadata = match fs::symlink_metadata(&self.path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                self.linked = false;
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        };
-        if !metadata.file_type().is_socket()
-            || metadata.dev() != self.device
-            || metadata.ino() != self.inode
-        {
-            self.linked = false;
-            return Ok(());
-        }
-        fs::remove_file(&self.path)?;
-        self.linked = false;
-        Ok(())
-    }
-}
-
-impl Drop for OwnedUnixListener {
-    fn drop(&mut self) {
-        let _ = self.unlink();
+    pub(crate) fn cleanup(&self) -> Arc<UnixSocketCleanup> {
+        Arc::clone(&self.cleanup.0)
     }
 }
 

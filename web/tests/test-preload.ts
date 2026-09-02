@@ -8,6 +8,13 @@
 // removes the ordering dependency. Individual suites may still override these
 // at their own top level.
 process.env.SKIP_ENV_VALIDATION = "1";
+// Billing analytics has a production key/host fallback. Mark every Bun test
+// process so the analytics transport fails closed before any test module loads.
+process.env.CMUX_ANALYTICS_TEST_MODE = "1";
+// Also replace the fallback credentials and host. This protects analytics
+// senders that do not yet use the module-level test guard.
+process.env.POSTHOG_PROJECT_KEY = "phc_test_only";
+process.env.POSTHOG_HOST = "http://127.0.0.1:1";
 process.env.RESEND_API_KEY ??= "re_test";
 process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ??= "whsec_founders_test";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";

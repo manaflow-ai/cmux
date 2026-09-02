@@ -17,6 +17,7 @@ pub(super) struct ServerPlan {
 #[derive(Clone, Debug)]
 pub(super) enum ServerAction {
     Status,
+    Ensure,
     Stop { force: bool },
     ReloadConfig,
 }
@@ -37,9 +38,48 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         global.session = Some(session);
     }
+    if let Some(session) = global.session.as_deref()
+        && !valid_session_name(session)
+    {
+        return usage_error(
+            crate::localization::catalog().machine_agent.invalid_session,
+            global.output,
+        );
+    }
     let expected_session = global.session.clone();
-    let socket = super::wire::resolve_socket(&global);
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
+        Err(_error) => {
+            if let Some(session) = global.session.as_deref()
+                && cmux_tui_core::server::validate_session_name(session).is_err()
+            {
+                return local_error_with_details(
+                    "usage.invalid",
+                    crate::localization::catalog().local_server.invalid_session,
+                    json!({"reason": "invalid_session"}),
+                    global.output,
+                    2,
+                );
+            }
+            return local_error_with_details(
+                "server.unavailable",
+                crate::localization::catalog().local_server.connect_failed,
+                json!({"reason": "socket_path_unavailable"}),
+                global.output,
+                3,
+            );
+        }
+    };
     let socket_output = socket.to_string_lossy().into_owned();
+    if matches!(plan.action, ServerAction::Ensure) {
+        return run_ensure(
+            expected_session,
+            socket,
+            socket_output,
+            socket_is_derived,
+            global.output,
+        );
+    }
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
@@ -137,6 +177,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
+        ServerAction::Ensure => unreachable!("ensure returns before the lifecycle exchange"),
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -253,6 +294,70 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             )
         }
     }
+}
+
+/// `server ensure`: connect to a ready owner, spawning a detached one when
+/// nothing serves the socket. Reports `running` for an owner that already
+/// existed and `started` for one this call spawned.
+fn run_ensure(
+    expected_session: Option<String>,
+    socket: std::path::PathBuf,
+    socket_output: String,
+    socket_is_derived: bool,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let spec = crate::local_owner::OwnerSpec {
+        session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
+        socket,
+        socket_is_derived,
+        state: None,
+        term: None,
+    };
+    let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+        Ok(ensured) => {
+            let (status, message, ready) = match &ensured {
+                crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
+            };
+            print_success(
+                json!({
+                    "status":status,
+                    "session":ready.session,
+                    "socket":socket_output,
+                    "pid":ready.pid,
+                    "generation":ready.generation,
+                    "message":message,
+                }),
+                output,
+            )
+        }
+        Err(crate::local_owner::EnsureError::Spawn(_error)) => {
+            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
+        }
+        Err(crate::local_owner::EnsureError::NotReady) => {
+            local_error("server.unavailable", messages.owner_not_ready, output, 3)
+        }
+        Err(crate::local_owner::EnsureError::WrongOwner) => {
+            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::DifferentSession) => {
+            local_error("server.different_session", messages.different_session, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
+            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
+        }
+        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
+            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        }
+    }
+}
+
+fn valid_session_name(session: &str) -> bool {
+    !session.is_empty()
+        && session.len() <= 64
+        && session.chars().all(|character| !character.is_control() && !character.is_whitespace())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -388,8 +493,18 @@ fn usage_error(message: &str, output: OutputMode) -> i32 {
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+    local_error_with_details(code, message, json!({}), output, exit_code)
+}
+
+fn local_error_with_details(
+    code: &str,
+    message: &str,
+    details: Value,
+    output: OutputMode,
+    exit_code: i32,
+) -> i32 {
     super::wire::print_local_error(
-        &json!({"code":code,"message":message,"details":{},"retryable":false}),
+        &json!({"code":code,"message":message,"details":details,"retryable":false}),
         output,
         exit_code,
     )
@@ -406,6 +521,20 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    #[test]
+    fn rejects_invalid_session_names_before_socket_resolution() {
+        assert!(!valid_session_name(""));
+        assert!(!valid_session_name("bad name"));
+        assert!(!valid_session_name("bad\nname"));
+        assert!(!valid_session_name(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn accepts_session_names_for_explicit_and_default_socket_routes() {
+        assert!(valid_session_name("main"));
+        assert!(valid_session_name("agent-1"));
+    }
 
     struct UnreadableStream;
 

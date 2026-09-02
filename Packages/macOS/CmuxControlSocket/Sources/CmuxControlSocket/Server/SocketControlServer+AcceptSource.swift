@@ -17,6 +17,16 @@ extension SocketControlServer {
         source.setCancelHandler { @Sendable [weak self] in
             close(listenerSocket)
             guard let self else { return }
+            let snapshot = self.listenerStateSnapshot()
+            if snapshot.pendingRearmGeneration == generation {
+                self.events.breadcrumb(
+                    "socket.listener.rearm.socket_closed",
+                    self.socketListenerEventData(
+                        stage: "accept_rearm_socket_closed",
+                        extra: ["generation": generation]
+                    )
+                )
+            }
             Task { @MainActor in
                 self.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
             }
@@ -152,7 +162,13 @@ extension SocketControlServer {
     /// re-fire on a hot errno; those re-fires return here without counting
     /// or emitting, matching the legacy cadence where the source was already
     /// suspended by this point.
-    private nonisolated func handleAcceptFailure(
+    // SPI for the package's deterministic state-machine coverage. The test
+    // drives this same recovery decision after binding a real listener; it
+    // does not bypass path ownership or connection authentication. Keeping
+    // this out of the ordinary public API prevents production clients from
+    // manufacturing an accept failure transition.
+    @_spi(CmuxControlSocketTesting)
+    public nonisolated func handleAcceptFailure(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32
@@ -263,6 +279,20 @@ extension SocketControlServer {
             }
             cleanup.sourceToCancel?.cancel()
 
+            events.breadcrumb(
+                "socket.listener.rearm.started",
+                socketListenerEventData(
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures,
+                        "rearmDelayMs": delayMs,
+                        "rearmBounded": 1,
+                    ]
+                )
+            )
+
             events.rearmRequested(generation, errnoCode, consecutiveFailures, delayMs)
         }
     }
@@ -369,6 +399,18 @@ extension SocketControlServer {
             "socket.listener.rearm.requested",
             socketListenerEventData(
                 stage: "accept_rearm",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "rearmDelayMs": delayMs,
+                ]
+            )
+        )
+        events.breadcrumb(
+            "socket.listener.rearm.ready",
+            socketListenerEventData(
+                stage: "accept_rearm_ready",
                 errnoCode: errnoCode,
                 extra: [
                     "generation": generation,

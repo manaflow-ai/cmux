@@ -162,6 +162,17 @@ controller. Omitting `client` and `exclusive` releases any owner and freezes
 the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
 
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. When its local owner leaves, disconnects, or receives an
+unsuccessful report response, the wrapper closes that attachment and does not
+issue a replacement claim from another relay socket. The core server has no
+generation token for ordering such a cross-socket hand-off, so geometry stays
+frozen until a newly attached relay viewer makes an explicit report and
+`set-client-sizing` claim. This relay boundary preserves the core server rule;
+it does not elect a survivor implicitly.
+
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
@@ -1097,7 +1108,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. When there is nothing to inherit, the terminal starts in the directory the session daemon was launched from, and falls back to the user home directory only when that directory no longer exists. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1850,19 +1861,27 @@ CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; pla
 | status | implemented |
 | since | protocol 6 |
 
-Returns PTY child metadata for a surface.
+Returns PTY child metadata for a surface. `pid`, `command`, and `cwd` are
+recorded spawn and shell-reported metadata. `foreground_cwd` is read live at
+request time: it is the working directory of the process group leader that
+currently owns the PTY (the `tcgetpgrp` value of the child's controlling
+terminal), so it tracks a foreground subshell that changed directory. It is
+null whenever the lookup fails: no live child, the leader exited, the child
+detached from the terminal, the platform denied the read, or an unsupported
+platform. The field is additive within protocol 12; current daemons always
+emit it, and clients treat a missing field from an older daemon as null.
 
 Params: `object{surface:Id}`.
 
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null}
+object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd?:string|null}
 ```
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
 
-CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 

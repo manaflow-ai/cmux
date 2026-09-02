@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxTerminal
 import Foundation
 
 extension TerminalController {
@@ -19,9 +20,25 @@ extension TerminalController {
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
         anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) -> MobileTerminalRenderGridFrame? {
-        guard surfaceID == terminalPanel.id else { return nil }
+        mobileTerminalRenderGridFrame(
+            surface: terminalPanel.surface,
+            surfaceID: surfaceID,
+            seq: seq,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
+        )
+    }
+
+    private func mobileTerminalRenderGridFrame(
+        surface: TerminalSurface,
+        surfaceID: UUID,
+        seq: UInt64,
+        scrollbackLines: Int,
+        anchor: MobileTerminalRenderGridFrame.Anchor
+    ) -> MobileTerminalRenderGridFrame? {
+        guard surfaceID == surface.id else { return nil }
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
-        guard let frame = terminalPanel.surface.mobileRenderGridFrame(
+        guard let frame = surface.mobileRenderGridFrame(
             stateSeq: seq,
             renderEpoch: renderCapture.epoch,
             renderRevision: renderCapture.revision,
@@ -30,6 +47,23 @@ extension TerminalController {
         )?.frame else { return nil }
         MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
         return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
+    }
+
+    /// Captures a render grid from the canonical socket-bound runtime surface.
+    func mobileTerminalRenderGridFrame(
+        terminalTarget: ControlTerminalSocketTarget,
+        surfaceID: UUID,
+        seq: UInt64,
+        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
+    ) -> MobileTerminalRenderGridFrame? {
+        mobileTerminalRenderGridFrame(
+            surface: terminalTarget.surface,
+            surfaceID: surfaceID,
+            seq: seq,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
+        )
     }
 
     func mobileTerminalScrollResponsePayload(
@@ -53,6 +87,36 @@ extension TerminalController {
         ),
             renderGrid.activeScreen == .primary,
             let renderGridObject = try? renderGrid.jsonObject() else {
+            return payload
+        }
+        payload["columns"] = renderGrid.columns
+        payload["rows"] = renderGrid.rows
+        payload["render_grid"] = renderGridObject
+        payload["seq"] = renderGrid.stateSeq
+        return payload
+    }
+
+    /// Builds a scroll response from the canonical socket-bound runtime.
+    func mobileTerminalScrollResponsePayload(
+        workspaceID: UUID,
+        terminalTarget: ControlTerminalSocketTarget,
+        surfaceID: UUID,
+        params: [String: Any]
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "workspace_id": workspaceID.uuidString,
+            "surface_id": surfaceID.uuidString,
+        ]
+        let scrollbackRows = mobileScrollPrefetchRows(params: params)
+        guard scrollbackRows > 0 else { return payload }
+        let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
+        guard let renderGrid = mobileTerminalRenderGridFrame(
+            terminalTarget: terminalTarget,
+            surfaceID: surfaceID,
+            seq: stateSeq,
+            scrollbackLines: scrollbackRows
+        ), renderGrid.activeScreen == .primary,
+              let renderGridObject = try? renderGrid.jsonObject() else {
             return payload
         }
         payload["columns"] = renderGrid.columns

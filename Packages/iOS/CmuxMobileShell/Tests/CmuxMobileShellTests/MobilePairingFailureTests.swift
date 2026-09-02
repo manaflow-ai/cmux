@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -50,7 +51,10 @@ import Testing
         #expect(!category.isAuthorizationFailure)
         #expect(category.analyticsReason == "tailscale_unavailable")
         #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
-        #expect(category.guidance?.contains("Pair iPhone") == true)
+        // Stale-copy repair: the guidance now points at the Mac pairing QR /
+        // Tailscale IP setup path rather than the pre-0.64.18 "Pair iPhone"
+        // window name.
+        #expect(category.guidance?.contains("pairing QR") == true)
     }
 
     @Test func connectionRefusedMeansListenerNotRunning() throws {
@@ -352,5 +356,79 @@ import Testing
         #expect(!category.message.isEmpty)
         #expect(!category.message.contains("%@"))
         #expect(!category.message.contains("%d"))
+    }
+
+    // MARK: - Distribution-channel copy gating (App Review Guideline 2.2)
+    //
+    // The public App Store build must describe Mac compatibility in product
+    // terms only: App Review rejected the app for internal build-lane
+    // vocabulary (DEV, BETA, INTERNAL, tag grants) in production UI. Team
+    // channels keep the precise lane copy their users choose between.
+
+    @Test func officialBuildGetsNeutralBuildIncompatibleCopy() {
+        let category = MobilePairingFailureCategory.buildIncompatible
+        let message = category.message(buildType: .prod)
+        let guidance = category.guidance(buildType: .prod)
+
+        #expect(message.contains("incompatible version of cmux"))
+        #expect(guidance?.contains("Update cmux on your Mac") == true)
+        for text in [message, guidance ?? ""] {
+            #expect(!text.contains("DEV"))
+            #expect(!text.contains("BETA"))
+            #expect(!text.contains("INTERNAL"))
+            #expect(!text.localizedCaseInsensitiveContains("TestFlight"))
+            #expect(!text.localizedCaseInsensitiveContains("tag"))
+        }
+    }
+
+    @Test func teamBuildsKeepDetailedBuildIncompatibleCopy() {
+        let category = MobilePairingFailureCategory.buildIncompatible
+        #expect(category.message(buildType: .beta).contains("cannot connect"))
+        #expect(category.guidance(buildType: .dev)?.contains("any DEV Mac build") == true)
+        #expect(category.guidance(buildType: .beta)?.contains("BETA") == true)
+        #expect(category.guidance(buildType: .internal)?.contains("INTERNAL") == true)
+    }
+
+    @Test func officialBuildGetsNeutralAuthEnvironmentCopyInBothDirections() {
+        for macChannelIsRelease in [true, false] {
+            let category = MobilePairingFailureCategory.authEnvironmentMismatch(
+                macChannelIsRelease: macChannelIsRelease
+            )
+            let message = category.message(buildType: .prod)
+            let guidance = category.guidance(buildType: .prod)
+
+            #expect(message.contains("sign-in environment"))
+            #expect(message.contains("even with the same email"))
+            #expect(guidance?.contains("standard cmux app") == true)
+            for text in [message, guidance ?? ""] {
+                #expect(!text.localizedCaseInsensitiveContains("dev build"))
+                #expect(!text.localizedCaseInsensitiveContains("development"))
+                #expect(!text.contains("BETA"))
+                #expect(!text.contains("INTERNAL"))
+            }
+        }
+    }
+
+    @Test func teamBuildsKeepDirectionalAuthEnvironmentCopy() {
+        let devPhone = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
+        let devMac = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: false)
+        #expect(devPhone.message(buildType: .beta).contains("development auth environment"))
+        #expect(devPhone.guidance(buildType: .beta)?.contains("BETA") == true)
+        #expect(devMac.guidance(buildType: .internal)?.contains("release cmux app") == true)
+    }
+
+    @Test func officialUpdateGuidanceDropsTestFlight() {
+        let category = MobilePairingFailureCategory.unrecognizedVersion
+        #expect(category.guidance(buildType: .prod)?.contains("TestFlight") != true)
+        #expect(category.guidance(buildType: .prod)?.contains("App Store") == true)
+        #expect(category.guidance(buildType: .beta)?.contains("TestFlight") == true)
+    }
+
+    @Test func demoBuildsUseTheNeutralVocabularyToo() {
+        // Demo builds face external audiences, so they fail to the neutral
+        // copy alongside the App Store channel.
+        let guidance = MobilePairingFailureCategory.buildIncompatible.guidance(buildType: .demo)
+        #expect(guidance?.contains("BETA") != true)
+        #expect(guidance?.contains("Update cmux on your Mac") == true)
     }
 }

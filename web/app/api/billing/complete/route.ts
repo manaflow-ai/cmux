@@ -5,10 +5,13 @@ import {
   trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../../lib/native-callback";
+import { requestOrigin } from "../../../lib/request-origin";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
+  hasConflictingFounderMetadata,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
@@ -21,12 +24,14 @@ type BillingCompleteDependencies = {
   isConfigured: () => boolean;
   stripe: typeof stripe;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
+  recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
 };
 
 const defaultDependencies: BillingCompleteDependencies = {
   isConfigured: isStripeBillingConfigured,
   stripe,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
 };
 
 export const GET = makeBillingCompleteHandler();
@@ -41,12 +46,12 @@ export function makeBillingCompleteHandler(
     { "cmux.subsystem": "billing", "cmux.billing.operation": "stripe_complete" },
     async (span) => {
       if (!dependencies.isConfigured()) {
-        return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
+        return NextResponse.redirect(new URL("/pricing?billing=unavailable", requestOrigin(request)));
       }
 
       const sessionId = request.nextUrl.searchParams.get("session_id");
       if (!sessionId) {
-        return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+        return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
       }
 
       const requestedScheme = validatedNativeCallbackScheme(
@@ -57,8 +62,12 @@ export function makeBillingCompleteHandler(
         const session = await dependencies.stripe().checkout.sessions.retrieve(sessionId, {
           expand: ["subscription", "customer"],
         });
-        if (!isCmuxCheckoutSession(session)) {
-          return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+        const expandedSubscriptionValue = expandedSubscription(session);
+        if (hasConflictingFounderMetadata(session, expandedSubscriptionValue)) {
+          return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
+        }
+        if (!isCmuxCheckoutSession(session, expandedSubscriptionValue)) {
+          return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
         }
         const scheme =
           trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
@@ -67,32 +76,44 @@ export function makeBillingCompleteHandler(
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"
         ) {
-          const completion = await dependencies.recordCheckoutCompletion({
-            session,
-            subscription: expandedSubscription(session),
-            customer: expandedCustomer(session),
-          });
+          const isFounderCheckout =
+            session.metadata?.founders_edition === "true" ||
+            expandedSubscriptionValue?.metadata?.founders_edition === "true";
+          const completion = isFounderCheckout
+            ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
+                session,
+                subscription: expandedSubscriptionValue,
+                customer: expandedCustomer(session),
+              })
+            : await dependencies.recordCheckoutCompletion({
+                session,
+                subscription: expandedSubscriptionValue,
+                customer: expandedCustomer(session),
+              });
           if ("skipped" in completion) {
-            return NextResponse.redirect(new URL("/pricing?billing=account_deletion", request.url));
+            const reason = completion.skipped === "account_deletion_in_progress"
+              ? "account_deletion"
+              : "error";
+            return NextResponse.redirect(new URL(`/pricing?billing=${reason}`, requestOrigin(request)));
           }
           if (session.metadata?.plan === "team") {
             return NextResponse.redirect(
-              new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
+              new URL("/dashboard/billing?welcome=team", requestOrigin(request)),
             );
           }
-          const success = new URL("/billing/success", request.nextUrl.origin);
+          const success = new URL("/billing/success", requestOrigin(request));
           success.searchParams.set("session_id", session.id);
           success.searchParams.set("cmux_scheme", scheme);
           return NextResponse.redirect(success);
         }
-        return NextResponse.redirect(new URL("/pricing?welcome=pending", request.url));
+        return NextResponse.redirect(new URL("/pricing?welcome=pending", requestOrigin(request)));
       } catch (error) {
         recordSpanError(span, error);
         captureBillingError(error, {
           route: "/api/billing/complete",
           hasSessionId: Boolean(sessionId),
         });
-        return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+        return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
       }
     },
   );

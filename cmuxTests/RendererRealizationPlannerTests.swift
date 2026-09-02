@@ -443,6 +443,10 @@ private final class RendererRealizationTestSurface: RendererRealizationSurface {
     let id = UUID()
     var hasLiveSurface = true
     var isRendererPortalVisible = true
+    var isRendererWindowVisible = true
+    var isRendererEffectivelyVisible: Bool {
+        isRendererPortalVisible && isRendererWindowVisible
+    }
     var isRendererRealized = true
     var isRendererPresented = true
     var rendererLastVisibleAt: TimeInterval
@@ -464,7 +468,7 @@ private final class RendererRealizationTestSurface: RendererRealizationSurface {
     }
 
     func releaseRenderer() -> Bool {
-        guard hasLiveSurface, !isRendererPortalVisible, isRendererRealized else { return false }
+        guard hasLiveSurface, !isRendererEffectivelyVisible, isRendererRealized else { return false }
         isRendererRealized = false
         isRendererPresented = false
         releaseCount += 1

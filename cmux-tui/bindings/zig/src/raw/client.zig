@@ -121,15 +121,19 @@ pub const Client = struct {
             options.socket_path,
             options.session,
         );
-        errdefer allocator.free(path);
-        var connection = try transport.connectUnixWithTimeout(
-            allocator,
-            path,
-            options.timeout_ms,
-        );
+        defer allocator.free(path);
+        const resolved: transport.ResolvedConnection = if (options.socket_path == null and !(try transport.hasSocketOverride()))
+            try transport.connectResolvedWithLegacyFallback(allocator, path, options.session, options.timeout_ms)
+        else blk: {
+            var connection = try transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            errdefer connection.deinit();
+            break :blk .{ .connection = connection, .path = try allocator.dupe(u8, path) };
+        };
+        var connection = resolved.connection;
+        const effective_path = resolved.path;
         errdefer connection.deinit();
         var result = init(allocator, connection, options);
-        result.reconnect_socket_path = path;
+        result.reconnect_socket_path = effective_path;
         return result;
     }
 

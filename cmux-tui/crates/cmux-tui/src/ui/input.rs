@@ -76,16 +76,21 @@ impl TextInput {
                 InputEvent::None
             }
             KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                self.delete_word_left();
-                InputEvent::Changed
+                if self.delete_word_left() { InputEvent::Changed } else { InputEvent::None }
             }
             KeyCode::Backspace => {
-                self.delete_left();
-                InputEvent::Changed
+                if self.delete_left() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                }
             }
             KeyCode::Delete => {
-                self.delete_right();
-                InputEvent::Changed
+                if self.delete_right() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                }
             }
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.handle_control(c)
@@ -155,24 +160,23 @@ impl TextInput {
             'a' => self.move_start(),
             'e' => self.move_end(),
             'd' => {
-                self.delete_right();
-                return InputEvent::Changed;
+                return if self.delete_right() { InputEvent::Changed } else { InputEvent::None };
             }
             'w' => {
-                self.delete_word_left();
-                return InputEvent::Changed;
+                return if self.delete_word_left() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                };
             }
             'k' => {
-                self.kill_end();
-                return InputEvent::Changed;
+                return if self.kill_end() { InputEvent::Changed } else { InputEvent::None };
             }
             'u' => {
-                self.kill_start();
-                return InputEvent::Changed;
+                return if self.kill_start() { InputEvent::Changed } else { InputEvent::None };
             }
             'c' => {
-                self.clear();
-                return InputEvent::Changed;
+                return if self.clear() { InputEvent::Changed } else { InputEvent::None };
             }
             _ => {}
         }
@@ -184,8 +188,11 @@ impl TextInput {
             'b' => self.move_word_left(),
             'f' => self.move_word_right(),
             'd' => {
-                self.delete_word_right();
-                return InputEvent::Changed;
+                return if self.delete_word_right() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                };
             }
             _ => {}
         }
@@ -222,41 +229,42 @@ impl TextInput {
         self.cursor = self.word_right(self.cursor);
     }
 
-    fn delete_left(&mut self) {
+    fn delete_left(&mut self) -> bool {
         let start = self.prev_boundary(self.cursor);
-        self.delete_range(start, self.cursor);
+        self.delete_range(start, self.cursor)
     }
 
-    fn delete_right(&mut self) {
+    fn delete_right(&mut self) -> bool {
         let end = self.next_boundary(self.cursor);
-        self.delete_range(self.cursor, end);
+        self.delete_range(self.cursor, end)
     }
 
-    fn delete_word_left(&mut self) {
+    fn delete_word_left(&mut self) -> bool {
         let start = self.word_left(self.cursor);
-        self.delete_range(start, self.cursor);
+        self.delete_range(start, self.cursor)
     }
 
-    fn delete_word_right(&mut self) {
+    fn delete_word_right(&mut self) -> bool {
         let end = self.word_right(self.cursor);
-        self.delete_range(self.cursor, end);
+        self.delete_range(self.cursor, end)
     }
 
-    fn kill_end(&mut self) {
-        self.delete_range(self.cursor, self.buffer.len());
+    fn kill_end(&mut self) -> bool {
+        self.delete_range(self.cursor, self.buffer.len())
     }
 
-    fn kill_start(&mut self) {
-        self.delete_range(0, self.cursor);
+    fn kill_start(&mut self) -> bool {
+        self.delete_range(0, self.cursor)
     }
 
-    fn delete_range(&mut self, start: usize, end: usize) {
+    fn delete_range(&mut self, start: usize, end: usize) -> bool {
         if start >= end {
-            return;
+            return false;
         }
         self.buffer.replace_range(start..end, "");
         self.cursor = start;
         self.scroll = self.scroll.min(self.cursor);
+        true
     }
 
     fn word_left(&self, from: usize) -> usize {
@@ -436,6 +444,41 @@ mod tests {
         assert!(input.insert_str("x\n\r\ty\u{0007}"));
         assert_eq!(input.as_str(), "axyb");
         assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn deletion_reports_changed_only_when_text_was_removed() {
+        let no_op_keys = [
+            key(KeyCode::Backspace, KeyModifiers::NONE),
+            key(KeyCode::Delete, KeyModifiers::NONE),
+            key(KeyCode::Backspace, KeyModifiers::ALT),
+            key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('w'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('d'), KeyModifiers::ALT),
+            key(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ];
+        for key in no_op_keys {
+            let mut input = text_input("");
+            assert_eq!(input.handle_key(&key), InputEvent::None, "{key:?}");
+        }
+
+        let mut input = text_input("x");
+        input.cursor = 1;
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Backspace, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
+
+        let mut input = text_input("x");
+        input.cursor = 0;
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Delete, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
     }
 
     #[test]

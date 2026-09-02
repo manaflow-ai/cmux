@@ -12,12 +12,46 @@ export class VmProviderOperationError extends Data.TaggedError("VmProviderOperat
   readonly cause: unknown;
 }> {}
 
+/**
+ * The provider deliberately does not implement this operation. Drivers throw
+ * this structured error so HTTP retry decisions never depend on provider text.
+ */
+export class VmOperationUnsupportedError extends Data.TaggedError("VmOperationUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly operation: string;
+}> {}
+
 export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+/**
+ * A private-network or tunnel operation on a deployment that does not serve
+ * one — the provider has no `privateNetworking`, or
+ * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ *
+ * Distinct from {@link VmOperationUnsupportedError} because the caller's next
+ * move is different: this is a deployment that will not give *any* caller a
+ * tunnel, so a client should stop offering to set one up rather than retry.
+ */
+export class VmPrivateNetworkUnavailableError extends Data.TaggedError("VmPrivateNetworkUnavailableError")<{
+  readonly provider: ProviderId;
+  readonly reason: string;
+}> {}
+
+/** The caller asked about a tunnel this account has never enrolled, or revoked. */
+export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundError")<{
+  readonly deviceFingerprint: string;
+}> {}
+
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
   readonly snapshotId: string;
+}> {}
+
+/** A free-plan machine whose access window has lapsed; upgrading unlocks it. */
+export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpiredError")<{
+  readonly vmId: string;
+  readonly windowDays: number;
 }> {}
 
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
@@ -40,10 +74,22 @@ export class VmAccountDeletionInProgressError extends Data.TaggedError("VmAccoun
   readonly phase?: "create";
 }> {}
 
+/**
+ * Where the image that failed to resolve came from: the client body, an env
+ * selector, or the server's default selection (manifest defaults). The value
+ * is returned to clients, so it deliberately avoids implementation wording.
+ */
+export type VmImageSource = "request" | "env" | "default";
+
 export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly provider: ProviderId;
   readonly image?: string;
   readonly envVar?: string;
+  /** Requested machine kind when the caller asked by kind; kept as a string so bad input is reported verbatim. */
+  readonly kind?: string;
+  readonly source: VmImageSource;
+  /** Manifest image ids for the provider, so the error names what would have worked. */
+  readonly allowedImages: readonly string[];
   readonly reason: string;
 }> {}
 
@@ -64,6 +110,18 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The caller asked for a session transport the machine's provider does not serve
+ * (e.g. the legacy websocket/SSH attach on a machine that only runs the cmux-tui
+ * remote daemon). Not retryable: the client must switch transports.
+ */
+export class VmAttachTransportUnsupportedError extends Data.TaggedError("VmAttachTransportUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly vmId: string;
+  readonly requested: string;
+  readonly supported: readonly string[];
+}> {}
+
 export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   "VmAccountDeletionIdentityRevocationError",
 )<{
@@ -73,8 +131,10 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
+  | VmOperationUnsupportedError
   | VmNotFoundError
   | VmSnapshotNotFoundError
+  | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
   | VmCreateDisabledError
@@ -83,7 +143,20 @@ export type VmWorkflowError =
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
+  | VmAttachTransportUnsupportedError
+  | VmPrivateNetworkUnavailableError
+  | VmTunnelNotFoundError
   | VmAccountDeletionIdentityRevocationError;
+
+export function isVmPrivateNetworkUnavailableError(
+  err: unknown,
+): err is VmPrivateNetworkUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmPrivateNetworkUnavailableError";
+}
+
+export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
+}
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -91,6 +164,10 @@ export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmSnapshotNotFoundError";
+}
+
+export function isVmFreeAccessExpiredError(err: unknown): err is VmFreeAccessExpiredError {
+  return (err as { _tag?: string } | null)?._tag === "VmFreeAccessExpiredError";
 }
 
 export function isVmCreateInProgressError(err: unknown): err is VmCreateInProgressError {
@@ -127,6 +204,10 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmAttachTransportUnsupportedError(err: unknown): err is VmAttachTransportUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAttachTransportUnsupportedError";
+}
+
 export function isVmAccountDeletionIdentityRevocationError(
   err: unknown,
 ): err is VmAccountDeletionIdentityRevocationError {
@@ -141,20 +222,37 @@ export function isVmProviderOperationError(err: unknown): err is VmProviderOpera
   return (err as { _tag?: string } | null)?._tag === "VmProviderOperationError";
 }
 
-const vmWorkflowErrorTags = new Set([
-  "VmDatabaseError",
-  "VmProviderOperationError",
-  "VmNotFoundError",
-  "VmCreateInProgressError",
-  "VmCreateFailedError",
-  "VmCreateDisabledError",
-  "VmAccountDeletionInProgressError",
-  "VmImageConfigError",
-  "VmLimitExceededError",
-  "VmCreateCreditsInsufficientError",
-  "VmBillingError",
-  "VmAccountDeletionIdentityRevocationError",
-]);
+export function isVmOperationUnsupportedError(err: unknown): err is VmOperationUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmOperationUnsupportedError";
+}
+
+// Derived from the union so the two can never drift again: `satisfies
+// Record<VmWorkflowError["_tag"], true>` makes a missing tag a compile error
+// (VmSnapshotNotFoundError was once omitted here, turning restore-of-unknown-
+// snapshot into a generic 500 instead of 404), and the `const` object rejects
+// tags that are not in the union.
+const vmWorkflowErrorTagRecord = {
+  VmDatabaseError: true,
+  VmProviderOperationError: true,
+  VmOperationUnsupportedError: true,
+  VmNotFoundError: true,
+  VmSnapshotNotFoundError: true,
+  VmFreeAccessExpiredError: true,
+  VmCreateInProgressError: true,
+  VmCreateFailedError: true,
+  VmCreateDisabledError: true,
+  VmAccountDeletionInProgressError: true,
+  VmImageConfigError: true,
+  VmLimitExceededError: true,
+  VmCreateCreditsInsufficientError: true,
+  VmBillingError: true,
+  VmAttachTransportUnsupportedError: true,
+  VmPrivateNetworkUnavailableError: true,
+  VmTunnelNotFoundError: true,
+  VmAccountDeletionIdentityRevocationError: true,
+} as const satisfies Record<VmWorkflowError["_tag"], true>;
+
+const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));
 
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {
   if (!err || typeof err !== "object") return null;

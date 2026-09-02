@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -29,6 +30,10 @@ import {
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
 
+// Account authorization and the hosted account list must stay fresh for each
+// request. Keep the current tab visible while this page resolves instead of
+// caching mutable per-user data just to satisfy instant-navigation validation.
+export const instant = false;
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -70,6 +75,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function CoderouterOverviewPage({ params, searchParams }: PageProps) {
+  // Everything below depends on the live session. With cacheComponents, Next
+  // also runs this page during a prerender and a runtime prefetch, where
+  // headers() resolves but the Stack SDK's sync UUID generation aborts the
+  // render with blocking-prerender-crypto. Leave both before any of that work.
+  await connection();
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 

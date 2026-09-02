@@ -97,6 +97,9 @@ final class TerminalPanel: Panel, ObservableObject {
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
     var onRequestAgentHibernationTerminationRetry: (() -> Void)?
+    /// Optional owner hook for a manual mirror that becomes the active pane.
+    /// Ordinary terminals leave this unset.
+    var onTerminalFocus: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
@@ -333,6 +336,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func terminalDidBecomeFocused() {
+        onTerminalFocus?()
         guard isTextBoxActive else { return }
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -340,12 +344,23 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func handleTextBoxEscape() {
+        if containerAgentLifecycleStateForTextBoxEscape == .running {
+            _ = sendNamedKeyResult(TextBoxTerminalKey.escape.rawValue)
+        }
         let hadTextBoxView = textBoxInputView != nil
         let didFocusTerminal = focusTerminalSurface(
             respectForeignFirstResponder: false,
             clearTextBoxHideArm: false
         )
         shouldHideTextBoxOnNextEscape = isTextBoxActive && (hadTextBoxView || didFocusTerminal)
+    }
+
+    private var containerAgentLifecycleStateForTextBoxEscape: AgentHibernationLifecycleState {
+        if let dock = DockSplitStore.liveStore(containingPanel: id) {
+            return dock.agentLifecycleStateForTextBoxEscape(panelId: id)
+        }
+        return surface.owningWorkspace()?
+            .agentLifecycleStateForTextBoxEscape(panelId: id) ?? .unknown
     }
 
     @discardableResult

@@ -16,6 +16,15 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    /// A registry snapshot used to populate the per-agent notification sound
+    /// matrix. The host owns discovery so newly registered agents appear
+    /// without a second list in the settings package.
+    func notificationSoundAgentOptions() async -> [NotificationSoundAgentOption]
+
+    /// Validates and prepares a custom notification sound before a matrix cell
+    /// is persisted. Returning `false` keeps the previous cell untouched.
+    func validateNotificationSoundFile(path: String) async -> Bool
+
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
@@ -216,11 +225,84 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Gives the host a chance to refresh computer-use permission state.
+    func refreshComputerUsePermissions() async
+
+    /// Whether the Computer Use helper currently has Accessibility permission.
+    func computerUseAccessibilityGranted() -> Bool
+
+    /// Whether the Computer Use helper currently has Screen Recording permission.
+    func computerUseScreenRecordingGranted() -> Bool
+
+    /// Whether the displayed Computer Use permission values are authoritative.
+    func computerUsePermissionStatusIsKnown() -> Bool
+
+    /// Starts the helper-owned Accessibility permission flow.
+    func requestComputerUseAccessibility()
+
+    /// Starts the helper-owned Screen Recording permission flow.
+    func requestComputerUseScreenRecording()
+
+    /// Opens the Accessibility pane in System Settings.
+    func openComputerUseAccessibilitySettings()
+
+    /// Opens the Screen Recording pane in System Settings.
+    func openComputerUseScreenRecordingSettings()
+
+    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
+    /// false the Cloud Machines settings section renders nothing.
+    var isCloudMachinesAvailable: Bool { get }
+
+    /// The caller's machine plan: plan name, machines in use, and the plan's
+    /// machine ceiling. `nil` when signed out or the backend is unreachable.
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
+
+    /// Reveals the right-sidebar Machines panel in the active main window.
+    func openCloudMachinesPanel()
+
+    /// Opens the host's plan management / upgrade flow.
+    func openCloudMachinesBilling()
+}
+
+/// Snapshot of the caller's Cloud Machines plan for the settings section.
+public struct CloudMachinesPlanSummary: Equatable, Sendable {
+    public let planLabel: String
+    public let activeMachines: Int
+    /// Active-machine ceiling; nil when the plan has no cap.
+    public let maxMachines: Int?
+    public let isPaidPlan: Bool
+
+    /// Creates a plan summary.
+    /// - Parameters:
+    ///   - planLabel: Display name of the plan, already localized.
+    ///   - activeMachines: Machines currently counted against the plan.
+    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
+    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
+    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
+        self.planLabel = planLabel
+        self.activeMachines = activeMachines
+        self.maxMachines = maxMachines
+        self.isPaidPlan = isPaidPlan
+    }
 }
 
 public extension SettingsHostActions {
+    /// Returns the registry-backed agent choices shown by notification sound settings.
+    func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
+
+    /// Validates a candidate custom notification sound path on the host.
+    func validateNotificationSoundFile(path: String) async -> Bool { false }
+
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Cloud Machines defaults for previews, tests, and package-only hosts:
+    /// unavailable, no plan, no-op actions.
+    var isCloudMachinesAvailable: Bool { false }
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
+    func openCloudMachinesPanel() {}
+    func openCloudMachinesBilling() {}
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
@@ -244,6 +326,22 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
+    /// Default no-op for hosts without Computer Use permission reporting.
+    func refreshComputerUsePermissions() async {}
+    /// Default denied Accessibility status for hosts without Computer Use.
+    func computerUseAccessibilityGranted() -> Bool { false }
+    /// Default denied Screen Recording status for hosts without Computer Use.
+    func computerUseScreenRecordingGranted() -> Bool { false }
+    /// Default unknown status for hosts without Computer Use permission reporting.
+    func computerUsePermissionStatusIsKnown() -> Bool { false }
+    /// Default no-op for hosts that cannot request Computer Use Accessibility.
+    func requestComputerUseAccessibility() {}
+    /// Default no-op for hosts that cannot request Computer Use Screen Recording.
+    func requestComputerUseScreenRecording() {}
+    /// Default no-op for hosts without a Computer Use Accessibility settings route.
+    func openComputerUseAccessibilitySettings() {}
+    /// Default no-op for hosts without a Computer Use Screen Recording settings route.
+    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

@@ -33,11 +33,16 @@ struct TodoSurfaceView: View {
     var body: some View {
         let snapshot = model.snapshot
         VStack(spacing: 0) {
-            MacSurfaceHeader(
-                kind: .todo,
-                title: surface.title,
-                subtitle: progressSubtitle(snapshot)
-            ) {
+            // The navigation bar already names the surface; the pane keeps
+            // only the functional chrome (status control + progress).
+            HStack(spacing: 12) {
+                if let subtitle = progressSubtitle(snapshot) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
                 TodoStatusMenu(
                     status: snapshot.status,
                     statusHidden: snapshot.statusHidden,
@@ -45,6 +50,8 @@ struct TodoSurfaceView: View {
                     setStatus: { run(.setStatus($0)) }
                 )
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             if let progress = completionProgress(snapshot) {
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)

@@ -13,18 +13,29 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const useVercelCurl = rest.includes("--vercel-curl");
 const skipAttach = rest.includes("--skip-attach");
-const provider = optionValue(rest, "--provider") ?? "e2b";
+// --paid marks the throwaway smoke user as a paid plan via the billing
+// metadata key the entitlements layer reads (cmuxVmPlan). Required to
+// exercise provisioning now that free plans are gated (vm_requires_pro).
+const paid = rest.includes("--paid");
+const provider = optionValue(rest, "--provider") ?? "freestyle";
+const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
 
-if (shouldCreate && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
-  console.error("--provider must be e2b, freestyle, or daytona");
+// "default" omits the provider from the create body, exercising the same
+// server-side default-provider path real clients (CLI, Mac app) use.
+if (
+  shouldCreate &&
+  provider !== "freestyle" &&
+  provider !== "default"
+) {
+  console.error("--provider must be freestyle or default");
   process.exit(2);
 }
 
@@ -122,6 +133,9 @@ try {
     displayName: `cmux ${project.stackLabel} smoke`,
   });
 
+  if (paid) {
+    await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
+  }
   const session = await user.createSession({ expiresInMillis: 20 * 60 * 1000, isImpersonation: true });
   const tokens = await session.getTokens();
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return smoke session tokens");
@@ -153,14 +167,17 @@ try {
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify({
+        ...(provider === "default" ? {} : { provider }),
+        ...(image ? { image } : {}),
+      }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
     if (!created.id) throw new Error("create response missing id");
-    if (created.provider !== provider) {
+    if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
     vmId = created.id;
@@ -168,17 +185,47 @@ try {
     let attachTransport;
     let attachDurationMs;
     if (!skipAttach) {
+      // Every cmux Cloud machine runs only the cmux-tui remote daemon.
+      const expectedTransport = "cmux-remote";
+      const attachBody = { transport: "cmux-remote" };
+      // First attach after create races the in-VM daemon boot; the API says
+      // retryable with retryAfterSeconds and real clients loop. Retry 502s
+      // within a bounded budget so the smoke measures the client contract,
+      // not the race.
       const attachStartedAt = performance.now();
-      const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
-        method: "POST",
-        headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ requireDaemon: true }),
-      });
+      const attachBudgetMs = 120_000;
+      let attach;
+      let attachText;
+      for (;;) {
+        attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json" },
+          body: JSON.stringify(attachBody),
+        });
+        attachText = await attach.text();
+        if (attach.status !== 502) break;
+        const elapsed = performance.now() - attachStartedAt;
+        if (elapsed >= attachBudgetMs) break;
+        let retryAfterSeconds = 2;
+        try {
+          const parsed = JSON.parse(attachText);
+          if (typeof parsed.retryAfterSeconds === "number") retryAfterSeconds = parsed.retryAfterSeconds;
+          if (parsed.retryable !== true) break;
+        } catch {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
+      }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
-      const attachText = await attach.text();
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
-      if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
+      if (attached.transport !== expectedTransport) {
+        throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
+      }
+      // Freestyle reaches the daemon straight at the VM's public IPv6 over ws.
+      if (!/^wss?:\/\/.+\/v1\/link(\?|$)/.test(attached.route ?? "")) {
+        throw new Error("cmux-remote attach response missing the daemon route");
+      }
       attachTransport = attached.transport;
     }
 

@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; older Freestyle VMs can fall back to its SSH gateway.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
 
 ## Layout
 
@@ -9,7 +9,8 @@ services/vms/
   auth.ts             Stack Auth request verification helpers
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
-  drivers/            Provider SDK adapters for E2B, Freestyle, and Daytona
+  drivers/            Provider SDK adapter for Freestyle
+  privateNetwork.ts   Per-user private networks and WireGuard tunnel enrollment
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -28,7 +29,9 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
-- `/api/vm/:id/ssh-endpoint`, authenticated `POST` legacy Freestyle SSH attach.
+- `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
+  computer, `GET` tunnel/list state, `DELETE` unenrollment. Not Pro-gated: a lapsed
+  subscription must still be able to reach machines it already owns.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
 
@@ -56,6 +59,10 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
+- `cloud_vm_networks` records the one provider private network per (user, provider).
+- `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
+  fingerprint, the client's **public** key, and its address inside the network. No private
+  key is ever sent to or stored by the backend.
 
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 
@@ -63,65 +70,70 @@ Active VM limits are enforced inside the same Postgres transaction that inserts 
 
 ## Image manifest and rollback
 
-Known-good provider images are recorded in `services/vms/images/manifest.json`. Each entry records
-the provider, provider image id, cmux image version, build metadata, and validation status.
+Known-good images are recorded in `services/vms/images/manifest.json`. Each entry records the
+provider, image id, cmux image version, build metadata (`repoCommit`, agent pins), and
+validation status. **The manifest is the only source of truth for the image users get; no env
+var selects or overrides it.**
 
-Default image policy:
+Image policy:
 
-- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE` and
-  `FREESTYLE_SANDBOX_SNAPSHOT`.
-- Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
-  is unset.
-- The current intended default provider is Freestyle when `CMUX_VM_DEFAULT_PROVIDER=freestyle`; keep
-  E2B enabled as rollback.
+- Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
+  `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
+  no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` (a body with
+  neither `image` nor `kind` gets the `base` default) and otherwise fails closed with
+  `vm_image_config_error`. `image` still wins when present, but a client-requested `image` must be
+  in the manifest (or `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1`, which local dev implies). Responses
+  and `GET /api/vm` entries echo `kind`; `GET /api/vm` `limits.imageKinds` lists the kinds the
+  default provider can serve and the image each resolves to.
+- `vm_image_config_error` responses carry client-safe `details.imageRequested`, `details.kind`,
+  `details.source` (`request` | `default`), and `details.allowedKinds`; the provider, manifest
+  image ids, and reason go to the server log (`[vm-image-config-error]`) because API error
+  payloads must not leak provider implementation details (see
+  `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
+- Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
+  separate local default and nothing to copy into `.env`.
+- Today's base default is `freestyle-cmux-devbox-20260902c`, image
+  `sh-940ec3bc46224c019e5e8d9a97053293`, baked and verified on cmux's Freestyle account from main
+  `2526fbf0f2`. The retired beta entry stays listed for the record and is never a default; earlier
+  public entries stay for rollback.
+- Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
+  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
+  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
+  for that reason; re-promote it under cmux's key to make it the default.
+- Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
+  with the manifest diff; merging promotes. See
+  `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
+  one `defaultForKind` per provider and kind, unique versions, every default
+  `validationStatus: "passed"`.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
-  startup latency stays bounded and the active image manifest remains the source of truth.
-- To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
-  the manifest. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version
-  pins, for example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder
-  rejects ranges and tags such as `latest`.
+  startup latency stays bounded and the manifest remains the source of truth.
+- To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
+  image. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version pins, for
+  example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder rejects ranges
+  and tags such as `latest`.
 
-Vercel production, staging, and preview deployments fail closed for VM create if the selected image
-env var is missing or is not listed in the manifest. Local development can use the manifest default
-without setting provider image env vars. Set `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1` only for local
-image experiments.
+A leftover `FREESTYLE_SANDBOX_SNAPSHOT` in a deployment is ignored; the env audit reports it as
+stale configuration to remove.
 
-Rollback is an env-only operation:
+Rollback is a manifest change:
 
-1. Choose a previous manifest entry with `validationStatus: "passed"`.
-2. Set `E2B_CMUXD_WS_TEMPLATE` or `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
-3. Redeploy staging, smoke test, then repeat for production.
-4. Keep old provider templates/snapshots until all VMs using them are gone.
+1. Revert the promotion PR (or flip `defaultForKind` back to a previous entry with
+   `validationStatus: "passed"`; entries are never removed).
+2. Deploy staging, smoke test, then production.
+3. Keep old snapshots until all VMs using them are gone.
 
 ## Baked tools and VM-local cmux CLI
 
-`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for both E2B and
-Freestyle:
-
-- Node.js from the configured major line, default `22`.
-- Bun.
-- Claude Code from `@anthropic-ai/claude-code@2.1.137`.
-- OpenCode from `opencode-ai@1.14.41`.
-- Codex CLI from `@openai/codex@0.130.0`.
-- Pi from `@earendil-works/pi-coding-agent@0.74.0`.
-- zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
-- `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
-- `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
-
-The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
-`opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
-`btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
-also keep the existing Python/OpenSSL checks for provider browser proxy support.
-
-Agent package override env vars:
-
-- `CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_PI_NPM_SPEC`
-
-Set an override to a package spec such as `@openai/codex@0.130.0`. Set it to `none` only for local
-image experiments that intentionally skip a tool.
+The Freestyle devbox image is defined in
+`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-freestyle.ts`
+(chatmux devbox
+parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
+agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
+installed at create time from the pinned files.cmux.com artifacts manifest by
+`services/vms/drivers/cmuxTuiDaemon.ts`; no daemon binary is baked. See the devbox
+README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
+(`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
+manifest for reference but cannot serve the cmux-remote transport.
 
 ## Browser automation from Cloud VM SSH
 
@@ -188,27 +200,35 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, optional. Leave unset for the current Vercel Marketplace Aurora databases so Node uses its default trust store.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
-- `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
+- `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
+  (or set to `0`) in every shared environment; set to `1` only for a deliberate demo/rollback. When
+  enabled, `CMUX_VM_FREE_MAX_ACTIVE_VMS` and the plan-specific free limit are honored again.
+- `CMUX_VM_REQUIRE_PRO`, legacy compatibility spelling for the paid-plan gate. Unset now means the
+  gate is **on**. `0`/`false`/`off` is treated as the old permissive escape hatch only when
+  `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
+  deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
-- `CMUX_VM_DAYTONA_ENABLED`, per-provider Daytona create kill switch.
+- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
+  Freestyle machines join their owner's VPC, open no public inbound port, and are
+  attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
+  creates revert to the public-IPv6 posture (inbound 1337 open). Machines keep working
+  across a flip either way, because reachability is resolved from the addresses each
+  machine actually holds.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
-- `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
-- `DAYTONA_API_KEY`, Daytona provider key.
-- `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
-- `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
-- `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona`.
+- `CMUX_VM_DEFAULT_PROVIDER`, only `freestyle` (and its default).
+- `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
+  paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
+  cannot silently grant every unclassified account a paid entitlement.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
 - `CMUX_VM_CREATE_CREDIT_ITEM_ID`, optional global Stack Auth item used as a prepaid create-credit bucket for every plan without a plan-specific item. Set to `none`, `disabled`, `off`, or `false` to opt out of create credits for plans without a plan-specific value.
 - `CMUX_VM_CREATE_CREDIT_COST`, default `1`.
-- `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
-- `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
-- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `5`.
-- `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
+- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0` and ignored while the paid-plan gate is enforced.
+- `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, optional incident-only cap for one paid plan. Unset means
+  paid plans have no active-machine limit.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
 
@@ -253,7 +273,7 @@ bun run cloud-vm:smoke -- production
 Staging may run a real create/destroy smoke with tiny quotas:
 
 ```bash
-bun run cloud-vm:smoke -- staging --create --provider e2b
+bun run cloud-vm:smoke -- staging --create --provider freestyle
 ```
 
 Run default-provider stress before changing provider defaults or after provider incidents:
@@ -300,26 +320,97 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona |
-|-----------------------------|-----------|-----|---------|
-| `cmux vm new`               | yes       | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes |
+| Verb | Freestyle |
+| --- | --- |
+| `cmux vm new` | yes |
+| `cmux vm new --workspace` | yes |
+| `cmux vm new --detach` | yes |
+| `cmux vm attach <id>` | yes |
+| `cmux vm ssh <id>` | yes |
+| `cmux vm ssh-info <id>` | no (cmux-remote only) |
+| `cmux vm exec <id> -- ...` | yes |
+| `cmux vm ls / rm` | yes |
+| snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
-as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
+as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
+has nothing to print and `POST /api/vm/:id/ssh-endpoint` is gone.
 
-E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
+Freestyle machines boot the shared devbox snapshot (definition in
+`services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
+the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
+uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
+run no cmuxd-remote: the driver bootstraps the image at create time with the **cmux-tui
+remote daemon as the machine's only session daemon**, downloading the pinned static-musl
+`cmux-tui` build to `/root/.cmux/bin/cmux-tui` with `sha256sum -c` verification inside the
+VM. The daemon runs as root with `HOME=/root`; the build and its digest come from the
+artifacts manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is
+pinned by hand. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
+`FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
+at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
+commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
+`latest`.
 
-Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
+There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
+needs a customer-verified domain), so the daemon is reached directly at a VM address.
+
+**Private networking is the default.** Every Freestyle machine joins the one VPC that
+belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
+route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
+state outbound-only firewall rules: no public inbound port at all. The VPC's single
+members-reach-each-other rule is what admits the owner's other machines and tunnels to the
+daemon port. Machines created before private networking (or while
+`CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture: inbound 1337 open and the
+route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-asserted on
+every attach-time heal, which is also what makes the VPC address reachable.
+The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
+required; the route token exists only for the lease ledger. Creates take no ports field and
+no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
+`/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
+
+Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
+"the account holding uid 1000, or root in an image with no such account", and the devbox image
+ships a uid-1000 user — leaving it unset would silently move the daemon, its install, and the
+model-plane write off the root layout they are baked around.
+
+`POST /api/vm/[id]/attach-endpoint` with
+`{"transport":"cmux-remote","clientCapabilities":[...]}` returns
+`{route, token, session, daemonBuild?, invitation?}` where `invitation` is a single-use
+`cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
+connects with `cmux-tui remote connect <route> --invite-file …`, then
+`POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
+until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
+transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` with
+`details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`, `cmux vm new`,
+`cmux vm base open` and the Machines panel all drive this from the Mac.
+See docs/cloud-cmux-tui-daemon.md for the design.
+
+Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
+transport. The route is the VM's stable public IPv6 straight to the daemon
+(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
+arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
+enrollment is what gates sessions. The backend writes only a hash of attach
+tokens to Postgres; raw tokens are returned once to the Mac client. Machines
+created by the old cmuxd-remote drivers cannot serve this transport and need
+recreation.
+
+Operational note: before rollout, verify the deployed
+`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,
+env values with
+`bun run cloud-vm:env:audit -- <target> --strict`, then confirm attach and
+daemon health with `bun run cloud-vm:stress -- <target> --provider default`.
 
 ## Usage, limits, and pricing
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows five active VMs at a time by default. Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans get the allowance sold on /pricing, 50 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "50 per user" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). Every machine is the plan machine: 20 GB memory, 5 vCPU (one per 4 GB), and a 200 GB disk, which the Freestyle driver grows the VM to at create (`CMUX_VM_DISK_MB` overrides the disk). Destroyed VMs do not count against a limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` and `CMUX_VM_PAID_MAX_ACTIVE_VMS` exist only as incident brakes; the product number lives in code. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+
+### The free limit is the paywall moment
+
+`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans see it at the plan allowance (50 active machines, times paid seats on Team) or at an operator incident brake; then the message is operational "delete one" guidance, not a paywall.
+
+### Pricing is flat
+
+Paid plans include up to 50 active VMs (per paid seat on Team) for a flat subscription price, every one the plan machine. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple.

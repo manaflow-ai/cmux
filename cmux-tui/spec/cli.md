@@ -25,6 +25,34 @@ from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
 runtime identifiers, abbreviated identifiers, names, or `current`.
 
+Interactive and headless ownership are intentionally separate:
+
+| Form | Contract |
+| --- | --- |
+| `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
+| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
+
+The explicit split prevents two clients from silently creating competing
+owners. A future attach-or-create shortcut needs a readiness and concurrency
+contract before it can be added safely.
+
+Migration from tmux or Zellij keeps the owner and client steps visible. Run the
+owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+Callers supervise the owner. A blind attach retry cannot distinguish a missing
+owner from an owner still starting.
+
 `server` is the local durable mux owner for exactly one named session:
 
 ```text
@@ -183,6 +211,12 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+detaches every view when the process exits and leaves only the durable exit
+receipt. `keep` retains the tab and the final screen next to that receipt
+until the terminal is closed; after a daemon restart a kept-exited terminal
+degrades to the normal detach.
+
 ## Resource paths
 
 ```text
@@ -256,6 +290,7 @@ terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
 terminal <selector> history read|clear
+terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
@@ -276,6 +311,18 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+`terminal <selector> output read` returns a bounded plain-text window of the
+terminal's journaled output stream: `{text, start_offset, next_offset,
+complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
+`next_offset` as `--after` to resume exactly, and omit it to read from the
+earliest still-retained byte. `complete` is false when `--max-bytes` (default
+262144, maximum 4194304) truncated the window. The command works on live
+terminals and on exited ones under both exit policies; after exit, reads
+before the durable exit snapshot's coverage answer with the snapshot's screen
+projection (`start_offset` 0), so the read never needs unbounded record
+retention. Escape sequences never appear in `text`, though a window that
+starts mid-stream may carry escape-state artifacts at its leading edge.
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,

@@ -11,6 +11,10 @@ pub enum RelayError {
     PairingExpired { message: String },
     /// Socket loss, network failure: print and reconnect with backoff.
     Transient { message: String },
+    /// The host slept, or the socket went silent past its read deadline. The
+    /// TCP connection is presumed dead even when the OS still reports it
+    /// established; redial immediately with no backoff delay.
+    WakeRedial { message: String },
 }
 
 impl RelayError {
@@ -22,11 +26,16 @@ impl RelayError {
         RelayError::Transient { message: message.into() }
     }
 
+    pub fn wake_redial(message: impl Into<String>) -> RelayError {
+        RelayError::WakeRedial { message: message.into() }
+    }
+
     pub fn message(&self) -> &str {
         match self {
             RelayError::Fatal { message, .. }
             | RelayError::PairingExpired { message }
-            | RelayError::Transient { message } => message,
+            | RelayError::Transient { message }
+            | RelayError::WakeRedial { message } => message,
         }
     }
 }

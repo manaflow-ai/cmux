@@ -1,18 +1,21 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import {
   listVmSessions,
   openVmSession,
   runVmWorkflow,
 } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
-
+import {
+  optionalClientIdentifier,
+  optionalString,
+  parseLenientObjectBody,
+} from "../../../../../services/vms/routeInput";
 
 export async function GET(
   request: Request,
@@ -32,12 +35,14 @@ export async function GET(
         const sessions = await runVmWorkflow(listVmSessions({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
         }));
         return jsonResponse({ sessions: sessions.map(sessionPayload) });
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },
@@ -55,7 +60,7 @@ export async function POST(
     "/api/vm/[id]/sessions failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseSessionBody(request);
+      const body = await parseLenientObjectBody(request);
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
       try {
@@ -76,6 +81,7 @@ export async function POST(
         const result = await runVmWorkflow(openVmSession({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           sessionId,
@@ -87,37 +93,12 @@ export async function POST(
           session: result.session ? sessionPayload(result.session) : null,
         });
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },
   );
-}
-
-async function parseSessionBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function optionalClientIdentifier(value: unknown, fieldName: string): string | undefined {
-  const trimmed = optionalString(value);
-  if (!trimmed) return undefined;
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
-    throw new Error(`${fieldName} must be 1-128 characters of letters, numbers, dot, underscore, colon, or dash`);
-  }
-  return trimmed;
 }
 
 function sessionPayload(session: CloudVmSessionRow) {

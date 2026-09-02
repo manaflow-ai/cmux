@@ -3720,31 +3720,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let retryLoop = script.range(of: "while :; do"),
-              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
-              let initialAuth = script.range(
-                of: "cmux_ssh_reauth_required=1",
-                range: script.startIndex..<retryLoop.lowerBound
-              ) else {
-            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
-            return
-        }
-        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
-        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
-        XCTAssertEqual(
-            script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1,
-            1,
-            script,
+        XCTAssertTrue(
+            script.contains("cmux_ssh_attach_foreground_auth"),
+            "missing cmux_ssh_attach_foreground_auth: \(script)",
             file: file,
             line: line
         )
         XCTAssertTrue(
-            script.contains("case \"$cmux_ssh_status\" in 254)")
-                && script.contains(
-                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
-                )
-                && script.contains("*) break ;; esac; fi"),
-            script,
+            script.contains("CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1"),
+            "missing CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1: \(script)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            script.contains("CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"),
+            "missing CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY: \(script)",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            script.contains("[cmux] ssh exited with status"),
+            "legacy exit-status message still present: \(script)",
             file: file,
             line: line
         )
@@ -3775,25 +3771,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(
-            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && initialScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
+            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\""),
             initialScript
         )
-        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialScript)
-        XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
-        XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_attach_session_id=\"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--session-id \"$cmux_ssh_attach_session_id\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), initialScript)
         assertSSHPTYAttachAuthUsesRetryLoop(initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
-            initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            initialScript.contains("--workspace \"$CMUX_WORKSPACE_ID\""),
             initialScript
         )
-        XCTAssertTrue(
-            initialScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
-            ),
-            initialScript
-        )
-        XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
+        XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 2, initialScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-session-end") && terminalStartupScript.contains("--lifecycle-only"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_WORKSPACE_ID"), terminalStartupScript)
@@ -3807,25 +3797,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(
-            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && terminalStartupScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
+            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\""),
             terminalStartupScript
         )
-        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("cmux_ssh_attach_session_id=\"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--session-id \"$cmux_ssh_attach_session_id\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), terminalStartupScript)
         assertSSHPTYAttachAuthUsesRetryLoop(terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
-            terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            terminalStartupScript.contains("--workspace \"$CMUX_WORKSPACE_ID\""),
             terminalStartupScript
         )
-        XCTAssertTrue(
-            terminalStartupScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
-            ),
-            terminalStartupScript
-        )
-        XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, terminalStartupScript)
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 2, terminalStartupScript)
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
@@ -4231,6 +4215,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        // The readiness report is scoped to the launch attempt. Supplying the
+        // synthetic attempt id lets the fixture observe that report before the
+        // bridge is reset and the lifecycle reconciliation runs.
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6091,6 +6079,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNotifyClearSurfaceRequiresExplicitWorkspaceOrWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-clear-surface-context")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let ambientWorkspace = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "",
+                ok: false,
+                error: ["code": "unexpected", "message": "notify --clear should resolve context before sending"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = ambientWorkspace
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--clear", "--surface", surfaceID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("notify --clear --surface requires workspace or window context"),
+            result.stderr
+        )
+        XCTAssertTrue(state.commands.isEmpty, "Target resolution must fail before any socket request")
+    }
+
     func testNotificationCLIActionsUseSocketAPIAndParseExtendedFields() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")
@@ -6203,15 +6235,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "notification.mark_read")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["tab_id"] as? String, workspaceId)
-            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
-            )
+            switch method {
+            case "surface.list":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "notification.mark_read":
+                XCTAssertEqual(params["tab_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                XCTFail("Unexpected method \(method)")
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -6289,6 +6333,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "list_notifications",
                 "notification.mark_read",
                 "notification.dismiss",
+                "surface.list",
                 "notification.mark_read",
                 "notification.open",
                 "notification.jump_to_unread",
@@ -7486,6 +7531,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
         let selectedSurfaceId = "44444444-4444-4444-4444-444444444444"
         let targetSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let notificationId = "66666666-6666-6666-6666-666666666666"
 
         defer {
             Darwin.close(listenerFD)
@@ -7572,6 +7618,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     XCTFail("Unexpected surface.list params: \(params)")
                     return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected workspace"])
                 }
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, targetSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Surface Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": targetWorkspaceId,
+                        "surface_id": targetSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7592,9 +7651,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list", "notification.create_for_target"])
     }
 
     func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
@@ -7605,6 +7664,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let windowId = "11111111-1111-1111-1111-111111111111"
         let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
         let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let notificationId = "44444444-4444-4444-4444-444444444444"
 
         defer {
             Darwin.close(listenerFD)
@@ -7655,6 +7715,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, selectedSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Indexed Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": selectedWorkspaceId,
+                        "surface_id": selectedSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7675,9 +7748,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list", "notification.create_for_target"])
     }
 
     func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {

@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxFoundation
 import SwiftUI
 
+@MainActor
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @MainActor
     final class TargetBridge {
@@ -111,6 +112,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
+@MainActor
 final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
@@ -311,7 +313,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let action = action(for: sender)
         if isRequestingWorkspaceDropTargets,
            targets.isEmpty,
-           BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard) != nil {
+           BonsplitTabDragPayload.transfer(
+               from: sender.draggingPasteboard,
+               registry: AppDelegate.shared?.tabDragTransferRegistry
+           ) != nil {
             setDropIndicator(nil)
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.\(phase) accepted=1 pendingTargets=1")
@@ -381,9 +386,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         _ sender: (any NSDraggingInfo)?,
         isActive: Bool
     ) {
-        let shouldRequestTargets = isActive && BonsplitTabDragPayload.canRouteWorkspaceDrop(
-            pasteboardTypes: sender?.draggingPasteboard.types
-        )
+        let pasteboard = sender?.draggingPasteboard ?? NSPasteboard(name: .drag)
+        let shouldRequestTargets = isActive && BonsplitTabDragPayload.transfer(
+            from: pasteboard,
+            registry: AppDelegate.shared?.tabDragTransferRegistry
+        ) != nil
         if !shouldRequestTargets {
             pendingDrop = nil
         }
@@ -400,7 +407,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     ) -> BonsplitTabDragPayload.Transfer? {
         let pasteboard = sender.draggingPasteboard
         guard pasteboard.types?.contains(Self.pasteboardType) == true,
-              let transfer = BonsplitTabDragPayload.transfer(from: pasteboard),
+              let transfer = BonsplitTabDragPayload.transfer(
+                  from: pasteboard,
+                  registry: AppDelegate.shared?.tabDragTransferRegistry
+              ),
               let action,
               canPerformAction(action, transfer) else {
             return nil
@@ -410,7 +420,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     private func pendingTransfer(_ sender: any NSDraggingInfo) -> BonsplitTabDragPayload.Transfer? {
         guard isRequestingWorkspaceDropTargets, targets.isEmpty else { return nil }
-        return BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard)
+        return BonsplitTabDragPayload.transfer(
+            from: sender.draggingPasteboard,
+            registry: AppDelegate.shared?.tabDragTransferRegistry
+        )
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
@@ -422,9 +435,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
             return false
         }
-        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
-            pasteboardTypes: NSPasteboard(name: .drag).types
-        ) else { return false }
+        guard BonsplitTabDragPayload.transfer(
+            from: NSPasteboard(name: .drag),
+            registry: AppDelegate.shared?.tabDragTransferRegistry
+        ) != nil else { return false }
         return true
     }
 

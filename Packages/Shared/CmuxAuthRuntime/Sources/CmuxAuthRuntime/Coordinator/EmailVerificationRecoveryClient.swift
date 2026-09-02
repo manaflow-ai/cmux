@@ -26,8 +26,20 @@ struct EmailVerificationRecoveryClient: Sendable {
 
     @concurrent
     func requestVerification(for email: String) async throws {
+        try await request(path: "/api/auth/email-verification", for: email)
+    }
+
+    /// Ask the billing recovery endpoint to provision a paid account (when
+    /// applicable) and send a sign-in code. The endpoint intentionally returns
+    /// the same public response for paid and unpaid addresses.
+    @concurrent
+    func requestBillingRecovery(for email: String) async throws {
+        try await request(path: "/api/billing/recover", for: email)
+    }
+
+    private func request(path: String, for email: String) async throws {
         let baseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
-        guard let url = URL(string: baseURL + "/api/auth/email-verification") else {
+        guard let url = URL(string: baseURL + path) else {
             throw EmailVerificationRecoveryRequestError.invalidAPIBaseURL
         }
         var request = URLRequest(url: url, timeoutInterval: requestTimeout)

@@ -26,6 +26,8 @@ public final class CustomSidebarModel {
         case json(DSLDocument)
         /// Raw interpreted-Swift sidebar source.
         case swiftSource(String)
+        /// Reactive JavaScript sidebar program source.
+        case jsSource(String)
         /// The file exists but could not be loaded/decoded.
         case failed(String)
     }
@@ -173,7 +175,16 @@ public final class CustomSidebarModel {
             state = .missing
             return
         }
-        if fileURL.pathExtension.lowercased() == "swift" {
+        let ext = fileURL.pathExtension.lowercased()
+        if ext == "js" {
+            do {
+                state = .jsSource(try String(contentsOf: fileURL, encoding: .utf8))
+            } catch {
+                state = .failed(CustomSidebarValidator().describe(error))
+            }
+            return
+        }
+        if ext == "swift" {
             do {
                 state = .swiftSource(try String(contentsOf: fileURL, encoding: .utf8))
             } catch {
@@ -191,6 +202,11 @@ public final class CustomSidebarModel {
     }
 
     private func preferredFileURL() -> URL {
+        let jsURL = directoryURL.appendingPathComponent("\(sidebarName).js")
+        if fileManager.fileExists(atPath: jsURL.path) {
+            return jsURL
+        }
+
         let swiftURL = directoryURL.appendingPathComponent("\(sidebarName).swift")
         if fileManager.fileExists(atPath: swiftURL.path) {
             return swiftURL

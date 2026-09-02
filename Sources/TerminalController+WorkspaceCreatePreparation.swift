@@ -156,6 +156,15 @@ extension TerminalController {
                 if case let .live(workspace)? = resolution() { return .live(workspace) }
                 return .failure(Self.v2MobileCompletedOperationResult(operationID: operationID))
             }
+            guard !preparation.tabManager.isFinalizedForWindowClose else {
+                _ = try await preparation.idempotencyCache
+                    .releaseUnassociatedAcceptanceAsynchronously(operationID: operationID)
+                return .failure(.err(
+                    code: "internal_error",
+                    message: "Failed to create workspace",
+                    data: nil
+                ))
+            }
             return .accepted
         } catch {
             workspaceCreateIdempotencyLogger.error(

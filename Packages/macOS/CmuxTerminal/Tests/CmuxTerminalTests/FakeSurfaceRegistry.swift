@@ -71,6 +71,12 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     ) {
         backing.updateFocusPlacement(id: id, placement)
     }
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        backing.updateFocusPlacement(for: surface, placement)
+    }
     func allSurfaces() -> [any TerminalSurfacing] {
         backing.allSurfaces()
     }

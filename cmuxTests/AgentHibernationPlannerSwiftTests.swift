@@ -140,6 +140,7 @@ struct AgentHibernationPlannerSwiftTests {
             processIdentities: [:]
         )
         #expect(record.isStillOwnedByOriginalWorkspace)
+        #expect(record.processLiveness == .unknown)
 
         let detached = try #require(source.detachSurface(panelId: panelId))
         let destination = Workspace()
@@ -149,8 +150,64 @@ struct AgentHibernationPlannerSwiftTests {
         #expect(record.isStillOwnedByOriginalWorkspace == false)
     }
 
+    @MainActor
     @Test
-    func liveScopedProcessCreatesPressureButIsNotSelected() {
+    func hibernationRecordInitializerPreservesExplicitProcessLiveness() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let record = AgentHibernationRecord(
+            key: AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-live-process",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: [42],
+            processIDs: [42],
+            processIdentities: [:],
+            processLiveness: .running
+        )
+
+        #expect(record.processLiveness == .running)
+    }
+
+    @Test
+    func sessionIndexEntryInitializerDefaultsRecordedPIDToFalse() {
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-no-recorded-pid",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            updatedAt: 0,
+            processLiveness: .exited,
+            processIDs: [],
+            processIdentities: [:],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
+        )
+
+        #expect(entry.hasRecordedProcessID == false)
+    }
+
+    @Test
+    func scheduledHibernationSelectsIdleLiveProcessOverCap() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let runningAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -169,6 +226,7 @@ struct AgentHibernationPlannerSwiftTests {
                     hasRestorableAgent: true,
                     isLive: true,
                     hasLiveProcess: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -178,6 +236,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: exitedAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -188,7 +247,51 @@ struct AgentHibernationPlannerSwiftTests {
             now: now
         )
 
-        #expect(selected == Set([exitedAgent]))
+        #expect(selected == Set([runningAgent]))
+    }
+
+    @Test
+    func scheduledHibernationSkipsUnsafeOlderProcessAndSelectsLaterSafePane() {
+        let workspaceId = UUID()
+        let now: TimeInterval = 1_000
+        let unsafeAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let safeAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(
+                    key: unsafeAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    hasLiveProcess: true,
+                    processSafetyAllowsHibernation: false,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 300
+                ),
+                .init(
+                    key: safeAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    processSafetyAllowsHibernation: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 200
+                ),
+            ],
+            settings: settings,
+            now: now
+        )
+
+        #expect(selected == Set([safeAgent]))
     }
 
     @Test
@@ -210,6 +313,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: unableToProtectAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     isTemporarilyUnableToProtect: true,
@@ -220,6 +324,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: safeAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -257,6 +362,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: idle,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -266,6 +372,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: secondIdle,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -275,6 +382,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: visible,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: true,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -284,6 +392,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: running,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .running,
                     hasUnconfirmedTerminalInput: false,
@@ -294,6 +403,7 @@ struct AgentHibernationPlannerSwiftTests {
                     hasRestorableAgent: true,
                     isLive: true,
                     hasLiveProcess: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -303,6 +413,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: unconfirmedInput,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: true,
@@ -312,6 +423,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: unableToProtect,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     isTemporarilyUnableToProtect: true,

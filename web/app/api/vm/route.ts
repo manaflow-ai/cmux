@@ -8,9 +8,12 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
+  isProviderId,
   type ProviderId,
+  vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
+import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -20,13 +23,25 @@ import {
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
+  defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
+  maxMemoryMbForPlan,
   resolveVmEntitlements,
+  vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
+} from "../../../services/vms/images/resolver";
+import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  listVmImageKinds,
+  VM_IMAGE_KINDS,
+  vmImageKindFor,
+  type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -36,8 +51,11 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  vmActiveLimitExceededResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../services/vms/routeHelpers";
+import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
+import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
   listUserVms,
@@ -46,11 +64,17 @@ import {
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
-  measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
+
+// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
+// run minutes; without an explicit budget the platform default killed them
+// mid-provision. 600s caps a hung provider call well below the 20-minute
+// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
+// uses 1800).
+export const maxDuration = 600;
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -60,13 +84,14 @@ export async function GET(request: Request): Promise<Response> {
     "/api/vm GET failed",
     async ({ user, span }) => {
       let billingTeamId: string | null = null;
+      let listEntitlements: ReturnType<typeof resolveVmEntitlements> | null = null;
       const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
       try {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
           const entitlements = resolveVmEntitlements(user, process.env, {
             requestedBillingTeamId,
-            requireTeam: false,
           });
+          listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
@@ -85,15 +110,61 @@ export async function GET(request: Request): Promise<Response> {
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
+      // Plan context for machine-fleet UIs: how many active VMs this caller may
+      // hold and which plan sets that ceiling. Personal accounts skip the team
+      // resolution above, so resolve lazily here.
+      if (!listEntitlements) {
+        try {
+          listEntitlements = resolveVmEntitlements(user, process.env);
+        } catch {
+          listEntitlements = null;
+        }
+      }
+      // freeAccessWindowDays is 0 for paid plans (no window) so clients can
+      // render countdowns/locks from the payload without hardcoding policy.
+      const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
+        ? vmFreeAccessWindowDays()
+        : 0;
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
         status: entry.status,
         image: entry.image,
         imageVersion: entry.imageVersion,
+        kind: vmImageKindFor(entry.provider, entry.image),
+        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
+        // the app when false; the CLI errors before calling).
+        capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
+        displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
+        // Server-authoritative expiry of the free access window for this machine
+        // (epoch ms); null on paid plans or when the window is disabled. Clients
+        // render countdowns from this instead of re-deriving the policy.
+        freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
       }));
-      return jsonResponse({ vms });
+      const limits = listEntitlements
+        ? {
+          maxActiveVms: listEntitlements.maxActiveVms,
+          planId: listEntitlements.planId,
+          freeAccessWindowDays,
+          // The earliest expiry across the caller's machines: what a fleet header
+          // counts down to. Null when nothing is on a window.
+          freeAccessExpiresAt: vms.reduce<number | null>(
+            (earliest, vm) => vm.freeAccessExpiresAt === null
+              ? earliest
+              : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
+            null,
+          ),
+          // Kinds a client may request (and the image each resolves to) for the
+          // default provider, so a "new machine" dialog offers only kinds that work.
+          imageKinds: listVmImageKinds(defaultProviderId()),
+        }
+        : undefined;
+      return jsonResponse({ vms, limits });
     },
   );
 }
@@ -107,7 +178,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -156,6 +230,15 @@ export async function POST(request: Request): Promise<Response> {
             details: { field: "image" },
           });
         }
+        if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+            action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+            details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+          });
+        }
         if (candidate.provider !== undefined) {
           if (typeof candidate.provider !== "string") {
             return vmErrorResponse({
@@ -166,7 +249,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
+          if (!isProviderId(candidate.provider)) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -180,45 +263,48 @@ export async function POST(request: Request): Promise<Response> {
         if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
           return invalidTeamIdResponse();
         }
+        if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`persistentHome` must be a boolean when provided.",
+            action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
+            details: { field: "persistentHome" },
+          });
+        }
+        if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`perMachineHome` must be a boolean when provided.",
+            action: "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
+            details: { field: "perMachineHome" },
+          });
+        }
+        if (
+          candidate.memoryMb !== undefined &&
+          (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
+        ) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`memoryMb` must be an integer of at least 512 when provided.",
+            action: "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
+            details: { field: "memoryMb", minimumMemoryMb: 512 },
+          });
+        }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
           return invalidTeamIdResponse();
         }
         if (requestHasBlankVmTeamId(request)) {
           return invalidTeamIdResponse();
         }
-        const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
+        const body: { image?: string; kind?: VmImageKind; provider?: ProviderId; billingTeamId?: string } = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
+          kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        const provider = body.provider ?? defaultProviderId();
-        let imageSelection;
-        try {
-          assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image);
-        } catch (err) {
-          if (isVmCreateDisabledError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_disabled",
-              status: 503,
-              message: "Cloud VM creation is disabled for this environment.",
-              action: "Ask an admin to enable Cloud VM creation, then retry.",
-              reason: "Cloud VM creation is disabled.",
-            });
-          }
-          if (isVmImageConfigError(err)) {
-            return vmErrorResponse({
-              error: "vm_image_config_error",
-              status: 503,
-              message: "The requested Cloud VM image is not available in this environment.",
-              action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
-              reason: "Cloud VM image configuration is unavailable.",
-              details: { imageRequested: err.image !== undefined },
-            });
-          }
-          throw err;
-        }
-        const image = imageSelection.image;
         // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
         // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
         // so we don't store unbounded idempotency metadata.
@@ -228,13 +314,6 @@ export async function POST(request: Request): Promise<Response> {
           ""
         ).trim();
         const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
-        setSpanAttributes(span, {
-          "cmux.vm.provider": provider,
-          "cmux.vm.image_set": image.length > 0,
-          "cmux.vm.image_version": imageSelection.imageVersion,
-          "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
-          "cmux.idempotency_key_set": !!idempotencyKey,
-        });
 
         const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
         if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
@@ -271,20 +350,11 @@ export async function POST(request: Request): Promise<Response> {
         } catch (err) {
           console.error("[VM] Pro plan reconcile failed", err);
         }
-        let entitlements;
-        try {
-          entitlements = measureVmSync(timing, "entitlements", () =>
-            resolveVmEntitlements(user, process.env, {
-              requestedBillingTeamId,
-              requireTeam: true,
-            })
-          );
-        } catch (err) {
-          if (isVmBillingTeamResolutionError(err)) {
-            return billingTeamErrorResponse(err);
-          }
-          throw err;
-        }
+        const account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        if (!account.ok) return account.response;
+        const entitlements = account.entitlements;
         setSpanAttributes(span, {
           "cmux.billing.team_id_set": !!entitlements.billingTeamId,
           "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -293,9 +363,89 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
-        if (isVmProGateBlocked(entitlements)) {
-          return vmRequiresProResponse();
+        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+        const requestedMemoryMb = candidate.memoryMb as number | undefined;
+        // Every plan sells exactly the plan machine, so a size the plan does
+        // not offer resolves to that machine instead of failing the create.
+        // Clients ship their own size table and always trail the server: the
+        // 2026-09-02 pricing change (#11610) left every installed nightly
+        // sending its old 24 GB default and the server rejecting each create
+        // with `vm_memory_exceeds_plan` until the next nightly published. The
+        // server owns the machine spec, so a stale client must still get a
+        // machine; the mismatch is recorded on the span for Axiom.
+        const memoryMb =
+          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+            ? requestedMemoryMb ?? planMemoryMb
+            : planMemoryMb;
+        setSpanAttributes(span, {
+          "cmux.vm.memory_mb": memoryMb,
+          "cmux.vm.max_memory_mb": maxMemoryMb,
+          "cmux.vm.memory_requested_mb": requestedMemoryMb,
+          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
+        });
+
+        // Resolve provider/image only after the paid-plan boundary. A free or
+        // unknown plan must receive `vm_requires_pro` without consulting
+        // provider configuration, image manifests, or provider SDKs.
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
+        let imageSelection;
+        try {
+          assertVmCreateEnabled(provider);
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
+        } catch (err) {
+          if (isVmCreateDisabledError(err)) {
+            return vmErrorResponse({
+              error: "vm_create_disabled",
+              status: 503,
+              message: "Cloud VM creation is disabled for this environment.",
+              action: "Ask an admin to enable Cloud VM creation, then retry.",
+              reason: "Cloud VM creation is disabled.",
+            });
+          }
+          if (isVmImageConfigError(err)) {
+            const described = reportVmImageConfigError(err);
+            return vmErrorResponse({
+              error: "vm_image_config_error",
+              status: 503,
+              message: described.message,
+              action: described.action,
+              reason: "Cloud VM image configuration is unavailable.",
+              details: described.details,
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
+            });
+          }
+          throw err;
         }
+        const image = imageSelection.image;
+        setSpanAttributes(span, {
+          "cmux.vm.provider": provider,
+          "cmux.vm.image_set": image.length > 0,
+          "cmux.vm.image_version": imageSelection.imageVersion,
+          "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+          "cmux.idempotency_key_set": !!idempotencyKey,
+        });
+
+        // Wire the machine to coderouter: mint a per-machine route token and
+        // hand it over as create-time env (the baked image materializes agent
+        // configs from it). Best-effort: a coderouter outage or entitlement
+        // block ships an unwired machine, never a failed create.
+        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
+          mintVmModelPlaneEnvBestEffort({
+            teamId: entitlements.billingTeamId,
+            stackUserId: user.id,
+            requestUrl: request.url,
+          }));
+        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
 
         let created;
         try {
@@ -309,7 +459,10 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
-            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
+            persistentHome: candidate.persistentHome === true,
+            perMachineHome: candidate.perMachineHome === true,
+            memoryMb,
+            envs: modelPlaneEnvs ?? undefined,
             timing,
           }));
         } catch (err) {
@@ -336,26 +489,28 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmLimitExceededError(err)) {
-            return vmErrorResponse({
-              error: "vm_active_limit_exceeded",
-              status: 402,
-              message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-              action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
-              extra: { limit: err.limit },
-              details: { limit: err.limit },
+            return vmActiveLimitExceededResponse({
+              limit: err.limit,
+              planId: entitlements.planId,
+              retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {
+            const billsUser = entitlements.billingCustomerType === "user";
             return vmErrorResponse({
               error: "vm_create_credits_insufficient",
               status: 402,
-              message: "This team has no Cloud VM create credits left.",
-              action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+              message: billsUser
+                ? "Your account has no Cloud VM create credits left."
+                : "This team has no Cloud VM create credits left.",
+              action: billsUser
+                ? "Upgrade your plan or add Cloud VM create credits, then retry."
+                : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
               extra: { amount: err.amount },
               details: { amount: err.amount },
             });
           }
-          const workflowError = vmWorkflowErrorResponse(err);
+          const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
           if (workflowError) return workflowError;
           throw err;
         }
@@ -365,6 +520,7 @@ export async function POST(request: Request): Promise<Response> {
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,
+          kind: imageSelection.kind,
           createdAt: created.createdAt,
         });
       }
@@ -450,4 +606,12 @@ function billingTeamErrorResponse(err: {
     action: "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`. If you do not see a team, run `cmux auth login` again.",
     reason: "No eligible team was selected for this Cloud VM.",
   });
+}
+
+/** `createdAt + windowDays` in epoch ms; null when no window applies or createdAt is unusable. */
+function freeAccessExpiresAtMs(createdAt: unknown, windowDays: number): number | null {
+  if (windowDays <= 0) return null;
+  const createdMs = createdAt instanceof Date ? createdAt.getTime() : createdAt;
+  if (typeof createdMs !== "number" || !Number.isFinite(createdMs)) return null;
+  return createdMs + windowDays * 24 * 60 * 60 * 1000;
 }

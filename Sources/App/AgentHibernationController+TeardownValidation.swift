@@ -1,6 +1,27 @@
 import Foundation
 
 extension AgentHibernationController {
+    /// Requires explicit fresh process evidence for pressure reclaim.
+    nonisolated static func memoryPressureTeardownAllowsProcessEntry(
+        _ entry: RestorableAgentSessionIndex.Entry?
+    ) -> Bool {
+        guard let entry, !entry.containsUnrelatedProcess else { return false }
+        switch entry.processLiveness {
+        case .exited:
+            return entry.processIDs.isEmpty &&
+                entry.agentProcessIDs.isEmpty &&
+                entry.agentProcessIdentities.isEmpty &&
+                entry.hibernationPanelProcessIDs.isEmpty &&
+                entry.terminationProcessIDs.isEmpty &&
+                entry.terminationProcessIdentities.isEmpty
+        case .running:
+            return !entry.processIDs.isEmpty &&
+                entry.processSafetyAllowsScheduledHibernation
+        case .unknown:
+            return false
+        }
+    }
+
     func teardownIsStillSafe(
         _ request: ConfirmedTeardownRequest,
         index: RestorableAgentSessionIndex,
@@ -16,7 +37,7 @@ extension AgentHibernationController {
             for: record,
             index: index
         )
-        let currentProcessEntry = index.entry(
+        let currentProcessEntry = index.exactEntry(
             workspaceId: record.key.workspaceId,
             panelId: record.key.panelId
         )
@@ -25,19 +46,18 @@ extension AgentHibernationController {
         let currentTerminationProcessIDs = currentProcessEntry?.terminationProcessIDs ?? []
         let currentTerminationProcessIdentities =
             currentProcessEntry?.terminationProcessIdentities ?? [:]
+        // Routine reclaim may terminate a live agent only when the fresh index
+        // still proves the same exclusive, identity-complete process scope.
         return (shouldProceed?() ?? true) &&
             AgentHibernationTrackingGate.isEnabled() &&
             record.isStillOwnedByOriginalWorkspace &&
             (
                 request.trigger == .systemMemoryPressure ||
-                    !index.hasLiveProcess(
-                        workspaceId: record.key.workspaceId,
-                        panelId: record.key.panelId
-                    )
+                    currentProcessEntry?.processSafetyAllowsScheduledHibernation == true
             ) &&
             (
                 request.trigger != .systemMemoryPressure ||
-                    currentProcessEntry?.containsUnrelatedProcess == false
+                    Self.memoryPressureTeardownAllowsProcessEntry(currentProcessEntry)
             ) &&
             currentHibernationPanelProcessIDs == record.panelProcessIDs &&
             currentTerminationProcessIDs == record.processIDs &&

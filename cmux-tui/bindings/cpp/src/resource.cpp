@@ -14,10 +14,15 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #if defined(CMUX_CPP_TESTING)
 #include "resource_test_hooks.hpp"
 #endif
+
+#include "socket_path_internal.hpp"
 
 #if defined(__APPLE__)
 #include <stdlib.h>
@@ -1704,11 +1709,23 @@ Result<Client> Client::connect(ClientOptions options) {
             return std::move(path).error();
         }
         auto resolved_path = std::move(path).value();
+        const bool implicit = options.socket_path.empty() && socket_path_from_environment().empty();
+        std::string legacy;
+        if (implicit && ::cmux::detail::is_hashed_socket_path_for_uid(
+                resolved_path, static_cast<unsigned long>(::getuid()))) {
+            legacy = "/tmp/cmux-tui-" + std::to_string(static_cast<unsigned long>(::getuid())) + "/" + options.session + ".sock";
+            if (legacy.size() >= sizeof(sockaddr_un{}.sun_path)) legacy.clear();
+        }
+        auto effective = std::make_shared<std::string>(resolved_path);
+        options.transport_factory = [effective, legacy, timeout = options.timeout, limits = options.transport_limits]() mutable {
+            auto first = UnixTransport::connect(*effective, timeout, limits);
+            if (first || legacy.empty() || (first.error().system_errno != ENOENT && first.error().system_errno != ECONNREFUSED)) return first;
+            auto fallback = UnixTransport::connect(legacy, timeout, limits);
+            if (fallback) *effective = legacy;
+            return fallback;
+        };
         options.socket_path = resolved_path;
-        options.transport_factory = unix_transport_factory(
-            std::move(resolved_path),
-            options.timeout,
-            options.transport_limits);
+        if (!legacy.empty()) options.stream_transport_factory = [effective, timeout = options.timeout, limits = options.transport_limits]() { return UnixTransport::connect(*effective, timeout, limits); };
     }
     if (!options.stream_transport_factory) {
         options.stream_transport_factory = options.transport_factory;
