@@ -6,12 +6,13 @@ import {
 } from "../services/vms/desktopWrapper";
 
 describe("desktop upstream host allowlist", () => {
-  test("branded and gateway preview hosts pass", () => {
+  test("the branded machine host passes", () => {
     expect(isAllowedDesktopUpstreamHost("tidy-heron-6901.vm.cmux.sh")).toBe(true);
-    expect(isAllowedDesktopUpstreamHost("noble-wren-cmux.preview.bl.run")).toBe(true);
   });
 
   test("anything else fails closed", () => {
+    // The retired gateway's own preview domain is no longer trusted.
+    expect(isAllowedDesktopUpstreamHost("noble-wren-cmux.preview.bl.run")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("evil.example.com")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("vm.cmux.sh")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("x.vm.cmux.sh.evil.com")).toBe(false);
