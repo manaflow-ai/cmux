@@ -6,6 +6,7 @@ import {
   TEAM_PRICING_USD,
   type BillingInterval,
 } from "./plans";
+import { assertPriceMatchesPlan, type PlanPrice } from "./priceGuard";
 
 export type { BillingInterval, ProBillingInterval } from "./plans";
 
@@ -31,44 +32,49 @@ export async function resolveProPrice(interval: BillingInterval): Promise<string
   const overridden = interval === "month"
     ? env.STRIPE_PRO_MONTHLY_50_PRICE_ID
     : env.STRIPE_PRO_YEARLY_480_PRICE_ID;
-  if (overridden) return overridden;
-
-  const cached = resolvedProPriceIds.get(interval);
-  if (cached) return cached;
-
-  const lookupKey = PRO_PRICING_USD[interval].lookupKey;
-  const prices = await stripe().prices.list({
-    active: true,
-    lookup_keys: [lookupKey],
-    limit: 1,
-  });
-  const priceId = prices.data[0]?.id;
-  if (!priceId) {
-    throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
-  }
-  resolvedProPriceIds.set(interval, priceId);
-  return priceId;
+  return resolvePlanPrice(PRO_PRICING_USD[interval], interval, overridden, resolvedProPriceIds);
 }
 
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
   const overridden = interval === "month"
     ? env.STRIPE_TEAM_MONTHLY_60_PRICE_ID
     : env.STRIPE_TEAM_YEARLY_576_PRICE_ID;
-  if (overridden) return overridden;
+  return resolvePlanPrice(TEAM_PRICING_USD[interval], interval, overridden, resolvedTeamPriceIds);
+}
 
-  const cached = resolvedTeamPriceIds.get(interval);
+/**
+ * The Stripe price id checkout will charge. A lookup-key resolution is
+ * trusted (the catalog script pins the amount behind each key); an env
+ * override is verified against the advertised amount, interval, and currency
+ * on first use, so a stale or miscopied id can never sell a grandfathered
+ * price under the current pricing page. Both results are cached per process.
+ */
+async function resolvePlanPrice(
+  plan: PlanPrice,
+  interval: BillingInterval,
+  overridden: string | undefined,
+  cache: Map<BillingInterval, string>,
+): Promise<string> {
+  const cached = cache.get(interval);
   if (cached) return cached;
 
-  const lookupKey = TEAM_PRICING_USD[interval].lookupKey;
-  const prices = await stripe().prices.list({
-    active: true,
-    lookup_keys: [lookupKey],
-    limit: 1,
-  });
-  const priceId = prices.data[0]?.id;
-  if (!priceId) {
-    throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
+  let priceId: string;
+  if (overridden) {
+    const price = await stripe().prices.retrieve(overridden);
+    assertPriceMatchesPlan(price, plan, interval, overridden);
+    priceId = price.id;
+  } else {
+    const prices = await stripe().prices.list({
+      active: true,
+      lookup_keys: [plan.lookupKey],
+      limit: 1,
+    });
+    const found = prices.data[0]?.id;
+    if (!found) {
+      throw new Error(`Stripe price lookup key not found: ${plan.lookupKey}`);
+    }
+    priceId = found;
   }
-  resolvedTeamPriceIds.set(interval, priceId);
+  cache.set(interval, priceId);
   return priceId;
 }
