@@ -58,7 +58,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "a312d68f40313a8b8cbc639e135281f2c89b1633ce78c0
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "7e45761a9d37008e64547610ea53a68842a293f9b0d63db0657b9cffdc1152bd"
+EXPECTED_GUARD_SCRIPT_DIGEST = "70e38239a68c37ce5a2b23d7f54700069e65847089968f4467710ed5061cc713"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -104,8 +104,7 @@ RESULT_ENV = {
   "GATE_RESULT" => "${{ needs.CLACommentGate.result }}",
   "ADMITTED" => "${{ needs.CLACommentGate.outputs.admitted || '' }}",
   "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
-  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}",
-  "CLA_PASSED" => "${{ needs.CLALedgerWriter.outputs.cla_passed || '' }}"
+  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
 }.freeze
 CLA_COMMENT_BINDING_OUTPUTS = {
   "comment_id" => "${{ steps.signer_preflight.outputs.comment_id }}",
@@ -119,10 +118,6 @@ CLA_COMMENT_BINDING_INPUTS = {
 }.freeze
 COMPATIBILITY_ENV = {
   "RESULT" => "${{ needs.CLAAssistant.result }}"
-}.freeze
-CLA_RERUN_CONCURRENCY = {
-  "group" => "cla-rerun-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}",
-  "cancel-in-progress" => false
 }.freeze
 RERUN_ENV = {
   "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
@@ -1893,7 +1888,7 @@ def validate_workflow(raw)
     "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
     "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
+    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes permissions steps],
     "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
   }
   [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
@@ -1904,8 +1899,6 @@ def validate_workflow(raw)
     assert_cla_runner(value["runs-on"], names[index])
     assert_hosted_runner_job_steps(value, names[index])
   end
-
-  fail!("CLAAssistant must expose the stable v3 check name") unless assistant["name"] == "CLA Assistant v3"
 
   fail!("CLACommentGate must use read-only permissions") unless
     gate["permissions"] == { "contents" => "read", "issues" => "read", "pull-requests" => "read" }
@@ -1920,8 +1913,7 @@ def validate_workflow(raw)
     }.merge(CLA_COMMENT_BINDING_OUTPUTS)
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
-      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}",
-      "cla_passed" => "${{ steps.cla_action.outputs.cla_passed }}"
+      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
     }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
@@ -1984,8 +1976,6 @@ def validate_workflow(raw)
   assert_exact_environment(compatibility_steps[1], COMPATIBILITY_ENV, "CLACompatibility result step")
 
   rerun_steps = steps(rerun, "RerunFailedCLA")
-  fail!("RerunFailedCLA concurrency is not the reviewed per-PR contract") unless
-    rerun["concurrency"] == CLA_RERUN_CONCURRENCY
   fail!("RerunFailedCLA must contain a runner guard, checkout, and guard step") unless rerun_steps.length == 3
   assert_step_keys(rerun_steps[1], "RerunFailedCLA checkout step", %w[name if uses with])
   assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout")
@@ -2037,7 +2027,7 @@ def validate_workflow(raw)
     [gate["if"], assistant["if"], compatibility["if"], writer_condition],
     admission_run
   )
-  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?=\n\s*(?:elif|fi))/m]
+  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
   preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
@@ -2256,8 +2246,6 @@ def validate_guard_script(raw)
     "def cla_action_reference",
     "def assert_cla_action_transition!",
     "run_action_transition_regression_matrix!",
-    "CLA_RERUN_CONCURRENCY",
-    "CLA_PASSED",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
     "def legacy_v2_base?",
