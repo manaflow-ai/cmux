@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { ThemeToggle } from "@/app/[locale]/theme";
 import { Link, usePathname } from "@/i18n/navigation";
 import { DashboardAccountMenu } from "./dashboard-account-menu";
@@ -116,7 +116,9 @@ export function DashboardShell({
               >
                 <DashboardMenuIcon open={mobileNavOpen} />
               </button>
-              <DashboardAccountMenu />
+              <Suspense fallback={<DashboardAccountMenuFallback />}>
+                <DashboardAccountMenu />
+              </Suspense>
               <ThemeToggle />
             </div>
           </div>
@@ -132,6 +134,10 @@ export function DashboardShell({
       </div>
     </div>
   );
+}
+
+function DashboardAccountMenuFallback() {
+  return <div aria-hidden="true" className="min-w-0 flex-1" />;
 }
 
 function DashboardNav({
