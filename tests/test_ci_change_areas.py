@@ -222,7 +222,7 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
 
 def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
     script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
-    env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
+    env = {**os.environ, "CI_NEEDS": json.dumps(needs)}
     return subprocess.run(
         ["bash", "-c", script],
         cwd=ROOT,
@@ -688,7 +688,7 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
 
 
-def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
+def test_ci_status_job_wires_route_contract() -> None:
     block = workflow_job_block("ci-status")
 
     for job_name in [
@@ -708,7 +708,9 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         assert f"      - {job_name}" in block
 
     assert "if: ${{ always() }}" in block
-    assert 'allowed = {"success", "skipped"}' in block
+    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in block
+    assert "persist-credentials: false" in block
+    assert "python3 scripts/ci/check_ci_status.py --phase aggregate" in block
 
 
 def test_required_tests_status_waits_for_app_host_matrix() -> None:
@@ -765,10 +767,9 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
-    assert 'allowed_routed = {' in block
-    assert 'routed_outputs = {' in block
-    assert 'bad[name] = f"{result} (route {route}=true)"' in block
+    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in block
+    assert "CI_NEEDS: ${{ toJSON(needs) }}" in block
+    assert "python3 scripts/ci/check_ci_status.py --phase preflight" in block
 
 
 def test_linux_preflight_fails_when_routed_job_skips() -> None:
@@ -777,7 +778,7 @@ def test_linux_preflight_fails_when_routed_job_skips() -> None:
     )
 
     assert result.returncode != 0
-    assert "remote-daemon-tests: skipped (route go=true)" in result.stderr
+    assert "remote-daemon-tests: required for route go, got skipped" in result.stderr
 
 
 def test_linux_preflight_allows_unrouted_job_skip() -> None:

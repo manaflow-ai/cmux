@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -112,15 +111,42 @@ def ci_needs(paths: list[str], *, results: dict[str, str] | None = None) -> dict
 
 def run_ci_status(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
     script = workflow_job_step_script("ci-status", "Check routed CI jobs")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        return subprocess.run(
-            ["bash", "-c", script],
-            cwd=ROOT,
-            env={**os.environ, "CI_NEEDS": json.dumps(needs)},
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "CI_NEEDS": json.dumps(needs)},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "CI_NEEDS": json.dumps(needs)},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def preflight_needs(paths: list[str], *, results: dict[str, str] | None = None) -> dict[str, object]:
+    all_needs = ci_needs(paths, results=results)
+    names = (
+        "changes",
+        "workflow-guard-tests",
+        "ghosttykit-release-check",
+        "remote-daemon-tests",
+        "web-typecheck",
+        "react-apps-check",
+        "diff-sidecar-check",
+        "web-db-migrations",
+        "agent-session-web-resources",
+    )
+    return {name: all_needs[name] for name in names}
 
 
 def test_docs_only_contract_passes() -> None:
@@ -175,6 +201,30 @@ def test_unexpected_failure_blocks_even_when_route_is_off() -> None:
         ci_needs(["docs/ci.md"], results={"remote-daemon-tests": "failure"})
     )
     assert result.returncode != 0
+
+
+def test_web_route_requires_diff_sidecar_in_preflight() -> None:
+    result = run_linux_preflight(
+        preflight_needs(["web/app/page.tsx"], results={"diff-sidecar-check": "skipped"})
+    )
+    assert result.returncode != 0
+    assert "diff-sidecar-check: required for route macos or web" in result.stderr
+
+
+def test_missing_route_output_fails_closed() -> None:
+    needs = ci_needs(["docs/ci.md"])
+    del needs["changes"]["outputs"]["web"]
+    result = run_ci_status(needs)
+    assert result.returncode != 0
+    assert "changes.outputs.web: expected true or false" in result.stderr
+
+
+def test_unexpected_dependency_fails_closed() -> None:
+    needs = ci_needs(["docs/ci.md"])
+    needs["new-ci-job"] = {"result": "success"}
+    result = run_ci_status(needs)
+    assert result.returncode != 0
+    assert "new-ci-job: unexpected job in CI contract" in result.stderr
 
 
 if __name__ == "__main__":
