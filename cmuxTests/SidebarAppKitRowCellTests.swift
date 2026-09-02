@@ -1995,6 +1995,29 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func unselectedBareShortcutHintForwardsConfiguredTextColor() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let catalog = SettingCatalog()
+        defaults.set(
+            SidebarShortcutHintStyle.bare.rawValue,
+            forKey: catalog.sidebar.shortcutHintStyle.userDefaultsKey
+        )
+        defaults.set("#286983", forKey: catalog.sidebar.shortcutHintColorHex.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = Self.makeModel(settings: settings, shortcutHintText: "⌘1")
+        let cell = Self.configuredCell(model: model)
+        let pill = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first
+        )
+        let label = try #require(
+            Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first
+        )
+        let expected = try #require(NSColor(hex: "#286983"))
+
+        #expect(label.textColor?.hexString() == expected.hexString())
+    }
+
+    @Test
     func optimisticSelectionPaintsFlippedModelButKeepsAuthoritativeState() {
         let model = Self.makeModel(isActive: false)
         let cell = Self.configuredCell(model: model)

@@ -1150,7 +1150,7 @@
         },
         "sidebar": {
           "shortcutHintStyle": "Wygląd podpowiedzi skrótów w pasku bocznym obszaru roboczego podczas przytrzymywania klawisza modyfikującego.",
-          "shortcutHintColor": "Opcjonalny kolor tekstowych podpowiedzi skrótów w niezaznaczonych wierszach paska bocznego; zaznaczone wiersze używają czytelnego koloru pierwszego planu.",
+          "shortcutHintColor": "Opcjonalny kolor tekstowych podpowiedzi skrótów bez kapsuły w niezaznaczonych wierszach paska bocznego; zaznaczone wiersze używają czytelnego koloru pierwszego planu.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
