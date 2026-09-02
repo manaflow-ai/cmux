@@ -594,6 +594,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
+    private var refreshGeneration = 0
     private static let maxClientBootstrapRetries = 3
 
     func refresh() {
@@ -602,7 +603,18 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         }
         isLoading = true
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task { [weak self] in
+            defer {
+                guard let self, self.refreshGeneration == generation else { return }
+                self.refreshTask = nil
+                guard !Task.isCancelled else { return }
+                if self.refreshRequestedWhileLoading {
+                    self.refreshRequestedWhileLoading = false
+                    self.refresh()
+                }
+            }
             let loaded = await CloudClientBootstrapRetry(maxRetries: Self.maxClientBootstrapRetries).run { [weak self] in
                 guard !Task.isCancelled, let self else { return true }
                 return await self.performRefresh()
@@ -610,11 +622,6 @@ final class MachinesPanelViewModel: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             if !loaded {
                 self.completeMissingClientLoad()
-            }
-            self.refreshTask = nil
-            if self.refreshRequestedWhileLoading {
-                self.refreshRequestedWhileLoading = false
-                self.refresh()
             }
         }
     }
