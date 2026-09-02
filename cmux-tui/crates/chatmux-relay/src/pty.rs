@@ -374,6 +374,10 @@ struct AuthSnapshot {
     owner_user_id: Option<String>,
     send: Arc<dyn Fn(Value) + Send + Sync>,
     send_live: Arc<dyn Fn(Value, Arc<AtomicBool>) + Send + Sync>,
+    /// Transport-wide delivery fence for replies without a PTY attachment,
+    /// such as surface-list results. Authority replacement and detach revoke
+    /// this token before removing the cached snapshot.
+    delivery_live: Arc<AtomicBool>,
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
     auth_generation: Option<u64>,
     transport_kind: TransportKind,
@@ -387,6 +391,7 @@ impl AuthSnapshot {
             owner_user_id: context.owner_user_id.clone(),
             send: Arc::clone(&context.send),
             send_live: Arc::clone(&context.send_live),
+            delivery_live: Arc::new(AtomicBool::new(true)),
             buffered_amount: Arc::clone(&context.buffered_amount),
             auth_generation: context.auth_generation,
             transport_kind: context.transport_kind,
@@ -1097,7 +1102,14 @@ impl PtyManager {
             // Every identified opening and attachment is admitted through an
             // active auth snapshot. Removing that snapshot is the disconnect
             // fence. No historical tombstone is stored.
-            transport_auth.retain(|owner, _| !owns(owner));
+            transport_auth.retain(|owner, snapshot| {
+                if owns(owner) {
+                    snapshot.delivery_live.store(false, Ordering::Release);
+                    false
+                } else {
+                    true
+                }
+            });
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
                 .reservations
@@ -3832,12 +3844,15 @@ impl Inner {
         {
             return;
         }
-        (context.send)(json!({
-            "version": PTY_PROTOCOL_VERSION,
-            "type": "surface_list_result",
-            "requestId": request_id,
-            "surfaces": surfaces,
-        }));
+        (context.send_live)(
+            json!({
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "surface_list_result",
+                "requestId": request_id,
+                "surfaces": surfaces,
+            }),
+            Arc::clone(&auth.delivery_live),
+        );
     }
 
     /// Enumerate the live terminals inside one cmux-tui session (W86):
