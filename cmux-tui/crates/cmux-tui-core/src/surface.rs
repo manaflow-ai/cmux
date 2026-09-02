@@ -2612,21 +2612,33 @@ impl Surface {
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        let reaper = std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
-            let surface = surface.clone();
-            move || {
+        let reaper_completion =
+            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        let surface_ref = Arc::downgrade(&surface);
+        let reaper_thread =
+            match std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
+                let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let exit = child.wait_for_exit();
-                if let Some(pty) = surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(exit);
+                if let Some(surface) = surface_ref.upgrade() {
+                    if let Some(pty) = surface.as_pty() {
+                        *pty.exit.lock().unwrap() = Some(exit);
+                    }
+                    close_local_terminal_master_after_exit(&surface);
+                    publish_local_exit_if_ready(&surface);
                 }
-                close_local_terminal_master_after_exit(&surface);
-                publish_local_exit_if_ready(&surface);
-            }
-        });
-        if let Err(error) = reaper {
-            close_local_terminal_master_after_exit(&surface);
-            return Err(error.into());
-        }
+            }) {
+                Ok(reaper_thread) => reaper_thread,
+                Err(error) => {
+                    close_local_terminal_master_after_exit(&surface);
+                    return Err(error.into());
+                }
+            };
+        *surface
+            .as_pty()
+            .expect("local PTY surface owns its reaper")
+            .reaper_thread
+            .lock()
+            .unwrap() = Some(reaper_thread);
 
         Ok(surface)
     }
@@ -4240,6 +4252,19 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
+        let reaper = pty.reaper_thread.lock().unwrap().take();
+        if let Some(reaper) = reaper {
+            if pty.reaper_completion.wait_until(deadline) {
+                if reaper.join().is_err() {
+                    eprintln!("cmux-tui: child reaper thread panicked during shutdown");
+                }
+            } else {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!(
+                    "cmux-tui: child reaper did not stop before the shared shutdown deadline"
+                );
+            }
+        }
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
