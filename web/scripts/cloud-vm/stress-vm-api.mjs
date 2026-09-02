@@ -154,9 +154,8 @@ async function runCase(index) {
     vmId = created.id;
     throwIfInterrupted();
 
-    // Blaxel machines run only the cmux-tui remote daemon (no cmuxd RPC to probe);
-    // every other provider still serves the legacy cmuxd-remote websocket PTY.
-    const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
+    // cmux Cloud machines run only the cmux-tui remote daemon (no cmuxd RPC to probe).
+    const expectedTransport = "cmux-remote";
     const attachStartedAt = performance.now();
     const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
@@ -174,7 +173,8 @@ async function runCase(index) {
 
     let rpcCapabilities = null;
     if (expectedTransport === "cmux-remote") {
-      if (!/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+      // Tokened wss proxy (E2B, Daytona) or direct public IPv6 ws (Freestyle).
+      if (!/^wss?:\/\/.+\/v1\/link(\?|$)/.test(attached.route ?? "")) {
         throw new Error("cmux-remote attach response missing the daemon route");
       }
     } else {

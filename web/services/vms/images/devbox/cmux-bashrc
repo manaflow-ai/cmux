@@ -1,6 +1,6 @@
 # cmux Cloud devbox interactive shell setup (/etc/cmux/bashrc).
 # Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and
-# /home/cmux/.bashrc. Parity sources: web/services/vms/images/blaxel/cmux-bashrc
+# /home/cmux/.bashrc.
 # (byte-identical body below the header; vm-devbox-image.test.ts pins it) and
 # chatmux infra/sandbox-images/devshell.bashrc.
 case $- in *i*) ;; *) return ;; esac
