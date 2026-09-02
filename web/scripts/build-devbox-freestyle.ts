@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
- * Build the cmux Cloud devbox Freestyle snapshot on the BETA platform
- * (freestyle@0.2.0-beta.7 via the freestyle-beta alias; beta-api.freestyle.sh)
- * by replaying web/services/vms/images/devbox/Dockerfile as exec steps on a
- * builder VM, mirroring chatmux infra/sandbox-images/build-freestyle.ts.
+ * Build the cmux Cloud devbox Freestyle snapshot on the public platform
+ * (freestyle@0.2.9; api.freestyle.sh) by replaying
+ * web/services/vms/images/devbox/Dockerfile as exec steps on a builder VM,
+ * mirroring chatmux infra/sandbox-images/build-freestyle.ts.
  * The exec API has no COPY; small repo files travel as base64 embeds.
  *
  * Usage:
  *   bun scripts/build-devbox-freestyle.ts <snapshot-slug>
  *
- * Auth: FREESTYLE_API_KEY (permanent key from beta-dashboard.freestyle.sh),
- * or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID for interactive use
- * (mint via `npx freestyle@beta login`).
+ * Auth: FREESTYLE_API_KEY (permanent key from the Freestyle dashboard), or
+ * FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID for interactive use
+ * (mint via `npx freestyle login`). FREESTYLE_API_URL overrides the edge.
  *
  * Freestyle snapshot slugs are unique per account and creation does not
  * reassign, so pass a fresh versioned slug per rebuild (cmux-devbox-<tag>);
@@ -23,15 +23,14 @@
  * cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot, which
  * waits for /root/.cmux/bin/cmux-tui and supervises the daemon once a driver
  * installs the pinned build at create time. The unit binds the listener
- * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the beta driver arm
- * (web/services/vms/drivers/freestyleBeta.ts) routes attaches to the VM's
- * stable public IPv6; the legacy (0.1.51) driver arm cannot boot these
- * snapshots — the manifest marks them features.freestylePlatform: "beta".
+ * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the driver
+ * (web/services/vms/drivers/freestyle.ts) routes attaches to the VM's stable
+ * public IPv6.
  *
  * Builder VM: freestyle/ubuntu-sm, outbound-only firewall, deleted whatever
  * happens.
  */
-import { Freestyle } from "freestyle-beta";
+import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import {
   bakeMetadata,
@@ -44,9 +43,10 @@ import {
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
 const teamId = process.env.FREESTYLE_TEAM_ID;
+const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
 const fs = (() => {
-  if (apiKey) return new Freestyle({ apiKey });
-  if (stackToken && teamId) return new Freestyle({ stackAccessToken: stackToken, teamId });
+  if (apiKey) return new Freestyle({ apiKey, baseUrl });
+  if (stackToken && teamId) return new Freestyle({ stackAccessToken: stackToken, teamId, baseUrl });
   throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
 })();
 
@@ -57,10 +57,10 @@ if (!slug || slug.startsWith("--")) {
 
 const preflight = bakePreflight();
 
-// The beta exec API caps timeoutMs at 300000 (5 minutes per step).
+// The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
 
-// Per-exec env (the beta API replays it into every step): the Dockerfile's
+// Per-exec env (the API replays it into every step): the Dockerfile's
 // ENV block, PATH literal included.
 const BUILD_ENV = {
   MISE_DATA_DIR: "/opt/mise",
@@ -89,6 +89,9 @@ async function step(label: string, command: string): Promise<void> {
     command: `${HOME_PREFIX} && ${command}`,
     env: BUILD_ENV,
     timeoutMs: STEP_TIMEOUT_MS,
+    // The 0.2 API's default guest user is uid 1000, not root. Every build step
+    // writes to /opt, /usr/local and /etc, so the bake must run as root.
+    linuxUser: "root",
   });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const exitCode = r.statusCode ?? 124;
@@ -184,7 +187,7 @@ const service = [
   "[Service]",
   "Type=simple",
   "User=root",
-  // Freestyle beta machines are reached at their stable public IPv6, so the
+  // Freestyle machines are reached at their stable public IPv6, so the
   // daemon listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
   // defaults to 0.0.0.0 for the container providers, whose runtimes may have
   // IPv6 disabled entirely.
@@ -236,7 +239,7 @@ console.log(
         snapshotId,
         "FREESTYLE_SANDBOX_SNAPSHOT",
         metadata,
-        "Shared devbox exec-replay on the Freestyle BETA platform; cmux-tui transport; requires the beta-SDK driver (do not pin for the legacy driver).",
+        "Shared devbox exec-replay on the Freestyle public platform (api.freestyle.sh); cmux-tui transport.",
       ),
       next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
     },

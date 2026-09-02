@@ -6,14 +6,13 @@ import { describe, expect, test } from "bun:test";
 import {
   CMUX_CLOUD_LAYOUT,
   cmuxTuiDaemonCommand,
-  cmuxTuiPreviewBranded,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
+  cmuxTuiPersistentMountWait,
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
-} from "../services/vms/drivers/blaxel";
-import { cmuxTuiPersistentMountWait } from "../services/vms/drivers/cmuxTuiDaemon";
+} from "../services/vms/drivers/cmuxTuiDaemon";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
 const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
@@ -787,14 +786,5 @@ describe("enrollment invitation parsing", () => {
     expect(() => parseEnrollmentInvitationUri("cmux://enroll/!!!")).toThrow(/undecodable|id or expiry/);
     const missing = `cmux://enroll/${Buffer.from(JSON.stringify({ version: 1 })).toString("base64url")}`;
     expect(() => parseEnrollmentInvitationUri(missing)).toThrow(/id or expiry/);
-  });
-});
-
-describe("daemon preview host selection", () => {
-  test("only clients that send a User-Agent get the branded machine host", () => {
-    expect(cmuxTuiPreviewBranded(["direct-ws-user-agent"])).toBe(true);
-    expect(cmuxTuiPreviewBranded(["something-else", "direct-ws-user-agent"])).toBe(true);
-    expect(cmuxTuiPreviewBranded([])).toBe(false);
-    expect(cmuxTuiPreviewBranded(undefined)).toBe(false);
   });
 });
