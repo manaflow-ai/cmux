@@ -80,10 +80,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: ["read-screen", "--surface", "5", "--lines", "1"],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -303,10 +303,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--workspace", Self.reproWorkspaceRef,
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -355,10 +355,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", Self.missingSurfaceUUID,
             ],
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -405,10 +405,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", "   ",
             ],
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -469,10 +469,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--command", "echo nope",
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -531,10 +531,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -579,10 +579,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         let errors = state.errorsSnapshot()
         #expect(errors.isEmpty, Comment(rawValue: errors.joined(separator: "\n")))
         return (result, state)
@@ -627,10 +627,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         return (result, try state.requestObjects())
@@ -647,6 +647,11 @@ struct CLIExplicitSurfaceRoutingTests {
     }
 
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
+    // CI runners can cold-start the bundled CLI and its Swift runtime in a few
+    // seconds. Keep these waits bounded, but leave enough headroom that a slow
+    // runner does not turn an otherwise handled socket response into a timeout.
+    private static let processTimeout: TimeInterval = 15
+    private static let serverTimeout: TimeInterval = 15
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
