@@ -35,6 +35,7 @@ import {
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
   cmuxTuiHomeViewMissingCondition,
   cmuxTuiPersistentMountWait as sharedCmuxTuiPersistentMountWait,
+  CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand as sharedCmuxTuiPinCheckCommand,
@@ -355,8 +356,8 @@ mountpoint -q /root 2>/dev/null && exit 0
 # installing tools into the disposable /home/cmux rootfs directory.
 if [ "\${CMUX_PROVISION_VOLUME_EXPECTED:-0}" = "1" ] && ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then
   mkdir -p ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null || true
-  if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll'; then
-    findmnt --poll=mount --first-only --mountpoint ${CMUX_HOME_VOLUME_BACKING_PATH} >/dev/null 2>&1 || exit 75
+  if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then
+    findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${CMUX_HOME_VOLUME_BACKING_PATH} >/dev/null 2>&1 || exit 75
   else
     exit 75
   fi

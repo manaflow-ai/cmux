@@ -21,6 +21,9 @@ export const CMUX_TUI_SESSION = "cloud";
 export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 export const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
 export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+// A provider can attach the volume after the process starts, but a permanently
+// missing volume must fail through the provider's restart/reconciliation path.
+export const CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS = 30_000;
 
 // The non-root work user on cmux Cloud machines. Terminals must not run as root
 // (coding agents refuse root, e.g. `claude --dangerously-skip-permissions`); root
@@ -81,7 +84,9 @@ export function cmuxTuiPersistentMountWait(
     // Re-check after creating the directory so a mount that arrives in the
     // handoff window is accepted without waiting for a future event.
     `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then ` +
-      `if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll'; then findmnt --poll=mount --first-only --mountpoint ${backing} >/dev/null 2>&1 || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
+      // util-linux's timeout bounds the handoff wait. If the tool is too old
+      // to expose it, fail closed instead of introducing an unbounded wait.
+      `if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${backing} >/dev/null 2>&1 || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
       `fi;`,
     `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi;`,
     `fi;`,
