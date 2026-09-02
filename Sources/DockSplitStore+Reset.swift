@@ -25,6 +25,7 @@ extension DockSplitStore {
         terminalStartupRestoreCoordinator.removeAllRestores()
         clearDeferredAgentResumeRestores()
         surfaceResumeBindingsByPanelId.removeAll()
+        surfaceResumeBindingEventTimesByPanelId.removeAll()
         surfaceResumeRestoreClaimsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()

@@ -18,6 +18,8 @@ extension Workspace {
         /// Active lifecycle values follow a live panel into and out of a Dock,
         /// alongside its structured PID ownership.
         var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
+        /// Latest accepted hook event per agent status key.
+        var agentLifecycleEventTimes: [String: TimeInterval] = [:]
     }
 
     struct DetachedSurfaceTransfer {
@@ -51,6 +53,8 @@ extension Workspace {
         var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// Latest accepted resume-binding event time carried across transfers.
+        var resumeBindingEventTime: TimeInterval? = nil
         /// Deferred ownership resolution carried across a Workspace/Dock transfer.
         var deferredAgentResumeRestore: DeferredAgentResumeRestore? = nil
         /// Authoritative hook identity when `resumeBinding` is an effective
@@ -109,6 +113,7 @@ extension Workspace {
                 restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
+                resumeBindingEventTime: resumeBindingEventTime,
                 deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,

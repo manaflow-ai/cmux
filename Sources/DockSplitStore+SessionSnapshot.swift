@@ -307,6 +307,11 @@ extension DockSplitStore {
             if let scrollback {
                 restoredTerminalScrollbackByPanelId[panelId] = scrollback
             }
+            let resumeBindingEventTime: TimeInterval? = [
+                surfaceResumeBindingEventTimesByPanelId[panelId],
+                transfer?.resumeBindingEventTime,
+                resumeBinding?.updatedAt,
+            ].compactMap { $0 }.max()
             let sessionFontSize: Float32?
             let sessionFontSizeChangeTokens: [UUID]?
             if let terminalFontSizeSnapshotProjection {
@@ -338,6 +343,7 @@ extension DockSplitStore {
                     )
                 },
                 resumeBinding: resumeBinding,
+                resumeBindingEventTime: resumeBindingEventTime,
                 managedAgentResumeBinding: managedResumeBinding,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
@@ -456,6 +462,10 @@ extension DockSplitStore {
                 return stored
             }
             surfaceResumeBindingsByPanelId[panelId] = effective
+            recordSurfaceResumeBindingMutation(
+                panelId: panelId,
+                eventTime: effective.updatedAt
+            )
         } else {
             guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
                 return stored

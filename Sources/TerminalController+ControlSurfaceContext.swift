@@ -25,6 +25,13 @@ extension TerminalController {
 /// Every blocking `NSAlert` and `String(localized:)` resolves here, in the app
 /// bundle, so translations survive.
 extension TerminalController: ControlSurfaceContext {
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        String(
+            localized: "socket.surfaceResume.error.invalidAgentEventTime",
+            defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now"
+        )
+    }
+
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
     }

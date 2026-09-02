@@ -32,21 +32,78 @@ enum ControlSidebarPanelOwner {
         }
     }
 
-    func statusEntry(key: String, panelId: UUID?) -> SidebarStatusEntry? {
+    @discardableResult
+    func upsertStatusEntry(
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        panelId: UUID?,
+        pid: pid_t?,
+        agentEventTime: TimeInterval?,
+        enforceAgentEventOrdering: Bool = true
+    ) -> SidebarStatusEntryReplacementDecision {
         switch self {
-        case .workspace(let workspace): workspace.statusEntries[key]
+        case .workspace(let workspace):
+            return workspace.upsertSidebarStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: url,
+                priority: priority,
+                format: format,
+                panelId: panelId,
+                pid: pid,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         case .dock(let dock):
-            panelId.flatMap { dock.agentRuntimeStatusEntry(key: key, panelId: $0) }
+            guard let panelId else { return .stale }
+            return dock.upsertAgentRuntimeStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: url,
+                priority: priority,
+                format: format,
+                panelId: panelId,
+                pid: pid,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         }
     }
 
-    func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
-        switch self {
-        case .workspace(let workspace): workspace.statusEntries[key] = entry
-        case .dock(let dock):
-            guard let panelId else { return }
-            dock.setAgentRuntimeStatusEntry(entry, key: key, panelId: panelId)
-        }
+    /// Compatibility bridge for feed attention producers that already own a
+    /// fully formed sidebar row. Keep the mutation on this owner so workspace
+    /// and Dock paths share the same replacement/ordering policy.
+    @discardableResult
+    func setStatusEntry(
+        _ entry: SidebarStatusEntry,
+        key: String,
+        panelId: UUID?
+    ) -> SidebarStatusEntryReplacementDecision {
+        // Feed attention is an app-owned overlay, not a detached hook event.
+        // Keep the existing hook timestamp on the row, but never advance the
+        // hook watermark from this compatibility path.
+        return upsertStatusEntry(
+            key: key,
+            value: entry.value,
+            icon: entry.icon,
+            color: entry.color,
+            url: entry.url,
+            priority: entry.priority,
+            format: entry.format,
+            panelId: panelId,
+            pid: nil,
+            agentEventTime: nil,
+            enforceAgentEventOrdering: false
+        )
     }
 
     func clearStatusEntry(key: String, panelId: UUID?) {
@@ -60,27 +117,59 @@ enum ControlSidebarPanelOwner {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
+    ) -> Bool {
         switch self {
         case .workspace(let workspace):
-            return workspace.recordAgentPID(key: key, pid: pid, panelId: panelId)
+            return workspace.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         case .dock(let dock):
             guard let panelId else { return false }
-            return dock.recordAgentPID(key: key, pid: pid, panelId: panelId)
+            return dock.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         }
     }
 
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
     ) {
         switch self {
         case .workspace(let workspace):
-            workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            workspace.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         case .dock(let dock):
             guard let panelId else { return }
-            dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            dock.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
         }
     }
 
@@ -99,7 +188,9 @@ enum ControlSidebarPanelOwner {
         key: String,
         panelId: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
     ) {
         switch self {
         case .workspace(let workspace):
@@ -107,7 +198,9 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 panelId: panelId,
                 clearStatus: clearStatus,
-                requireOwnedKey: requireOwnedKey
+                requireOwnedKey: requireOwnedKey,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
             )
         case .dock(let dock):
             guard let panelId else { return }
@@ -115,7 +208,38 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 panelId: panelId,
                 clearStatus: clearStatus,
-                requireOwnedKey: requireOwnedKey
+                requireOwnedKey: requireOwnedKey,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering
+            )
+        }
+    }
+
+    @discardableResult
+    func acceptAgentRuntimeMutation(
+        statusKey: String,
+        panelId: UUID?,
+        agentEventTime: TimeInterval?,
+        enforceOrdering: Bool,
+        isLifecycleMutation: Bool = false
+    ) -> Bool {
+        switch self {
+        case .workspace(let workspace):
+            return workspace.acceptAgentRuntimeMutation(
+                statusKey: statusKey,
+                panelId: panelId,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceOrdering,
+                isLifecycleMutation: isLifecycleMutation
+            )
+        case .dock(let dock):
+            guard let panelId else { return false }
+            return dock.acceptAgentRuntimeMutation(
+                statusKey: statusKey,
+                panelId: panelId,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceOrdering,
+                isLifecycleMutation: isLifecycleMutation
             )
         }
     }

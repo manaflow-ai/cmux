@@ -484,6 +484,15 @@ extension DockSplitStore {
                 surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
             }
         }
+        if let eventTime = [
+            terminalSnapshot.resumeBindingEventTime,
+            resumeBinding?.updatedAt,
+        ].compactMap({ $0 }).max() {
+            recordSurfaceResumeBindingMutation(
+                panelId: terminal.id,
+                eventTime: eventTime
+            )
+        }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
         }

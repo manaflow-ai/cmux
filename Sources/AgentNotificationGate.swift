@@ -26,7 +26,7 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>][;k=<uuid>][;k=<status>;t=<seconds>]` meta segment.
 /// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
 /// pending flag are present, so the reserved suffix grammar stays exactly the
 /// three known categories — any other `c=...` tail stays part of the legacy
@@ -46,18 +46,21 @@ struct AgentNotificationMeta {
     /// Opaque identity used by a producer that needs to clear exactly one
     /// notification without touching newer entries on the same surface.
     let correlationKey: String?
+    /// Status-watermark key carried by ordered cmux hook notifications.
+    let agentStatusKey: String?
+    /// Event timestamp paired with ``agentStatusKey`` for ordering.
+    let agentEventTime: TimeInterval?
 
     init?(meta: String) {
-        // Accept ONLY the canonical serialization the CLI emits (`c=` then
-        // `p=`, optionally followed by `a=`, `n=`, `s=`, then `k=`, this order,
-        // no duplicates or extras). Anything else — reordered, duplicated, or
-        // unknown trailing fields — is not metadata and stays part of the
-        // legacy notification body.
+        // Accept only the canonical serialization emitted by the CLI. The
+        // sound field precedes notification identity, which precedes the
+        // optional ordered status pair; reordered or unknown fields remain in
+        // the legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard (2...6).contains(fields.count),
+        guard (2...8).contains(fields.count),
               fields[0].hasPrefix("c="),
-              fields[1].hasPrefix("p=") else { return nil }
-        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
+              fields[1].hasPrefix("p="),
+              let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
             return nil
         }
         switch fields[1].dropFirst(2) {
@@ -65,53 +68,79 @@ struct AgentNotificationMeta {
         case "0": self.pending = false
         default: return nil
         }
-        var agentKind: String? = nil
-        var isSubagent: Bool? = nil
-        var soundContext: NotificationSoundOverrideContext? = nil
-        var correlationKey: String? = nil
+        var parsedSoundContext: NotificationSoundOverrideContext?
         var index = 2
+        var parsedAgentKind: String?
+        var parsedIsSubagent: Bool?
+        var parsedCorrelationKey: String?
+        var parsedStatusKey: String?
+        var parsedEventTime: TimeInterval?
         if index < fields.count, fields[index].hasPrefix("a=") {
-            let kind = String(fields[index].dropFirst(2))
-            guard Self.isValidAgentKindTag(kind) else { return nil }
-            agentKind = kind
+            let value = String(fields[index].dropFirst(2))
+            guard Self.isValidAgentKindTag(value) else { return nil }
+            parsedAgentKind = value
             index += 1
         }
         if index < fields.count, fields[index].hasPrefix("n=") {
             switch fields[index].dropFirst(2) {
-            case "1": isSubagent = true
-            case "0": isSubagent = false
+            case "1": parsedIsSubagent = true
+            case "0": parsedIsSubagent = false
             default: return nil
             }
             index += 1
         }
         if index < fields.count, fields[index].hasPrefix("s=") {
-            guard let agentKind,
+            guard let parsedAgentKind,
                   let alertType = NotificationSoundAlertType(
                       rawValue: String(fields[index].dropFirst(2))
                   ),
                   let context = NotificationSoundOverrideContext(
-                      agentID: agentKind,
+                      agentID: parsedAgentKind,
                       alertType: alertType
                   ),
                   known.soundAlertType == alertType
                     || (known == .other && alertType == .errorStalled)
             else { return nil }
-            soundContext = context
+            parsedSoundContext = context
             index += 1
         }
-        if index < fields.count, fields[index].hasPrefix("k=") {
+        while index < fields.count {
+            guard fields[index].hasPrefix("k=") else { return nil }
             let key = String(fields[index].dropFirst(2))
-            guard let uuid = UUID(uuidString: key) else { return nil }
-            correlationKey = uuid.uuidString.lowercased()
-            index += 1
+            if index + 1 < fields.count, fields[index + 1].hasPrefix("t=") {
+                guard parsedStatusKey == nil,
+                      !key.isEmpty,
+                      key.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+                      let eventTime = TimeInterval(fields[index + 1].dropFirst(2)),
+                      Self.isPlausibleAgentEventTime(eventTime) else { return nil }
+                parsedStatusKey = key
+                parsedEventTime = eventTime
+                index += 2
+            } else {
+                guard parsedCorrelationKey == nil,
+                      parsedStatusKey == nil,
+                      let uuid = UUID(uuidString: key) else { return nil }
+                parsedCorrelationKey = uuid.uuidString.lowercased()
+                index += 1
+            }
         }
         guard index == fields.count else { return nil }
-        guard known != .other || soundContext != nil else { return nil }
+        guard (parsedStatusKey == nil) == (parsedEventTime == nil) else { return nil }
+        guard known != .other || parsedSoundContext != nil || parsedStatusKey != nil else { return nil }
         self.category = known
-        self.agentKind = agentKind
-        self.isSubagent = isSubagent
-        self.soundContext = soundContext
-        self.correlationKey = correlationKey
+        self.agentKind = parsedAgentKind
+        self.isSubagent = parsedIsSubagent
+        self.soundContext = parsedSoundContext
+        self.correlationKey = parsedCorrelationKey
+        self.agentStatusKey = parsedStatusKey
+        self.agentEventTime = parsedEventTime
+    }
+
+    /// Accepts current Unix timestamps while rejecting malformed or far-future values.
+    private static func isPlausibleAgentEventTime(_ value: TimeInterval) -> Bool {
+        value.isFinite
+            && value >= 946_684_800
+            && value <= Date.now.timeIntervalSince1970 + 5 * 60
     }
 
     /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug

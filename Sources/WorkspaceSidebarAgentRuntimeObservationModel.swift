@@ -17,6 +17,8 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     @ObservationIgnored
+    private(set) var agentLifecycleEventTimesByPanelId: [UUID: [String: TimeInterval]] = [:]
+    @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
     @ObservationIgnored
@@ -60,6 +62,12 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        notifyChanged()
+    }
+
+    func setAgentLifecycleEventTimesByPanelId(_ newValue: [UUID: [String: TimeInterval]]) {
+        guard agentLifecycleEventTimesByPanelId != newValue else { return }
+        agentLifecycleEventTimesByPanelId = newValue
         notifyChanged()
     }
 

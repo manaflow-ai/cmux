@@ -12,6 +12,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeBindingEventTimesByPanelId.removeValue(forKey: panelId)
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
@@ -137,12 +138,30 @@ extension DockSplitStore {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        let acceptedResumeBinding: Bool
         if let resumeBinding = detached.resumeBinding {
-            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: detached.panelId) {
+            acceptedResumeBinding = surfaceResumeBindingMutationAllowed(
+                resumeBinding,
+                panelId: detached.panelId
+            )
+            if acceptedResumeBinding {
                 surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
             }
+        } else {
+            acceptedResumeBinding = surfaceResumeBindingRemovalAllowed(panelId: detached.panelId)
         }
-        if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
+        if acceptedResumeBinding,
+           let eventTime = [
+               detached.resumeBindingEventTime,
+               detached.resumeBinding?.updatedAt,
+           ].compactMap({ $0 }).max() {
+            recordSurfaceResumeBindingMutation(
+                panelId: detached.panelId,
+                eventTime: eventTime
+            )
+        }
+        if acceptedResumeBinding,
+           let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
         }
         if let deferredRestore = detached.deferredAgentResumeRestore {
@@ -209,6 +228,10 @@ extension DockSplitStore {
                 return
             }
         }
+        recordSurfaceResumeBindingMutation(
+            panelId: panelId,
+            eventTime: Date.now.timeIntervalSince1970
+        )
         let originalBinding = binding
         binding.autoResume = false
         if binding.hasCompleteManagedSessionIdentity {
@@ -248,6 +271,8 @@ extension DockSplitStore {
         )
     }
 
+    /// Compatibility accessors for Dock feed/test callers that work with a
+    /// complete sidebar row rather than the decomposed runtime mutation API.
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
         agentRuntimeByPanelId[panelId]?.statusEntries[key]
     }
@@ -257,9 +282,63 @@ extension DockSplitStore {
         key: String,
         panelId: UUID
     ) {
-        mutateAgentRuntime(panelId: panelId) {
-            $0.statusEntries[key] = entry
+        mutateAgentRuntime(panelId: panelId) { runtime in
+            runtime.statusEntries[key] = entry
         }
+    }
+
+    @discardableResult
+    func upsertAgentRuntimeStatusEntry(
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        panelId: UUID,
+        pid: pid_t?,
+        agentEventTime: TimeInterval?,
+        enforceAgentEventOrdering: Bool = true
+    ) -> SidebarStatusEntryReplacementDecision {
+        var replacementDecision: SidebarStatusEntryReplacementDecision = .stale
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
+            let hasLifecycleWatermark = runtime.agentLifecycleEventTimes[key] != nil
+            let effectiveAgentEventTime = agentEventTime
+                ?? (enforceAgentEventOrdering ? nil : runtime.statusEntries[key]?.agentEventTime)
+            guard Self.acceptAgentRuntimeMutation(
+                statusKey: key,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceAgentEventOrdering
+                    && (agentEventTime != nil || hasLifecycleWatermark),
+                runtime: &runtime
+            ) else {
+                return
+            }
+            replacementDecision = SidebarStatusEntry.replacementDecision(
+                current: runtime.statusEntries[key],
+                key: key, value: value, icon: icon, color: color, url: url,
+                priority: priority, format: format,
+                agentEventTime: effectiveAgentEventTime,
+                agentOwnerPanelID: panelId
+            )
+            if replacementDecision == .replace {
+                runtime.statusEntries[key] = SidebarStatusEntry(
+                    key: key, value: value, icon: icon, color: color, url: url,
+                    priority: priority, format: format, timestamp: .now,
+                    agentEventTime: effectiveAgentEventTime,
+                    agentOwnerPanelID: panelId
+                )
+            }
+        }
+        if replacementDecision != .stale, let pid {
+            _ = recordAgentPID(
+                key: key, pid: pid, panelId: panelId,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: enforceAgentEventOrdering && agentEventTime != nil
+            )
+        }
+        return replacementDecision
     }
 
     func clearAgentRuntimeStatusEntry(key: String, panelId: UUID) {
@@ -269,19 +348,30 @@ extension DockSplitStore {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
+    ) -> Bool {
         var didReplaceRuntime = false
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
+            let statusKey = Self.agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+            guard Self.acceptAgentRuntimeMutation(
+                statusKey: statusKey,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceAgentEventOrdering,
+                runtime: &runtime
+            ) else {
+                return
+            }
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
                     $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
                 }
                 for staleKey in staleKeys {
-                    Self.clearAgentPID(
-                        key: staleKey,
-                        clearStatus: true,
-                        runtime: &runtime
-                    )
+                    Self.clearAgentPID(key: staleKey, clearStatus: true, runtime: &runtime)
                 }
                 didReplaceRuntime = !staleKeys.isEmpty
             }
@@ -296,14 +386,32 @@ extension DockSplitStore {
         return didReplaceRuntime
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
-        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
-            $0.agentLifecycleStates[key] = lifecycle
+        lifecycle: AgentHibernationLifecycleState,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
+    ) -> Bool {
+        var didSet = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
+            guard Self.acceptAgentRuntimeMutation(
+                statusKey: key,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceAgentEventOrdering || agentEventTime != nil,
+                isLifecycleMutation: true,
+                runtime: &runtime
+            ) else {
+                return
+            }
+            runtime.agentLifecycleStates[key] = lifecycle
+            if let agentEventTime {
+                runtime.agentLifecycleEventTimes[key] = agentEventTime
+            }
+            didSet = true
         }
+        return didSet
     }
 
     func agentHibernationLifecycleState(
@@ -336,18 +444,29 @@ extension DockSplitStore {
         key: String,
         panelId: UUID,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
     ) -> Bool {
         if requireOwnedKey,
            agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) != true {
             return false
         }
         var didChange = false
-        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
+            let statusKey = Self.agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+            guard Self.acceptAgentRuntimeMutation(
+                statusKey: statusKey,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceAgentEventOrdering,
+                runtime: &runtime
+            ) else {
+                return
+            }
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
-                runtime: &$0
+                runtime: &runtime
             )
         }
         return didChange
@@ -371,6 +490,7 @@ extension DockSplitStore {
             || !runtime.agentPIDs.isEmpty
             || !runtime.agentPIDKeys.isEmpty
             || !runtime.agentLifecycleStates.isEmpty
+            || !runtime.agentLifecycleEventTimes.isEmpty
         if shouldKeep {
             agentRuntimeByPanelId[panelId] = runtime
         } else {
@@ -440,6 +560,66 @@ extension DockSplitStore {
             return key
         }
         return String(key[..<dotIndex])
+    }
+
+    @discardableResult
+    func acceptAgentRuntimeMutation(
+        statusKey: String,
+        panelId: UUID,
+        agentEventTime: TimeInterval?,
+        enforceOrdering: Bool,
+        isLifecycleMutation: Bool = false
+    ) -> Bool {
+        var isAccepted = false
+        mutateAgentRuntime(panelId: panelId) { runtime in
+            isAccepted = Self.acceptAgentRuntimeMutation(
+                statusKey: statusKey,
+                agentEventTime: agentEventTime,
+                enforceOrdering: enforceOrdering,
+                isLifecycleMutation: isLifecycleMutation,
+                runtime: &runtime
+            )
+        }
+        return isAccepted
+    }
+
+    private static func acceptAgentRuntimeMutation(
+        statusKey: String,
+        agentEventTime: TimeInterval?,
+        enforceOrdering: Bool,
+        isLifecycleMutation: Bool = false,
+        runtime: inout Workspace.DetachedAgentRuntimeState
+    ) -> Bool {
+        let replacementWatermark: TimeInterval?
+        if AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey) {
+            let lifecycleWatermarks = runtime.agentLifecycleEventTimes.compactMap { entry in
+                entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
+                    ? entry.value : nil
+            }
+            let statusWatermarks = runtime.statusEntries.compactMap { entry -> TimeInterval? in
+                entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
+                    ? entry.value.agentEventTime : nil
+            }
+            replacementWatermark = (lifecycleWatermarks + statusWatermarks).max()
+        } else {
+            replacementWatermark = nil
+        }
+        let decision = AgentRuntimeMutationOrdering.decision(
+            statusKey: statusKey,
+            lifecycleEventTime: runtime.agentLifecycleEventTimes[statusKey],
+            statusEventTime: runtime.statusEntries[statusKey]?.agentEventTime,
+            replacementWatermark: replacementWatermark,
+            hasLifecycleState: runtime.agentLifecycleStates[statusKey] != nil,
+            agentEventTime: agentEventTime,
+            enforceOrdering: enforceOrdering,
+            isLifecycleMutation: isLifecycleMutation
+        )
+        guard decision.isAccepted else { return false }
+        if let retainedEventTime = decision.retainedEventTime,
+           retainedEventTime > (runtime.agentLifecycleEventTimes[statusKey] ?? -Double.infinity) {
+            runtime.agentLifecycleEventTimes[statusKey] = retainedEventTime
+        }
+        return true
     }
 }
 

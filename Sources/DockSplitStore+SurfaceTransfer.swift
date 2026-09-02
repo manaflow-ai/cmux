@@ -172,6 +172,11 @@ extension DockSplitStore {
             ?? (preservesCompletedAgentExit ? nil : preservedTransfer?.restorableAgent)
         let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
         let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId]
+        let preservedResumeBindingEventTime = [
+            surfaceResumeBindingEventTimesByPanelId[panelId],
+            preservedTransfer?.resumeBindingEventTime,
+            preservedResumeBinding?.updatedAt,
+        ].compactMap { $0 }.max()
         let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
             ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
         let kind = bonsplitController.tab(tabId)?.kind
@@ -375,6 +380,7 @@ extension DockSplitStore {
             restoredPanelTitleBoundary: transferredRestoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            resumeBindingEventTime: preservedResumeBindingEventTime,
             deferredAgentResumeRestore: deferredAgentResumeRestore,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,

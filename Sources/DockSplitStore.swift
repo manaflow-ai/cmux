@@ -91,6 +91,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Latest accepted ordered resume mutation per stable panel, retained after
+    /// a binding is cleared so delayed hooks cannot recreate stale state.
+    @ObservationIgnored var surfaceResumeBindingEventTimesByPanelId: [UUID: TimeInterval] = [:]
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [

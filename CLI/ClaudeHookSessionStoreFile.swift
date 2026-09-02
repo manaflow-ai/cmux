@@ -1,5 +1,12 @@
 import Foundation
 
+/// Retains the newest accepted hook event after a session record is torn down.
+/// A later delayed hook can therefore be rejected instead of recreating stale state.
+struct ClaudeHookSessionTombstone: Codable {
+    var eventTime: TimeInterval
+    var updatedAt: TimeInterval
+}
+
 struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -13,6 +20,8 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
+    /// Per-session ordering fences retained after teardown.
+    var sessionTombstones: [String: ClaudeHookSessionTombstone] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
     /// Bounded lookup index for Cursor approvals, keyed by stable surface id.
     var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
@@ -32,6 +41,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
         case activeSessionsBySurface
+        case sessionTombstones
         case agentHookFailureReportTimestamps
         case pendingCursorApprovalSessionsBySurface
         case pendingCursorApprovalSessionCountsBySurface
@@ -56,6 +66,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         activeSessionsBySurface = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsBySurface
+        ) ?? [:]
+        sessionTombstones = try container.decodeIfPresent(
+            [String: ClaudeHookSessionTombstone].self,
+            forKey: .sessionTombstones
         ) ?? [:]
         agentHookFailureReportTimestamps = try container.decodeIfPresent(
             [String: TimeInterval].self,
@@ -91,6 +105,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !activeSessionsBySurface.isEmpty {
             try container.encode(activeSessionsBySurface, forKey: .activeSessionsBySurface)
+        }
+        if !sessionTombstones.isEmpty {
+            try container.encode(sessionTombstones, forKey: .sessionTombstones)
         }
         if !agentHookFailureReportTimestamps.isEmpty {
             try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)

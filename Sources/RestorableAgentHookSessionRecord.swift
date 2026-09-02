@@ -15,5 +15,7 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// Latest accepted hook event time for runtime ordering and reconciliation.
+    var runtimeStatusEventTime: TimeInterval?
     var updatedAt: TimeInterval
 }

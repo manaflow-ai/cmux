@@ -961,6 +961,8 @@ struct RestorableAgentSessionIndex: Sendable {
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
+        /// Latest accepted hook event time for live-idle reconciliation.
+        let runtimeStatusEventTime: TimeInterval?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
         let processLiveness: RestorableAgentProcessLiveness
@@ -982,6 +984,7 @@ struct RestorableAgentSessionIndex: Sendable {
         init(
             snapshot: SessionRestorableAgentSnapshot,
             lifecycle: AgentHibernationLifecycleState?,
+            runtimeStatusEventTime: TimeInterval? = nil,
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
             hasRecordedProcessID: Bool = false,
@@ -996,6 +999,7 @@ struct RestorableAgentSessionIndex: Sendable {
         ) {
             self.snapshot = snapshot
             self.lifecycle = lifecycle
+            self.runtimeStatusEventTime = runtimeStatusEventTime
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
             self.hasRecordedProcessID = hasRecordedProcessID
@@ -1105,6 +1109,11 @@ struct RestorableAgentSessionIndex: Sendable {
     func entry(panelId: UUID) -> Entry? {
         guard !ambiguousPanelIds.contains(panelId) else { return nil }
         return entriesByPanelId[panelId]
+    }
+
+    /// Returns the persisted hook event time for one workspace/panel owner.
+    func runtimeStatusEventTime(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
+        entry(workspaceId: workspaceId, panelId: panelId)?.runtimeStatusEventTime
     }
 
     func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
@@ -1571,6 +1580,7 @@ struct RestorableAgentSessionIndex: Sendable {
             revalidatedEntries[key] = Entry(
                 snapshot: entry.snapshot,
                 lifecycle: entry.lifecycle,
+                runtimeStatusEventTime: entry.runtimeStatusEventTime,
                 updatedAt: entry.updatedAt,
                 processLiveness: processLiveness,
                 hasRecordedProcessID: entry.hasRecordedProcessID,
@@ -2115,6 +2125,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
+                    runtimeStatusEventTime: effectiveRecord.runtimeStatusEventTime,
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
                     hasRecordedProcessID: effectiveRecord.pid != nil,
@@ -2178,6 +2189,7 @@ struct RestorableAgentSessionIndex: Sendable {
             key: PanelKey,
             snapshot: SessionRestorableAgentSnapshot,
             lifecycle: AgentHibernationLifecycleState?,
+            runtimeStatusEventTime: TimeInterval? = nil,
             updatedAt: TimeInterval,
             detected: ProcessDetectedSnapshotEntry
         ) -> Entry {
@@ -2195,7 +2207,10 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             )
             return Entry(
-                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                snapshot: snapshot,
+                lifecycle: lifecycle,
+                runtimeStatusEventTime: runtimeStatusEventTime,
+                updatedAt: updatedAt,
                 processLiveness: .running,
                 hasRecordedProcessID: true,
                 processIDs: detected.processIDs,
@@ -2233,7 +2248,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, runtimeStatusEventTime: panelCandidate.runtimeStatusEventTime, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -2245,7 +2260,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, runtimeStatusEventTime: panelCandidate.runtimeStatusEventTime, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -2254,9 +2269,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, runtimeStatusEventTime: existing.runtimeStatusEventTime, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, runtimeStatusEventTime: nil, updatedAt: 0, detected: detected)
             }
         }
 

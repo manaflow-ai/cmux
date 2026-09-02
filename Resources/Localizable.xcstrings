@@ -38514,13 +38514,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID] [--agent-status-key=KEY --agent-event-time=SECONDS]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID] [--agent-status-key=KEY --agent-event-time=SECONDS]"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsOrderedInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid ordered notification clear; provide a valid --agent-status-key and --agent-event-time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序付き通知クリアが無効です。有効な --agent-status-key と --agent-event-time を指定してください"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsOrderedRequiresPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordered notification clear requires --panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序付き通知クリアには --panel が必要です"
           }
         }
       }
@@ -244622,6 +244656,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "選択するにはサイドバー名が必要です。"
+          }
+        }
+      }
+    },
+    "socket.surfaceResume.error.invalidAgentEventTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_event_time がないか無効です。2000-01-01 から現在時刻の 5 分後までの Unix 秒を指定してください"
           }
         }
       }

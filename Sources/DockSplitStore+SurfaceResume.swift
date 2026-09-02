@@ -2,8 +2,18 @@ import Foundation
 
 extension DockSplitStore {
     @discardableResult
-    func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
-        guard panels[panelId] is TerminalPanel,
+    func setSurfaceResumeBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID,
+        agentEventTime: TimeInterval? = nil,
+        requiresAgentEventTime: Bool = false
+    ) -> Bool {
+        guard acceptsSurfaceResumeBindingMutation(
+            panelId: panelId,
+            agentEventTime: agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ),
+              panels[panelId] is TerminalPanel,
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
@@ -107,6 +117,9 @@ extension DockSplitStore {
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        if let eventTime = [binding.updatedAt, agentEventTime].compactMap({ $0 }).max() {
+            recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: eventTime)
+        }
         return true
     }
 
@@ -151,6 +164,7 @@ extension DockSplitStore {
         panelId: UUID
     ) -> Bool {
         guard let claim = surfaceResumeRestoreClaim(for: panelId) else {
+            recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: incoming.updatedAt)
             return true
         }
         guard claim.binding.acceptsRestoreBindingClaim(from: incoming) else {
@@ -160,6 +174,7 @@ extension DockSplitStore {
             binding: incoming,
             claimedAt: claim.claimedAt
         )
+        recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: incoming.updatedAt)
         return true
     }
 
@@ -215,8 +230,17 @@ extension DockSplitStore {
     func clearSurfaceResumeBinding(
         panelId: UUID,
         binding requestedBinding: SurfaceResumeBindingSnapshot? = nil,
-        agentSessionEnded: Bool = false
+        agentSessionEnded: Bool = false,
+        eventTime: TimeInterval? = nil,
+        requiresAgentEventTime: Bool = false
     ) -> Bool {
+        guard acceptsSurfaceResumeBindingMutation(
+            panelId: panelId,
+            agentEventTime: eventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ) else {
+            return false
+        }
         let managedBinding = managedAgentResumeBinding(panelId: panelId)
         let binding = requestedBinding
             ?? (agentSessionEnded
@@ -249,6 +273,10 @@ extension DockSplitStore {
                 agentSessionEnded: agentSessionEnded
             )
             surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+            recordSurfaceResumeBindingMutation(
+                panelId: panelId,
+                eventTime: eventTime ?? Date.now.timeIntervalSince1970
+            )
             return true
         }
 
@@ -264,11 +292,41 @@ extension DockSplitStore {
             agentSessionEnded: agentSessionEnded
         )
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        recordSurfaceResumeBindingMutation(
+            panelId: panelId,
+            eventTime: eventTime ?? Date.now.timeIntervalSince1970
+        )
         return true
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
+    }
+
+
+    func acceptsSurfaceResumeBindingMutation(
+        panelId: UUID,
+        agentEventTime: TimeInterval?,
+        requiresAgentEventTime: Bool = false
+    ) -> Bool {
+        let currentBindingTime = surfaceResumeBindingsByPanelId[panelId]?.updatedAt
+        let orderingWatermark = [surfaceResumeBindingEventTimesByPanelId[panelId], currentBindingTime]
+            .compactMap { $0 }
+            .max()
+        if requiresAgentEventTime, agentEventTime == nil {
+            return false
+        }
+        guard let orderingWatermark else { return true }
+        guard let agentEventTime else { return !requiresAgentEventTime }
+        return agentEventTime >= orderingWatermark
+    }
+
+    func recordSurfaceResumeBindingMutation(panelId: UUID, eventTime: TimeInterval) {
+        guard eventTime.isFinite else { return }
+        if let current = surfaceResumeBindingEventTimesByPanelId[panelId], current >= eventTime {
+            return
+        }
+        surfaceResumeBindingEventTimesByPanelId[panelId] = eventTime
     }
 
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {

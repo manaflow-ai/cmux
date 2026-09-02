@@ -21,6 +21,8 @@ extension TerminalController {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
+        agentStatusKey: String? = nil,
+        agentEventTime: TimeInterval? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -38,6 +40,21 @@ extension TerminalController {
             // validated membership in its authorized workspace. Never global-
             // rehome that source-confined claim from an untrusted surface UUID.
             target = (tabId, surfaceId)
+        }
+        if let agentStatusKey, let agentEventTime {
+            guard let liveSurfaceId = target.surfaceId,
+                  let owner = TerminalController.shared.controlSidebarResolvePanelOwner(
+                      target: .workspace(target.tabId),
+                      panelID: liveSurfaceId
+                  ),
+                  owner.acceptAgentRuntimeMutation(
+                      statusKey: agentStatusKey,
+                      panelId: liveSurfaceId,
+                      agentEventTime: agentEventTime,
+                      enforceOrdering: true
+                  ) else {
+                return nil
+            }
         }
         if retargetsToLiveSurfaceOwner, let liveSurfaceId = target.surfaceId {
             // Supersede by canonical surface identity: stale-keyed local
@@ -87,7 +104,9 @@ extension TerminalNotificationStore {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         correlationKey: String? = nil,
         notificationGeneration: UInt64,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        agentStatusKey: String? = nil,
+        agentEventTime: TimeInterval? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -99,6 +118,20 @@ extension TerminalNotificationStore {
             )
 #endif
             return
+        }
+        if let agentStatusKey, let agentEventTime {
+            guard let liveSurfaceId = target.surfaceId,
+                  let owner = TerminalController.shared.controlSidebarResolvePanelOwner(
+                      target: .workspace(target.tabId),
+                      panelID: liveSurfaceId
+                  ), owner.acceptAgentRuntimeMutation(
+                      statusKey: agentStatusKey,
+                      panelId: liveSurfaceId,
+                      agentEventTime: agentEventTime,
+                      enforceOrdering: true
+                  ) else {
+                return
+            }
         }
 #if DEBUG
         cmuxDebugLog(

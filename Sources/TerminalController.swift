@@ -13151,7 +13151,9 @@ class TerminalController {
                         isSubagent: meta?.isSubagent
                     ),
                     soundContext: meta?.soundContext,
-                    correlationKey: meta?.correlationKey
+                    correlationKey: meta?.correlationKey,
+                    agentStatusKey: meta?.agentStatusKey,
+                    agentEventTime: meta?.agentEventTime
                 )
                 return "OK"
             }
@@ -13183,7 +13185,9 @@ class TerminalController {
                     isSubagent: meta?.isSubagent
                 ),
                 soundContext: meta?.soundContext,
-                correlationKey: meta?.correlationKey
+                correlationKey: meta?.correlationKey,
+                agentStatusKey: meta?.agentStatusKey,
+                agentEventTime: meta?.agentEventTime
             )
             return "OK"
         }
@@ -13227,6 +13231,8 @@ class TerminalController {
             category: meta?.category,
             pending: meta?.pending ?? false,
             soundContext: meta?.soundContext,
+            agentStatusKey: meta?.agentStatusKey,
+            agentEventTime: meta?.agentEventTime,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey
@@ -13291,7 +13297,7 @@ class TerminalController {
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             let usage = String(
                 localized: "cli.error.clearNotificationsUsage",
-                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID] [--agent-status-key=KEY --agent-event-time=SECONDS]"
             )
             return "ERROR: Usage: \(usage)"
         }
@@ -13301,7 +13307,7 @@ class TerminalController {
         }
         let usage = String(
             localized: "cli.error.clearNotificationsUsage",
-            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID] [--agent-status-key=KEY --agent-event-time=SECONDS]"
         )
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
@@ -13328,6 +13334,31 @@ class TerminalController {
         }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
+                let rawStatusKey = parsed.options["agent-status-key"]
+                let rawEventTime = parsed.options["agent-event-time"]
+                let hasOrderedOptions = rawStatusKey != nil || rawEventTime != nil
+                if hasOrderedOptions {
+                    guard correlationKey == nil,
+                          let rawStatusKey,
+                          let statusKey = normalizedOptionValue(rawStatusKey),
+                          !statusKey.isEmpty,
+                          statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+                          let rawEventTime,
+                          let eventTime = TimeInterval(rawEventTime),
+                          eventTime.isPlausibleControlAgentEventTime else {
+                        return "ERROR: " + String(
+                            localized: "cli.error.clearNotificationsOrderedInvalid",
+                            defaultValue: "Invalid ordered notification clear; provide a valid --agent-status-key and --agent-event-time"
+                        )
+                    }
+                    TerminalMutationBus.shared.enqueueAgentNotificationClear(
+                        forTabId: tabId,
+                        surfaceId: panelId,
+                        statusKey: statusKey,
+                        agentEventTime: eventTime
+                    )
+                    return "OK"
+                }
                 if let correlationKey {
                     TerminalMutationBus.shared.enqueueClearNotifications(
                         forTabId: tabId,
@@ -13338,9 +13369,53 @@ class TerminalController {
                     TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
                 }
             } else {
+                if parsed.options["agent-status-key"] != nil || parsed.options["agent-event-time"] != nil {
+                    return "ERROR: " + String(
+                        localized: "cli.error.clearNotificationsOrderedRequiresPanel",
+                        defaultValue: "Ordered notification clear requires --panel"
+                    )
+                }
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
         } else {
+            if parsed.options["agent-status-key"] != nil || parsed.options["agent-event-time"] != nil {
+                let clearBoundary = TerminalMutationBus.shared.markNotificationClearBoundary()
+                TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+                    guard let self,
+                          let tab = self.resolveSidebarMutationTab(target),
+                          let panelId = panelResolution.panelId,
+                          tab.panels.keys.contains(panelId),
+                          let owner = self.controlSidebarResolvePanelOwner(
+                              target: .workspace(tab.id),
+                              panelID: panelId
+                          ),
+                          let rawStatusKey = parsed.options["agent-status-key"],
+                          let statusKey = self.normalizedOptionValue(rawStatusKey),
+                          !statusKey.isEmpty,
+                          statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+                          let rawEventTime = parsed.options["agent-event-time"],
+                          let eventTime = TimeInterval(rawEventTime),
+                          eventTime.isPlausibleControlAgentEventTime,
+                          owner.acceptAgentRuntimeMutation(
+                              statusKey: statusKey,
+                              panelId: panelId,
+                              agentEventTime: eventTime,
+                              enforceOrdering: true
+                          ) else { return }
+                    TerminalMutationBus.shared.discardPendingNotifications(
+                        forTabId: tab.id,
+                        surfaceId: panelId,
+                        through: clearBoundary
+                    )
+                    TerminalNotificationStore.shared.clearNotifications(
+                        forTabId: tab.id,
+                        surfaceId: panelId,
+                        discardQueuedNotifications: false,
+                        throughNotificationGeneration: clearBoundary
+                    )
+                }
+                return "OK"
+            }
             let clearBoundary = TerminalMutationBus.shared.markNotificationClearBoundary()
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
@@ -14702,10 +14777,25 @@ class TerminalController {
         }
         let panelResolution = parseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID] [--agent-event-time=SECONDS]"
         )
         if let error = panelResolution.error {
             return error
+        }
+
+        let agentEventTime: TimeInterval?
+        if let rawEventTime = parsed.options["agent-event-time"] {
+            let normalizedEventTime = rawEventTime.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let parsedEventTime = TimeInterval(normalizedEventTime),
+                  parsedEventTime.isPlausibleControlAgentEventTime else {
+                return "ERROR: " + String(
+                    localized: "socket.surfaceResume.error.invalidAgentEventTime",
+                    defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now"
+                )
+            }
+            agentEventTime = parsedEventTime
+        } else {
+            agentEventTime = nil
         }
 
         let pidValue: pid_t? = {
@@ -14720,23 +14810,7 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            guard Self.shouldReplaceStatusEntry(
-                current: tab.statusEntries[key],
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: parsedURL,
-                priority: priority,
-                format: format
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-                }
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
+            _ = tab.upsertSidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -14744,11 +14818,10 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
-                timestamp: Date()
+                panelId: panelResolution.panelId,
+                pid: pidValue,
+                agentEventTime: agentEventTime
             )
-            if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-            }
         }
         return "OK"
     }
