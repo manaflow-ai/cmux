@@ -1022,6 +1022,13 @@ struct DockShortcutRoutingTests {
                     for: .focusBrowserAddressBar
                 )
 
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        action: .focusBrowserAddressBar,
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+
                 #expect(Self.dispatch(shortcut, in: harness))
                 #expect(
                     harness.appDelegate.focusedBrowserAddressBarPanelId() ==
