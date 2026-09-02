@@ -12,7 +12,8 @@ type Environment = Record<string, string | undefined>;
 export function directDevBackendOrigin(
   environment: Environment = process.env,
 ): URL | undefined {
-  if (environment.CMUX_DEV_BACKEND_TRANSPORT !== "direct") return undefined;
+  const transport = environment.CMUX_DEV_BACKEND_TRANSPORT?.trim().toLowerCase();
+  if (transport !== "direct") return undefined;
 
   const configured = environment.CMUX_WWW_ORIGIN?.trim();
   if (!configured) return undefined;
