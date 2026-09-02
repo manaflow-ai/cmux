@@ -29090,27 +29090,38 @@ mod tests {
 }
 #[test]
 fn initial_bootstrap_lock_serializes_concurrent_callers() {
-    use std::sync::{Arc, Barrier};
+    use std::sync::{mpsc, Arc, Barrier};
     use std::thread;
 
     let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
     let barrier = Arc::new(Barrier::new(2));
-    let active = Arc::new(AtomicUsize::new(0));
-    let max_active = Arc::new(AtomicUsize::new(0));
+    let (event_tx, event_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
     thread::scope(|scope| {
-        for _ in 0..2 {
-            let barrier = barrier.clone();
-            let active = active.clone();
-            let max_active = max_active.clone();
-            let mux = mux.clone();
-            scope.spawn(move || {
-                barrier.wait();
-                let _guard = mux.lock_initial_bootstrap();
-                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
-                max_active.fetch_max(now, Ordering::SeqCst);
-                active.fetch_sub(1, Ordering::SeqCst);
-            });
-        }
+        let first_barrier = barrier.clone();
+        let first_mux = mux.clone();
+        let first_event_tx = event_tx.clone();
+        scope.spawn(move || {
+            let _guard = first_mux.lock_initial_bootstrap();
+            first_event_tx.send(()).unwrap();
+            first_barrier.wait();
+            release_rx.recv().unwrap();
+        });
+
+        let second_barrier = barrier.clone();
+        let second_mux = mux.clone();
+        scope.spawn(move || {
+            second_barrier.wait();
+            let _guard = second_mux.lock_initial_bootstrap();
+            event_tx.send(()).unwrap();
+        });
+
+        // The first caller holds the lock while the second caller attempts to
+        // acquire it. The second event must therefore remain blocked until
+        // the first caller is released.
+        event_rx.recv().unwrap();
+        assert!(event_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+        event_rx.recv().unwrap();
     });
-    assert_eq!(max_active.load(Ordering::SeqCst), 1);
 }
