@@ -189,16 +189,23 @@ describe("audit constants stay tied to the runtime", () => {
 });
 
 describe("required runtime env keys cover the production provider path", () => {
-  test("blaxel credentials, cron auth, and the alert sink are required", () => {
+  test("blaxel credentials and cron auth are required", () => {
     for (const key of [
       "BL_API_KEY",
       "BL_WORKSPACE",
       "BLAXEL_SANDBOX_IMAGE",
       "CRON_SECRET",
-      "CMUX_ALERTS_SLACK_WEBHOOK_URL",
     ]) {
       expect(requiredRuntimeEnvKeys).toContain(key);
     }
+  });
+
+  test("the Slack alert sink is recommended, not required", () => {
+    // Production runs without a webhook until an operator provisions one; the
+    // alert cron already reports triggered-but-dropped alerts to Sentry and
+    // PostHog, so the audit surfaces the gap without failing on it.
+    expect(recommendedRuntimeEnvKeys).toContain("CMUX_ALERTS_SLACK_WEBHOOK_URL");
+    expect(requiredRuntimeEnvKeys).not.toContain("CMUX_ALERTS_SLACK_WEBHOOK_URL");
   });
 
   test("off-only kill switches and the desktop selector stay recommended, not required", () => {

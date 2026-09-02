@@ -30,10 +30,6 @@ export const requiredRuntimeEnvKeys = [
   "BLAXEL_SANDBOX_IMAGE",
   "BL_API_KEY",
   "BL_WORKSPACE",
-  // Without the Slack sink every triggered VM alert drops silently while the
-  // alert cron keeps returning 200, so an unset webhook is an observability
-  // outage, not a tuning choice.
-  "CMUX_ALERTS_SLACK_WEBHOOK_URL",
   // The application can build without APNs credentials, but a promoted
   // runtime cannot deliver the Push Alerts feature without the complete set.
   "CMUX_APNS_KEY_ID",
@@ -63,6 +59,13 @@ export const recommendedRuntimeEnvKeys = [
   // Optional by design: when unset, desktop creates fall back to the generic
   // BLAXEL_SANDBOX_IMAGE selector (services/vms/images/resolver.ts).
   "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  // Production has no Slack sink yet (provisioning one is a pending operator
+  // decision). Requiring it here turned every main push red without adding
+  // signal: the alert cron already reports a triggered alert with no sink to
+  // Sentry and PostHog (services/observability/vmAlerts.ts,
+  // reportDroppedVmAlerts). Recommended so the gap stays visible in the report
+  // while the audit keeps guarding provider/env drift.
+  "CMUX_ALERTS_SLACK_WEBHOOK_URL",
   "CMUX_DB_POOL_MAX",
   // Kill switches are off-only: unset means enabled, so requiring presence
   // would fail a healthy deployment. Recommended for explicitness (the other
