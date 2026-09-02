@@ -1959,7 +1959,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(rootView.chromePaletteHost(
-                initialPalette: initialChromePalette,
+                initialPalette: self.initialChromePalette,
                 settingsRuntime: settingsRuntime,
                 updates: chromePaletteUpdates
             ))
@@ -2209,7 +2209,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 }
             )
             .chromePaletteHost(
-                initialPalette: initialChromePalette,
+                initialPalette: self.initialChromePalette,
                 settingsRuntime: settingsRuntime,
                 updates: chromePaletteUpdates
             )
