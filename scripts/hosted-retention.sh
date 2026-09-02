@@ -139,12 +139,17 @@ cmux_hosted_retention_reclaim_lock() {
   local lock_extra
   local lock_age
   local lock_valid=0
+  local lock_marker_present=0
   local lock_mtime
   local owner_state
   local recovery_dir
+  local owner_backup
 
   if [[ ! -d "$lock_dir" || -L "$lock_dir" || ! -O "$lock_dir" ]]; then
     return 1
+  fi
+  if [[ -e "$lock_marker" || -L "$lock_marker" ]]; then
+    lock_marker_present=1
   fi
   if [[ -f "$lock_marker" && ! -L "$lock_marker" && -O "$lock_marker" ]]; then
     lock_line="$(<"$lock_marker")" || return 1
@@ -194,7 +199,7 @@ cmux_hosted_retention_reclaim_lock() {
     fi
     return 2
   fi
-  if (( lock_valid )); then
+  if [[ "$lock_marker_present" -eq 1 ]]; then
     if [[ ! -f "$recovery_dir/owner" || -L "$recovery_dir/owner" ||
       ! -O "$recovery_dir/owner" || "$(<"$recovery_dir/owner")" != "$lock_line" ]]; then
       if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
@@ -212,21 +217,39 @@ cmux_hosted_retention_reclaim_lock() {
       fi
       return 2
     fi
-  fi
-  if [[ -e "$recovery_dir/owner" || -L "$recovery_dir/owner" ]] &&
-    ! rm -f -- "$recovery_dir/owner" >/dev/null 2>&1; then
-    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" ]]; then
-      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
-    fi
-    return 2
-  fi
-  if ! rmdir -- "$recovery_dir" >/dev/null 2>&1; then
     if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
       -d "$recovery_dir" && ! -L "$recovery_dir" ]]; then
       mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
     fi
     return 2
   fi
+  owner_backup="$lock_dir.$$.$RANDOM.owner-backup"
+  if [[ -e "$owner_backup" || -L "$owner_backup" ]]; then
+    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
+      -d "$recovery_dir" && ! -L "$recovery_dir" ]]; then
+      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+    fi
+    return 2
+  fi
+  if [[ -e "$recovery_dir/owner" || -L "$recovery_dir/owner" ]]; then
+    if ! mv -- "$recovery_dir/owner" "$owner_backup" >/dev/null 2>&1; then
+      if [[ ! -e "$lock_dir" && ! -L "$lock_dir" ]]; then
+        mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+      fi
+      return 2
+    fi
+  fi
+  if ! rmdir -- "$recovery_dir" >/dev/null 2>&1; then
+    if [[ -e "$owner_backup" || -L "$owner_backup" ]]; then
+      mv -- "$owner_backup" "$recovery_dir/owner" >/dev/null 2>&1 || true
+    fi
+    if [[ ! -e "$lock_dir" && ! -L "$lock_dir" &&
+      -d "$recovery_dir" && ! -L "$recovery_dir" ]]; then
+      mv -- "$recovery_dir" "$lock_dir" >/dev/null 2>&1 || true
+    fi
+    return 2
+  fi
+  rm -f -- "$owner_backup" >/dev/null 2>&1 || true
   return 0
 }
 
@@ -410,6 +433,7 @@ cmux_hosted_retention_run_impl() (
   local candidate_binary
   local lock_dir=""
   local lock_marker=""
+  local lock_marker_tmp=""
   local lock_token=""
   # A dead owner is reclaimable only after one day. This bounds crash residue
   # while protecting a long-running cleanup from a premature takeover.
@@ -541,7 +565,9 @@ cmux_hosted_retention_run_impl() (
     cmux_hosted_retention_error "another retention cleanup is already running"
     exit $?
   fi
-  if ! (umask 077 && printf '%s\n' "$lock_token" > "$lock_marker"); then
+  lock_marker_tmp="$lock_dir/.owner.$$.$RANDOM.tmp"
+  if ! (umask 077 && printf '%s\n' "$lock_token" > "$lock_marker_tmp" && mv -- "$lock_marker_tmp" "$lock_marker"); then
+    rm -f -- "$lock_marker_tmp" >/dev/null 2>&1 || true
     rmdir -- "$lock_dir" >/dev/null 2>&1 || true
     cmux_hosted_retention_error "cannot initialize the retention cleanup lock"
     exit $?
