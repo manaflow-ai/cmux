@@ -681,6 +681,35 @@ TEST("generic journal producer contracts stay userland and wire-compatible") {
     CHECK(!legacy_screen.revision);
 }
 
+TEST("journal subject decoder enforces lowercase component grammar") {
+    auto record_wire = cmux::Json::parse(R"({
+        "sequence":"1",
+        "event_id":"event-1",
+        "schema_version":1,
+        "kind":"plugin.screen-detector.agent.state.changed",
+        "class":"state",
+        "replay":"required",
+        "occurred_at_ms":"1",
+        "committed_at_ms":"2",
+        "producer":{"kind":"plugin","id":"screen-detector"},
+        "authority":null,
+        "causation_id":null,
+        "correlation_id":null,
+        "causation_depth":0,
+        "subjects":[{"kind":"Agent","id":"agent-1"}],
+        "sensitivity":"metadata",
+        "payload":{},
+        "resource_revision":null,
+        "previous_resource_revision":null
+    })");
+    CHECK(record_wire);
+
+    auto decoded = cmux::detail::decode_session_journal_record(
+        record_wire.value(), cmux::Cursor{"g", 1});
+    CHECK(!decoded);
+    CHECK_EQ(decoded.error().code, cmux::ErrorCode::decode);
+}
+
 TEST("session auxiliary options reject invalid values before I/O") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
