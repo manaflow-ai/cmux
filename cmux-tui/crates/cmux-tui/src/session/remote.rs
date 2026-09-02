@@ -3683,7 +3683,43 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             format!("dump directory is not private: {}", path.display()),
         ));
     }
+    prune_stale_dump_temps(&directory, path)?;
     Ok(directory)
+}
+
+#[cfg(unix)]
+fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = unsafe { libc::geteuid() };
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_bytes = name.as_os_str().as_bytes();
+        let is_dump_temp = (name_bytes.starts_with(b".mirror-")
+            || name_bytes.starts_with(b".frames-"))
+            && name_bytes.windows(b".tmp-".len()).any(|part| part == b".tmp-");
+        if !is_dump_temp {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
+            continue;
+        }
+        let name = CString::new(name_bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+        let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
