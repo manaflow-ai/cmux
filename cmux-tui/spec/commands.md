@@ -141,13 +141,13 @@ browser surface still has one live tab. When a browser tab becomes hidden, the
 client sends `release-surface-size`; detaching or disconnecting also removes
 its report. Internal server-only resizes do not update client reports.
 
-Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
+Optional-size creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `new-pane`, `new-pane-right`, `split`, and `run`. The `split` command uses `dir:"right"` or `dir:"down"`; receipt operations may use `split-right` or `split-down`. `create-terminal` and `create-surface-with-receipt` also accept dimensions but require the pair. `attach-surface` requires the pair when `attach-initial-size` is used. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal`, `create-surface-with-receipt`, and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
@@ -562,7 +562,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Requests that attached TUI frontends re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+Requests the server owner and attached TUI frontends to re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback). Interactive owners redraw; headless owners apply server-owned settings without a TUI frame.
 
 Params: none.
 
@@ -572,7 +572,7 @@ Result:
 object{reloaded:true,path:string|null}
 ```
 
-Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates server launch options for future browser surfaces; existing browser runtimes and already-open browser surfaces may require restart for browser endpoint/profile/binary changes.
 
 Errors: `bad request: ...`.
 
@@ -2847,7 +2847,16 @@ Errors:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+`index`. The destination index uses the pre-move tab list's insertion
+coordinates. For a same-pane move, the server removes the tab, subtracts one
+from `index` when it is greater than the tab's current index, then clamps the
+adjusted index to the last valid position in the shortened list. For example,
+with tabs `[A,B,C]`, moving `A` with `index:2` produces `[B,A,C]`, while
+`index:3` produces `[B,C,A]`; `index:0` and `index:1` leave the order unchanged.
+A same-pane no-op returns `ok:true` and leaves the active tab unchanged. A
+cross-pane move removes the tab from its source, collapses an empty source
+pane, and inserts it at the clamped destination index.
 
 Params:
 
@@ -2867,10 +2876,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface <id>` | Surface id does not exist |
-| `unknown pane <id>` | Destination pane does not exist |
+| `unknown surface/pane` | The surface, destination pane, or the surface's current pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
