@@ -1031,6 +1031,15 @@ import Testing
         let object = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
         #expect((object["cursor"] as? [String: Any])?["revision"] as? String == "4")
 
+        let nullCursorSnapshotLine = #"{"type":"stream_item","cursor":{"generation":"g2","revision":"6"},"item":{"kind":"snapshot","snapshot":{"cursor":null,"workspaces":[]}}}"#
+        guard case .snapshot(let nullCursorEnvelope, _, let nullCursorPayload) = CloudMachineLink.parseChangeLine(nullCursorSnapshotLine) else {
+            Issue.record("a versioned snapshot with a null embedded cursor must remain versioned")
+            return
+        }
+        #expect(nullCursorEnvelope == CloudVMCursor(generation: "g2", revision: 6))
+        let nullCursorObject = try #require(JSONSerialization.jsonObject(with: nullCursorPayload) as? [String: Any])
+        #expect((nullCursorObject["cursor"] as? [String: Any])?["revision"] as? String == "6")
+
         let deltaLine = #"{"type":"stream_item","item":{"kind":"delta","cursor":{"generation":"g1","revision":"5"},"previous_revision":"4","revision":"5","changes":[]}}"#
         guard case .delta(let deltaCursor, let previous, let revision, _) = CloudMachineLink.parseChangeLine(deltaLine) else {
             Issue.record("expected a delta event")
