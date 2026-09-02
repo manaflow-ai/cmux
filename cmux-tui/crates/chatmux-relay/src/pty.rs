@@ -1515,6 +1515,9 @@ async fn request_control_with_cancellation(
     control.request(cmd, params).await
 }
 
+async fn detach_control_with_deadline(control: &Arc<dyn ControlHandle>, params: Value) -> bool {
+    control.send_reliable("detach-attached-view", params).await
+}
 // ---------------------------------------------------------------------------
 // A viewer PTY control that pumps its events into the framing sinks
 // ---------------------------------------------------------------------------
@@ -3618,6 +3621,41 @@ mod tests {
         }
     }
 
+    struct OffRuntimeDetachControl {
+        ended: Arc<AtomicUsize>,
+        fire_and_forget: Arc<AtomicUsize>,
+        reliable: Arc<AtomicUsize>,
+    }
+
+    impl ControlHandle for OffRuntimeDetachControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(async { Some(json!({ "ok": true })) })
+        }
+        fn send(&self, _cmd: &str, _params: Value) -> bool {
+            self.fire_and_forget.fetch_add(1, AtomicOrdering::SeqCst);
+            true
+        }
+        fn send_reliable(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            self.reliable.fetch_add(1, AtomicOrdering::SeqCst);
+            Box::pin(async { true })
+        }
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
     #[test]
     fn control_leases_detach_each_surface_and_end_once_after_last_release() {
         let h = harness(None, None);
@@ -3655,6 +3693,45 @@ mod tests {
         .expect("stalled detach must not retain the control lease");
         assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
         assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn canceled_detach_returns_after_deadline() {
+        let ended = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(StalledDetachControl { ended });
+        let result = tokio::time::timeout(
+            Duration::from_millis(CONTROL_TIMEOUT_MS + 500),
+            detach_control_with_deadline(&control, json!({ "surface": 7, "lease": "lease-a" })),
+        )
+        .await
+        .expect("canceled detach must not retain the session");
+        assert!(!result, "a stalled detach has no writer acceptance");
+    }
+
+    #[tokio::test]
+    async fn off_runtime_release_waits_for_detach_acceptance_before_end() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let fire_and_forget = Arc::new(AtomicUsize::new(0));
+        let reliable = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(OffRuntimeDetachControl {
+            ended: Arc::clone(&ended),
+            fire_and_forget: Arc::clone(&fire_and_forget),
+            reliable: Arc::clone(&reliable),
+        });
+        let lease = h.manager.inner.register_control_user(&control);
+        std::thread::spawn(move || lease.release(7, Some("lease-a"), true))
+            .join()
+            .expect("release thread");
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while ended.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("off-runtime release must finish");
+        assert_eq!(reliable.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
     }
 
     #[tokio::test]
