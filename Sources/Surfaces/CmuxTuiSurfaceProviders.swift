@@ -534,7 +534,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cpuPercent: stats?.cpuPercent,
             memoryUsedMb: stats?.memoryUsedMb,
             diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces
+            remoteWorkspaces: remoteWorkspaces,
+            privateAddress: summary.preferredPrivateAddress
         )
     }
 

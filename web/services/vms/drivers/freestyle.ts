@@ -216,6 +216,23 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
   return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
 }
 
+/**
+ * The machine's private-network addresses as persistable metadata. Addresses
+ * are allocated at create, so the create response already carries them; a
+ * response without any (no network) contributes nothing.
+ */
+export function freestyleNetworkAddressMetadata(
+  data: FreestyleRouteAddresses,
+): { networkIpv4?: string; networkIpv6?: string } {
+  const network = (data.vpcs ?? data.networks ?? [])[0];
+  const ipv4 = network?.ipv4?.trim();
+  const ipv6 = network?.ipv6?.trim();
+  return {
+    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+  };
+}
+
 /** The Freestyle VPC/tunnel records mapped onto the driver-neutral shapes. */
 export function mapFreestyleNetwork(data: VpcData): ProviderNetwork {
   return {
@@ -345,6 +362,11 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         const fs = freestyleClient();
         const existing = await this.readNetworkBySlug(fs, slug);
         if (existing) {
+          // Create-time rules can be deleted out of band (dashboard, scripts),
+          // and a network without its members rule strands every machine on
+          // it. Heal on every reuse: listing is cheap, the create is
+          // conditional, and the rule is what the whole feature stands on.
+          await this.ensureMembersRule(fs, existing.id);
           setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
           return existing;
         }
@@ -464,6 +486,36 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
+  /**
+   * Guarantee the network's members-reach-each-other rule (all ports, all
+   * protocols — the rule created with the network). Missing means someone
+   * removed it; re-create rather than fail, because nothing on the network
+   * works without it.
+   */
+  private async ensureMembersRule(fs: Freestyle, networkId: string): Promise<void> {
+    try {
+      const { rules } = await fs.firewall.rules.list({ vpcId: networkId });
+      const present = rules.some((rule) =>
+        rule.source.vpcId === networkId &&
+        rule.destination.vpcId === networkId &&
+        rule.destination.port === undefined &&
+        rule.destination.protocol === undefined
+      );
+      if (present) return;
+      await fs.firewall.rules.create({
+        action: "allow",
+        source: { vpcId: networkId },
+        destination: { vpcId: networkId },
+        description: "cmux: members reach each other (healed)",
+      });
+    } catch (err) {
+      // Heal is best-effort on the reuse path: a transient listing failure
+      // must not block machine creation on a network that is almost always
+      // already correct.
+      console.error(`[freestyle] members-rule heal failed for ${networkId}`, err);
+    }
+  }
+
   /** A network by slug, or null when the account has none under that name. */
   private async readNetworkBySlug(fs: Freestyle, slug: string): Promise<ProviderNetwork | null> {
     try {
@@ -513,7 +565,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
           const networkId = options.network?.id;
-          const { vm, vmId } = await fs.vms.create({
+          const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
@@ -539,13 +591,15 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image,
             createdAt: Date.now(),
-            // The network id is persisted so an operator can trace a machine to
-            // its owner's VPC without a provider round trip. Attach still reads
-            // the live address from vm.data(): this records which network the
-            // machine was placed on, never where to dial it.
+            // The network id and addresses are persisted so listings can show a
+            // machine's private IP (and an operator can trace it to its owner's
+            // VPC) without a provider round trip. Attach still reads the live
+            // address from vm.data(): this records where the machine was
+            // placed, never where to dial it.
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               ...(networkId ? { networkId } : {}),
+              ...(freestyleNetworkAddressMetadata(data)),
             },
           };
         } catch (err) {
@@ -696,7 +750,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
           const networkId = options?.network?.id;
-          const { vm, vmId } = await fs.vms.create({
+          const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
@@ -717,7 +771,9 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image: snapshotId,
             createdAt: Date.now(),
-            ...(networkId ? { providerMetadata: { networkId } } : {}),
+            ...(networkId
+              ? { providerMetadata: { networkId, ...freestyleNetworkAddressMetadata(data) } }
+              : {}),
           };
         } catch (err) {
           throw new ProviderError("freestyle", `restore(${snapshotId})`, err);
@@ -753,6 +809,11 @@ export class FreestyleProvider implements VMProvider {
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
           const daemonBuild = await cmuxTuiDaemonBuild(invoke);
+          const addresses = freestyleNetworkAddressMetadata(data);
+          const networkAddresses = {
+            ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
+            ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
+          };
           return {
             transport: "cmux-remote" as const,
             route,
@@ -761,6 +822,7 @@ export class FreestyleProvider implements VMProvider {
             session: CMUX_TUI_SESSION,
             ...(daemonBuild ? { daemonBuild } : {}),
             ...(invitation ? { invitation } : {}),
+            ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
           };
         } catch (err) {
           throw err instanceof ProviderError
