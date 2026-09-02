@@ -12,6 +12,7 @@ pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
 const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
 const MAX_WRITER_QUEUE: usize = 256;
 const MAX_PENDING_REQUESTS: usize = 256;
+const MAX_EVENT_QUEUE: usize = 1_024;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -62,7 +63,7 @@ mod unix {
 
     struct Shared {
         pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
-        event_handler: Mutex<Option<EventHandler>>,
+        event_handler: Mutex<Option<Arc<dyn Fn(&Value) + Send + Sync>>>,
         close_handler: Mutex<Option<CloseHandler>>,
         closed: AtomicBool,
         deliberate: AtomicBool,
@@ -78,7 +79,7 @@ mod unix {
 
     enum Dispatch {
         Event(Value),
-        Close(CloseHandler),
+        Closed,
     }
 
     impl Shared {
@@ -92,12 +93,7 @@ mod unix {
             // broadcast wakeup so either task can observe closure without
             // consuming the other's permit.
             self.closed_notify.notify_waiters();
-            if self.deliberate.load(Ordering::SeqCst) {
-                return;
-            }
-            if let Some(handler) = self.close_handler.lock().expect("control close lock").take() {
-                let _ = self.dispatch_tx.try_send(Dispatch::Close(handler));
-            }
+            let _ = self.dispatch_tx.try_send(Dispatch::Closed);
         }
     }
 
@@ -131,7 +127,7 @@ mod unix {
             stream.as_raw_fd()
         };
         let (read_half, write_half) = stream.into_split();
-        let (dispatch_tx, dispatch_rx) = std::sync::mpsc::sync_channel(1024);
+        let (dispatch_tx, dispatch_rx) = std::sync::mpsc::sync_channel(MAX_EVENT_QUEUE);
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
             event_handler: Mutex::new(None),
@@ -152,16 +148,23 @@ mod unix {
             .name("chatmux-relay-control-events".to_owned())
             .spawn(move || {
                 while let Ok(dispatch) = dispatch_rx.recv() {
-                    match dispatch {
-                        Dispatch::Event(event) => {
-                            let Some(shared) = weak_shared.upgrade() else { break };
-                            if let Some(handler) =
-                                shared.event_handler.lock().expect("control event lock").as_ref()
-                            {
-                                handler(&event);
+                    let Some(shared) = weak_shared.upgrade() else { break };
+                    if shared.closed.load(Ordering::SeqCst) {
+                        if !shared.deliberate.load(Ordering::SeqCst) {
+                            let handler =
+                                shared.close_handler.lock().expect("control close lock").take();
+                            if let Some(handler) = handler {
+                                handler();
                             }
                         }
-                        Dispatch::Close(handler) => handler(),
+                        break;
+                    }
+                    if let Dispatch::Event(event) = dispatch {
+                        let handler =
+                            shared.event_handler.lock().expect("control event lock").clone();
+                        if let Some(handler) = handler {
+                            handler(&event);
+                        }
                     }
                 }
             })
@@ -396,11 +399,17 @@ mod unix {
         }
 
         fn on_event(&self, handler: EventHandler) {
-            *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
+            *self.shared.event_handler.lock().expect("control event lock") =
+                Some(Arc::from(handler));
         }
 
         fn on_close(&self, handler: CloseHandler) {
+            let was_closed = self.shared.closed.load(Ordering::SeqCst);
+            let deliberate = self.shared.deliberate.load(Ordering::SeqCst);
             *self.shared.close_handler.lock().expect("control close lock") = Some(handler);
+            if was_closed && !deliberate {
+                let _ = self.shared.dispatch_tx.try_send(Dispatch::Closed);
+            }
         }
 
         fn pause(&self) {

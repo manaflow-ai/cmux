@@ -1194,18 +1194,32 @@ impl Inner {
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
+        let generation = opened.generation;
+        let publication_gate = Arc::clone(&opened.publication_gate);
         let start = opened.start;
         // Do not hold the frame handler open for the lifetime of a live PTY
         // stream. Wait only until the sink is installed, then let the
         // generation fence and control kill own its lifecycle.
         let (started_tx, started_rx) = oneshot::channel();
-        let _ = std::thread::Builder::new().name("chatmux-relay-pty-start".to_owned()).spawn(
-            move || {
+        let start_result = std::thread::Builder::new()
+            .name("chatmux-relay-pty-start".to_owned())
+            .spawn(move || {
                 start(Box::new(move || {
                     let _ = started_tx.send(());
                 }));
-            },
-        );
+            });
+        if start_result.is_err() {
+            self.emit_error_for_generation_async(
+                context,
+                &pty_id,
+                generation,
+                &publication_gate,
+                "failed",
+                "PTY output start could not be scheduled",
+            )
+            .await;
+            return;
+        }
         let _ = started_rx.await;
     }
 
@@ -1533,20 +1547,6 @@ impl Inner {
         // Terminal publication retires the viewer. Killing is idempotent for
         // an already-exited PTY and releases an overflowed or revoked one.
         attachment.control.kill();
-    }
-
-    /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
-    fn close(&self, pty_id: &str) {
-        // Match `open`'s lock order. If opening still owns the reservation,
-        // record cancellation and let it dispose the newly opened PTY.
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if opening.ids.contains_key(pty_id) {
-            let generation = opening.ids.get(pty_id).expect("opening entry").generation;
-            opening.cancelled.insert(pty_id.to_owned(), generation);
-            return;
-        }
-        drop(opening);
-        self.close_exact(pty_id, None, None);
     }
 
     fn close_if_transport(
@@ -1996,16 +1996,6 @@ impl Inner {
             return;
         }
         self.close_exact_authorized(pty_id, attachment, context);
-    }
-
-    fn close_if_generation(&self, pty_id: &str, generation: u64) {
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
-            return;
-        };
-        if attachment.generation == generation {
-            self.close_exact(pty_id, Some(generation), Some(&attachment.publication_gate));
-        }
     }
 
     fn close_exact(
@@ -4555,10 +4545,12 @@ mod tests {
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
         let replacement_for_task = replacement.clone();
         let frame_for_replacement = frame.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let replacement_task = tokio::spawn(async move {
+            let _ = started.send(());
             manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("replacement task started");
         assert!(
             !replacement_task.is_finished(),
             "same-ID replacement must wait for the closing publication"
@@ -4641,10 +4633,12 @@ mod tests {
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
         let replacement_for_task = replacement.clone();
         let frame_for_replacement = frame.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let replacement_task = tokio::spawn(async move {
+            let _ = started.send(());
             manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("replacement task started");
         assert!(!replacement_task.is_finished());
         assert!(!h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
@@ -4683,7 +4677,13 @@ mod tests {
 
         let close_context = h.context("supervised", h.owner.clone());
         let manager = h.manager.inner.clone();
-        let close = thread::spawn(move || manager.close_authorized("p1", &close_context));
+        let started = TestArc::new(Barrier::new(2));
+        let close_started = TestArc::clone(&started);
+        let close = thread::spawn(move || {
+            close_started.wait();
+            manager.close_authorized("p1", &close_context);
+        });
+        started.wait();
         assert!(!close.is_finished(), "close must wait for the publication gate");
 
         release.wait();
@@ -4806,9 +4806,13 @@ mod tests {
 
         let close_context = h.context("supervised", h.owner.clone());
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let close_started = TestArc::new(Barrier::new(2));
+        let close_started_in_thread = TestArc::clone(&close_started);
         let close = thread::spawn(move || {
+            close_started_in_thread.wait();
             manager.inner.close_authorized("p1", &close_context);
         });
+        close_started.wait();
         assert!(!close.is_finished(), "close must wait for the in-flight control operation");
 
         h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
@@ -4858,10 +4862,13 @@ mod tests {
             async move { manager.handle_frame(&input, &context).await }
         });
         entered.wait();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let close_task = tokio::spawn({
             let manager = h.manager.clone();
             let context = h.context("supervised", h.owner.clone());
+            let started = started;
             async move {
+                let _ = started.send(());
                 manager
                     .handle_frame(
                         &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
@@ -4870,7 +4877,7 @@ mod tests {
                     .await;
             }
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("close task started");
         assert!(!close_task.is_finished(), "close waits for the in-flight control operation");
         release.wait();
         input_task.await.expect("input operation");
@@ -4925,10 +4932,12 @@ mod tests {
         entered.wait();
 
         let manager = h.manager.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let detach = tokio::spawn(async move {
+            let _ = started.send(());
             manager.detach_transport_async("transport-a").await;
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("detach task started");
         assert!(!detach.is_finished(), "detach must wait for the publication gate");
 
         let tick = tokio::spawn(async { 17_u8 });
@@ -4976,10 +4985,12 @@ mod tests {
         entered.wait();
         let output_during_start = thread::spawn(move || shell.emit("during-start"));
 
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let close = tokio::spawn({
             let manager = h.manager.clone();
             let context = h.context("supervised", h.owner.clone());
             async move {
+                let _ = started.send(());
                 manager
                     .handle_frame(
                         &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
@@ -4988,7 +4999,7 @@ mod tests {
                     .await;
             }
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("close task started");
         assert!(!close.is_finished(), "close must wait for the replay callback");
 
         release.wait();
