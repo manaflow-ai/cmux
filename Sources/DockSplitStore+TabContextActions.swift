@@ -21,11 +21,28 @@ extension DockSplitStore {
             return
         }
 
+        // Focus-sensitive actions need the same selection/window-focus
+        // transaction as pointer and keyboard paths even when the right-click
+        // never reached the panel's content view. Metadata-only actions stay
+        // focus-neutral so operating on a background tab cannot steal input.
+        let presentingWindow = dockContextMenuWindow
+        let commitsPanelFocus: Bool = switch action {
+        case .moveToLeftPane, .moveToRightPane,
+             .newTerminalToRight, .newBrowserToRight,
+             .duplicate, .toggleZoom, .toggleFullWidthTab:
+            true
+        default:
+            false
+        }
+        if commitsPanelFocus {
+            focusPanelFromDockInteraction(panelId, window: nil)
+        }
+
         switch action {
         case .rename:
             _ = promptRenameDockSurface(
                 tabId: tab.id,
-                presentingWindow: dockContextMenuWindow
+                presentingWindow: presentingWindow
             )
         case .clearName:
             _ = setDockPanelCustomTitle(panelId: panelId, title: nil)
@@ -98,7 +115,10 @@ extension DockSplitStore {
         case .duplicate:
             _ = duplicateBrowserToRight(panelId: panelId)
         case .togglePin:
-            setDockTabPinned(tabId: tab.id, pinned: !tab.isPinned)
+            _ = setDockPanelPinned(
+                panelId: panelId,
+                pinned: !tab.isPinned
+            )
         case .markAsRead:
             setDockTabUnread(panelId: panelId, tabId: tab.id, unread: false)
         case .markAsUnread:
@@ -200,12 +220,18 @@ extension DockSplitStore {
     }
 
     private var dockContextMenuWindow: NSWindow? {
-        guard let app = AppDelegate.shared,
-              let manager = app.dockReferenceTabManager(for: self),
-              let windowId = app.windowId(for: manager) else {
-            return NSApp.keyWindow ?? NSApp.mainWindow
+        if let ownerWindow = dockInteractionWindow() {
+            return ownerWindow
         }
-        return app.mainWindow(for: windowId)
+        // A live event window is useful only as a last-resort presenter for a
+        // recovered Dock whose owning context is temporarily unregistered. Do
+        // not let it decide focus ownership; ``focusPanelFromDockInteraction``
+        // resolves that from this store.
+        if let eventWindow = NSApp.currentEvent?.window,
+           AppDelegate.shared?.contextForMainWindow(eventWindow) != nil {
+            return eventWindow
+        }
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func copyDockIdentifiers(
@@ -316,8 +342,8 @@ extension DockSplitStore {
     private func setDockTabPinned(
         tabId: TabID,
         pinned: Bool
-    ) {
-        guard let paneId = paneId(forTabId: tabId) else { return }
+    ) -> Bool {
+        guard let paneId = paneId(forTabId: tabId) else { return false }
         bonsplitController.updateTab(tabId, isPinned: pinned)
         let tabs = bonsplitController.tabs(
             inPane: paneId
@@ -326,6 +352,8 @@ extension DockSplitStore {
         for (index, tab) in ordered.enumerated() {
             _ = bonsplitController.reorderTab(tab.id, toIndex: index)
         }
+        refreshDockMenuCapabilities()
+        return true
     }
 
     @discardableResult
@@ -336,8 +364,7 @@ extension DockSplitStore {
         guard let tabId = surfaceId(forPanelId: panelId) else {
             return false
         }
-        setDockTabPinned(tabId: tabId, pinned: pinned)
-        return true
+        return setDockTabPinned(tabId: tabId, pinned: pinned)
     }
 
     private func paneId(forTabId tabId: TabID) -> PaneID? {

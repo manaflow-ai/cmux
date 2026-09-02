@@ -85,19 +85,17 @@ final class KeyboardShortcutSettingsObserver {
         rightSidebarModeShortcutMatcher.reload()
     }
 
-    /// Preserves synchronous delivery for main-thread settings mutations while
-    /// bridging background notifications onto the main actor.
+    /// Delivers notifications on the MainActor without assuming that a
+    /// main-thread callback is already executing on its serial executor.
     nonisolated private static func deliverOnMainActor(
         _ action: @escaping @MainActor @Sendable () -> Void
     ) {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                action()
-            }
-        } else {
-            Task { @MainActor in
-                action()
-            }
+        // NotificationCenter callbacks may run on the GCD main queue without
+        // owning the Swift MainActor (notably distributed input-source events).
+        // Always enqueue the typed MainActor closure rather than risking an
+        // executor-precondition trap; immediate consumers await the turn.
+        Task { @MainActor in
+            action()
         }
     }
 }

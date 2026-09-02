@@ -131,6 +131,7 @@ extension DockSplitStore {
     /// subscription cancelled *before* the Bonsplit tab is closed, so the
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
+        cancelDockPointerInteraction()
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
         flushPendingTerminalTitleUpdates()
         let tab = bonsplitController.tab(tabId)
@@ -419,6 +420,7 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         prepareDetachedPanelForDockAttachment(panel)
@@ -510,6 +512,7 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
@@ -606,12 +609,11 @@ extension DockSplitStore {
             }
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(paneId)
-                bonsplitController.selectTab(tabId)
-                applyDockSelection(tabId: tabId, inPane: paneId)
+                focusPanelFromDockInteraction(panel.id, window: nil)
             }
         }
         scheduleDockPortalReconcile(reason: reconcileReason)
+        refreshDockMenuCapabilities()
     }
 
     /// Returns the Bonsplit tab kind for a transferred Dock panel.
@@ -640,7 +642,11 @@ extension DockSplitStore {
     /// workspace — so a Dock tab can leave the Dock for a workspace via the tab
     /// context menu, matching `Workspace.bonsplitTabMoveDestinations`.
     func dockTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
-        guard panel(for: tabId) != nil, let app = AppDelegate.shared else { return [] }
+        guard panel(for: tabId) != nil,
+              let app = AppDelegate.shared,
+              let referenceManager = app.dockReferenceTabManager(for: self) else {
+            return []
+        }
         var destinations: [TabContextMoveDestination] = [
             TabContextMoveDestination(
                 id: Self.dockMoveNewWorkspaceDestinationId,
@@ -649,7 +655,7 @@ extension DockSplitStore {
         ]
         // A window Dock resolves its owning window; a Workspace Dock resolves
         // that workspace's window (see `dockReferenceTabManager`).
-        let referenceWindowId = app.dockReferenceTabManager(for: self).flatMap { app.windowId(for: $0) }
+        let referenceWindowId = app.windowId(for: referenceManager)
         let targets = app.workspaceMoveTargets(excludingWorkspaceId: workspaceId, referenceWindowId: referenceWindowId)
         destinations.append(contentsOf: targets.map { target in
             TabContextMoveDestination(

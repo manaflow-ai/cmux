@@ -12,7 +12,20 @@ struct SurfaceNewWorkspaceMoveResult {
 
 @MainActor
 extension AppDelegate {
+    /// Resolves a live Dock owner for a panel id without creating a Dock.
+    /// Native terminal context menus use panel ids, so they must share the
+    /// same owner lookup as tab-strip, shortcut, and command-palette actions.
+    func dockContainingSurface(_ panelId: UUID) -> DockSplitStore? {
+        DockSplitStore.liveStores.first {
+            !$0.isRetired && $0.containsPanel(panelId)
+        }
+    }
+
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
+        if let dock = dockContainingSurface(panelId) {
+            return dock.panels[panelId] != nil
+                && dockReferenceTabManager(for: dock) != nil
+        }
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
               sourceWorkspace.panels[panelId] != nil else {
@@ -38,6 +51,19 @@ extension AppDelegate {
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
+        if let dock = dockContainingSurface(panelId) {
+            guard let referenceManager = dockReferenceTabManager(for: dock) else {
+                return []
+            }
+            let referenceWindowId = windowId(for: referenceManager)
+            let excludedWorkspaceId: UUID? = dock.scope == .workspace
+                ? dock.workspaceId
+                : nil
+            return workspaceMoveTargets(
+                excludingWorkspaceId: excludedWorkspaceId,
+                referenceWindowId: referenceWindowId
+            )
+        }
         guard let source = locateSurface(surfaceId: panelId) else { return [] }
         return workspaceMoveTargets(
             excludingWorkspaceId: source.workspaceId,

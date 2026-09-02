@@ -228,6 +228,7 @@ extension DockSplitStore {
         _ entry: ClosedPanelHistoryEntry,
         inPane paneId: PaneID
     ) -> UUID? {
+        cancelDockPointerInteraction()
         guard let panelId = restoreClosedPanelSessionSnapshot(
             entry.snapshot,
             inPane: paneId,

@@ -57,4 +57,5 @@ struct CommandPaletteWorkspaceRenameTargetTests {
         #expect(target.kind == .workspace(workspaceId: workspaceId))
         #expect(target.currentName == "scratch")
     }
+
 }

@@ -55,10 +55,19 @@ struct BrowserActionDispatcher {
             }
             return true
         case .zoomIn:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.increase, panelId: target.panelId)
+            }
             return panel.zoomIn()
         case .zoomOut:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.decrease, panelId: target.panelId)
+            }
             return panel.zoomOut()
         case .resetZoom:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.reset, panelId: target.panelId)
+            }
             return panel.resetZoom()
         case .split(let direction):
             return splitBrowser(
@@ -196,10 +205,15 @@ struct BrowserActionDispatcher {
             return workspace.panels.count > 1
         case .workspaceDock, .windowDock:
             guard let dock = appDelegate.dock(resolving: target),
-                  dock.browserPanel(for: target.panelId) != nil else {
+                  dock.browserPanel(for: target.panelId) != nil,
+                  appDelegate.dockReferenceTabManager(for: dock) != nil else {
                 return false
             }
-            return dock.panels.count > 1
+            // A Dock keeps its root pane when the last panel leaves, so a
+            // single Dock browser can move to a new workspace just like any
+            // other Dock surface. Workspace-owned panels retain the existing
+            // non-empty-workspace guard above.
+            return true
         }
     }
 

@@ -265,26 +265,31 @@ private enum MainWindowKeyRegainRefresh {
 }
 
 extension AppDelegate {
+    /// Handles a main-window key transition on the MainActor.
+    ///
+    /// NotificationCenter can deliver a `.main` operation-queue callback while
+    /// the main thread is outside the MainActor executor. Keeping the handler
+    /// actor-isolated lets every ingress hop explicitly instead of trapping in
+    /// `MainActor.assumeIsolated` during Dock focus handoffs.
+    @MainActor
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
-        MainActor.assumeIsolated {
-            let context = senderRelativeMainWindowContext(for: window)
-            setActiveMainWindow(window)
-            if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
-            }
-            if let context {
-                MainWindowKeyRegainRefresh.refresh(window: window, context: context)
-            }
+        let context = senderRelativeMainWindowContext(for: window)
+        setActiveMainWindow(window)
+        if let windowId = mainWindowId(from: window) {
+            publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
+        }
+        if let context {
+            MainWindowKeyRegainRefresh.refresh(window: window, context: context)
         }
     }
 
+    /// Handles a main-window key resignation on the MainActor.
+    @MainActor
     func handleCmuxWindowResignedKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
-        MainActor.assumeIsolated {
-            if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
-            }
+        if let windowId = mainWindowId(from: window) {
+            publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
         }
     }
 

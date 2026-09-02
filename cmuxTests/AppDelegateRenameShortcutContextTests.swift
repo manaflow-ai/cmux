@@ -247,6 +247,26 @@ struct AppDelegateRenameShortcutContextTests {
     @Test func focusedWindowDockBrowserCmdRUsesReloadShortcut() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let previousDockEnabled = defaults.object(
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defaults.set(
+                true,
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defer {
+                if let previousDockEnabled {
+                    defaults.set(
+                        previousDockEnabled,
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                }
+            }
             let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
             BrowserAvailabilitySettings.setDisabled(false)
             defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
@@ -256,6 +276,22 @@ struct AppDelegateRenameShortcutContextTests {
 
             let window = try #require(mainWindow(withId: windowId))
             let dock = appDelegate.windowDock(forWindowId: windowId)
+            let fileExplorerState = try #require(
+                appDelegate.contextForMainWindow(window)?.fileExplorerState
+            )
+            let previousSidebarMode = fileExplorerState.mode
+            let previousSidebarVisibility = fileExplorerState.isVisible
+            // Model the mounted right-sidebar Dock that production shortcut
+            // routing requires. A store created for a hidden sidebar must be
+            // rejected so commands cannot mutate an invisible Dock.
+            fileExplorerState.mode = .dock
+            fileExplorerState.setVisible(true)
+            dock.setVisibleInUI(true)
+            defer {
+                dock.setVisibleInUI(false)
+                fileExplorerState.mode = previousSidebarMode
+                fileExplorerState.setVisible(previousSidebarVisibility)
+            }
             let pane = try #require(dock.resolvePane(requestedPaneID: nil))
             let browserPanelId = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: true))
             let browserPanel = try #require(dock.browserPanel(for: browserPanelId))
@@ -298,6 +334,106 @@ struct AppDelegateRenameShortcutContextTests {
 
             #expect(!renameTabPosted.wasPosted)
             #expect(browserReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func dockTabSelectionFeedsSharedSurfaceRouting() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let previousDockEnabled = defaults.object(
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defaults.set(
+                true,
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defer {
+                if let previousDockEnabled {
+                    defaults.set(
+                        previousDockEnabled,
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                }
+            }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let mainPanelId = try #require(workspace.focusedPanelId)
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let fileExplorerState = try #require(
+                appDelegate.contextForMainWindow(window)?.fileExplorerState
+            )
+            let previousSidebarMode = fileExplorerState.mode
+            let previousSidebarVisibility = fileExplorerState.isVisible
+            fileExplorerState.mode = .dock
+            fileExplorerState.setVisible(true)
+            dock.setVisibleInUI(true)
+            defer {
+                dock.setVisibleInUI(false)
+                fileExplorerState.mode = previousSidebarMode
+                fileExplorerState.setVisible(previousSidebarVisibility)
+            }
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let selectedPanelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let selectedTabId = try #require(dock.surfaceId(forPanelId: selectedPanelId))
+
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspace.id,
+                panelId: mainPanelId,
+                in: window
+            )
+            // Model the real tab click boundary: the pointer host records the
+            // user origin before Bonsplit emits its selection callbacks.
+            dock.beginUserDockPointerInteraction(window: window)
+            dock.bonsplitController.focusPane(pane)
+            dock.bonsplitController.selectTab(selectedTabId)
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(
+                    preferredWindow: window
+                ) === dock
+            )
+            #expect(dock.focusedPanelId == selectedPanelId)
+            let renameTarget = try #require(
+                ContentView.commandPaletteDockRenameTarget(
+                    dock: dock,
+                    panelId: selectedPanelId
+                )
+            )
+            #expect(
+                renameTarget.kind == .dockTab(
+                    ownerId: dock.workspaceId,
+                    panelId: selectedPanelId
+                )
+            )
+            let expectedTitle = try #require(
+                dock.panels[selectedPanelId]?.displayTitle
+            )
+            #expect(renameTarget.currentName == expectedTitle)
+            dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
+            dock.bonsplitController.requestTabContextAction(
+                .clearName,
+                for: selectedTabId,
+                inPane: pane
+            )
+
+            #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) === dock)
+            #expect(dock.bonsplitController.tab(selectedTabId)?.hasCustomTitle == false)
+            let renameEvent = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+            #expect(appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: renameEvent))
         }
     }
 

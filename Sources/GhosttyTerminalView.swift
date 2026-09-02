@@ -4059,7 +4059,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
-        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
+        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(
+            element: self,
+            events: selectionAccessibilitySignal.events,
+            onSelectionChanged: { [weak self] in
+                guard let self,
+                      let terminalSurface = self.terminalSurface,
+                      GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
+                          id: terminalSurface.id
+                      ) else { return }
+                NotificationCenter.default.post(
+                    name: .terminalSelectionDidChange,
+                    object: terminalSurface
+                )
+            }
+        )
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true

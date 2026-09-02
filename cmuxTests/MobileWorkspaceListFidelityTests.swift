@@ -63,7 +63,7 @@ struct MobileWorkspaceListFidelityTests {
         return (workspace, orderedIds)
     }
 
-    @Test func observerPipelinesFollowSubscriberPresence() throws {
+    @Test func observerPipelinesFollowSubscriberPresence() async throws {
         let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
         defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
 
@@ -84,6 +84,7 @@ struct MobileWorkspaceListFidelityTests {
             object: nil,
             userInfo: ["topics": ["workspace.updated"]]
         )
+        await Task.yield()
         #expect(observer.pipelinesAttachedForTesting)
 
         // Last subscriber leaves: the graph detaches again.
@@ -93,6 +94,7 @@ struct MobileWorkspaceListFidelityTests {
             object: nil,
             userInfo: ["topics": ["workspace.updated"]]
         )
+        await Task.yield()
         #expect(!observer.pipelinesAttachedForTesting)
     }
 

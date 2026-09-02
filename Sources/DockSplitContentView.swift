@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import Foundation
@@ -21,7 +22,9 @@ struct DockSplitContentView: View {
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
                 onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            .onTapGesture {
+                store.focusPaneFromDockInteraction(paneId)
+            }
         }
     }
 
@@ -45,13 +48,395 @@ struct DockSplitContentView: View {
         if let panel = store.panel(for: tab.id) {
             panelView(panel: panel, tabID: tab.id, paneID: paneId)
                 .equatable()
-                .onTapGesture { store.bonsplitController.focusPane(paneId) }
+                .onTapGesture {
+                    store.focusPaneFromDockInteraction(paneId)
+                }
         } else {
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
                 onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            .onTapGesture {
+                store.focusPaneFromDockInteraction(paneId)
+            }
         }
+    }
+}
+
+/// Records Dock ownership at the pointer boundary before Bonsplit selection
+/// callbacks run. This keeps user-originated focus independent from callbacks
+/// that Bonsplit also emits for programmatic mutations.
+@MainActor
+struct DockPointerInteractionHost: NSViewRepresentable {
+    let store: DockSplitStore
+    let router: DockPointerInteractionEventRouter?
+    let isEnabled: Bool
+
+    func makeNSView(context: Context) -> DockPointerInteractionHostView {
+        let view = DockPointerInteractionHostView()
+        view.store = store
+        view.router = router
+        view.isEnabled = isEnabled
+        return view
+    }
+
+    func updateNSView(
+        _ nsView: DockPointerInteractionHostView,
+        context: Context
+    ) {
+        if nsView.store !== store {
+            nsView.store?.cancelDockPointerInteraction()
+        }
+        if nsView.router !== router {
+            nsView.stopMonitoring()
+        }
+        nsView.store = store
+        nsView.router = router
+        nsView.isEnabled = isEnabled
+        nsView.refreshTeardownCleanup()
+        if isEnabled {
+            nsView.installMonitorIfNeeded()
+        } else {
+            nsView.stopMonitoring()
+        }
+    }
+
+    static func dismantleNSView(
+        _ nsView: DockPointerInteractionHostView,
+        coordinator: ()
+    ) {
+        nsView.stopMonitoring()
+        nsView.store = nil
+        nsView.router = nil
+    }
+}
+
+/// Owns the MainActor cleanup closure for an AppKit monitor. The immutable box
+/// reference can be requested from a nonisolated deinit; the captured handles
+/// are read and consumed only on the MainActor.
+private final class DockPointerTeardownBox: @unchecked Sendable {
+    @MainActor
+    private var cleanup: (@MainActor () -> Void)?
+
+    @MainActor
+    func replace(with cleanup: (@MainActor () -> Void)?) {
+        self.cleanup = cleanup
+    }
+
+    @MainActor
+    func perform() {
+        let cleanup = self.cleanup
+        self.cleanup = nil
+        cleanup?()
+    }
+
+    nonisolated func request() {
+        Task { @MainActor [self] in
+            self.perform()
+        }
+    }
+}
+
+@MainActor
+final class DockPointerInteractionHostView: NSView {
+    var store: DockSplitStore?
+    weak var router: DockPointerInteractionEventRouter?
+    var isEnabled = false
+    private weak var registeredWindow: NSWindow?
+    private var registrationToken: UUID?
+    private var windowResignKeyObserver: NSObjectProtocol?
+    private var applicationResignActiveObserver: NSObjectProtocol?
+    // The reference is immutable and its methods marshal all handle access to
+    // the MainActor, which makes it safe to request from `deinit`.
+    private let teardownBox = DockPointerTeardownBox()
+
+    deinit {
+        // `deinit` is not guaranteed to run on the MainActor, even when the
+        // object happens to be released on the process' main thread. Always
+        // marshal cleanup through the box instead of using
+        // `MainActor.assumeIsolated`, whose executor check traps for a main
+        // thread that is not currently running the MainActor.
+        teardownBox.request()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // A SwiftUI host can migrate between windows while retaining this
+        // representable. Rebind the monitor to the new window rather than
+        // leaving an event monitor attached to the old one.
+        stopMonitoring()
+        installMonitorIfNeeded()
+    }
+
+    func installMonitorIfNeeded() {
+        guard isEnabled, let window, let router else { return }
+        if registeredWindow === window,
+           let registrationToken,
+           router.isRegistered(
+               token: registrationToken,
+               host: self,
+               in: window
+           ) {
+            refreshTeardownCleanup()
+            return
+        }
+        stopMonitoring()
+        registeredWindow = window
+        registrationToken = router.register(self, in: window)
+        windowResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            // Foundation's operation-queue delivery is not a proof that the
+            // callback is running on the MainActor. Hop explicitly so a
+            // notification posted during teardown cannot trip the executor
+            // precondition.
+            Task { @MainActor in
+                self?.store?.cancelDockPointerInteraction(window: window)
+            }
+        }
+        applicationResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            Task { @MainActor in
+                self?.store?.cancelDockPointerInteraction(window: window)
+            }
+        }
+        refreshTeardownCleanup()
+    }
+
+    /// Rebinds the deinit cleanup to the store currently used by this host.
+    /// SwiftUI may reuse the AppKit view while replacing its store.
+    func refreshTeardownCleanup() {
+        guard registeredWindow != nil
+            || registrationToken != nil
+            || windowResignKeyObserver != nil
+            || applicationResignActiveObserver != nil else {
+            teardownBox.replace(with: nil)
+            return
+        }
+        let registeredWindow = self.registeredWindow
+        let registrationToken = self.registrationToken
+        let ownerStore = store
+        let ownerRouter = router
+        let installedWindowObserver = windowResignKeyObserver
+        let installedApplicationObserver = applicationResignActiveObserver
+        teardownBox.replace(with: { [weak ownerStore, weak ownerRouter, weak registeredWindow] in
+            ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
+            if let registrationToken {
+                ownerRouter?.unregister(
+                    token: registrationToken,
+                    in: registeredWindow
+                )
+            }
+            if let installedWindowObserver {
+                NotificationCenter.default.removeObserver(installedWindowObserver)
+            }
+            if let installedApplicationObserver {
+                NotificationCenter.default.removeObserver(installedApplicationObserver)
+            }
+        })
+    }
+
+    func stopMonitoring() {
+        // A host can move between windows while a pointer sequence is in
+        // flight. Clear the coordinator unconditionally before rebinding.
+        teardownBox.perform()
+        if let windowResignKeyObserver {
+            NotificationCenter.default.removeObserver(windowResignKeyObserver)
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+        }
+        registeredWindow = nil
+        registrationToken = nil
+        windowResignKeyObserver = nil
+        applicationResignActiveObserver = nil
+    }
+
+    func handlePointerEvent(_ event: NSEvent) {
+        guard let window else { return }
+        guard event.window === window else { return }
+
+        switch event.type {
+        case .leftMouseDown:
+            // A new pointer sequence supersedes any origin that was not
+            // consumed by Bonsplit (for example, a click on an accessory).
+            store?.cancelDockPointerInteraction()
+            let point = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(point),
+                  !event.modifierFlags.contains(.control) else {
+                return
+            }
+            // A SwiftUI remount can briefly leave no AppKit hit view at the
+            // pointer location. The host's own bounds remain the authoritative
+            // Dock region, so only reject a known non-Dock/control hit.
+            // `locationInWindow` is expressed in the window's base-coordinate
+            // system, while `NSView.hitTest(_:)` expects the receiver's local
+            // coordinates. Convert before asking AppKit for the hit view; the
+            // Dock is normally inset from the window origin, so passing the
+            // raw point misclassified pane clicks as empty background hits.
+            let hitView: NSView?
+            if let contentView = window.contentView {
+                let contentPoint = contentView.convert(
+                    event.locationInWindow,
+                    from: nil
+                )
+                hitView = contentView.hitTest(contentPoint)
+            } else {
+                hitView = nil
+            }
+            guard let target = dockPointerHitTarget(
+                hitView,
+                at: event.locationInWindow,
+                in: window
+            ) else {
+                return
+            }
+            switch target {
+            case .tabItem:
+                store?.beginUserDockPointerInteraction(window: window)
+            case .panel:
+                // Panel clicks already focus the selected panel through the
+                // normal portal/AppKit path. Publish ownership without
+                // creating a selection-origin lease that no callback will
+                // consume.
+                store?.noteKeyboardFocusIntent(window: window)
+            }
+        case .leftMouseUp:
+            store?.releaseDockPointerInteraction(window: window)
+        case .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            store?.cancelDockPointerInteraction(window: window)
+        default:
+            break
+        }
+    }
+
+    private func dockPointerHitTarget(
+        _ view: NSView?,
+        at windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> DockPointerHitTarget? {
+        let isInteractiveChrome = view.map(isInteractiveDockChrome) ?? false
+
+        // Bonsplit owns the actual tab-item AppKit hit regions. Consult both
+        // the registry and the provider in the hit-view ancestry: the latter
+        // covers the short remount window before the registry is repopulated.
+        let registryTabItemHit = BonsplitTabItemHitRegionRegistry.containsWindowPoint(
+            windowPoint,
+            in: window
+        )
+        let hierarchyTabItemHit = tabItemHitInViewHierarchy(view, at: windowPoint)
+
+        guard let store else { return nil }
+        // Surface portals are intentionally reparented to a window-level host.
+        // Resolve their stable panel identity directly from the portal hit
+        // registry when available; the root host remains the authoritative Dock
+        // ownership region when a portal/tab registry is between remounts.
+        let selectedPanelHit: Bool
+        if let view,
+           let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
+            windowPoint,
+            in: window
+        ),
+           isView(view, within: terminalView),
+           let panelId = terminalView.terminalSurface?.id,
+           store.panelIsSelectedInVisibleDockPane(panelId) {
+            selectedPanelHit = true
+        } else if let view,
+                  let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+                      windowPoint,
+                      in: window
+                  ),
+                  isView(view, within: webView),
+                  let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
+                  context.isDockHosted,
+                  context.workspaceId == store.workspaceId,
+                  store.panelIsSelectedInVisibleDockPane(context.panelId) {
+            selectedPanelHit = true
+        } else {
+            selectedPanelHit = selectedDockNativePanelHit(
+                view: view,
+                store: store,
+                window: window
+            )
+        }
+
+        return DockPointerHitSignals(
+            registryTabItemHit: registryTabItemHit,
+            hierarchyTabItemHit: hierarchyTabItemHit,
+            interactiveChromeHit: isInteractiveChrome,
+            selectedPanelHit: selectedPanelHit
+        ).target
+    }
+
+    private func selectedDockNativePanelHit(
+        view: NSView?,
+        store: DockSplitStore,
+        window: NSWindow
+    ) -> Bool {
+
+        // File previews and other Dock-native panels do not have a window-level
+        // portal identity. Resolve only the selected panel in each rendered
+        // pane; an unrelated overlay has no panel-owned focus intent and fails
+        // closed here.
+        guard let view else { return false }
+        let renderedPaneIDs = store.bonsplitController.zoomedPaneId.map { [$0] }
+            ?? store.bonsplitController.allPaneIds
+        for paneID in renderedPaneIDs {
+            guard store.paneIsRenderedInVisibleDock(paneID),
+                  let tabID = store.bonsplitController.selectedTab(inPane: paneID)?.id,
+                  let panelID = store.surfaceIdToPanelId[tabID],
+                  let panel = store.panels[panelID] else {
+                continue
+            }
+            if panel.ownedFocusIntent(for: view, in: window) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func tabItemHitInViewHierarchy(
+        _ view: NSView?,
+        at windowPoint: NSPoint
+    ) -> Bool {
+        var candidate = view
+        while let current = candidate {
+            if let provider = current as? BonsplitTabItemHitRegionProviding {
+                let localPoint = current.convert(windowPoint, from: nil)
+                if provider.containsBonsplitTabItemHit(localPoint: localPoint) {
+                    return true
+                }
+            }
+            candidate = current.superview
+        }
+        return false
+    }
+
+    private func isView(_ view: NSView, within owner: NSView) -> Bool {
+        view === owner || view.isDescendant(of: owner) || owner.isDescendant(of: view)
+    }
+
+    private func isInteractiveDockChrome(_ view: NSView) -> Bool {
+        var candidate: NSView? = view
+        while let current = candidate {
+            if let button = current as? NSButton, button.isEnabled {
+                return true
+            }
+            if let textField = current as? NSTextField, textField.isEditable {
+                return true
+            }
+            if let textView = current as? NSTextView, textView.isEditable {
+                return true
+            }
+            candidate = current.superview
+        }
+        return false
     }
 }

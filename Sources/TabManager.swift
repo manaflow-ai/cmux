@@ -620,6 +620,11 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // NotificationCenter invokes this observer synchronously on the
+            // main operation queue. Keep title ingress inline so snapshot and
+            // transfer boundaries can flush the coalescer before reading the
+            // just-published title; the coalescer remains the only deferred
+            // mutation path.
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let change = GhosttyTitleChange(notification: notification) else { return }
@@ -648,11 +653,13 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else {
+                return
+            }
+            let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
                 let panelId = panelIdForFocusHistorySurface(surfaceId, workspaceId: tabId)
                 if selectedTabId == tabId {
                     if explicitFocusIntent {
@@ -678,11 +685,11 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
+            let workspaceId = notification.userInfo?["workspaceId"] as? UUID
+                ?? (notification.object as? Workspace)?.id
+            guard let workspaceId else { return }
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                let workspaceId = notification.userInfo?["workspaceId"] as? UUID
-                    ?? (notification.object as? Workspace)?.id
-                guard let workspaceId else { return }
                 workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
             }
         })
@@ -693,7 +700,7 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()

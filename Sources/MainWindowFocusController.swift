@@ -39,6 +39,14 @@ final class MainWindowFocusController {
             }
         }
 
+        /// Returns a mode only after the requested sidebar endpoint actually
+        /// owns focus. Pending requests intentionally remain invisible to
+        /// surface-routing gates until the host reports `.focused`.
+        var focusedMode: RightSidebarMode? {
+            guard case .focused(let mode, _) = self else { return nil }
+            return mode
+        }
+
         var request: RightSidebarFocusRequest? {
             if case .requested(let request) = self {
                 return request
@@ -57,6 +65,10 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    /// Composition-root resolver for a window-owned Dock panel. Keeping this
+    /// seam injected avoids making focus evaluation depend on a process-global
+    /// Dock registry and lets isolated controller tests provide their owner.
+    private let dockPanelResolver: @MainActor (UUID) -> DockSplitStore?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -75,9 +87,33 @@ final class MainWindowFocusController {
     }
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
-    private var rightSidebarFocusState: RightSidebarFocusState = .inactive
-    /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
-    /// private focus state for the `sidebarMode` keyboard-shortcut context key.
+    private var rightSidebarFocusState: RightSidebarFocusState = .inactive {
+        didSet {
+            guard oldValue.focusedMode != rightSidebarFocusState.focusedMode else {
+                return
+            }
+            guard oldValue.focusedMode == .dock
+                || rightSidebarFocusState.focusedMode == .dock else {
+                return
+            }
+            // Menu enablement and Dock routing read this state directly. The
+            // explicit bridge keeps Commands current for focus transitions
+            // that do not change any Dock capability bits.
+            NotificationCenter.default.post(
+                name: .dockMenuCapabilitiesDidChange,
+                object: self
+            )
+        }
+    }
+
+    /// The right-sidebar mode after focus has been delivered to its endpoint.
+    /// Unlike ``activeRightSidebarMode``, pending requests are excluded.
+    var focusedRightSidebarMode: RightSidebarMode? {
+        rightSidebarFocusState.focusedMode
+    }
+    /// The right sidebar's intent-level mode, including a pending focus request.
+    /// Routing guards use ``focusedRightSidebarMode`` when they require a
+    /// delivered responder.
     var activeRightSidebarMode: RightSidebarMode? {
         rightSidebarFocusState.mode
     }
@@ -88,12 +124,14 @@ final class MainWindowFocusController {
         windowId: UUID,
         window: NSWindow?,
         tabManager: TabManager,
-        fileExplorerState: FileExplorerState?
+        fileExplorerState: FileExplorerState?,
+        dockPanelResolver: @escaping @MainActor (UUID) -> DockSplitStore? = { _ in nil }
     ) {
         self.windowId = windowId
         self.window = window
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
+        self.dockPanelResolver = dockPanelResolver
         self.rememberedRightSidebarMode = fileExplorerState?.mode
         syncBonsplitTabShortcutHintEligibility()
     }
@@ -250,6 +288,79 @@ final class MainWindowFocusController {
         }
         guard let currentResponder else { return false }
         return ownsRightSidebarFocus(currentResponder)
+    }
+
+    /// Reconciles sidebar focus intent with the responder that actually owns
+    /// this window's input. Pending requests remain visible for mode-switch
+    /// shortcuts while a main-terminal responder is authoritative; Dock
+    /// surfaces are identified through the shared registry after that check.
+    func resolvedRightSidebarModeForShortcut(in window: NSWindow?) -> RightSidebarMode? {
+        guard let window else { return nil }
+        let activeMode = activeRightSidebarMode
+        // A delivered Dock interaction is an explicit ownership decision. The
+        // selected Dock panel can temporarily lose AppKit's first responder to
+        // a menu accessory or a reparenting gap; retain Dock routing in that
+        // interval, while still allowing a recognized main-panel responder to
+        // take precedence below.
+        let hasDeliveredDockIntent = focusedRightSidebarMode == .dock
+        guard let responder = window.firstResponder else { return activeMode }
+
+        // A reparented sidebar host can remain first responder after it leaves
+        // this window. Do not let that stranded responder claim sidebar focus
+        // (issue #5269); the live window/responder pair is authoritative.
+        if let responderView = responder as? NSView,
+           responderView.window === window {
+            let mode: RightSidebarMode?
+            if let owningMode = rightSidebarModeOwning(responder) {
+                mode = owningMode
+            } else if let host = rightSidebarHost, responder === host {
+                // The host can briefly be first responder before its mode is
+                // published. Preserve sidebar ownership with a safe sentinel
+                // rather than allowing main-panel shortcuts to win.
+                mode = activeMode ?? rememberedRightSidebarMode ?? .files
+            } else {
+                mode = nil
+            }
+            if let mode {
+                let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
+                if canAcceptRightSidebarResponderFocus(
+                    mode: mode,
+                    isFallbackSidebarHost: isFallbackSidebarHost
+                ) {
+                    return mode
+                }
+                // A live sidebar responder still owns this window while a
+                // mode switch is pending; keep the active/requested mode visible
+                // until the destination endpoint reports focus.
+                return activeMode ?? mode
+            }
+            // A Dock terminal is a window-level portal and may briefly outlive
+            // the Dock keyboard-focus host during a SwiftUI remount. Continue
+            // to the structured terminal-surface registry fallback below
+            // instead of treating that responder as foreign focus.
+        }
+        if activeMode != nil, responder is NSWindow {
+            return activeMode
+        }
+        if terminalFocusRequest(for: responder) != nil {
+            return nil
+        }
+        // The coordinator's main-panel intent is the other explicit owner. It
+        // is cheaper and more reliable than walking every panel on this
+        // per-keystroke path, and prevents an unknown accessory responder from
+        // inheriting a stale Dock route after a real main-panel interaction.
+        if case .mainPanel = intent {
+            return nil
+        }
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+              let panelId = ghosttyView.terminalSurface?.id,
+              GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId),
+              let dock = dockPanelResolver(panelId),
+              dock.scope == .global,
+              dock.workspaceId == windowId else {
+            return hasDeliveredDockIntent ? .dock : nil
+        }
+        return .dock
     }
 
     @discardableResult

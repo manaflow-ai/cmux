@@ -1,6 +1,18 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let dockMenuCapabilitiesDidChange = Notification.Name(
+        "cmux.dockMenuCapabilitiesDidChange"
+    )
+    static let dockVisibilityDidChange = Notification.Name(
+        "cmux.dockVisibilityDidChange"
+    )
+    static let terminalSelectionDidChange = Notification.Name(
+        "cmux.terminalSelectionDidChange"
+    )
+}
+
 @MainActor
 final class FocusHistoryMenuInvalidator: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
@@ -28,6 +40,48 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
                 self?.revision &+= 1
             }
         })
+        observers.append(center.addObserver(
+            forName: .dockMenuCapabilitiesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self,
+                      self.shouldInvalidateForDockNotification(notification) else {
+                    return
+                }
+                self.revision &+= 1
+            }
+        })
+        observers.append(center.addObserver(
+            forName: .dockVisibilityDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.revision &+= 1
+            }
+        })
+    }
+
+    /// Dock capability updates from an inactive store cannot affect the
+    /// currently rendered app menu. Key-window transitions and focus-owner
+    /// notifications still invalidate the snapshot when that store becomes
+    /// active, so filtering here avoids rebuilding every command for hidden
+    /// or background Docks.
+    private func shouldInvalidateForDockNotification(_ notification: Notification) -> Bool {
+        guard let dock = notification.object as? DockSplitStore else {
+            // Focus-controller notifications carry the owner rather than the
+            // Dock itself and must always invalidate the active-store lookup.
+            return true
+        }
+        // Visibility transitions use their own notification. A capability
+        // update from a hidden Dock is not relevant to the active Commands
+        // body and must not rebuild it.
+        guard dock.isVisibleInUI else { return false }
+        return AppDelegate.shared?.focusedDockStoreForMenu(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) === dock
     }
 
     deinit {

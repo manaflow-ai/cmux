@@ -15,6 +15,22 @@ import Observation
 import SwiftUI
 import WebKit
 
+struct DockMenuCapabilitySnapshot: Equatable, Sendable {
+    let isTerminal: Bool
+    let canUseSelection: Bool
+    let hasFindSession: Bool
+    let canCloseOtherTabs: Bool
+    let canMoveToNewWorkspace: Bool
+
+    static let empty = Self(
+        isTerminal: false,
+        canUseSelection: false,
+        hasFindSession: false,
+        canCloseOtherTabs: false,
+        canMoveToNewWorkspace: false
+    )
+}
+
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
@@ -44,12 +60,20 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
+    /// Bounded capability snapshot consumed by the app-level Commands body.
+    /// Mutate it only through `refreshDockMenuCapabilities()` so menu reads do
+    /// not observe the Dock's full tab/panel collections.
+    var menuCapabilities = DockMenuCapabilitySnapshot.empty
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
     /// and new host, so visibility is the union rather than a single flag.
     private var visibleUIHostIds: Set<UUID> = []
     @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()
+    /// Owns the explicit pointer-origin transaction shared by the Dock host
+    /// and Bonsplit delegate callbacks.
+    @ObservationIgnored let dockPointerInteractionCoordinator =
+        DockPointerInteractionCoordinator()
     @ObservationIgnored let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
     @ObservationIgnored let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
 
@@ -355,8 +379,28 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             guard source == .closeButton else { return }
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
-        self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
-            self?.toggleDockPaneZoom(inPane: paneId) ?? false
+        self.bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, paneId in
+            guard let self else { return false }
+            if let panelId = self.surfaceIdToPanelId[tabId] {
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+            }
+            return self.toggleDockPaneZoom(inPane: paneId)
+        }
+        self.bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, paneId in
+            guard let self else { return false }
+            if let panelId = self.surfaceIdToPanelId[tabId] {
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+            }
+            let nextMode = !self.bonsplitController.isFullWidthTabMode(inPane: paneId)
+            guard self.bonsplitController.setFullWidthTabMode(
+                nextMode,
+                inPane: paneId
+            ) else {
+                return false
+            }
+            // Return operation success rather than the resulting mode (which
+            // is `false` when a valid toggle turns full-width off).
+            return true
         }
         // Accept tabs dragged in from the main split area or another Dock. A
         // drag that started in a different controller is "external" to this one,
@@ -378,6 +422,17 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // context menu, not only by dragging.
         self.bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.dockTabMoveDestinations(for: tabId) ?? []
+        }
+        // A Dock may validly become empty after its final surface moves to a
+        // workspace. Keep Bonsplit's default multi-tab policy for ordinary
+        // controllers, but explicitly enable the built-in destination for
+        // every live Dock tab so the visible context-menu item matches the
+        // Dock's provider-supplied move destinations.
+        self.bonsplitController.tabContextMoveToNewWorkspaceAvailabilityProvider = {
+            [weak self] tabId, _ in
+            guard let self else { return false }
+            return self.panel(for: tabId) != nil
+                && AppDelegate.shared?.dockReferenceTabManager(for: self) != nil
         }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
@@ -547,10 +602,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     func setVisibleInUI(_ visible: Bool) {
         if !visible {
+            cancelDockPointerInteraction()
             visibleUIHostIds.removeAll()
         }
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
+        NotificationCenter.default.post(
+            name: .dockVisibilityDidChange,
+            object: self
+        )
         applyFocusedDockSelection()
     }
 
@@ -561,8 +621,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             visibleUIHostIds.remove(hostId)
         }
         let anyHostVisible = !visibleUIHostIds.isEmpty
+        // A remount can briefly overlap an old and new host. Only cancel a
+        // pointer origin when the Dock's visibility union actually becomes
+        // empty; a departing host must not invalidate the surviving host's
+        // in-flight selection transaction.
+        if !anyHostVisible {
+            cancelDockPointerInteraction()
+        }
         guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
+        NotificationCenter.default.post(
+            name: .dockVisibilityDidChange,
+            object: self
+        )
         applyFocusedDockSelection()
     }
 
@@ -620,6 +691,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -656,7 +728,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
-        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
+        guard attachPanelAsTab(
+            panel,
+            kind: kind,
+            title: panel.displayTitle,
+            inPane: paneId
+        ) != nil else {
             return nil
         }
         commitStartupRestoreIfNeeded(
@@ -666,12 +743,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
-            panel.focus()
+            // A focused creation is a user-visible selection transaction. Keep
+            // Dock model selection, panel focus, and the owning window's
+            // keyboard-focus intent together so subsequent menu/shortcut
+            // dispatch cannot fall back to the main workspace.
+            focusPanelFromDockInteraction(panel.id, window: nil)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -703,6 +783,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser
@@ -742,7 +823,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             // Empty tree: place into the root pane rather than splitting.
             let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
-                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane) else {
+                  attachPanelAsTab(
+                      panel,
+                      kind: kind,
+                      title: panel.displayTitle,
+                      inPane: rootPane
+                  ) != nil else {
                 return nil
             }
             commitStartupRestoreIfNeeded(
@@ -752,12 +838,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             )
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(rootPane)
-                bonsplitController.selectTab(tabId)
-                panel.focus()
+                focusPanelFromDockInteraction(panel.id, window: nil)
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
+            refreshDockMenuCapabilities()
             return panel.id
         }
 
@@ -793,16 +878,33 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            focusPanelFromDockInteraction(panel.id, window: nil)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
     func recordExplicitPanelCreation() {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didCreateTab tab: Bonsplit.Tab,
+        inPane pane: PaneID
+    ) {
+        refreshDockMenuCapabilities()
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didReorderTabsInPane pane: PaneID,
+        orderedTabIds: [TabID]
+    ) {
+        refreshDockMenuCapabilities()
     }
 
     /// Runs a programmatic split (which provides its own new-pane tab) with
@@ -1164,52 +1266,118 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
+            let terminalSurface = terminal.surface
+            let terminalSearchChanges = terminal.$searchState
+                .map { $0 != nil }
+                .removeDuplicates()
+                .map { _ in () }
+            let terminalSelectionChanges = NotificationCenter.default.publisher(
+                for: .terminalSelectionDidChange,
+                object: terminalSurface
+            )
+            // Ghostty can emit selection-change actions for every mouse-move
+            // while a drag selection is in progress. Reduce that stream to the
+            // capability value before refreshing the Dock snapshot so the
+            // main-actor tree traversal runs only when selection availability
+            // actually changes.
+            .map { [weak terminalSurface] _ in terminalSurface?.hasSelection() ?? false }
+            .removeDuplicates()
+            .map { _ in () }
+            panelCancellables[panel.id] = terminalSearchChanges
+                .merge(with: terminalSelectionChanges)
+                .sink { [weak self] _ in
+                    // Combine's `.receive(on: .main)` guarantees the GCD main
+                    // queue, not the Swift MainActor executor. DockSplitStore
+                    // is MainActor-isolated, so hop explicitly instead of
+                    // synchronously touching it from a publisher callback.
+                    Task { @MainActor [weak self] in
+                        self?.invalidateDockMenuCapabilities()
+                    }
+                }
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
+            struct BrowserDockSubscriptionEvent: Sendable {
+                let refreshCapabilities: Bool
+                let refreshMetadata: Bool
+            }
+
             let browserTabState = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
                 browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
             )
-            let cancellable = browserTabState
+            let browserMetadataChanges = browserTabState
                 .combineLatest(browser.$isMuted.removeDuplicates())
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak browser] _ in
-                    guard let self, let browser else { return }
-                    self.publishBrowserOpenTabSuggestion(for: browser)
-                    guard let tabId = self.surfaceId(forPanelId: browser.id),
-                          let existing = self.bonsplitController.tab(tabId) else { return }
-                    // Only push fields that actually changed. The combined stream
-                    // fires for any observed field, so an `isLoading` flicker during a
-                    // page load would otherwise re-publish the (unchanged) title and
-                    // favicon, mutating the @Observable BonsplitController and
-                    // re-rendering the Dock tree for nothing. Mirrors the main area's
-                    // guarded path in Workspace.installBrowserPanelSubscription.
-                    let resolvedTitle = browser.displayTitle
-                    let favicon = browser.faviconPNGData
-                    let titleUpdate: String? =
-                        existing.hasCustomTitle || existing.title == resolvedTitle
-                        ? nil
-                        : resolvedTitle
-                    let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-                    let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
-                    let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                    guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
-                    self.bonsplitController.updateTab(
-                        tabId,
-                        title: titleUpdate,
-                        iconImageData: faviconUpdate,
-                        isLoading: loadingUpdate,
-                        isAudioMuted: mutedUpdate
-                    )
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: false,
+                    refreshMetadata: true
+                ) }
+            let browserFindCapabilityChanges = browser.$searchState
+                .map { $0 != nil }
+                .removeDuplicates()
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: true,
+                    refreshMetadata: false
+                ) }
+            let browserWebViewInstanceChanges = browser.$webViewInstanceID
+                .removeDuplicates()
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: true,
+                    refreshMetadata: true
+                ) }
+            let cancellable = browserMetadataChanges
+                .merge(with: browserFindCapabilityChanges)
+                .merge(with: browserWebViewInstanceChanges)
+                .sink { [weak self, weak browser] event in
+                    // Combine publisher delivery may occur on a GCD queue that
+                    // is not the Swift MainActor. Keep the entire metadata
+                    // mutation transaction on the actor rather than relying on
+                    // `.receive(on: .main)` (which can trip an executor check).
+                    Task { @MainActor [weak self, weak browser] in
+                        guard let self, let browser else { return }
+                        if event.refreshCapabilities {
+                            self.invalidateDockMenuCapabilities()
+                        }
+                        guard event.refreshMetadata else {
+                            return
+                        }
+                        self.publishBrowserOpenTabSuggestion(for: browser)
+                        guard let tabId = self.surfaceId(forPanelId: browser.id),
+                              let existing = self.bonsplitController.tab(tabId) else { return }
+                        // Only push fields that actually changed. The combined stream
+                        // fires for any observed field, so an `isLoading` flicker during a
+                        // page load would otherwise re-publish the (unchanged) title and
+                        // favicon, mutating the @Observable BonsplitController and
+                        // re-rendering the Dock tree for nothing. Mirrors the main area's
+                        // guarded path in Workspace.installBrowserPanelSubscription.
+                        let resolvedTitle = browser.displayTitle
+                        let favicon = browser.faviconPNGData
+                        let titleUpdate: String? =
+                            existing.hasCustomTitle || existing.title == resolvedTitle
+                            ? nil
+                            : resolvedTitle
+                        let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
+                        let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
+                        let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
+                        guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
+                        self.bonsplitController.updateTab(
+                            tabId,
+                            title: titleUpdate,
+                            iconImageData: faviconUpdate,
+                            isLoading: loadingUpdate,
+                            isAudioMuted: mutedUpdate
+                        )
+                    }
                 }
             panelCancellables[panel.id] = cancellable
             publishBrowserOpenTabSuggestion(for: browser)
         } else if let filePreview = panel as? FilePreviewPanel {
             panelCancellables.removeValue(forKey: panel.id)
             filePreview.bindTabMetadata(to: self)
+        } else if panel is TerminalPanel {
+            // Keep the terminal search-state subscription installed above.
         } else {
             panelCancellables.removeValue(forKey: panel.id)
         }
@@ -1342,6 +1510,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Closes and removes any panels whose Bonsplit tab is no longer present in
     /// the tree (tab close, pane close, or merge).
     func reconcilePanels() {
+        cancelDockPointerInteraction()
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
@@ -1474,6 +1643,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
+            // `seed` has its own refresh for non-empty definitions, but an
+            // empty/filtered config still needs to publish the post-load
+            // snapshot (especially after replacing an older Dock tree).
+            refreshDockMenuCapabilities()
             if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
@@ -1553,6 +1726,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             previousPanelId = panel.id
         }
         applyVisibilityToAllPanels()
+        refreshDockMenuCapabilities()
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {

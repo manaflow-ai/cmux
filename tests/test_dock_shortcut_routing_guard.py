@@ -8,6 +8,7 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ROUTING_SOURCE = REPO_ROOT / "Sources" / "AppDelegate+DockShortcutRouting.swift"
+DISPOSITION_SOURCE = REPO_ROOT / "Sources" / "DockShortcutRoutingDisposition.swift"
 ACTION_SOURCE = REPO_ROOT / "Sources" / "KeyboardShortcutSettings.swift"
 MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "SurfacePaneMovement.swift"
 DISPATCH_SOURCES = tuple((REPO_ROOT / "Sources").glob("AppDelegate*.swift")) + (
@@ -62,13 +63,15 @@ def action_cases() -> set[str]:
 
 
 def disposition_actions() -> dict[str, set[str]]:
-    source = ROUTING_SOURCE.read_text(encoding="utf-8")
-    property_body = source_between(
-        source,
-        "var dockShortcutRoutingDisposition:",
-        "extension AppDelegate {",
-        ROUTING_SOURCE.name,
+    source = DISPOSITION_SOURCE.read_text(encoding="utf-8")
+    _, separator, property_body = source.partition(
+        "var dockShortcutRoutingDisposition:"
     )
+    if not separator:
+        raise AssertionError(
+            f"{DISPOSITION_SOURCE.name}: missing start anchor "
+            "'var dockShortcutRoutingDisposition:'"
+        )
     result: dict[str, set[str]] = {}
     for cases, disposition in re.findall(
         r"case\s+(.*?)\s*:\s*\.(dockScoped|focusResolved|mainContainer)",

@@ -11,6 +11,10 @@ final class NotificationBurstCoalescer {
     private let schedule: Scheduler
     private var cancelScheduledFlush: Cancellation?
     private var pendingAction: (@MainActor () -> Void)?
+    /// Invalidates callbacks that were already queued by a scheduler before its
+    /// cancellation closure ran. This closes the flushNow/delay-change race
+    /// without relying on timer cancellation being instantaneous.
+    private var scheduledFlushGeneration: UInt64 = 0
 
     @MainActor
     init(
@@ -23,7 +27,11 @@ final class NotificationBurstCoalescer {
             let timer = DispatchSource.makeTimerSource(queue: .main)
             timer.schedule(deadline: .now() + .nanoseconds(nanoseconds))
             timer.setEventHandler {
-                MainActor.assumeIsolated {
+                // A DispatchSource on the main queue is not guaranteed to be
+                // executing on the Swift MainActor executor. Enqueue the
+                // actor-isolated callback explicitly instead of trapping when
+                // a title/metadata burst fires during AppKit test or menu work.
+                Task { @MainActor in
                     action()
                 }
             }
@@ -45,6 +53,7 @@ final class NotificationBurstCoalescer {
         }
         pendingAction = action
         if cancelScheduledFlush != nil, delay != previousDelay {
+            scheduledFlushGeneration &+= 1
             cancelScheduledFlush?()
             cancelScheduledFlush = nil
         }
@@ -52,6 +61,7 @@ final class NotificationBurstCoalescer {
     }
 
     func flushNow() {
+        scheduledFlushGeneration &+= 1
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         flush()
@@ -60,9 +70,16 @@ final class NotificationBurstCoalescer {
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay
+        let generation = scheduledFlushGeneration
         cancelScheduledFlush = schedule(scheduledDelay) { [weak self] in
-            self?.flush()
+            self?.scheduledFlushDidFire(generation: generation)
         }
+    }
+
+    private func scheduledFlushDidFire(generation: UInt64) {
+        guard generation == scheduledFlushGeneration else { return }
+        cancelScheduledFlush = nil
+        flush()
     }
 
     private func flush() {

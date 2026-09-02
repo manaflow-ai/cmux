@@ -42,6 +42,11 @@ struct DockShortcutRoutingTests {
                 let dockBrowser = try #require(
                     harness.dock.browserPanel(for: dockBrowserId)
                 )
+                #expect(
+                    harness.dock.workspaceId ==
+                        harness.appDelegate.windowId(for: harness.tabManager)
+                )
+                #expect(harness.dock.dockInteractionWindow() === harness.window)
                 let overlaySearchField = NSTextField(frame: .zero)
                 let contentView = try #require(harness.window.contentView)
                 contentView.addSubview(overlaySearchField)
@@ -382,6 +387,44 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock browser split keeps a reachable chrome bar from a chromeless source")
+    @MainActor
+    func dockBrowserSplitDoesNotInheritChromelessPanePolicy() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let sourceID = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        url: URL(string: "https://example.com/source"),
+                        focus: true,
+                        chromeVisibility: .chromeless
+                    )
+                )
+                let source = try #require(harness.dock.browserPanel(for: sourceID))
+                #expect(source.chromeVisibility == .chromeless)
+
+                let splitCountBefore = harness.dock.panels.count
+                #expect(
+                    harness.appDelegate.routeSplitToFocusedDock(
+                        kind: .browser,
+                        direction: .right,
+                        preferredWindow: harness.window,
+                        preferredDock: harness.dock,
+                        preferredDockPanelId: sourceID
+                    )
+                )
+                #expect(harness.dock.panels.count == splitCountBefore + 1)
+                let splitID = try #require(
+                    harness.dock.focusedPanelId
+                )
+                let split = try #require(harness.dock.browserPanel(for: splitID))
+                #expect(split.id != source.id)
+                #expect(split.chromeVisibility == .visible)
+            }
+        }
+    }
+
     @Test("Dock browser web context menu moves its live tab to a workspace")
     @MainActor
     func dockBrowserWebContextMenuMovesLiveTabToWorkspace() async throws {
@@ -431,6 +474,35 @@ struct DockShortcutRoutingTests {
                 )
                 #expect(movedBrowser === browser)
                 #expect(movedBrowser.chromeVisibility == .chromeless)
+            }
+        }
+    }
+
+    @Test("A single Dock browser can move from its web context menu to a workspace")
+    @MainActor
+    func singleDockBrowserWebContextMenuMovesToWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let browser = try #require(harness.dock.browserPanel(for: browserId))
+                let webView = try #require(browser.webView as? CmuxWebView)
+                let workspaceCountBefore = harness.tabManager.tabs.count
+
+                #expect(webView.contextMenuCanMoveTabToNewWorkspace?() == true)
+                #expect(webView.contextMenuMoveTabToNewWorkspace?() == true)
+                #expect(!harness.dock.containsPanel(browserId))
+                #expect(harness.tabManager.tabs.count == workspaceCountBefore + 1)
+                #expect(
+                    harness.tabManager.tabs.contains {
+                        $0.browserPanel(for: browserId) === browser
+                    }
+                )
             }
         }
     }
@@ -948,6 +1020,13 @@ struct DockShortcutRoutingTests {
                 KeyboardShortcutSettings.setShortcut(
                     shortcut,
                     for: .focusBrowserAddressBar
+                )
+
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        action: .focusBrowserAddressBar,
+                        preferredWindow: harness.window
+                    ) === harness.dock
                 )
 
                 #expect(Self.dispatch(shortcut, in: harness))
@@ -1516,6 +1595,443 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("View surface movement follows Dock tab-strip focus")
+    @MainActor
+    func viewSurfaceMovementFollowsDockTabStripFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: false)
+                )
+                let movedPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: false)
+                )
+                let movedTab = try #require(harness.dock.surfaceId(forPanelId: movedPanel))
+                let destinationPanel = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: movedPanel,
+                        focus: false
+                    )
+                )
+                let destinationPane = try #require(
+                    harness.dock.paneId(forPanelId: destinationPanel)
+                )
+                let mainPanelBefore = try #require(harness.mainWorkspace.focusedPanelId)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelBefore,
+                    in: harness.window
+                )
+
+                // This is the Bonsplit tab-strip path: it selects/focuses the
+                // pane directly, without going through DockSplitStore.focusPanel.
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+                harness.dock.bonsplitController.focusPane(harness.rootPane)
+                harness.dock.bonsplitController.selectTab(movedTab)
+
+                #expect(
+                    harness.appDelegate.performSurfacePaneMovement(
+                        .right,
+                        tabManager: harness.tabManager,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.paneId(forPanelId: movedPanel) == destinationPane)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+                _ = firstPanel
+            }
+        }
+    }
+
+    @Test("Dock pointer ownership is explicit and callbacks stay focus-neutral")
+    @MainActor
+    func dockPointerOwnershipDoesNotLeakThroughCallbacks() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let tabId = try #require(
+                    harness.dock.surfaceId(forPanelId: panel.id)
+                )
+                let tab = try #require(
+                    harness.dock.bonsplitController.tab(tabId)
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == .dock
+                )
+
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                harness.dock.splitTabBar(
+                    harness.dock.bonsplitController,
+                    didSelectTab: tab,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == nil
+                )
+            }
+        }
+    }
+
+    @Test("Delayed Dock tab selection uses the explicit pointer origin")
+    @MainActor
+    func delayedDockSelectionPublishesDockFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let first = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let second = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let secondTab = try #require(
+                    harness.dock.surfaceId(forPanelId: second.id)
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.focusPanel(first.id)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                harness.dock.beginUserDockPointerInteraction(
+                    window: harness.window
+                )
+                harness.dock.releaseDockPointerInteraction(
+                    window: harness.window
+                )
+
+                // Drive the same Bonsplit selection API used by the tab strip.
+                // The controller mutates its selected tab before delivering
+                // `didSelectTab`; invoking the delegate alone would leave the
+                // model focused on the original tab and is not a runtime path.
+                harness.dock.bonsplitController.selectTab(secondTab)
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.focusedRightSidebarMode == .dock
+                )
+                #expect(harness.dock.focusedPanelId == second.id)
+            }
+        }
+    }
+
+    @Test("Dock pointer origin survives mouse-up until a delayed selection callback")
+    @MainActor
+    func dockPointerOriginSurvivesMouseUpUntilSelectionCallback() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let pane = PaneID()
+        let originalTab = TabID()
+        let selectedTab = TabID()
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: originalTab
+        )
+        coordinator.markReleased(in: window)
+
+        #expect(coordinator.phase == .released)
+        let owner = try #require(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            )
+        )
+        #expect(owner === window)
+        #expect(coordinator.phase == .idle)
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            ) == nil
+        )
+
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: selectedTab
+        )
+        coordinator.markReleased(in: window)
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            ) == nil
+        )
+        #expect(coordinator.phase == .idle)
+    }
+
+    @Test("Programmatic Dock selection has no pointer origin to consume")
+    @MainActor
+    func programmaticDockSelectionDoesNotClaimPointerOrigin() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: PaneID(),
+                tabID: TabID()
+            ) == nil
+        )
+        #expect(coordinator.phase == .idle)
+    }
+
+    @Test("Clicking the already-selected Dock tab retires its pointer origin")
+    @MainActor
+    func unchangedDockSelectionRetiresPointerOriginOnMouseUp() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let pane = PaneID()
+        let tab = TabID()
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: tab
+        )
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: tab
+            ) == nil
+        )
+        #expect(coordinator.phase == .pressed)
+
+        coordinator.markReleased(in: window)
+        #expect(coordinator.phase == .idle)
+    }
+
+    @Test("Dock pointer origins reject a callback from a different window")
+    @MainActor
+    func dockPointerOriginScopesCallbacksToItsWindow() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let originWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            originWindow.close()
+            foreignWindow.close()
+        }
+
+        coordinator.begin(
+            window: originWindow,
+            initialPaneID: PaneID(),
+            initialTabID: TabID()
+        )
+        #expect(
+            coordinator.consumeSelection(
+                in: foreignWindow,
+                paneID: PaneID(),
+                tabID: TabID()
+            ) == nil
+        )
+        #expect(coordinator.phase == .pressed)
+        coordinator.markReleased(in: foreignWindow)
+        #expect(coordinator.phase == .pressed)
+        coordinator.markReleased(in: originWindow)
+        #expect(coordinator.phase == .released)
+    }
+
+    @Test("Dock visibility union and key events clear pointer origins at lifecycle boundaries")
+    @MainActor
+    func dockPointerOriginLifecycleBoundariesAreCovered() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let firstHost = UUID()
+                let secondHost = UUID()
+                harness.dock.setVisibleInUI(true, hostId: firstHost)
+                harness.dock.setVisibleInUI(true, hostId: secondHost)
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+
+                harness.dock.setVisibleInUI(false, hostId: firstHost)
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .pressed
+                )
+
+                harness.appDelegate.cancelDockPointerOriginForKeyEvent(
+                    in: harness.window
+                )
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .idle
+                )
+
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+                harness.dock.setVisibleInUI(false, hostId: secondHost)
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .idle
+                )
+            }
+        }
+    }
+
+    @Test("Dock pointer hit policy keeps tab accessories out of focus ownership")
+    @MainActor
+    func dockPointerHitPolicyClassifiesOwnershipSignals() {
+        #expect(
+            DockPointerHitSignals(
+                registryTabItemHit: true,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: false
+            ).target == .tabItem
+        )
+        #expect(
+            DockPointerHitSignals(
+                registryTabItemHit: true,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: true,
+                selectedPanelHit: false
+            ).target == nil
+        )
+        #expect(
+            DockPointerHitSignals(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: true
+            ).target == .panel
+        )
+        #expect(
+            DockPointerHitSignals(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: true,
+                interactiveChromeHit: true,
+                selectedPanelHit: true
+            ).target == nil
+        )
+        #expect(
+            DockPointerHitSignals(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: false
+            ).target == nil
+        )
+    }
+
+    @Test("Dock pointer router restores the surviving host after a remount overlap")
+    @MainActor
+    func dockPointerRouterRestoresOverlappingHost() {
+        let router = DockPointerInteractionEventRouter()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let originalHost = DockPointerInteractionHostView()
+        let remountedHost = DockPointerInteractionHostView()
+        let originalToken = router.register(originalHost, in: window)
+        let remountedToken = router.register(remountedHost, in: window)
+
+        #expect(
+            router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
+        #expect(
+            router.isRegistered(
+                token: remountedToken,
+                host: remountedHost,
+                in: window
+            )
+        )
+
+        router.unregister(token: remountedToken, in: window)
+        #expect(
+            router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
+        #expect(
+            !router.isRegistered(
+                token: remountedToken,
+                host: remountedHost,
+                in: window
+            )
+        )
+
+        router.unregister(token: originalToken, in: window)
+        #expect(
+            !router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
@@ -1657,6 +2173,14 @@ struct DockShortcutRoutingTests {
                 #expect(!focus.shortcutContext.bool(
                     ShortcutContextKnownKey.terminalFocus.rawValue
                 ))
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .sendCtrlFToTerminal)
+                #expect(
+                    !harness.appDelegate.shortcutWhenClauseAllows(
+                        action: .sendCtrlFToTerminal,
+                        event: event
+                    ),
+                    "Terminal-only shortcuts must stay disabled for a focused Dock Simulator"
+                )
                 #expect(!KeyboardShortcutSettings.effectiveWhenClause(
                     for: .canvasZoomReset
                 ).evaluate(canvasContext))
@@ -1919,6 +2443,418 @@ struct DockShortcutRoutingTests {
                 let focusedId = try #require(harness.dock.focusedPanelId)
                 #expect(focusedId != sourceId)
                 #expect(harness.dock.browserPanel(for: focusedId) != nil)
+            }
+        }
+    }
+
+    @Test("Dock tab context actions preserve focus for metadata and focus for layout")
+    @MainActor
+    func dockTabContextActionsCommitTargetFocusBeforeMutation() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let first = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let second = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let secondTab = try #require(
+                    harness.dock.surfaceId(forPanelId: second.id)
+                )
+                harness.dock.focusPanel(first.id)
+                let mainPanelBefore = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.dock.setDockPanelCustomTitle(
+                    panelId: second.id,
+                    title: "Custom Dock Tab"
+                )
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .clearName,
+                    for: secondTab,
+                    inPane: harness.rootPane
+                )
+
+                // Clearing a name is metadata-only; a background tab action must
+                // not steal the terminal's keyboard focus.
+                #expect(harness.dock.focusedPanelId == first.id)
+                #expect(
+                    harness.dock.bonsplitController.tab(secondTab)?
+                        .hasCustomTitle == false
+                )
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+
+                // Bonsplit handles full-width toggles through its host callback;
+                // this also guards against recursively re-entering that request.
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .toggleFullWidthTab,
+                    for: secondTab,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.bonsplitController.isFullWidthTabMode(
+                        inPane: harness.rootPane
+                    )
+                )
+                // Layout actions intentionally make the requested tab active,
+                // matching Workspace.toggleFullWidthTabMode.
+                #expect(harness.dock.focusedPanelId == second.id)
+            }
+        }
+    }
+
+    @Test("Captured Dock palette targets survive a temporary focus handoff")
+    @MainActor
+    func capturedDockPaletteTargetSurvivesFocusHandoff() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panelId = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+
+                // Opening the palette can move first responder away from the
+                // Dock. The presentation-time Dock/panel identity remains the
+                // command target until the palette is dismissed.
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                #expect(
+                    harness.appDelegate.isCurrentCommandPaletteDockTarget(
+                        harness.dock,
+                        panelId: panelId,
+                        preferredWindow: harness.window
+                    )
+                )
+
+                #expect(
+                    harness.appDelegate.routeSplitToFocusedDock(
+                        kind: .terminal,
+                        direction: .right,
+                        action: .splitRight,
+                        preferredWindow: harness.window,
+                        preferredDock: harness.dock,
+                        preferredDockPanelId: panelId
+                    )
+                )
+                #expect(harness.dock.panels.count > 1)
+            }
+        }
+    }
+
+    @Test("Dock menu capabilities and menu dispatch share the same focused store")
+    @MainActor
+    func dockMenuSnapshotMatchesSharedDispatcher() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                // Use the same live terminal surfaces that the menu command
+                // handles in production. The menu path commits focus and
+                // notification ownership, so a no-op fake Panel would not
+                // exercise the actual responder/portal boundary.
+                let first = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let second = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                harness.dock.focusPanel(first)
+                harness.dock.refreshDockMenuCapabilities()
+
+                #expect(
+                    harness.appDelegate.focusedDockStoreForMenu(
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+                #expect(harness.dock.menuCapabilities.isTerminal)
+                #expect(harness.dock.menuCapabilities.canCloseOtherTabs)
+
+                #expect(
+                    harness.appDelegate.performFocusedDockCommand(
+                        .selectNextSurface,
+                        action: .nextSurface,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.focusedPanelId == second)
+            }
+        }
+    }
+
+    @Test("Dock panel zoom stays scoped to the captured panel")
+    @MainActor
+    func dockPanelZoomTargetsBrowserAndRejectsTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserID = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let browser = try #require(harness.dock.browserPanel(for: browserID))
+                let before = browser.currentPageZoomFactor()
+
+                #expect(
+                    harness.dock.performDockPanelZoom(
+                        .increase,
+                        panelId: browserID
+                    )
+                )
+                #expect(browser.currentPageZoomFactor() > before)
+
+                let terminal = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    !harness.dock.performDockPanelZoom(
+                        .increase,
+                        panelId: terminal.id
+                    )
+                )
+
+                harness.dock.focusPanel(browserID)
+                #expect(harness.dock.performDockPanelZoom(.reset))
+            }
+        }
+    }
+
+    @Test("Dock close-other-tabs preserves pinned siblings")
+    @MainActor
+    func dockCloseOtherTabsPreservesPinnedSibling() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let selected = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let pinned = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let unpinned = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.setDockPanelPinned(
+                        panelId: pinned.id,
+                        pinned: true
+                    )
+                )
+                harness.dock.focusPanel(selected.id)
+                harness.dock.refreshDockMenuCapabilities()
+                #expect(harness.dock.menuCapabilities.canCloseOtherTabs)
+
+                let warningStore = CloseTabWarningStore(
+                    defaults: harness.tabManager.closeTabWarningDefaults
+                )
+                let previousWarning = warningStore.warnsBeforeClosingTab
+                warningStore.setWarnsBeforeClosingTab(false)
+                defer {
+                    warningStore.setWarnsBeforeClosingTab(previousWarning)
+                }
+
+                #expect(
+                    harness.dock.performShortcutCommand(
+                        .closeOtherTabsInPane
+                    )
+                )
+                #expect(harness.dock.containsPanel(pinned.id))
+                #expect(!harness.dock.containsPanel(unpinned.id))
+                #expect(!harness.dock.menuCapabilities.canCloseOtherTabs)
+            }
+        }
+    }
+
+    @Test("Validated Dock metadata actions do not focus or invert unread state")
+    @MainActor
+    func dockMetadataValidationStaysFocusNeutral() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let focused = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let background = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                harness.dock.focusPanel(focused.id)
+                #expect(harness.dock.togglePanelUnread(background.id))
+                #expect(harness.dock.panelIsUnread(background.id))
+
+                #expect(
+                    harness.appDelegate.isCurrentCommandPaletteDockTarget(
+                        harness.dock,
+                        panelId: background.id,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.togglePanelUnread(background.id))
+
+                #expect(!harness.dock.panelIsUnread(background.id))
+                #expect(harness.dock.focusedPanelId == focused.id)
+            }
+        }
+    }
+
+    @Test("A single Dock tab can move to a new workspace")
+    @MainActor
+    func singleDockTabOffersNewWorkspaceDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let tabId = try #require(
+                    harness.dock.surfaceId(forPanelId: panel.id)
+                )
+
+                let destinations = harness.dock.dockTabMoveDestinations(
+                    for: tabId
+                )
+                #expect(
+                    destinations.first?.id ==
+                        DockSplitStore.dockMoveNewWorkspaceDestinationId
+                )
+                #expect(
+                    harness.dock.bonsplitController
+                        .tabContextMoveToNewWorkspaceAvailabilityProvider?(
+                            tabId,
+                            harness.rootPane
+                        ) == true
+                )
+                harness.dock.refreshDockMenuCapabilities()
+                #expect(harness.dock.menuCapabilities.canMoveToNewWorkspace)
+
+                let workspaceCountBefore = harness.tabManager.tabs.count
+                #expect(
+                    harness.appDelegate.moveFocusedSurfaceToNewWorkspace(
+                        tabManager: harness.tabManager,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(!harness.dock.containsPanel(panel.id))
+                #expect(
+                    harness.tabManager.tabs.count == workspaceCountBefore + 1
+                )
+            }
+        }
+    }
+
+    @Test("Generic surface move APIs route a Dock panel to a workspace")
+    @MainActor
+    func genericSurfaceMoveApisRouteDockPanel() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.canMoveSurfaceToNewWorkspace(
+                        panelId: panel.id
+                    )
+                )
+                let targets = harness.appDelegate.workspaceMoveTargets(
+                    forSurface: panel.id
+                )
+                let target = try #require(targets.first)
+
+                #expect(
+                    harness.appDelegate.moveSurface(
+                        panelId: panel.id,
+                        toWorkspace: target.workspaceId,
+                        focus: false,
+                        focusWindow: false
+                    )
+                )
+                #expect(!harness.dock.containsPanel(panel.id))
+                #expect(
+                    target.tabManager.tabs
+                        .first(where: { $0.id == target.workspaceId })?
+                        .panels[panel.id] === panel
+                )
+            }
+        }
+    }
+
+    @Test("An empty Dock pane publishes Dock ownership for creation commands")
+    @MainActor
+    func emptyDockPanePublishesDockFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.focusPaneFromDockInteraction(
+                    harness.rootPane,
+                    window: harness.window
+                )
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.focusedRightSidebarMode == .dock
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+            }
+        }
+    }
+
+    @Test("Focus-neutral Dock selection restoration preserves main focus")
+    @MainActor
+    func focusNeutralDockSelectionRestorationPreservesMainFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                harness.dock.focusPanel(panel.id)
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                let selection = harness.dock.focusedDockPaneSelection()
+                harness.dock.restoreDockPaneSelection(selection)
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == nil
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) == nil
+                )
             }
         }
     }

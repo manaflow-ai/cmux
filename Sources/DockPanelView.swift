@@ -15,6 +15,9 @@ struct DockPanelView: View {
     let mode: RightSidebarMode
     let rootDirectory: String?
     let windowAppearance: WindowAppearanceSnapshot
+    /// App-owned pointer router; `nil` keeps standalone previews/tests free of
+    /// process-wide AppKit monitors.
+    let pointerEventRouter: DockPointerInteractionEventRouter?
     /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
@@ -32,6 +35,7 @@ struct DockPanelView: View {
         mode: RightSidebarMode,
         rootDirectory: String?,
         windowAppearance: WindowAppearanceSnapshot,
+        pointerEventRouter: DockPointerInteractionEventRouter? = nil,
         rightSidebarOwnsInputFocus: Bool = false,
         unreadSource: SidebarUnreadModel
     ) {
@@ -40,6 +44,7 @@ struct DockPanelView: View {
         self.mode = mode
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
+        self.pointerEventRouter = pointerEventRouter
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
         _unreadProjection = State(initialValue: DockUnreadPanelProjection(
             source: unreadSource,
@@ -82,6 +87,19 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the pointer monitor at the Dock root so its own AppKit bounds
+        // cover the complete Bonsplit tab strip and pane content. A monitor
+        // mounted inside an individual split view can miss tab chrome during
+        // SwiftUI remounts and would need an unreliable superview heuristic.
+        .overlay {
+            DockPointerInteractionHost(
+                store: store,
+                router: pointerEventRouter,
+                isEnabled: store.scope == .global && store.isVisibleInUI
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+        }
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
@@ -251,6 +269,17 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.ownsDockBrowserFocus = { [weak store] responder, window in
             store?.browserPanel(owning: responder, in: window) != nil
         }
+        nsView.ownsDockTerminalFocus = { [weak store] responder, window in
+            guard let store,
+                  store.scope == .global,
+                  let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+                  ghosttyView.window === window,
+                  let surfaceId = ghosttyView.terminalSurface?.id,
+                  store.containsPanel(surfaceId) else {
+                return false
+            }
+            return true
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
@@ -258,6 +287,7 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
     var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
+    var ownsDockTerminalFocus: ((NSResponder, NSWindow) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -267,8 +297,11 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
-        if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
+        guard let window else { return false }
+        if ownsDockBrowserFocus?(responder, window) == true { return true }
+        if ownsDockTerminalFocus?(responder, window) == true { return true }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+              ghosttyView.window === window,
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

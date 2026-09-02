@@ -27,7 +27,7 @@ nonisolated private let focusSurfaceBroadcasterLogger = Logger(
 /// ## Contract
 ///
 /// - ``emit(_:)`` never delivers synchronously. It records the latest payload and
-///   schedules a single flush on the main queue, so all `@Published` mutations made
+///   schedules a single flush on the Swift MainActor, so all `@Published` mutations made
 ///   by the caller settle before any observer runs.
 /// - Multiple emits before a flush coalesce to the most recent payload.
 /// - If an observer synchronously emits again during delivery, that emit updates the
@@ -109,11 +109,11 @@ final class FocusSurfaceBroadcaster {
     ///     that are allowed to hit ``maxCoalescedDeliveries``. This is the runtime
     ///     circuit breaker for a non-converging focus observer loop.
     ///   - maxConsecutiveCircuitDeliveries: Upper bound on deliveries for the same
-    ///     focus transaction, including feedback deferred to later main-queue turns.
+    ///     focus transaction, including feedback deferred to later MainActor turns.
     ///   - maxCircuitBreakerRecoveryDeliveries: Upper bound on retained same-transaction
     ///     payloads delivered after the breaker trips.
-    ///   - schedule: Schedules deferred flush work on the main queue. Defaults to
-    ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
+    ///   - schedule: Schedules deferred flush work on the Swift MainActor.
+    ///     Injected by tests to flush deterministically.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
@@ -127,9 +127,10 @@ final class FocusSurfaceBroadcaster {
         maxConsecutiveCircuitDeliveries: Int? = nil,
         maxCircuitBreakerRecoveryDeliveries: Int? = nil,
         schedule: @escaping @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { work() }
-            }
+            // The GCD main queue and Swift's MainActor are distinct
+            // executors. Hop explicitly so a focus notification can never
+            // trap while AppKit is draining a main-queue callback.
+            Task { @MainActor in work() }
         },
         onDrainBoundExceeded: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         onCircuitBreakerTripped: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
@@ -169,7 +170,7 @@ final class FocusSurfaceBroadcaster {
         coalescer.emit(payload)
     }
 
-    /// Delivers the pending broadcast(s) on the main queue.
+    /// Delivers the pending broadcast(s) on the Swift MainActor.
     ///
     /// Drains coalesced payloads in a bounded loop so a re-entrant observer cannot
     /// spin forever. Exposed (non-private) so tests can run the scheduled flush

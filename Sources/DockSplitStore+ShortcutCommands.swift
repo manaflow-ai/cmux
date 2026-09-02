@@ -25,6 +25,7 @@ enum DockShortcutCommand {
     case renameSurface(presentingWindow: NSWindow?)
     case closeOtherTabsInPane
     case toggleTerminalCopyMode
+    case toggleTerminalTextBox
     case focusTextBoxInput
     case attachTextBoxFile
     case sendCtrlFToTerminal
@@ -45,6 +46,23 @@ enum DockShortcutCommand {
             false
         }
     }
+
+    /// Whether the command requires a focused terminal surface rather than
+    /// any other Dock panel kind.
+    var requiresTerminalSurface: Bool {
+        switch self {
+        case .toggleTerminalCopyMode,
+             .toggleTerminalTextBox,
+             .focusTextBoxInput,
+             .attachTextBoxFile,
+             .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback,
+             .useSelectionForFind:
+            true
+        default:
+            false
+        }
+    }
 }
 
 extension DockSplitStore {
@@ -54,6 +72,7 @@ extension DockSplitStore {
     @discardableResult
     func performShortcutCommand(_ command: DockShortcutCommand) -> Bool {
         guard !isRetired else { return false }
+        cancelDockPointerInteraction()
         switch command {
         case .selectNextSurface:
             bonsplitController.selectNextTab()
@@ -110,6 +129,8 @@ extension DockSplitStore {
                 return false
             }
             return terminal.surface.toggleKeyboardCopyMode()
+        case .toggleTerminalTextBox:
+            return focusedDockTerminalPanel?.toggleTextBoxInput() ?? false
         case .focusTextBoxInput:
             return focusedDockTerminalPanel?
                 .focusTextBoxInputOrTerminal() ?? false
@@ -200,6 +221,10 @@ extension DockSplitStore {
     private var focusedDockBrowserPanel: BrowserPanel? {
         guard let focusedPanelId else { return nil }
         return panels[focusedPanelId] as? BrowserPanel
+    }
+
+    var focusedDockPanelIsTerminal: Bool {
+        focusedDockTerminalPanel != nil
     }
 
     private func promptRenameFocusedDockSurface(
@@ -431,25 +456,24 @@ extension DockSplitStore {
     }
 
     private func closeOtherDockTabsInFocusedPane() -> Bool {
-        guard let paneId =
-                bonsplitController.focusedPaneId
-                ?? bonsplitController.allPaneIds.first else {
-            return true
+        guard let paneId = bonsplitController.focusedPaneId else {
+            return false
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
-        guard let selectedTabId =
-                bonsplitController.selectedTab(inPane: paneId)?.id
-                ?? tabs.first?.id else {
-            return true
+        guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
+            return false
         }
         return closeDockTabs(
-            tabs.lazy.filter { $0.id != selectedTabId }.map(\.id),
+            tabs.lazy
+                .filter { $0.id != selectedTabId && !$0.isPinned }
+                .map(\.id),
             inPane: paneId,
             confirmationPolicy: .allTabs
         )
     }
 
     private func startDockFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         if let terminal = focusedDockTerminalPanel {
             let hadExistingSearch = terminal.searchState != nil
             terminal.hostedView.preparePanelFocusIntentForActivation(
@@ -503,6 +527,7 @@ extension DockSplitStore {
     }
 
     private func hideDockFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         if let terminal = focusedDockTerminalPanel {
             terminal.surface.closeSearchFromExplicitInput()
             return true
@@ -515,7 +540,11 @@ extension DockSplitStore {
     }
 
     private func useDockSelectionForFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         guard let terminal = focusedDockTerminalPanel else {
+            return false
+        }
+        guard terminal.hasSelection() else {
             return false
         }
         if terminal.searchState == nil {

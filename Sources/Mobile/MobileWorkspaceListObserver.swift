@@ -101,7 +101,10 @@ final class MobileWorkspaceListObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            // `.main` selects the operation queue, not the Swift MainActor
+            // executor. Reconcile through an explicit hop because the mobile
+            // host can post this notification from its background actor.
+            Task { @MainActor [weak self] in
                 self?.reconcilePipelines()
             }
         }

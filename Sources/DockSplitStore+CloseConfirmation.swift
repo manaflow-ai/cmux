@@ -187,12 +187,14 @@ extension DockSplitStore {
         tabCloseButtonCloseDockTabIds.remove(tabId)
         commitDockClosedPanelHistory(tabId: tabId)
         reconcilePanels()
+        refreshDockMenuCapabilities()
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         synchronizeOwnedPaneIds(with: controller)
         commitDockClosedPaneHistory(paneId)
         reconcilePanels()
+        refreshDockMenuCapabilities()
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {

@@ -55,25 +55,68 @@ extension ContentView {
     func registerSurfaceNavigationCommandHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
         dock: DockSplitStore? = nil,
+        dockPanelId: UUID? = nil,
+        focusDock: @escaping () -> Bool,
         preferredWindow: @escaping () -> NSWindow?
     ) {
+        // A Dock target is captured when the palette is presented. Keep that
+        // presentation-time ownership stable for the lifetime of the command
+        // handlers: a palette opened from the main workspace must not start
+        // dispatching into a Dock merely because focus changes before the user
+        // invokes a command. Conversely, a captured Dock must still be live and
+        // focused when the command executes; otherwise fail closed instead of
+        // mutating a stale/hidden split tree.
+        let capturedDock = dock
+        let resolvedDock: () -> DockSplitStore? = {
+            guard let capturedDock else { return nil }
+            guard let app = AppDelegate.shared,
+                  let panelId = dockPanelId ?? capturedDock.focusedPanelId,
+                  app.isCurrentCommandPaletteDockTarget(
+                      capturedDock,
+                      panelId: panelId,
+                      preferredWindow: preferredWindow()
+                  ) else {
+                return nil
+            }
+            return capturedDock
+        }
+        let focusCapturedDock: () -> Bool = {
+            guard capturedDock != nil else { return true }
+            return focusDock()
+        }
         registry.register(commandId: "palette.nextTabInPane") {
-            if let dock {
-                _ = dock.performShortcutCommand(.selectNextSurface)
+            if capturedDock != nil {
+                guard let dock = resolvedDock(), focusCapturedDock() else {
+                    NSSound.beep()
+                    return
+                }
+                if !dock.performShortcutCommand(.selectNextSurface) {
+                    NSSound.beep()
+                }
                 return
             }
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
-            if let dock {
-                _ = dock.performShortcutCommand(.selectPreviousSurface)
+            if capturedDock != nil {
+                guard let dock = resolvedDock(), focusCapturedDock() else {
+                    NSSound.beep()
+                    return
+                }
+                if !dock.performShortcutCommand(.selectPreviousSurface) {
+                    NSSound.beep()
+                }
                 return
             }
             tabManager.selectPreviousSurface()
         }
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
-                if let dock {
+                if capturedDock != nil {
+                    guard let dock = resolvedDock(), focusCapturedDock() else {
+                        NSSound.beep()
+                        return
+                    }
                     if !dock.performShortcutCommand(
                         .moveSurfaceToPane(
                             movement,

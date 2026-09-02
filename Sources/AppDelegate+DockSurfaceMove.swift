@@ -57,6 +57,55 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
+    /// Whether the View menu can move the currently owned surface into a new
+    /// workspace. Dock enablement reads its bounded capability snapshot; the
+    /// main workspace keeps the existing rule that at least one surface must
+    /// remain behind.
+    func canMoveFocusedSurfaceToNewWorkspace(
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        if let dock = focusedDockStoreForMenu(
+            preferredWindow: preferredWindow
+        ) {
+            return dock.menuCapabilities.canMoveToNewWorkspace
+        }
+        guard let workspace = tabManager?.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              workspace.panels[panelId] != nil else {
+            return false
+        }
+        return workspace.panels.count > 1
+    }
+
+    /// Executes the View menu's new-workspace move through the focused
+    /// container's existing live-panel transfer path.
+    @discardableResult
+    func moveFocusedSurfaceToNewWorkspace(
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        if let dock = focusedDockStoreForMenu(
+            preferredWindow: preferredWindow
+        ) {
+            guard let panelId = dock.focusedPanelId else { return false }
+            return moveDockSurfaceToNewWorkspace(
+                sourceDock: dock,
+                panelId: panelId,
+                focus: true,
+                focusWindow: false
+            )
+        }
+        guard let panelId = tabManager?.selectedWorkspace?.focusedPanelId else {
+            return false
+        }
+        return moveSurfaceToNewWorkspace(
+            panelId: panelId,
+            focus: true,
+            focusWindow: false
+        ) != nil
+    }
+
     /// Finds the live Dock that owns a pane through the bounded Dock registry.
     /// Used by portal drop targets to route into the Dock's own controller.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
@@ -132,17 +181,11 @@ extension AppDelegate {
         )
         destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 
-        // The surface was attached into the Dock with focus, so record Dock focus
-        // ownership. Without this, `rightSidebarOwnsInputFocus` stays false and the
-        // focus-exclusivity gate would treat the just-dropped Dock terminal as
-        // inactive (and the main pane would keep focus) even though the drop
-        // requested focus. Resolve the destination Dock's OWN window rather than
-        // the global key window: during a cross-window drag the source window can
-        // still be key, which would publish focus to the wrong window's state.
-        let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
-            .flatMap { windowId(for: $0) }
-            .flatMap { mainWindow(for: $0) }
-        destinationDock.noteKeyboardFocusIntent(
+        // Reuse the Dock focus transaction so global and workspace-scoped Docks
+        // publish ownership to their respective focus domains.
+        let destinationDockWindow = destinationDock.dockInteractionWindow()
+        destinationDock.focusPanelFromDockInteraction(
+            detached.panelId,
             window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         )
 
@@ -212,10 +255,19 @@ extension AppDelegate {
         sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToWorkspace.source")
 
         if focus {
+            let destinationWindow = windowId(for: destinationManager)
+                .flatMap { mainWindow(for: $0) }
             if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
                 _ = focusMainWindow(windowId: destinationWindowId)
             }
             destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
+            if let destinationWindow {
+                noteMainPanelKeyboardFocusIntent(
+                    workspaceId: targetWorkspaceId,
+                    panelId: panelId,
+                    in: destinationWindow
+                )
+            }
         }
         return true
     }
@@ -251,8 +303,19 @@ extension AppDelegate {
         )
         sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToNewWorkspace.source")
 
-        if focus, focusWindow, let destinationWindowId = windowId(for: manager) {
-            _ = focusMainWindow(windowId: destinationWindowId)
+        if focus {
+            let destinationWindow = windowId(for: manager)
+                .flatMap { mainWindow(for: $0) }
+            if focusWindow, let destinationWindowId = windowId(for: manager) {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            if let destinationWindow {
+                noteMainPanelKeyboardFocusIntent(
+                    workspaceId: destinationWorkspace.id,
+                    panelId: panelId,
+                    in: destinationWindow
+                )
+            }
         }
         return true
     }

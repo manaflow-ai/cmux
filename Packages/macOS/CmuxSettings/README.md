@@ -192,12 +192,14 @@ needed. Build a context by hand and assert evaluation:
 
 Known boolean keys are `sidebarFocus`, `browserFocus`, `markdownFocus`,
 `filePreviewTextEditorFocus`, `simulatorFocus`, `terminalFocus`,
-`commandPaletteVisible`, `terminalFindVisible`, and `workspaceCanvasLayout`.
+`commandPaletteVisible`, `terminalFindVisible`, `workspaceCanvasLayout`, and
+`dockFocus`.
 
 ```swift
 var context = ShortcutContext()
 context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, "find")
+context.setBool(ShortcutContextKnownKey.dockFocus.rawValue, true)
 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
 
 let clause = ShortcutWhenClause.parse("workspaceCanvasLayout && paneCount > 1")

@@ -825,8 +825,18 @@ enum KeyboardShortcutSettings {
         guard shortcut.hasPrimaryModifier else {
             return .rejected(.systemWideHotkeyRequiresModifier)
         }
+        // Global Search intentionally yields to the opt-in system-wide binding.
+        // Excluding it here keeps the reservation walk acyclic: resolving the
+        // system-wide default must not resolve Global Search, which asks for
+        // this same reservation list again while its static state initializes.
         guard shortcut.carbonHotKeyRegistration != nil,
-              !checkingConflicts || !systemWideHotkeyConflicts(with: shortcut, excluding: action) else {
+              !checkingConflicts || !systemWideHotkeyConflicts(
+                  with: shortcut,
+                  excluding: action,
+                  alsoExcluding: action == .showHideAllWindows
+                      ? [.globalSearch]
+                      : []
+              ) else {
             return .rejected(.reservedBySystem)
         }
         return .accepted(shortcut)
@@ -844,7 +854,7 @@ enum KeyboardShortcutSettings {
         excluding currentAction: Action
     ) -> Action? {
         for action in Action.allCases where action != currentAction {
-            let configuredShortcut = shortcut(for: action)
+            let configuredShortcut = conflictResolutionShortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,
                 proposedAction: currentAction,
@@ -1218,6 +1228,26 @@ final class SystemWideHotkeyController {
 
     private init() {}
 
+    /// Rebuilds the Carbon registration after the current notification turn.
+    /// UserDefaults and settings-file notifications can be posted while the
+    /// shortcut store is still installing a new snapshot; resolving the
+    /// system-wide candidate synchronously from that callback re-enters the
+    /// store's lazy initialization path. Enqueueing on the MainActor keeps
+    /// registration and snapshot reads ordered without a dispatch-once cycle.
+    private func scheduleRegistrationRefresh() {
+        Task { @MainActor [weak self] in
+            self?.refreshRegistration()
+        }
+    }
+
+    /// Drops the existing Carbon registration before a shortcut recorder can
+    /// receive its next key event. Rebuilding the replacement binding remains
+    /// deferred to avoid re-entering settings resolution from the notification.
+    private func handleRecorderActivityChange() {
+        unregisterHotKey()
+        scheduleRegistrationRefresh()
+    }
+
     func start() {
         guard defaultsObserver == nil else { return }
 
@@ -1228,21 +1258,21 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         shortcutObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         recorderObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutRecorderActivity.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.handleRecorderActivityChange()
         }
         // The live Settings UI uses the CmuxSettingsUI package recorder, which signals
         // arm/disarm through its own notification (it cannot post the app-target
@@ -1254,21 +1284,25 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.handleRecorderActivityChange()
         }
         inputSourceObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         appHideObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willHideNotification,
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            // `willHide` is the last synchronous point before AppKit removes
+            // windows from the visible set. Capture restore targets inline on
+            // the main notification path so a deferred actor task cannot see
+            // an already-hidden/empty window list.
+            MainActor.assumeIsolated { [weak self] in
                 self?.captureHiddenWindowRestoreTargets()
             }
         }
