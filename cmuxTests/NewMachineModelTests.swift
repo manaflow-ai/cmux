@@ -154,6 +154,23 @@ final class NewMachineModelTests: XCTestCase {
 
     // MARK: Create lifecycle
 
+    /// https://github.com/manaflow-ai/cmux/issues/11397: Create must hand the
+    /// person back their window immediately. The sheet finishes as soon as the
+    /// CLI run is launched; the machine coming up (tens of seconds) is tracked
+    /// elsewhere, never by the sheet's lifetime.
+    func testCreateFinishesTheSheetBeforeTheMachineExists() {
+        let (model, recorder) = makeModel()
+        var outcomes: [NewMachineModel.Outcome] = []
+        model.onFinished = { outcomes.append($0) }
+
+        model.create()
+
+        XCTAssertEqual(recorder.value.arguments.count, 1, "the create is launched once")
+        XCTAssertNotNil(recorder.value.pendingCompletion, "the CLI is still running: no completion has fired")
+        XCTAssertEqual(outcomes.count, 1, "the sheet must finish without waiting for the CLI to complete")
+        XCTAssertNotNil(model.outcome)
+    }
+
     func testCreateLaunchesOnceAndFinishesOnSuccess() {
         let (model, recorder) = makeModel()
         var outcomes: [NewMachineModel.Outcome] = []
