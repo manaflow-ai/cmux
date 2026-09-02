@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import re
@@ -29,10 +30,30 @@ MATRIX_PATTERN = re.compile(r"^app-host unit tests \((\d+)/(\d+)\)$")
 CHECK_NAME_ALIASES = {"GhosttyKit release check": "ghosttykit-release-check"}
 ADVISORY_CHECKS = {"ci-status", "ci-status-advisory", "ci-status-validator-canary"}
 ROUTE_NAMES = contract.ROUTE_NAMES
+TRUSTED_REVIEWER_IDS = {
+    38676809: "austinywang",
+    67667005: "azooz2003-bit",
+}
+TRUSTED_REVIEWER_LOGINS = frozenset(TRUSTED_REVIEWER_IDS.values())
+TRUSTED_REVIEWER_LOGIN_KEYS = frozenset(
+    name.casefold() for name in TRUSTED_REVIEWER_LOGINS
+)
+REVIEW_STATES = frozenset(
+    {"APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"}
+)
+REVIEW_TIMESTAMP = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$"
+)
+MAX_REVIEW_ID = 2**63 - 1
+MAX_REVIEW_PAGES = 100
 
 
 class GateError(RuntimeError):
     """Describe an input, API, or provenance error that must fail closed."""
+
+
+class WorkflowDefinitionError(GateError):
+    """The pull request changed CI policy without the required approval."""
 
 
 def _is_sha(value: object) -> bool:
@@ -74,6 +95,32 @@ def _page_rows(payload: object, key: str) -> list[Mapping[str, Any]]:
     return rows
 
 
+def _array_rows(payload: object, label: str) -> list[Mapping[str, Any]]:
+    """Flatten a regular or --slurp response whose pages are arrays."""
+
+    if not isinstance(payload, list):
+        raise GateError(f"GitHub API response for {label} is not an array")
+    if not payload:
+        return []
+    pages: list[object]
+    if all(isinstance(value, Mapping) for value in payload):
+        pages = [payload]
+    else:
+        pages = payload
+    if len(pages) > MAX_REVIEW_PAGES:
+        raise GateError(f"GitHub API returned too many {label} pages")
+    rows: list[Mapping[str, Any]] = []
+    for page in pages:
+        if not isinstance(page, list):
+            raise GateError(f"GitHub API page for {label} is not an array")
+        if len(page) > 100:
+            raise GateError(f"GitHub API page for {label} is too large")
+        if any(not isinstance(value, Mapping) for value in page):
+            raise GateError(f"GitHub API page for {label} contains a malformed row")
+        rows.extend(page)
+    return rows
+
+
 class GitHubAPI:
     """Small read-only wrapper around the runner's authenticated gh client."""
 
@@ -111,6 +158,186 @@ class GitHubAPI:
             return json.loads(result.stdout)
         except json.JSONDecodeError as error:
             raise GateError("GitHub API returned invalid JSON") from error
+
+
+def _workflow_blob_sha(api: GitHubAPI, revision: str) -> str:
+    """Return the immutable blob SHA for the CI workflow at one revision."""
+
+    revision = _as_sha(revision, "workflow revision")
+    payload = api.get(
+        f"repos/{api.repository}/contents/{CI_WORKFLOW_PATH}?ref={revision}"
+    )
+    if not isinstance(payload, Mapping):
+        raise GateError("GitHub returned a malformed CI workflow definition")
+    if payload.get("type") != "file" or payload.get("path") != CI_WORKFLOW_PATH:
+        raise GateError("GitHub returned a non-file CI workflow definition")
+    return _as_sha(payload.get("sha"), "CI workflow blob SHA")
+
+
+def _review_order(review: Mapping[str, Any]) -> tuple[dt.datetime, int]:
+    """Build a deterministic order for one trusted review decision."""
+
+    review_id = review.get("id")
+    if not isinstance(review_id, int) or isinstance(review_id, bool):
+        raise GateError("trusted review ID is malformed")
+    if review_id <= 0 or review_id > MAX_REVIEW_ID:
+        raise GateError("trusted review ID is malformed")
+    submitted_at = review.get("submitted_at")
+    if not isinstance(submitted_at, str) or not REVIEW_TIMESTAMP.fullmatch(submitted_at):
+        raise GateError("trusted review timestamp is malformed")
+    try:
+        timestamp = dt.datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise GateError("trusted review timestamp is malformed") from error
+    if timestamp.tzinfo is None:
+        raise GateError("trusted review timestamp is malformed")
+    return timestamp, review_id
+
+
+def _trusted_reviewer_id(review: Mapping[str, Any]) -> int | None:
+    """Identify a trusted human reviewer, rejecting ambiguous identities."""
+
+    user = review.get("user")
+    if not isinstance(user, Mapping):
+        return None
+    user_id = user.get("id")
+    login = user.get("login")
+    trusted_by_login = isinstance(login, str) and login.casefold() in TRUSTED_REVIEWER_LOGIN_KEYS
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        if trusted_by_login:
+            raise GateError("trusted reviewer identity is missing an account ID")
+        return None
+    expected_login = TRUSTED_REVIEWER_IDS.get(user_id)
+    if expected_login is None:
+        return None
+    if not isinstance(login, str) or login.casefold() != expected_login.casefold():
+        raise GateError("trusted reviewer identity does not match its account ID")
+    if user.get("type") != "User":
+        raise GateError("trusted reviewer is not a human account")
+    return user_id
+
+
+def _review_rows(payload: object) -> list[Mapping[str, Any]]:
+    """Read review pages returned by ``gh api --paginate --slurp``."""
+
+    return _array_rows(payload, "pull-request reviews")
+
+
+def has_trusted_workflow_review(
+    reviews: Iterable[Mapping[str, Any]],
+    pull: Mapping[str, Any],
+    head_sha: str,
+) -> bool:
+    """Return whether Austin or Aziz approved the exact workflow revision."""
+
+    head_sha = _as_sha(head_sha, "head SHA")
+    author = pull.get("user")
+    author_id = author.get("id") if isinstance(author, Mapping) else None
+    author_login = author.get("login") if isinstance(author, Mapping) else None
+    latest: dict[int, tuple[tuple[dt.datetime, int], Mapping[str, Any]]] = {}
+    seen_review_ids: set[int] = set()
+
+    for review in reviews:
+        if not isinstance(review, Mapping):
+            raise GateError("pull-request review entry is malformed")
+        raw_id = review.get("id")
+        user = review.get("user")
+        user_id = user.get("id") if isinstance(user, Mapping) else None
+        login = user.get("login") if isinstance(user, Mapping) else None
+        trusted_hint = (
+            isinstance(user_id, int)
+            and not isinstance(user_id, bool)
+            and user_id in TRUSTED_REVIEWER_IDS
+        ) or (
+            isinstance(login, str)
+            and login.casefold() in TRUSTED_REVIEWER_LOGIN_KEYS
+        )
+        if not isinstance(raw_id, int) or isinstance(raw_id, bool) or raw_id <= 0:
+            if trusted_hint:
+                raise GateError("trusted review ID is malformed")
+            continue
+        if raw_id > MAX_REVIEW_ID:
+            raise GateError("pull-request review ID is malformed")
+        if raw_id in seen_review_ids:
+            raise GateError("pull-request review pagination repeated an entry")
+        seen_review_ids.add(raw_id)
+
+        reviewer_id = _trusted_reviewer_id(review)
+        if reviewer_id is None:
+            continue
+        state = review.get("state")
+        if not isinstance(state, str) or state not in REVIEW_STATES:
+            raise GateError("trusted review state is malformed")
+        if state in {"COMMENTED", "PENDING"}:
+            continue
+        order = _review_order(review)
+        # A dismissed approval is not an approval, even if GitHub leaves the
+        # original state in the response while dismissal metadata propagates.
+        effective_state = "DISMISSED" if review.get("dismissed_at") is not None else state
+        if effective_state == "APPROVED":
+            commit_id = review.get("commit_id")
+            _as_sha(commit_id, "trusted review commit SHA")
+        previous = latest.get(reviewer_id)
+        if previous is None or order > previous[0]:
+            latest[reviewer_id] = (order, {**review, "state": effective_state})
+
+    for _reviewer_id, (_order, review) in latest.items():
+        if review.get("state") != "APPROVED":
+            continue
+        if review.get("commit_id") != head_sha:
+            continue
+        if review.get("dismissed_at") is not None:
+            continue
+        reviewed_user = review.get("user")
+        reviewed_id = reviewed_user.get("id") if isinstance(reviewed_user, Mapping) else None
+        reviewed_login = reviewed_user.get("login") if isinstance(reviewed_user, Mapping) else None
+        if reviewed_id == author_id or (
+            isinstance(reviewed_login, str)
+            and isinstance(author_login, str)
+            and reviewed_login.casefold() == author_login.casefold()
+        ):
+            continue
+        return True
+    return False
+
+
+def verify_ci_workflow_revision(
+    api: GitHubAPI,
+    pull: Mapping[str, Any],
+    head_sha: str,
+) -> None:
+    """Require trusted approval when the PR changes the CI workflow bytes."""
+
+    base = pull.get("base")
+    base_sha = _as_sha(
+        base.get("sha") if isinstance(base, Mapping) else None,
+        "pull request base SHA",
+    )
+    head_sha = _as_sha(head_sha, "pull request head SHA")
+    base_blob = _workflow_blob_sha(api, base_sha)
+    head_blob = _workflow_blob_sha(api, head_sha)
+    if base_blob == head_blob:
+        return
+
+    number = pull.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise GateError("pull request number is malformed")
+    reviews = _review_rows(
+        api.get(
+            f"repos/{api.repository}/pulls/{number}/reviews?per_page=100",
+            paginate=True,
+        )
+    )
+    if has_trusted_workflow_review(reviews, pull, head_sha):
+        print(
+            "CI workflow definition changed, exact-head trusted review verified.",
+            file=sys.stderr,
+        )
+        return
+    raise WorkflowDefinitionError(
+        "CI workflow definition differs from the base revision; "
+        "an exact-head approval from Austin or Aziz is required"
+    )
 
 
 def _event_target(
@@ -412,6 +639,12 @@ def _pr_files(api: GitHubAPI, number: int, expected_count: object) -> list[str]:
 
 def _run_gate(api: GitHubAPI, event_name: str, event: Mapping[str, Any]) -> int:
     pull, head_sha, number, workflow_run_id = _event_target(api, event_name, event)
+    try:
+        verify_ci_workflow_revision(api, pull, head_sha)
+    except WorkflowDefinitionError as error:
+        print("CI status gate failed:", file=sys.stderr)
+        print(f"- {error}", file=sys.stderr)
+        return 1
     ci_run = _select_ci_run(api, pull, head_sha, workflow_run_id)
     jobs_payload = api.get(
         f"repos/{api.repository}/actions/runs/{ci_run['id']}/jobs?per_page=100", paginate=True

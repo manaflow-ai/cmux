@@ -16,6 +16,17 @@ and `ci-status-validator-canary` job are diagnostic only and must not be added
 to branch protection. The advisory jobs may execute pull-request code, but
 they have read-only permissions and do not control mergeability.
 
+During rollout, the untrusted workflow also publishes the legacy `ci-status`
+context. It mirrors `ci-status-advisory` only so an existing required-check
+rule does not become permanently pending. Remove that compatibility job in the
+same ruleset update that makes `ci-status-gate` required.
+
+The base-owned gate compares the blob SHA for `.github/workflows/ci.yml` at
+the live base and head commits. A changed workflow definition is rejected
+unless Austin (`austinywang`, account ID `38676809`) or Aziz
+(`azooz2003-bit`, account ID `67667005`) has an approving human review for the
+exact head commit. Later changes, dismissals, and self-approval do not count.
+
 Before activating the rule, merge this bootstrap, rebase the route-aware CI
 change, and observe these cases on fresh pull requests: docs-only, macOS,
 web, Go, agent-session, and workflow changes. Confirm that the base-owned gate

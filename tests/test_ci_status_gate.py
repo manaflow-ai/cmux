@@ -119,7 +119,7 @@ class FakeAPI:
         if "/commits/" in endpoint and "/check-runs" in endpoint:
             return [{"check_runs": self.checks}]
         if "/contents/.github/workflows/ci.yml?ref=" in endpoint:
-            return {"sha": BASE_SHA}
+            return {"type": "file", "path": module.CI_WORKFLOW_PATH, "sha": BASE_SHA}
         if endpoint.endswith("/pulls/1/reviews?per_page=100"):
             return []
         if endpoint.endswith("/pulls/1/files?per_page=100"):
@@ -244,10 +244,22 @@ def test_workflow_definition_mismatch_requires_trusted_review() -> None:
 
         def get(self, endpoint: str, *, paginate: bool = False) -> object:
             if "/contents/.github/workflows/ci.yml?ref=" in endpoint:
-                return {"sha": BASE_SHA if f"ref={BASE_SHA}" in endpoint else "d" * 40}
+                return {
+                    "type": "file",
+                    "path": module.CI_WORKFLOW_PATH,
+                    "sha": BASE_SHA if f"ref={BASE_SHA}" in endpoint else "d" * 40,
+                }
             if endpoint.endswith("/pulls/1/reviews?per_page=100"):
                 return (
-                    [{"user": {"login": "austinywang"}, "state": "APPROVED", "commit_id": HEAD_SHA}]
+                    [
+                        {
+                            "id": 1,
+                            "user": {"id": 38676809, "login": "austinywang", "type": "User"},
+                            "state": "APPROVED",
+                            "commit_id": HEAD_SHA,
+                            "submitted_at": "2026-09-01T00:00:00Z",
+                        }
+                    ]
                     if self.approved
                     else []
                 )

@@ -2435,6 +2435,26 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+  ci-status:
+    needs: ci-status-advisory
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Keep the historical context until the main ruleset switches atomically
+    # to the base-owned ci-status-gate check. This job is not a security gate.
+    steps:
+      - name: Preserve legacy CI status context
+        env:
+          ADVISORY_RESULT: ${{ needs.ci-status-advisory.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$ADVISORY_RESULT" != "success" ]]; then
+            echo "::error::Legacy ci-status compatibility gate mirrors ci-status-advisory: $ADVISORY_RESULT" >&2
+            exit 1
+          fi
+
   ci-status-validator-canary:
     needs:
       - changes
