@@ -68,6 +68,8 @@ pub const SCROLLBACK_LIMIT: usize = 256 * 1024;
 pub const OUTPUT_BUFFER_CAP: u64 = 1024 * 1024;
 /// cmux-tui control protocol floor for attach-surface/send.
 const CONTROL_MIN_PROTOCOL: i64 = 5;
+const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
+const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// Inner terminals listed per session (surface_list stays bounded).
 const MAX_ENUM_TERMINALS: usize = 8;
 const MAX_ALLOWED_ROOTS: usize = 32;
@@ -1491,6 +1493,8 @@ impl TerminalStream {
 struct ControlTerminalControl {
     control: Arc<dyn ControlHandle>,
     surface_id: i64,
+    lease: Option<String>,
+    detach_supported: bool,
 }
 
 impl PtyControl for ControlTerminalControl {
@@ -1511,6 +1515,15 @@ impl PtyControl for ControlTerminalControl {
         self.control.resume();
     }
     fn kill(&self) {
+        if self.detach_supported {
+            if let Some(lease) = self.lease.as_deref() {
+                self.control.send(
+                    "detach-attached-view",
+                    json!({ "surface": self.surface_id, "lease": lease }),
+                );
+                return;
+            }
+        }
         self.control.end(); // detach only; the daemon keeps the terminal
     }
 }
@@ -1710,6 +1723,23 @@ impl Inner {
             .into_iter()
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect();
+        let scoped_detach_advertised =
+            capabilities.iter().any(|c| c == VIEW_ATTACHMENT_LEASE_CAPABILITY)
+                && capabilities.iter().any(|c| c == VIEW_ATTACHMENT_DETACH_CAPABILITY);
+        let detach_supported = scoped_detach_advertised
+            && control
+                .request(
+                    "set-client-info",
+                    json!({
+                        "kind": "relay",
+                        "capabilities": [
+                            VIEW_ATTACHMENT_LEASE_CAPABILITY,
+                            VIEW_ATTACHMENT_DETACH_CAPABILITY,
+                        ],
+                    }),
+                )
+                .await
+                .is_some_and(|response| response.get("ok").and_then(Value::as_bool) == Some(true));
 
         // Resolve the ref: numeric surface id directly, else via the tree.
         let mut surface_id: Option<i64> = if surface_ref.bytes().all(|b| b.is_ascii_digit()) {
@@ -1823,6 +1853,34 @@ impl Inner {
                 return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
             }
         };
+        let lease = attached
+            .as_ref()
+            .and_then(|response| response.get("data"))
+            .and_then(|data| data.get("lease"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if context.cancellation.is_cancelled() {
+            if detach_supported {
+                if let Some(lease) = lease.as_deref() {
+                    let _ = control
+                        .request(
+                            "detach-attached-view",
+                            json!({ "surface": surface_id, "lease": lease }),
+                        )
+                        .await;
+                } else {
+                    // A peer that advertises bilateral leases but omits the
+                    // returned token cannot honor scoped cleanup safely.
+                    control.end();
+                }
+            } else {
+                // Older peers have no lease-addressed detach. This control
+                // socket is owned by this opening, so closing it is the only
+                // stream cleanup fence available to that peer.
+                control.end();
+            }
+            return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
+        }
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
@@ -1836,7 +1894,8 @@ impl Inner {
             ));
         }
 
-        let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        let proxy =
+            Arc::new(ControlTerminalControl { control, surface_id, lease, detach_supported });
         let (on_data, _) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
