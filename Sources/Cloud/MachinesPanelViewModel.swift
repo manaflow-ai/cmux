@@ -324,31 +324,30 @@ enum MachineSnapshotBuilder {
     }
 }
 
-/// Retries a short-lived Cloud client bootstrap race without an unbounded loop.
-@MainActor
-struct CloudClientBootstrapRetry {
-    let maxRetries: Int
-
-    init(maxRetries: Int) {
-        self.maxRetries = max(0, maxRetries)
-    }
-
-    func run(attempt: () async -> Bool) async -> Bool {
-        for retry in 0...maxRetries {
-            if await attempt() { return true }
-            guard !Task.isCancelled, retry < maxRetries else { return false }
-            await Task.yield()
-        }
-        return false
-    }
-}
-
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
 /// through this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
+    /// Retries a short-lived Cloud client bootstrap race without an unbounded loop.
+    struct CloudClientBootstrapRetry {
+        let maxRetries: Int
+
+        init(maxRetries: Int) {
+            self.maxRetries = max(0, maxRetries)
+        }
+
+        func run(attempt: () async -> Bool) async -> Bool {
+            for retry in 0...maxRetries {
+                if await attempt() { return true }
+                guard !Task.isCancelled, retry < maxRetries else { return false }
+                await Task.yield()
+            }
+            return false
+        }
+    }
+
     @Published private(set) var machines: [MachineSnapshot] = []
     @Published private(set) var plan: MachinePlanSnapshot?
     @Published private(set) var isLoading = false
