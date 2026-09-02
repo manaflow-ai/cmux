@@ -326,6 +326,19 @@ impl TreeView {
             Some(location) => location,
             None => return false,
         };
+        self.update_surface_title_at(
+            id,
+            [workspace_index, screen_index, pane_index, tab_index],
+            title,
+        )
+    }
+
+    pub(crate) fn update_surface_title_at(
+        &mut self,
+        id: SurfaceId,
+        [workspace_index, screen_index, pane_index, tab_index]: [usize; 4],
+        title: String,
+    ) -> bool {
         let Some(tab) = self
             .workspaces
             .get_mut(workspace_index)
