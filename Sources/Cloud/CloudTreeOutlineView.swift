@@ -641,11 +641,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         || row.resource.remoteViews?.isEmpty == false
                         || row.resource.remoteWorkspace != nil
                     if canRename {
-                        let key = row.remoteView == nil
-                            ? "cloudTree.menu.renameTerminalAllViews"
-                            : "cloudTree.menu.renameTerminal"
-                        let fallback = row.remoteView == nil ? "Rename all views\u{2026}" : "Rename\u{2026}"
-                        items.append(item(String(localized: key, defaultValue: fallback)) { [nodeActions] in
+                        let title = if row.remoteView == nil {
+                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
+                        } else {
+                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                        }
+                        items.append(item(title) { [nodeActions] in
                             nodeActions.renameTerminal(row.resource, row.remoteView)
                         })
                     }
