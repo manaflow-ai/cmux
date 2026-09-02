@@ -1939,15 +1939,21 @@ mod tests {
 
     #[test]
     fn unsupported_python_attached_option_does_not_expose_script() {
-        let job = ForegroundJob {
-            process_group_id: 11,
-            processes: vec![process(
-                11,
-                "python3.12",
-                &["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
-            )],
-        };
-        assert!(identify_job(ManifestSet::bundled(), &job).is_none());
+        for argv in [
+            vec!["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
+            // An unsupported attached option must not consume the following
+            // mode flag as its value and expose the mode's command text.
+            vec!["python3.12", "--check-hash-based-pycs=always", "-c", "codex"],
+        ] {
+            let job = ForegroundJob {
+                process_group_id: 11,
+                processes: vec![process(11, "python3.12", &argv)],
+            };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "unsupported attached option must fail closed: {argv:?}",
+            );
+        }
     }
 
     #[test]
