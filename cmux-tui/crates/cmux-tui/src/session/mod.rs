@@ -2871,6 +2871,16 @@ pub(crate) fn test_remote_session_with_silent_requests(capabilities: HashSet<Str
     Session::Remote(remote::test_session_with_silent_requests(capabilities))
 }
 
+/// A remote session whose control socket answers every request with
+/// `responder(&request)` and records the requests it received.
+#[cfg(test)]
+pub(crate) fn test_remote_session_answering(
+    responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
+) -> (Session, std::sync::mpsc::Receiver<Value>) {
+    let (session, requests) = remote::test_session_answering(responder);
+    (Session::Remote(session), requests)
+}
+
 /// A remote session whose event transport already died with `reason`, the
 /// state the reader thread leaves behind before it synthesizes
 /// `MuxEvent::Empty` on connection loss.

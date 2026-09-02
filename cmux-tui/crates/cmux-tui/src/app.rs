@@ -1331,6 +1331,32 @@ enum SessionCompletionAction {
     LayoutUndoStale,
 }
 
+/// True when the remote session's cached tree already reflects a committed
+/// mutation: a created surface is present, or every destroyed surface is gone,
+/// and no `tree-changed` resync is pending. Mutations with neither a created
+/// nor a destroyed surface (renames, layout) always refetch.
+fn remote_postcondition_visible(
+    session: &Session,
+    completion: Option<&SessionCompletion>,
+    destroyed_surfaces: &crate::pty_input::MutationTargets,
+) -> bool {
+    if session.remote_tree_is_stale() {
+        return false;
+    }
+    let tree = session.tree();
+    match completion.map(|completion| &completion.action) {
+        Some(
+            SessionCompletionAction::SurfaceCreated { surface }
+            | SessionCompletionAction::BrowserTabCreated { surface },
+        ) => tree.surface(*surface).is_some(),
+        Some(_) => false,
+        None if !destroyed_surfaces.is_empty() => {
+            destroyed_surfaces.iter().all(|surface| tree.surface(*surface).is_none())
+        }
+        None => false,
+    }
+}
+
 fn layout_undo_error_completion(error: &anyhow::Error) -> Option<SessionCompletionAction> {
     match error.downcast_ref::<LayoutUndoError>() {
         Some(LayoutUndoError::Unavailable) => Some(SessionCompletionAction::LayoutUndoUnavailable),
@@ -2980,6 +3006,7 @@ impl OrderedSession {
             .then(|| self.destination_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
         let destination_mutation_committed = self.destination_mutation_committed.clone();
         let settlement = pending.clone();
+        let destroyed_surfaces = target_surfaces.clone();
         self.operations.enqueue_session_mutation_with_settlement_targeting(
             label,
             target_surfaces,
@@ -3022,13 +3049,33 @@ impl OrderedSession {
                     semantic_intent,
                     action,
                 });
-                session.invalidate_remote_tree();
                 if remote {
-                    pending.defer(SessionMutationOutcome::CommittedTreeStale {
-                        error: None,
-                        completion,
-                    });
+                    // Tree deltas that arrived before this response may
+                    // already show the outcome; then the cached tree is the
+                    // authoritative result and no refetch is needed. Any
+                    // pending `tree-changed` keeps the refetch path.
+                    if remote_postcondition_visible(
+                        &session,
+                        completion.as_ref(),
+                        &destroyed_surfaces,
+                    ) {
+                        let destination_generation =
+                            destination_mutation_committed.load(Ordering::Acquire);
+                        pending.defer(SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                            tree: session.tree(),
+                            authoritative_generation: mutation_generation,
+                            destination_generation,
+                            completion,
+                        });
+                    } else {
+                        session.invalidate_remote_tree();
+                        pending.defer(SessionMutationOutcome::CommittedTreeStale {
+                            error: None,
+                            completion,
+                        });
+                    }
                 } else {
+                    session.invalidate_remote_tree();
                     match session.refresh_tree() {
                         Ok(tree) => {
                             let destination_generation =
@@ -25047,8 +25094,7 @@ mod tests {
         TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
         TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
         VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, apply_split_ratio_preview,
-        browser_content_size_for_rect,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
         client_menu_item, clip_horizontal_rect, content_size_for_rect,
@@ -29936,6 +29982,63 @@ mod tests {
         app.sync_layout((100, 20));
         assert!(app.split_drag_preview.is_none(), "tree agrees; preview must clear");
         close_all_surfaces(&mux);
+    }
+
+    #[test]
+    fn remote_creation_skips_the_refetch_when_the_cached_tree_already_shows_it() {
+        let tree_json = serde_json::json!({
+            "workspaces": [{
+                "id": 1, "name": "one", "active": true,
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "tabs": [
+                        {"surface": 7, "title": "a", "kind": "pty"},
+                        {"surface": 8, "title": "b", "kind": "pty"}
+                    ]}]
+                }]
+            }]
+        });
+        // The daemon's tab-added delta has already been applied to the cache
+        // (here: the snapshot already contains surface 8), and the create
+        // response names that surface.
+        let (session, requests) = crate::session::test_remote_session_answering(Arc::new(
+            move |request: &Value| match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => tree_json.clone(),
+                Some("list-agents") => serde_json::json!({"agents": []}),
+                Some("new-tab") => serde_json::json!({"surface": 8}),
+                _ => serde_json::json!({}),
+            },
+        ));
+        session.refresh_tree().unwrap();
+        let (mut app, events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        for _ in requests.try_iter() {}
+
+        app.session.new_tab_for_semantic_intent(Some(3), None, Vec::new(), None).unwrap();
+        let mut settled = false;
+        while !settled {
+            let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+            if let AppEvent::SessionMutationSettled { outcome, .. } = &event {
+                assert!(
+                    matches!(
+                        outcome,
+                        super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. }
+                    ),
+                    "expected the cached tree to be authoritative without a refetch"
+                );
+                settled = true;
+            }
+            app.handle(event).unwrap();
+        }
+        let later = requests.try_iter().collect::<Vec<_>>();
+        assert!(later.iter().any(|request| request["cmd"] == "new-tab"));
+        assert!(
+            later.iter().all(|request| request["cmd"] != "list-workspaces"),
+            "the create must not refetch the tree it already has: {later:?}"
+        );
+        assert_eq!(app.tree.active_surface(), Some(8), "the created tab is selected");
     }
 
     #[test]

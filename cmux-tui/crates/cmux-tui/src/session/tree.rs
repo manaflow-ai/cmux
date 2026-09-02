@@ -743,7 +743,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
     }
 }
 
-fn parse_pane(value: &Value) -> Option<PaneView> {
+pub(super) fn parse_pane(value: &Value) -> Option<PaneView> {
     let raw_active_tab = value
         .get("active_tab")
         .and_then(Value::as_u64)
@@ -767,59 +767,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                 tabs.iter()
                     .enumerate()
                     .filter_map(|(raw_index, tab)| {
-                        let parsed = Some(TabView {
-                            surface: tab.get("surface")?.as_u64()?,
-                            public_id: tab
-                                .get("tab_resource_id")
-                                .and_then(Value::as_str)
-                                .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
-                            content_id: tab
-                                .get("content_resource_id")
-                                .and_then(Value::as_str)
-                                .and_then(|value| {
-                                    TerminalPublicId::parse(value.to_string())
-                                        .map(ContentPublicId::Terminal)
-                                        .or_else(|_| {
-                                            BrowserPublicId::parse(value.to_string())
-                                                .map(ContentPublicId::Browser)
-                                        })
-                                        .ok()
-                                }),
-                            terminal_id: tab
-                                .get("terminal_resource_id")
-                                .and_then(Value::as_str)
-                                .and_then(|value| TerminalPublicId::parse(value.to_string()).ok()),
-                            short_id: tab
-                                .get("short_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
-                            name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            title: tab
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
-                            kind: match tab.get("kind").and_then(|v| v.as_str()) {
-                                Some("browser") => SurfaceKind::Browser,
-                                _ => SurfaceKind::Pty,
-                            },
-                            browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
-                            {
-                                Some("external") => Some(BrowserSource::External),
-                                Some("launched") => Some(BrowserSource::Launched),
-                                _ => None,
-                            },
-                            browser_frames_stalled: tab
-                                .get("browser_frames_stalled")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                            supports_clear_history_key_fallback: tab
-                                .get("supports_clear_history_key_fallback")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false),
-                            notification: tab.get("notification").and_then(parse_notification),
-                        })?;
+                        let parsed = parse_tab(tab)?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);
                         }
@@ -831,6 +779,63 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
             .unwrap_or_default(),
         active_tab: active_tab.unwrap_or(if active_tab_is_declared { usize::MAX } else { 0 }),
     })
+}
+
+/// Parse one `Tab` entity as carried by `list-workspaces` and by tab deltas.
+pub(super) fn parse_tab(tab: &Value) -> Option<TabView> {
+    Some(TabView {
+        surface: tab.get("surface")?.as_u64()?,
+        public_id: tab
+            .get("tab_resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
+        content_id: tab
+            .get("content_resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| {
+                TerminalPublicId::parse(value.to_string())
+                    .map(ContentPublicId::Terminal)
+                    .or_else(|_| {
+                        BrowserPublicId::parse(value.to_string())
+                            .map(ContentPublicId::Browser)
+                    })
+                    .ok()
+            }),
+        terminal_id: tab
+            .get("terminal_resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| TerminalPublicId::parse(value.to_string()).ok()),
+        short_id: tab
+            .get("short_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        title: tab
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        kind: match tab.get("kind").and_then(|v| v.as_str()) {
+            Some("browser") => SurfaceKind::Browser,
+            _ => SurfaceKind::Pty,
+        },
+        browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
+        {
+            Some("external") => Some(BrowserSource::External),
+            Some("launched") => Some(BrowserSource::Launched),
+            _ => None,
+        },
+        browser_frames_stalled: tab
+            .get("browser_frames_stalled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        supports_clear_history_key_fallback: tab
+            .get("supports_clear_history_key_fallback")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        notification: tab.get("notification").and_then(parse_notification),
+    }
 }
 
 fn parse_notification(value: &Value) -> Option<TabNotificationView> {
@@ -851,7 +856,7 @@ pub(super) struct TreeCapabilities {
     pub viewport_column_resize: bool,
 }
 
-fn parse_screen(value: &Value, capabilities: TreeCapabilities) -> Option<ScreenView> {
+pub(super) fn parse_screen(value: &Value, capabilities: TreeCapabilities) -> Option<ScreenView> {
     Some(ScreenView {
         id: value.get("id")?.as_u64()?,
         resource_id: value
@@ -929,45 +934,51 @@ pub(super) fn parse_tree_with_capabilities(
         if ws.get("active").and_then(|v| v.as_bool()) == Some(true) {
             tree.active_workspace = i;
         }
-        let mut view = WorkspaceView {
-            id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
-            resource_id: ws
-                .get("resource_id")
-                .and_then(Value::as_str)
-                .and_then(|value| WorkspacePublicId::parse(value.to_string()).ok()),
-            key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
-            short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            screens: Vec::new(),
-            active_screen: 0,
-        };
-        if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
-            let mut active_screen = None;
-            let mut active_screen_is_invalid = false;
-            for screen in screens {
-                let is_active = screen.get("active").and_then(|v| v.as_bool()) == Some(true);
-                match parse_screen(screen, capabilities) {
-                    Some(parsed) => {
-                        if is_active {
-                            active_screen = Some(view.screens.len());
-                            active_screen_is_invalid = false;
-                        }
-                        view.screens.push(parsed);
+        tree.workspaces.push(parse_workspace(ws, capabilities));
+    }
+    tree
+}
+
+/// Parse one `Workspace` entity as carried by `list-workspaces` and by
+/// workspace deltas. The caller decides whether it is the active workspace.
+pub(super) fn parse_workspace(ws: &Value, capabilities: TreeCapabilities) -> WorkspaceView {
+    let mut view = WorkspaceView {
+        id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+        resource_id: ws
+            .get("resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| WorkspacePublicId::parse(value.to_string()).ok()),
+        key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
+        short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        screens: Vec::new(),
+        active_screen: 0,
+    };
+    if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
+        let mut active_screen = None;
+        let mut active_screen_is_invalid = false;
+        for screen in screens {
+            let is_active = screen.get("active").and_then(|v| v.as_bool()) == Some(true);
+            match parse_screen(screen, capabilities) {
+                Some(parsed) => {
+                    if is_active {
+                        active_screen = Some(view.screens.len());
+                        active_screen_is_invalid = false;
                     }
-                    None => {
-                        if is_active {
-                            active_screen = None;
-                            active_screen_is_invalid = true;
-                        }
+                    view.screens.push(parsed);
+                }
+                None => {
+                    if is_active {
+                        active_screen = None;
+                        active_screen_is_invalid = true;
                     }
                 }
             }
-            view.active_screen =
-                active_screen.unwrap_or(if active_screen_is_invalid { usize::MAX } else { 0 });
         }
-        tree.workspaces.push(view);
+        view.active_screen = active_screen
+            .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
     }
-    tree
+    view
 }
 
 #[cfg(test)]

@@ -18,7 +18,7 @@ use cmux_tui_core::{
     ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
     PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot,
+    TerminalPointerSnapshot, TreeDelta, TreeDeltaKind,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
@@ -39,7 +39,10 @@ use super::cursor_provenance::CursorStyleProvenance;
 use super::parse_identity_capabilities;
 #[cfg(test)]
 use super::tree::parse_tree;
-use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
+use super::tree::{
+    TreeCapabilities, TreeView, parse_screen, parse_tab, parse_tree_with_capabilities,
+    parse_workspace,
+};
 use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
@@ -296,6 +299,22 @@ struct RemoteTreeCache {
     title_updates: HashMap<SurfaceId, TitleUpdate>,
     agent_generation: u64,
     agent_updates: HashMap<SurfaceId, AgentUpdate>,
+    /// Counts applied tree deltas. A `list-workspaces` snapshot captured while
+    /// this advanced may predate the delta's mutation, so the refresh marks
+    /// the tree stale again instead of trusting the older snapshot.
+    delta_generation: u64,
+    /// True once a full snapshot has been adopted; deltas before that have no
+    /// baseline and force a refetch.
+    has_snapshot: bool,
+}
+
+/// Outcome of applying one tree delta event to the cached tree.
+enum TreeDeltaApply {
+    /// The cache now reflects the mutation; frontends redraw from it.
+    Applied(TreeDelta),
+    /// The delta cannot be applied exactly (revision gap, unknown parent,
+    /// or a kind whose entity does not carry the affected layout); refetch.
+    Resync,
 }
 
 #[derive(Clone, Copy)]
@@ -317,9 +336,9 @@ struct AgentUpdate {
 }
 
 impl RemoteTreeCache {
-    fn replace(&mut self, view: TreeView, refresh_generation: u64) {
+    fn reindex(&mut self) {
         self.surface_tabs.clear();
-        for (workspace_index, workspace) in view.workspaces().iter().enumerate() {
+        for (workspace_index, workspace) in self.view.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
@@ -331,7 +350,260 @@ impl RemoteTreeCache {
                 }
             }
         }
+    }
+
+    /// Apply one `tree_events:"deltas"` event in stream order.
+    ///
+    /// Applied exactly: workspace added/closed/renamed/moved (fenced by
+    /// `workspace_revision`, exact next revision only), screen
+    /// added/closed/renamed, tab added/closed/renamed. Pane added/closed
+    /// return `Resync`: their `Pane` entity does not carry the screen's split
+    /// tree, which the same mutation changed, and the daemon emits no
+    /// `layout-changed` for a split to delta subscribers, so the layout can
+    /// only come from `list-workspaces`.
+    fn apply_tree_delta(
+        &mut self,
+        event: &str,
+        value: &Value,
+        capabilities: TreeCapabilities,
+    ) -> TreeDeltaApply {
+        use TreeDeltaKind as K;
+        let kind = match event {
+            "workspace-added" => K::WorkspaceAdded,
+            "workspace-closed" => K::WorkspaceClosed,
+            "workspace-renamed" => K::WorkspaceRenamed,
+            "workspace-moved" => K::WorkspaceMoved,
+            "screen-added" => K::ScreenAdded,
+            "screen-closed" => K::ScreenClosed,
+            "screen-renamed" => K::ScreenRenamed,
+            "pane-added" => K::PaneAdded,
+            "pane-closed" => K::PaneClosed,
+            "tab-added" => K::TabAdded,
+            "tab-closed" => K::TabClosed,
+            "tab-renamed" => K::TabRenamed,
+            _ => return TreeDeltaApply::Resync,
+        };
+        if !self.has_snapshot {
+            return TreeDeltaApply::Resync;
+        }
+        let Some(workspace_id) = value.get("workspace").and_then(Value::as_u64) else {
+            return TreeDeltaApply::Resync;
+        };
+        let screen_id = value.get("screen").and_then(Value::as_u64);
+        let pane_id = value.get("pane").and_then(Value::as_u64);
+        let surface_id = value.get("surface").and_then(Value::as_u64);
+        let index = value.get("index").and_then(Value::as_u64).map(|index| index as usize);
+        let entity = value.get("entity").cloned().unwrap_or(Value::Null);
+        let workspace_revision = value.get("workspace_revision").and_then(Value::as_u64);
+        let applied = match kind {
+            K::WorkspaceAdded | K::WorkspaceClosed | K::WorkspaceRenamed | K::WorkspaceMoved => {
+                let Some(revision) = workspace_revision else { return TreeDeltaApply::Resync };
+                if revision != self.view.workspace_revision.wrapping_add(1) {
+                    return TreeDeltaApply::Resync;
+                }
+                let applied = match kind {
+                    K::WorkspaceAdded => {
+                        let view = parse_workspace(&entity, capabilities);
+                        let index = index.unwrap_or(self.view.workspaces().len());
+                        let index = index.min(self.view.workspaces().len());
+                        let active = entity.get("active").and_then(Value::as_bool) == Some(true);
+                        let had_workspaces = !self.view.workspaces().is_empty();
+                        self.view.workspaces_mut().insert(index, view);
+                        if active {
+                            self.view.active_workspace = index;
+                        } else if had_workspaces && index <= self.view.active_workspace {
+                            self.view.active_workspace += 1;
+                        }
+                        true
+                    }
+                    K::WorkspaceClosed => {
+                        match self.view.workspaces().iter().position(|ws| ws.id == workspace_id) {
+                            Some(position) => {
+                                self.view.workspaces_mut().remove(position);
+                                if position < self.view.active_workspace {
+                                    self.view.active_workspace -= 1;
+                                }
+                                self.view.active_workspace = self
+                                    .view
+                                    .active_workspace
+                                    .min(self.view.workspaces().len().saturating_sub(1));
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    K::WorkspaceRenamed => {
+                        match self.view.workspaces_mut().iter_mut().find(|ws| ws.id == workspace_id) {
+                            Some(workspace) => {
+                                workspace.name = entity
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string();
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    K::WorkspaceMoved => {
+                        match (
+                            self.view.workspaces().iter().position(|ws| ws.id == workspace_id),
+                            index,
+                        ) {
+                            (Some(from), Some(to)) if to < self.view.workspaces().len() => {
+                                let active_id =
+                                    self.view.workspaces().get(self.view.active_workspace).map(|ws| ws.id);
+                                let moved = self.view.workspaces_mut().remove(from);
+                                self.view.workspaces_mut().insert(to, moved);
+                                if let Some(active_id) = active_id
+                                    && let Some(position) =
+                                        self.view.workspaces().iter().position(|ws| ws.id == active_id)
+                                {
+                                    self.view.active_workspace = position;
+                                }
+                                true
+                            }
+                            _ => false,
+                        }
+                    }
+                    _ => unreachable!("workspace kinds only"),
+                };
+                if applied {
+                    self.view.workspace_revision = revision;
+                }
+                applied
+            }
+            K::ScreenAdded | K::ScreenClosed | K::ScreenRenamed => {
+                let Some(workspace) =
+                    self.view.workspaces_mut().iter_mut().find(|ws| ws.id == workspace_id)
+                else {
+                    return TreeDeltaApply::Resync;
+                };
+                match kind {
+                    K::ScreenAdded => match parse_screen(&entity, capabilities) {
+                        Some(screen) => {
+                            let index = index.unwrap_or(workspace.screens.len());
+                            let index = index.min(workspace.screens.len());
+                            let active =
+                                entity.get("active").and_then(Value::as_bool) == Some(true);
+                            let had_screens = !workspace.screens.is_empty();
+                            workspace.screens.insert(index, screen);
+                            if active {
+                                workspace.active_screen = index;
+                            } else if had_screens && index <= workspace.active_screen {
+                                workspace.active_screen += 1;
+                            }
+                            true
+                        }
+                        None => false,
+                    },
+                    K::ScreenClosed => {
+                        match workspace.screens.iter().position(|screen| Some(screen.id) == screen_id)
+                        {
+                            Some(position) => {
+                                workspace.screens.remove(position);
+                                if position < workspace.active_screen {
+                                    workspace.active_screen -= 1;
+                                }
+                                workspace.active_screen = workspace
+                                    .active_screen
+                                    .min(workspace.screens.len().saturating_sub(1));
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    K::ScreenRenamed => {
+                        match workspace.screens.iter_mut().find(|screen| Some(screen.id) == screen_id)
+                        {
+                            Some(screen) => {
+                                screen.name =
+                                    entity.get("name").and_then(Value::as_str).map(str::to_string);
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    _ => unreachable!("screen kinds only"),
+                }
+            }
+            K::PaneAdded | K::PaneClosed => return TreeDeltaApply::Resync,
+            K::TabAdded | K::TabClosed | K::TabRenamed => {
+                let Some(pane) = self
+                    .view
+                    .workspaces
+                    .iter_mut()
+                    .find(|ws| ws.id == workspace_id)
+                    .and_then(|ws| ws.screens.iter_mut().find(|screen| Some(screen.id) == screen_id))
+                    .and_then(|screen| screen.panes.iter_mut().find(|pane| Some(pane.id) == pane_id))
+                else {
+                    return TreeDeltaApply::Resync;
+                };
+                match kind {
+                    K::TabAdded => match parse_tab(&entity) {
+                        Some(tab) => {
+                            let index = index.unwrap_or(pane.tabs.len()).min(pane.tabs.len());
+                            let had_tabs = !pane.tabs.is_empty();
+                            pane.tabs.insert(index, tab);
+                            if had_tabs && index <= pane.active_tab {
+                                pane.active_tab += 1;
+                            }
+                            true
+                        }
+                        None => false,
+                    },
+                    K::TabClosed => {
+                        match pane.tabs.iter().position(|tab| Some(tab.surface) == surface_id) {
+                            Some(position) => {
+                                pane.tabs.remove(position);
+                                if position < pane.active_tab {
+                                    pane.active_tab -= 1;
+                                }
+                                pane.active_tab =
+                                    pane.active_tab.min(pane.tabs.len().saturating_sub(1));
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    K::TabRenamed => {
+                        match (
+                            pane.tabs.iter_mut().find(|tab| Some(tab.surface) == surface_id),
+                            parse_tab(&entity),
+                        ) {
+                            (Some(tab), Some(renamed)) => {
+                                tab.name = renamed.name;
+                                tab.title = renamed.title;
+                                true
+                            }
+                            _ => false,
+                        }
+                    }
+                    _ => unreachable!("tab kinds only"),
+                }
+            }
+        };
+        if !applied {
+            return TreeDeltaApply::Resync;
+        }
+        self.reindex();
+        self.delta_generation = self.delta_generation.wrapping_add(1);
+        TreeDeltaApply::Applied(TreeDelta {
+            kind,
+            workspace: workspace_id,
+            screen: screen_id,
+            pane: pane_id,
+            surface: surface_id,
+            index,
+            entity,
+            workspace_revision,
+        })
+    }
+
+    fn replace(&mut self, view: TreeView, refresh_generation: u64) {
         self.view = view;
+        self.has_snapshot = true;
+        self.reindex();
 
         // A response snapshot can predate title events received while its
         // request was in flight. Reapply only those later authoritative
@@ -2120,11 +2392,14 @@ impl RemoteSession {
     }
 
     fn subscription_request(&self) -> Value {
+        // Typed tree deltas (protocol 7+) let the cached tree follow ordinary
+        // mutations without a `list-workspaces` refetch; `tree-changed` stays
+        // the resync barrier (see `RemoteTreeCache::apply_tree_delta`).
         let surface = self.event_surface_filter.load(Ordering::Acquire);
         if surface == 0 {
-            json!({"cmd": "subscribe"})
+            json!({"cmd": "subscribe", "tree_events": "deltas"})
         } else {
-            json!({"cmd": "subscribe", "surface": surface})
+            json!({"cmd": "subscribe", "tree_events": "deltas", "surface": surface})
         }
     }
 
@@ -2397,6 +2672,37 @@ impl RemoteSession {
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            Some(
+                event @ ("workspace-added"
+                | "workspace-closed"
+                | "workspace-renamed"
+                | "workspace-moved"
+                | "screen-added"
+                | "screen-closed"
+                | "screen-renamed"
+                | "pane-added"
+                | "pane-closed"
+                | "tab-added"
+                | "tab-closed"
+                | "tab-renamed"),
+            ) => {
+                let capabilities = {
+                    let capabilities = self.capabilities.lock().unwrap();
+                    TreeCapabilities {
+                        viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                        viewport_column_resize: capabilities
+                            .contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+                    }
+                };
+                let applied = self.tree.lock().unwrap().apply_tree_delta(event, &value, capabilities);
+                match applied {
+                    TreeDeltaApply::Applied(delta) => self.emit(MuxEvent::TreeDelta(delta)),
+                    TreeDeltaApply::Resync => {
+                        self.tree_stale.store(true, Ordering::Release);
+                        self.emit(MuxEvent::TreeChanged);
+                    }
                 }
             }
             Some("tree-changed") => {
@@ -3458,9 +3764,9 @@ impl RemoteSession {
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
-        let (title_refresh_generation, agent_refresh_generation) = {
+        let (title_refresh_generation, agent_refresh_generation, delta_generation_before) = {
             let cache = self.tree.lock().unwrap();
-            (cache.title_generation(), cache.agent_generation())
+            (cache.title_generation(), cache.agent_generation(), cache.delta_generation)
         };
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
@@ -3523,14 +3829,22 @@ impl RemoteSession {
             .unwrap()
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
         let retired_surfaces = self.retired_surfaces.lock().unwrap();
-        let tree = {
+        let (tree, deltas_raced) = {
             let mut cache = self.tree.lock().unwrap();
             tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
-            cache.view.clone()
+            (cache.view.clone(), cache.delta_generation != delta_generation_before)
         };
         drop(retired_surfaces);
+        if deltas_raced {
+            // A delta arrived while the snapshot request was in flight. The
+            // snapshot may predate that mutation, so it cannot be trusted as
+            // the newest state; ask again rather than replay the delta onto
+            // an unknown baseline.
+            self.tree_stale.store(true, Ordering::Release);
+            self.emit(MuxEvent::TreeChanged);
+        }
         let browser_sources = browser_sources_from_tree(&tree);
         *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
@@ -4186,6 +4500,59 @@ fn test_session_with_provider_context(
     }
 
     test_session_with_writer(Box::new(NoopWriter), provider_workspace_authority, capabilities)
+}
+
+/// A remote session whose writer answers every request synchronously with
+/// `responder(&request)` as the `data` payload and records each request.
+#[cfg(test)]
+pub(super) fn test_session_answering(
+    responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
+) -> (Arc<RemoteSession>, std::sync::mpsc::Receiver<Value>) {
+    struct AnsweringWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
+        requests: std::sync::mpsc::Sender<Value>,
+    }
+
+    impl RemoteMessageWriter for AnsweringWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request = serde_json::from_str::<Value>(message).map_err(io::Error::other)?;
+            let _ = self.requests.send(request.clone());
+            let Some(id) = request.get("id").and_then(Value::as_u64) else { return Ok(()) };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let data = (self.responder)(&request);
+            pending
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let slot = Arc::new(Mutex::new(None));
+    let (requests, received) = std::sync::mpsc::channel();
+    let session = test_session_with_writer(
+        Box::new(AnsweringWriter { session: slot.clone(), responder, requests }),
+        None,
+        HashSet::new(),
+    );
+    *slot.lock().unwrap() = Some(Arc::downgrade(&session));
+    (session, received)
 }
 
 /// A remote session whose writer accepts every request and never answers, so
@@ -7745,7 +8112,148 @@ mod tests {
 
         assert_eq!(cache.agents, vec![agent]);
         assert_eq!(cache.agent_updates.len(), 1);
+
+    fn delta_test_tree() -> Value {
+        json!({
+            "workspace_revision": 4,
+            "workspaces": [{
+                "id": 1, "name": "one", "active": true,
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "active_tab": 0, "tabs": [
+                        {"surface": 7, "title": "a", "kind": "pty"}
+                    ]}]
+                }]
+            }]
+        })
     }
+
+    #[test]
+    fn tab_and_screen_deltas_apply_to_the_cached_tree_without_a_refetch() {
+        let (session, _requests) = recording_acknowledging_session();
+        session.tree.lock().unwrap().replace(parse_tree(&delta_test_tree()), 0);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "tab-added", "workspace": 1, "screen": 2, "pane": 3, "surface": 8,
+            "index": 1, "entity": {"surface": 8, "title": "b", "kind": "pty"}
+        }));
+        assert!(!session.tree_is_stale(), "an exact tab delta must not force a refetch");
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(delta)) if delta.kind == cmux_tui_core::TreeDeltaKind::TabAdded
+        ));
+        let tree = session.cached_tree();
+        let tabs = &tree.workspaces[0].screens[0].panes[0].tabs;
+        assert_eq!(tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![7, 8]);
+        assert_eq!(tree.surface(8).unwrap().title, "b");
+
+        session.handle_line(json!({
+            "event": "tab-renamed", "workspace": 1, "screen": 2, "pane": 3, "surface": 8,
+            "entity": {"surface": 8, "title": "b", "name": "logs", "kind": "pty"}
+        }));
+        assert_eq!(session.cached_tree().surface(8).unwrap().name.as_deref(), Some("logs"));
+
+        session.handle_line(json!({
+            "event": "tab-closed", "workspace": 1, "screen": 2, "pane": 3, "surface": 7,
+            "index": 0, "entity": {"surface": 7, "title": "a", "kind": "pty"}
+        }));
+        let tree = session.cached_tree();
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
+        assert_eq!(pane.active_tab, 0);
+
+        session.handle_line(json!({
+            "event": "screen-added", "workspace": 1, "screen": 9, "index": 1,
+            "entity": {"id": 9, "active_pane": 10, "layout": {"type": "leaf", "pane": 10},
+                       "panes": [{"id": 10, "tabs": [{"surface": 11, "title": "c"}]}]}
+        }));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces[0].screens.len(), 2);
+        assert_eq!(tree.workspaces[0].screens[1].id, 9);
+        assert_eq!(tree.workspaces[0].active_screen, 0);
+        assert!(!session.tree_is_stale());
+        assert!(events.try_iter().all(|event| matches!(event, MuxEvent::TreeDelta(_))));
+    }
+
+    #[test]
+    fn workspace_deltas_apply_only_the_exact_next_revision() {
+        let (session, _requests) = recording_acknowledging_session();
+        session.tree.lock().unwrap().replace(parse_tree(&delta_test_tree()), 0);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "workspace-added", "workspace": 20, "index": 1, "workspace_revision": 5,
+            "registry_id": "r", "generation": "g",
+            "entity": {"id": 20, "name": "two", "screens": [{"id": 21, "active_pane": 22,
+                "layout": {"type": "leaf", "pane": 22},
+                "panes": [{"id": 22, "tabs": [{"surface": 23, "title": "d"}]}]}]}
+        }));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces.iter().map(|ws| ws.id).collect::<Vec<_>>(), vec![1, 20]);
+        assert_eq!(tree.workspace_revision, 5);
+        assert_eq!(tree.active_workspace, 0);
+        assert!(!session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeDelta(_))));
+
+        session.handle_line(json!({
+            "event": "workspace-renamed", "workspace": 20, "workspace_revision": 6,
+            "registry_id": "r", "generation": "g", "entity": {"id": 20, "name": "renamed"}
+        }));
+        assert_eq!(session.cached_tree().workspaces[1].name, "renamed");
+
+        // Revision 8 skips 7: a gap is a resync barrier.
+        session.handle_line(json!({
+            "event": "workspace-closed", "workspace": 20, "index": 1, "workspace_revision": 8,
+            "registry_id": "r", "generation": "g", "entity": {"id": 20, "name": "renamed"}
+        }));
+        assert!(session.tree_is_stale(), "a revision gap must force a refetch");
+        assert_eq!(session.cached_tree().workspaces.len(), 2, "a gapped delta is not applied");
+        let _renamed = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+    }
+
+    #[test]
+    fn pane_deltas_and_tree_changed_force_a_refetch() {
+        let (session, _requests) = recording_acknowledging_session();
+        session.tree.lock().unwrap().replace(parse_tree(&delta_test_tree()), 0);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        // The pane entity does not carry the split tree the mutation changed.
+        session.handle_line(json!({
+            "event": "pane-added", "workspace": 1, "screen": 2, "pane": 30, "index": 1,
+            "entity": {"id": 30, "tabs": [{"surface": 31, "title": "e"}]}
+        }));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        assert_eq!(session.cached_tree().workspaces[0].screens[0].panes.len(), 1);
+
+        session.tree_stale.store(false, Ordering::Release);
+        session.handle_line(json!({"event": "tree-changed"}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+    }
+
+    #[test]
+    fn deltas_without_a_snapshot_baseline_force_a_refetch() {
+        let (session, _requests) = recording_acknowledging_session();
+        session.tree_stale.store(false, Ordering::Release);
+        session.handle_line(json!({
+            "event": "tab-added", "workspace": 1, "screen": 2, "pane": 3, "surface": 8,
+            "index": 0, "entity": {"surface": 8, "title": "b"}
+        }));
+        assert!(session.tree_is_stale());
+    }
+
+    #[test]
+    fn subscription_requests_tree_deltas() {
+        let (session, requests) = recording_acknowledging_session();
+        assert_eq!(session.subscription_request()["tree_events"], json!("deltas"));
+        drop(requests);    }
 
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
