@@ -328,16 +328,22 @@ enum MachineSnapshotBuilder {
 @MainActor
 struct CloudClientBootstrapRetry {
     let maxRetries: Int
+    let retryDelay: Duration
 
-    init(maxRetries: Int) {
+    init(maxRetries: Int, retryDelay: Duration = .milliseconds(100)) {
         self.maxRetries = max(0, maxRetries)
+        self.retryDelay = retryDelay
     }
 
     func run(attempt: () async -> Bool) async -> Bool {
         for retry in 0...maxRetries {
             if await attempt() { return true }
             guard !Task.isCancelled, retry < maxRetries else { return false }
-            await Task.yield()
+            do {
+                try await Task.sleep(for: retryDelay)
+            } catch {
+                return false
+            }
         }
         return false
     }
@@ -595,7 +601,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
     private var refreshGeneration = 0
-    private static let maxClientBootstrapRetries = 3
+    // Allow several seconds for auth restoration and client construction, while
+    // keeping the loading state bounded if composition really failed.
+    private static let maxClientBootstrapRetries = 50
 
     func refresh() {
         guard refreshTask == nil else {
