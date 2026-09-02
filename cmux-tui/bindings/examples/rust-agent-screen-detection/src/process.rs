@@ -355,6 +355,11 @@ fn runtime_path_arguments<'a>(runtime: &str, argv: &'a [String]) -> Vec<&'a str>
         if is_eval_flag(runtime, argument) {
             break;
         }
+        if is_python_runtime(runtime) && argument == "-m" {
+            // Python module mode consumes the following token as a module
+            // name. Remaining tokens are module arguments, not executables.
+            break;
+        }
         if argument.starts_with('-') {
             if runtime_option_takes_value(runtime, argument) {
                 index += 1;
@@ -1402,10 +1407,7 @@ mod tests {
             ("node", vec!["node", "--inspect-port", "claude"]),
             ("python3.12", vec!["python3.12", "-S", "codex"]),
             ("python3.12", vec!["python3.12", "-o", "claude"]),
-            (
-                "python3.12",
-                vec!["python3.12", "-m", "some_module", "codex"],
-            ),
+            ("python3.12", vec!["python3.12", "-m", "some_module", "codex"]),
         ] {
             let job =
                 ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
