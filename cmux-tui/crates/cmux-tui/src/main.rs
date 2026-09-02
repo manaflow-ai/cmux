@@ -3018,6 +3018,25 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_startup_errors_distinguish_transport_loss_from_setup_failure() {
+        let transport_loss = anyhow::Error::new(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            "daemon is restarting",
+        ));
+        assert_eq!(
+            pipe_io_startup_exit_reason(&transport_loss),
+            pipe_io::PipeIoExitReason::DaemonLost
+        );
+
+        let setup_failure =
+            anyhow::anyhow!("remote server does not support filtered subscriptions");
+        assert_eq!(
+            pipe_io_startup_exit_reason(&setup_failure),
+            pipe_io::PipeIoExitReason::SetupFailed
+        );
+    }
+
+    #[test]
     fn remote_normalization_preserves_leading_globals_for_direct_commands() {
         let mut json_connect = ["--json", "connect"].map(str::to_string).to_vec();
         normalize_remote_resource_args(&mut json_connect).unwrap();
