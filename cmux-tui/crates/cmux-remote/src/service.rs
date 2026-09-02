@@ -2744,6 +2744,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dropped_stream_tombstone_covers_its_default_lane() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        drop(stream);
+        tokio::task::yield_now().await;
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late drop"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn mux_payload_after_a_lane_fin_resets_before_the_aggregate_fin() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
