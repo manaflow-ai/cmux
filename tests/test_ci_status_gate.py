@@ -443,6 +443,78 @@ def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
     assert "CI status gate passed." in stdout.getvalue()
 
 
+def test_ci_run_selection_binds_empty_associations_to_live_pr() -> None:
+    class UnassociatedRunAPI(FakeAPI):
+        def __init__(self, association: object) -> None:
+            super().__init__(complete_checks())
+            self.association = association
+
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if "/actions/runs?event=" in endpoint:
+                run: dict[str, object] = {
+                    "id": 901,
+                    "path": module.CI_WORKFLOW_PATH,
+                    "event": "pull_request",
+                    "head_sha": HEAD_SHA,
+                    "status": "completed",
+                    "created_at": "2026-09-01T00:00:00Z",
+                }
+                if self.association is not None:
+                    run["pull_requests"] = self.association
+                return {"workflow_runs": [run]}
+            if endpoint.endswith(f"/commits/{HEAD_SHA}/pulls?per_page=100"):
+                return [[_valid_commit_pull(number=2)]]
+            return super().get(endpoint, paginate=paginate)
+
+    api = UnassociatedRunAPI([])
+    pull = api.get("repos/manaflow-ai/cmux/pulls/1")
+    assert isinstance(pull, dict)
+    try:
+        module._select_ci_run(api, pull, HEAD_SHA, None)
+    except module.GateError as error:
+        assert "pull request" in str(error)
+    else:
+        raise AssertionError("CI run for another PR was accepted")
+
+    absent = UnassociatedRunAPI(None)
+    pull = absent.get("repos/manaflow-ai/cmux/pulls/1")
+    assert isinstance(pull, dict)
+    try:
+        module._select_ci_run(absent, pull, HEAD_SHA, None)
+    except module.GateError as error:
+        assert "pull request" in str(error)
+    else:
+        raise AssertionError("CI run with absent PR association was accepted")
+
+
+def test_ci_run_selection_accepts_valid_empty_association_fallback() -> None:
+    class ValidFallbackAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if "/actions/runs?event=" in endpoint:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 901,
+                            "path": module.CI_WORKFLOW_PATH,
+                            "event": "pull_request",
+                            "head_sha": HEAD_SHA,
+                            "status": "completed",
+                            "created_at": "2026-09-01T00:00:00Z",
+                            "pull_requests": [],
+                        }
+                    ]
+                }
+            if endpoint.endswith(f"/commits/{HEAD_SHA}/pulls?per_page=100"):
+                return [[_valid_commit_pull()]]
+            return super().get(endpoint, paginate=paginate)
+
+    api = ValidFallbackAPI(complete_checks())
+    pull = api.get("repos/manaflow-ai/cmux/pulls/1")
+    assert isinstance(pull, dict)
+    selected = module._select_ci_run(api, pull, HEAD_SHA, None)
+    assert selected["id"] == 901
+
+
 def test_gate_publisher_targets_both_contexts_on_exact_head() -> None:
     class PublishingAPI(FakeAPI):
         def __init__(self) -> None:
