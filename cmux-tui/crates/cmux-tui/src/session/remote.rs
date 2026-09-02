@@ -358,25 +358,10 @@ impl RemoteTreeCache {
     }
 
     fn update_view_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
-        let Some([workspace, screen, pane, tab]) = self.surface_tabs.get(&surface_id).copied()
-        else {
-            return false;
-        };
-        let Some(tab) = self
-            .view
-            .workspaces_mut()
-            .get_mut(workspace)
-            .and_then(|workspace| workspace.screens.get_mut(screen))
-            .and_then(|screen| screen.panes.get_mut(pane))
-            .and_then(|pane| pane.tabs.get_mut(tab))
-        else {
-            return false;
-        };
-        if tab.surface != surface_id {
+        if !self.surface_tabs.contains_key(&surface_id) {
             return false;
         }
-        tab.title = title;
-        true
+        self.view.update_surface_title(surface_id, title)
     }
 
     fn title_generation(&self) -> u64 {

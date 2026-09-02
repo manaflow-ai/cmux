@@ -320,6 +320,28 @@ impl TreeView {
             .filter(|tab| tab.surface == id)
     }
 
+    pub(crate) fn update_surface_title(&mut self, id: SurfaceId, title: String) -> bool {
+        let (workspace_index, screen_index, pane_index, tab_index) = match self.surface_location(id)
+        {
+            Some(location) => location,
+            None => return false,
+        };
+        let Some(tab) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.get_mut(pane_index))
+            .and_then(|pane| pane.tabs.get_mut(tab_index))
+        else {
+            return false;
+        };
+        if tab.surface != id {
+            return false;
+        }
+        tab.title = title;
+        true
+    }
+
     /// Resolve the stable public terminal identity to the current internal
     /// surface slot used by the renderer and filtered event subscription.
     pub fn resolve_terminal(&self, terminal_id: &TerminalPublicId) -> Option<SurfaceId> {
@@ -1257,9 +1279,9 @@ mod tests {
             }]
         }));
 
-        let index_before = tree.location_index();
+        let index_before = tree.location_index() as *const TreeLocationIndex;
         assert!(tree.update_surface_title(7, "renamed".to_string()));
-        let index_after = tree.location_index();
+        let index_after = tree.location_index() as *const TreeLocationIndex;
 
         assert!(std::ptr::eq(index_before, index_after));
         assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("renamed"));
