@@ -3243,7 +3243,33 @@ impl RemoteSession {
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
-        self.pipe_io_forward_owned(surface, event()).is_ok()
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return false };
+            if tap.surface != surface {
+                return false;
+            }
+            let event = event();
+            let retained_bytes = event.retained_bytes();
+            if !tap.byte_budget.try_reserve(retained_bytes) {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                        tap.byte_budget.release(retained_bytes);
+                        Some(tap.token.clone())
+                    }
+                }
+            }
+        };
+        if let Some(token) = stalled_token {
+            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+                self.disconnect_transport();
+            }
+        }
+        true
     }
 
     /// Forwards an already-owned event without cloning its payload. If no
