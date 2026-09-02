@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -35,10 +35,9 @@ if (
   provider !== "e2b" &&
   provider !== "freestyle" &&
   provider !== "daytona" &&
-  provider !== "blaxel" &&
   provider !== "default"
 ) {
-  console.error("--provider must be e2b, freestyle, daytona, blaxel, or default");
+  console.error("--provider must be e2b, freestyle, daytona, or default");
   process.exit(2);
 }
 
@@ -188,12 +187,9 @@ try {
     let attachTransport;
     let attachDurationMs;
     if (!skipAttach) {
-      // Blaxel machines run only the cmux-tui remote daemon; every other provider still
-      // serves the legacy cmuxd-remote websocket PTY.
-      const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
-      const attachBody = expectedTransport === "cmux-remote"
-        ? { transport: "cmux-remote" }
-        : { requireDaemon: true };
+      // Every cmux Cloud machine runs only the cmux-tui remote daemon.
+      const expectedTransport = "cmux-remote";
+      const attachBody = { transport: "cmux-remote" };
       // First attach after create races the in-VM daemon boot; the API says
       // retryable with retryAfterSeconds and real clients loop. Retry 502s
       // within a bounded budget so the smoke measures the client contract,
@@ -228,7 +224,9 @@ try {
       if (attached.transport !== expectedTransport) {
         throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
       }
-      if (expectedTransport === "cmux-remote" && !/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+      // Providers reach the daemon either through a tokened wss proxy (E2B,
+      // Daytona) or straight at the VM's public IPv6 over ws (Freestyle).
+      if (!/^wss?:\/\/.+\/v1\/link(\?|$)/.test(attached.route ?? "")) {
         throw new Error("cmux-remote attach response missing the daemon route");
       }
       attachTransport = attached.transport;
