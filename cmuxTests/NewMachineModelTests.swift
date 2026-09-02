@@ -271,4 +271,21 @@ final class NewMachineModelTests: XCTestCase {
         XCTAssertEqual(outcomes, [.cancelled])
         XCTAssertTrue(recorder.value.requests.isEmpty)
     }
+
+
+    // MARK: Tunnel notice
+
+    func testTunnelNoticeIsSilentUnlessThisMacIsEnrolledWithTheTunnelDown() {
+        let (quiet, _) = makeModel()
+        XCTAssertNil(quiet.tunnelNoticeText)
+
+        let model = NewMachineModel(mode: .newMachine, plan: nil, imageKinds: [], tunnelEnrolledButDown: true) { _ in true }
+        let notice = model.tunnelNoticeText
+        XCTAssertNotNil(notice)
+        // The notice carries the fix, not just the symptom.
+        XCTAssertTrue(notice?.contains("cmux vpn up") == true)
+        // It is a warning, not a block: Create still runs.
+        model.create()
+        XCTAssertEqual(model.outcome, .submitted)
+    }
 }

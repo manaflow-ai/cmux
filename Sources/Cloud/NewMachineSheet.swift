@@ -111,7 +111,7 @@ struct NewMachineSheet: View {
 
     @ViewBuilder
     private var planSection: some View {
-        if model.planMeterText != nil || model.freeAccessNoteText != nil {
+        if model.planMeterText != nil || model.freeAccessNoteText != nil || model.tunnelNoticeText != nil {
             VStack(alignment: .leading, spacing: 3) {
                 if let meter = model.planMeterText {
                     Text(meter)
@@ -123,6 +123,13 @@ struct NewMachineSheet: View {
                         .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let tunnel = model.tunnelNoticeText {
+                    Text(tunnel)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("NewMachineSheet.tunnelNotice")
                 }
             }
             .accessibilityIdentifier("NewMachineSheet.plan")

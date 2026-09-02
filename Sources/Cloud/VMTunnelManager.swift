@@ -39,6 +39,9 @@ struct VMTunnelManager: Sendable {
     enum TunnelError: Error, CustomStringConvertible {
         case keyStorageFailed(String)
         case configMalformed(String)
+        /// The machine's route lies inside the private network and this Mac's
+        /// tunnel is not up, so nothing can reach the daemon until it is.
+        case tunnelDown
 
         var description: String {
             switch self {
@@ -46,6 +49,11 @@ struct VMTunnelManager: Sendable {
                 return "Could not store the WireGuard key for this Mac: \(detail)"
             case .configMalformed(let detail):
                 return "The tunnel config from the Cloud VM service could not be completed: \(detail)"
+            case .tunnelDown:
+                return String(
+                    localized: "cloud.tunnel.down",
+                    defaultValue: "This machine is on your private network, but this Mac's tunnel is down. Run `cmux vpn up` in a terminal, then open the machine again."
+                )
             }
         }
     }
@@ -172,6 +180,86 @@ struct VMTunnelManager: Sendable {
                 return true
             }
             cursor = current.pointee.ifa_next
+        }
+        return false
+    }
+
+    /// Enrolled on this Mac (a config was written by `cmux vpn up`) but the
+    /// tunnel is not up right now: the one state where a private-network
+    /// machine is known to be unreachable and the fix is known too.
+    var isEnrolledButDown: Bool {
+        FileManager.default.fileExists(atPath: configURL.path) && !wgQuickInterfaceUp()
+    }
+
+    /// Refuses to dial a route this Mac cannot reach.
+    ///
+    /// A machine on the user's private network advertises its daemon at a
+    /// private address (`ws://[fd7a:…]:1337/v1/link`). Nothing on the Internet
+    /// answers there, and dialing it with the tunnel down does not fail, it
+    /// hangs: the enrollment stays pending until the link (60 s), the approve
+    /// loop (5 min) and the CLI (16 min) give up with "Command timed out".
+    /// Every cmux-remote open runs this first so the person reads the cause and
+    /// the fix within a second instead.
+    func preflight(route: String) throws {
+        guard Self.routeRequiresTunnel(route) else { return }
+        guard !wgQuickInterfaceUp() else { return }
+        throw TunnelError.tunnelDown
+    }
+
+    /// Whether the route's host is a private-network address, one only the
+    /// tunnel routes: IPv6 unique-local (`fc00::/7`, which Freestyle VPCs
+    /// draw from) or RFC 1918 / CGNAT IPv4. Hostnames and public addresses
+    /// are reachable without the tunnel. An unparseable route is not this
+    /// check's problem, so it reads as reachable and fails downstream as before.
+    static func routeRequiresTunnel(_ route: String) -> Bool {
+        guard let host = routeHost(route) else { return false }
+        return isPrivateNetworkAddress(host)
+    }
+
+    /// The host of a `scheme://[v6]:port/path` or `scheme://host:port/path`
+    /// route, brackets and port stripped, lowercased.
+    static func routeHost(_ route: String) -> String? {
+        var rest = Substring(route)
+        if let schemeEnd = rest.range(of: "://") {
+            rest = rest[schemeEnd.upperBound...]
+        }
+        if let authorityEnd = rest.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            rest = rest[..<authorityEnd]
+        }
+        if let at = rest.lastIndex(of: "@") {
+            rest = rest[rest.index(after: at)...]
+        }
+        guard !rest.isEmpty else { return nil }
+        if rest.first == "[" {
+            guard let close = rest.firstIndex(of: "]") else { return nil }
+            let inner = rest[rest.index(after: rest.startIndex)..<close]
+            return inner.isEmpty ? nil : inner.lowercased()
+        }
+        // One colon at most: an IPv4 or hostname with an optional port. A bare
+        // IPv6 without brackets is not a valid authority and reads as unknown.
+        let colons = rest.filter { $0 == ":" }.count
+        if colons > 1 { return nil }
+        let host = colons == 1 ? rest[..<rest.firstIndex(of: ":")!] : rest
+        return host.isEmpty ? nil : host.lowercased()
+    }
+
+    static func isPrivateNetworkAddress(_ host: String) -> Bool {
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, host, &v6) == 1 {
+            // fc00::/7: the unique-local block the private network is addressed from.
+            let first = withUnsafeBytes(of: &v6) { $0[0] }
+            return (first & 0xfe) == 0xfc
+        }
+        var v4 = in_addr()
+        if inet_pton(AF_INET, host, &v4) == 1 {
+            let value = UInt32(bigEndian: v4.s_addr)
+            let a = UInt8(truncatingIfNeeded: value >> 24)
+            let b = UInt8(truncatingIfNeeded: value >> 16)
+            if a == 10 { return true }                              // 10.0.0.0/8
+            if a == 172, (16...31).contains(b) { return true }      // 172.16.0.0/12
+            if a == 192, b == 168 { return true }                   // 192.168.0.0/16
+            if a == 100, (64...127).contains(b) { return true }     // 100.64.0.0/10
+            return false
         }
         return false
     }
