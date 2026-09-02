@@ -1516,13 +1516,16 @@ impl PtyControl for ControlTerminalControl {
     }
     fn kill(&self) {
         if self.detach_supported {
-            if let Some(lease) = self.lease.as_deref() {
-                self.control.send(
-                    "detach-attached-view",
-                    json!({ "surface": self.surface_id, "lease": lease }),
-                );
+            let Some(lease) = self.lease.as_deref() else {
+                // A missing lease cannot be safely replaced with a broad
+                // connection close because another attachment may share it.
                 return;
-            }
+            };
+            self.control.send(
+                "detach-attached-view",
+                json!({ "surface": self.surface_id, "lease": lease }),
+            );
+            return;
         }
         self.control.end(); // detach only; the daemon keeps the terminal
     }
