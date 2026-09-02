@@ -44,6 +44,24 @@ struct WorkspaceAgentChecklistSyncTests {
         #expect(replacements.map(\.text) == ["other"])
     }
 
+    @Test("an empty report retires legacy aliases of the canonical workstream")
+    func emptyReportRetiresMatchingAliases() throws {
+        let legacyRef = WorkspaceAgentTaskRef(workstreamId: "legacy", taskId: "1")
+        let canonicalRef = WorkspaceAgentTaskRef(workstreamId: "canonical", taskId: "2")
+        let existing = [
+            WorkspaceChecklistItem(text: "legacy", origin: .agent, agentTaskRef: legacyRef),
+            WorkspaceChecklistItem(text: "canonical", origin: .agent, agentTaskRef: canonicalRef),
+            WorkspaceChecklistItem(text: "user")
+        ]
+        let replacements = try #require(WorkspaceAgentChecklistSync().replacement(
+            existing: existing,
+            agentTasks: [],
+            workstreamId: "canonical",
+            matchingWorkstreamIds: ["legacy", "canonical"]
+        ))
+        #expect(replacements.map(\.text) == ["user"])
+    }
+
     @Test("dispatch metadata survives Codable round trip")
     func dispatchMetadataRoundTrips() throws {
         let item = WorkspaceChecklistItem(

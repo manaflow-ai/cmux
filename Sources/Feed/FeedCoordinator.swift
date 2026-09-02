@@ -195,7 +195,9 @@ final class FeedCoordinator: @unchecked Sendable {
                 && Self.sessionEndTurnBoundarySources.contains(event.source)
                 && !isFinalization
         guard !isTurnBoundarySessionEnd else { return [] }
-        let explicitWorkspaceID = event.workspaceId.flatMap { UUID(uuidString: $0) }
+        let explicitWorkspaceID = event.workspaceId
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { UUID(uuidString: $0) }
         let surfaceKey = event.surfaceId.map { "surface:\($0)" }
             ?? "session:\(event.sessionId)"
         switch event.hookEventName {

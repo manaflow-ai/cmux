@@ -446,6 +446,39 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .pending)
     }
 
+    @Test("A failed TodoWrite hook cannot publish or replace its attempted snapshot")
+    func failedTodoWriteHookDoesNotMutateAccumulator() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"old","status":"completed"}]}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"2","content":"failed","status":"completed"}]}"#,
+            isError: true
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+        guard let item = store.items.last else {
+            Issue.record("expected failed TodoWrite telemetry item")
+            return
+        }
+        guard case .toolResult(_, _, let isError) = item.payload else {
+            Issue.record("failed TodoWrite must not publish a todos payload")
+            return
+        }
+        #expect(isError)
+    }
+
     @Test("Overlapping task calls roll back only the failed operation")
     func overlappingTaskCallsKeepSuccessfulMutation() {
         let store = WorkstreamStore(ringCapacity: 50)

@@ -11,10 +11,19 @@ public struct WorkspaceAgentChecklistSync: Sendable {
     public nonisolated init() {}
 
     /// Computes the full replacement for one workstream's report.
+    ///
+    /// - Parameters:
+    ///   - existing: The workspace's current checklist.
+    ///   - agentTasks: The latest task projection for the reporting workstream.
+    ///   - workstreamId: The canonical identity of the reporting workstream.
+    ///   - matchingWorkstreamIds: Legacy/raw identities that normalize to
+    ///     `workstreamId`. They are retired together so a migration cannot
+    ///     leave duplicate rows behind.
     public nonisolated func replacement(
         existing: [WorkspaceChecklistItem],
         agentTasks: [WorkspaceAgentChecklistTask],
-        workstreamId: String
+        workstreamId: String,
+        matchingWorkstreamIds: Set<String> = []
     ) -> [WorkspaceChecklistReplacementItem]? {
         let normalized = agentTasks.compactMap { task -> WorkspaceAgentChecklistTask? in
             guard let text = WorkspaceChecklistItem.normalizedText(task.text) else { return nil }
@@ -27,8 +36,14 @@ public struct WorkspaceAgentChecklistSync: Sendable {
                 agentName: task.agentName
             )
         }
+        let workstreamIDsToRetire = matchingWorkstreamIds.union([workstreamId])
         let retained = existing
-            .filter { $0.agentTaskRef?.workstreamId != workstreamId }
+            .filter {
+                guard let rawWorkstreamId = $0.agentTaskRef?.workstreamId else {
+                    return true
+                }
+                return !workstreamIDsToRetire.contains(rawWorkstreamId)
+            }
             .map { item in
                 WorkspaceChecklistReplacementItem(
                     id: item.id,

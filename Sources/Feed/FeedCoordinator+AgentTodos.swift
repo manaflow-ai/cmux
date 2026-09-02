@@ -61,13 +61,18 @@ extension FeedCoordinator {
             source: event.source
         )
         guard let store else { return }
+        var matchingWorkstreamIDs = Set([item.workstreamId])
         let existingAgentItems = workspace.todoState.checklist.reduce(into: [WorkspaceAgentTaskRef: WorkspaceChecklistItem]()) { result, checklistItem in
             if let ref = checklistItem.agentTaskRef {
+                let canonicalWorkstreamID = store.normalizedWorkstreamID(
+                    rawValue: ref.workstreamId,
+                    source: event.source
+                )
+                if canonicalWorkstreamID == item.workstreamId {
+                    matchingWorkstreamIDs.insert(ref.workstreamId)
+                }
                 let canonicalRef = WorkspaceAgentTaskRef(
-                    workstreamId: store.normalizedWorkstreamID(
-                        rawValue: ref.workstreamId,
-                        source: event.source
-                    ),
+                    workstreamId: canonicalWorkstreamID,
                     taskId: ref.taskId
                 )
                 result[canonicalRef] = checklistItem
@@ -81,7 +86,7 @@ extension FeedCoordinator {
             let activity = previous?.text == normalizedText && previous?.state == state
                 ? previous?.lastActivityAt ?? event.receivedAt
                 : event.receivedAt
-            WorkspaceAgentChecklistTask(
+            return WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: item.workstreamId),
                 ref: ref,
                 text: todo.content,
@@ -93,7 +98,8 @@ extension FeedCoordinator {
         guard let replacements = WorkspaceAgentChecklistSync().replacement(
             existing: workspace.todoState.checklist,
             agentTasks: tasks,
-            workstreamId: item.workstreamId
+            workstreamId: item.workstreamId,
+            matchingWorkstreamIds: matchingWorkstreamIDs
         ) else { return }
         _ = workspace.replaceChecklist(with: replacements)
         WorkspaceTodoFeature.markUsed()
@@ -110,17 +116,21 @@ extension FeedCoordinator {
         // rows behind after a workstream is re-homed.
         guard let store else { return }
         for workspace in AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [] where workspace.id != workspaceID {
-            guard workspace.todoState.checklist.contains(where: {
-                guard let rawWorkstreamID = $0.agentTaskRef?.workstreamId else { return false }
-                return store.normalizedWorkstreamID(
-                    rawValue: rawWorkstreamID,
-                    source: source
-                ) == workstreamId
-            }) else { continue }
+            var matchingWorkstreamIDs = Set<String>()
+            for checklistItem in workspace.todoState.checklist {
+                guard let rawWorkstreamID = checklistItem.agentTaskRef?.workstreamId,
+                      store.normalizedWorkstreamID(
+                          rawValue: rawWorkstreamID,
+                          source: source
+                      ) == workstreamId else { continue }
+                matchingWorkstreamIDs.insert(rawWorkstreamID)
+            }
+            guard !matchingWorkstreamIDs.isEmpty else { continue }
             guard let replacements = WorkspaceAgentChecklistSync().replacement(
                 existing: workspace.todoState.checklist,
                 agentTasks: [],
-                workstreamId: workstreamId
+                workstreamId: workstreamId,
+                matchingWorkstreamIds: matchingWorkstreamIDs
             ) else { continue }
             _ = workspace.replaceChecklist(with: replacements)
         }

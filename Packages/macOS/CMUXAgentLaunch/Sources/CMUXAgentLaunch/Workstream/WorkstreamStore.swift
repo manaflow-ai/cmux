@@ -482,6 +482,20 @@ public final class WorkstreamStore {
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
+            let isError = event.isError ?? false
+            guard !isError else {
+                // A failed TodoWrite may still carry the attempted list. Do
+                // not let that uncommitted input replace the last known
+                // snapshot or appear as a successful `.todos` payload.
+                return (
+                    .toolResult,
+                    .toolResult(
+                        toolName: event.hookEventName.rawValue,
+                        resultJSON: toolInput,
+                        isError: true
+                    )
+                )
+            }
             var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
             let outcome = accumulator.applyPre(
                 tool: .todoWrite,

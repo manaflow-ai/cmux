@@ -30,6 +30,127 @@ struct FeedCoordinatorTests {
         #expect(resolved?.surfaceId == surfaceID)
     }
 
+    @MainActor
+    @Test("Padded workspace ids still release the final dispatched session binding")
+    func paddedWorkspaceIDTracksSessionLifecycle() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.didAttemptStartupSessionRestore = true
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let sourceWorkspace = manager.addWorkspace(title: "Source", select: true)
+        let targetWorkspace = manager.addWorkspace(title: "Target", select: false)
+        defer {
+            FeedCoordinator.shared.clearDispatchedTaskOwners(for: targetWorkspace.id)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        guard case .success(let item) = sourceWorkspace.addChecklistItem(
+            text: "dispatched task",
+            origin: .agent,
+            dispatchTarget: WorkspaceTaskDispatchTarget(
+                workingDirectory: "/tmp",
+                agentCommand: "claude",
+                agentName: "claude"
+            )
+        ) else {
+            Issue.record("failed to create source checklist item")
+            return
+        }
+        #expect(sourceWorkspace.bindChecklistItem(
+            id: item.id,
+            toWorkspace: targetWorkspace.id,
+            agent: "claude"
+        ))
+
+        let coordinator = FeedCoordinator.shared
+        coordinator.install(store: WorkstreamStore(ringCapacity: 10))
+        coordinator.registerDispatchedTask(
+            itemID: item.id,
+            sourceWorkspaceID: sourceWorkspace.id,
+            targetWorkspaceID: targetWorkspace.id
+        )
+        let paddedWorkspaceID = "  \(targetWorkspace.id.uuidString) \n"
+        _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+            sessionId: "padded-session",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: paddedWorkspaceID
+        ))
+        _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+            sessionId: "padded-session",
+            hookEventName: .sessionEnd,
+            source: "claude",
+            workspaceId: paddedWorkspaceID
+        ))
+
+        #expect(sourceWorkspace.todoState.checklist.first?.boundWorkspaceID == nil)
+        #expect(coordinator.dispatchedTaskOwners(for: targetWorkspace.id).isEmpty)
+    }
+
+    @MainActor
+    @Test("Re-homed task reports retire checklist rows stored under legacy aliases")
+    func rehomedTaskReportRetiresLegacyWorkstreamAlias() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.didAttemptStartupSessionRestore = true
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let oldWorkspace = manager.addWorkspace(title: "Old owner", select: true)
+        let newWorkspace = manager.addWorkspace(title: "New owner", select: false)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let legacyWorkstreamID = "legacy-session"
+        let canonicalWorkstreamID = "canonical-session"
+        guard case .success = oldWorkspace.addChecklistItem(
+            text: "stale legacy task",
+            origin: .agent,
+            agentTaskRef: WorkspaceAgentTaskRef(
+                workstreamId: legacyWorkstreamID,
+                taskId: "task-1"
+            )
+        ) else {
+            Issue.record("failed to seed legacy checklist row")
+            return
+        }
+
+        let store = WorkstreamStore(
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "claude" && rawValue == legacyWorkstreamID
+                    ? canonicalWorkstreamID
+                    : rawValue
+            }
+        )
+        let coordinator = FeedCoordinator.shared
+        coordinator.install(store: store)
+        _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+            sessionId: legacyWorkstreamID,
+            hookEventName: .todoWrite,
+            source: "claude",
+            workspaceId: newWorkspace.id.uuidString,
+            toolName: "TodoWrite",
+            toolInputJSON: #"{"todos":[{"id":"task-2","content":"new owner task","status":"pending"}]}"#
+        ))
+
+        #expect(oldWorkspace.todoState.checklist.isEmpty)
+        #expect(newWorkspace.todoState.checklist.first?.agentTaskRef?.workstreamId == canonicalWorkstreamID)
+    }
+
     @Test("A complete wire target remains authoritative over a stale session match")
     func completeAttentionTargetWinsOverSessionSurface() {
         let workspaceID = UUID()
