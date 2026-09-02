@@ -363,7 +363,7 @@ impl TextInput {
                 if next > cursor {
                     break;
                 }
-                cursor_col = cursor_col.saturating_sub(UnicodeWidthStr::width(grapheme));
+                cursor_col = cursor_col.saturating_sub(grapheme.cell_width() as usize);
                 scroll = next;
                 if cursor_col < width {
                     break;
