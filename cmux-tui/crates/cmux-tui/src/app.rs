@@ -1166,7 +1166,10 @@ struct HostInputShutdown {
 impl HostInputShutdown {
     fn shutdown(&self) {
         self.ingress.close();
-        if let Some(reader) = self.reader.lock().unwrap().take() {
+        if let Some(reader) = self.reader.lock().unwrap().take()
+            && reader.thread().id() != std::thread::current().id()
+            && reader.is_finished()
+        {
             let _ = reader.join();
         }
     }
@@ -24951,8 +24954,8 @@ mod tests {
         runtime.shutdown();
 
         assert!(
-            finished_rx.try_recv().is_ok(),
-            "runtime shutdown must join the input reader before returning"
+            finished_rx.recv_timeout(Duration::from_secs(1)).is_ok(),
+            "runtime shutdown must cancel the input reader"
         );
     }
 
