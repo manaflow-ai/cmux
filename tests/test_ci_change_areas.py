@@ -859,15 +859,18 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
 
 def test_legacy_ci_status_context_is_preserved_during_gate_migration() -> None:
     advisory = workflow_job_block("ci-status-advisory")
-    compatibility = workflow_job_block("ci-status", GATE_WORKFLOW)
+    compatibility = workflow_job_block("ci-status")
+    trusted_alias = workflow_job_block("ci-status", GATE_WORKFLOW)
 
     assert "ci-status-validator-canary" not in advisory
-    assert "ci-status:" not in CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "if: ${{ always() &&" in compatibility
-    assert "needs: ci-status-gate" in compatibility
+    assert "if: ${{ always() }}" in compatibility
+    assert "needs: ci-status-advisory" in compatibility
     assert "timeout-minutes: 5" in compatibility
-    assert "GATE_RESULT" in compatibility
+    assert "ADVISORY_RESULT" in compatibility
     assert "exit 1" in compatibility
+    assert "if: ${{ always() &&" in trusted_alias
+    assert "needs: ci-status-gate" in trusted_alias
+    assert "GATE_RESULT" in trusted_alias
 
 
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:

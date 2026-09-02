@@ -199,6 +199,7 @@ def test_unexpected_ci_job_is_rejected() -> None:
 def test_workflow_is_base_owned_and_read_only() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target:" in text
+    assert "pull_request_review:" in text
     assert "workflow_run:" in text
     assert "pull_request:" not in text
     assert "ci-status-gate:" in text
@@ -206,7 +207,7 @@ def test_workflow_is_base_owned_and_read_only() -> None:
     assert "needs: ci-status-gate" in text
     assert "GATE_RESULT" in text
     assert "actions: read" in text
-    assert "checks: read" in text
+    assert "checks: write" in text
     assert "pull-requests: read" in text
     assert "contents: write" not in text
     assert ".ci-trusted/scripts/ci/ci_status_gate.py" in text
@@ -219,6 +220,19 @@ def test_event_payload_parser_rejects_invalid_json() -> None:
         assert "event payload" in str(error)
     else:
         raise AssertionError("invalid event payload was accepted")
+
+
+def test_pull_request_review_event_resolves_live_head() -> None:
+    api = FakeAPI(complete_checks())
+    pull, head, number, workflow_run_id = module._event_target(
+        api,
+        "pull_request_review",
+        {"pull_request": {"number": 1, "head": {"sha": HEAD_SHA}}},
+    )
+    assert pull["number"] == 1
+    assert head == HEAD_SHA
+    assert number == 1
+    assert workflow_run_id is None
 
 
 def test_workflow_run_with_multiple_pull_requests_fails_closed() -> None:
@@ -240,6 +254,34 @@ def test_workflow_run_with_multiple_pull_requests_fails_closed() -> None:
         raise AssertionError("ambiguous workflow run was accepted")
 
 
+def test_external_fork_workflow_run_fallback_keeps_empty_association() -> None:
+    class ForkRunAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if endpoint.endswith("/actions/runs/900"):
+                return {
+                    "id": 900,
+                    "path": module.CI_WORKFLOW_PATH,
+                    "event": "pull_request",
+                    "head_sha": HEAD_SHA,
+                    "status": "completed",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "pull_requests": [],
+                }
+            if endpoint.endswith(f"/commits/{HEAD_SHA}/pulls?per_page=100"):
+                return [{"number": 1}]
+            return super().get(endpoint, paginate=paginate)
+
+    api = ForkRunAPI(complete_checks())
+    pull, head, number, workflow_run_id = module._event_target(
+        api,
+        "workflow_run",
+        {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+    )
+    selected = module._select_ci_run(api, pull, head, workflow_run_id)
+    assert number == 1
+    assert selected["id"] == 900
+
+
 def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
     api = FakeAPI(complete_checks())
     stdout = StringIO()
@@ -256,6 +298,31 @@ def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
         for request in api.requests
     )
     assert "CI status gate passed." in stdout.getvalue()
+
+
+def test_gate_publisher_targets_both_contexts_on_exact_head() -> None:
+    class PublishingAPI(FakeAPI):
+        def __init__(self) -> None:
+            super().__init__(complete_checks())
+            self.published: list[tuple[str, str, str]] = []
+
+        def publish_check(
+            self, name: str, head_sha: str, conclusion: str, summary: str
+        ) -> None:
+            self.published.append((name, head_sha, conclusion))
+
+    api = PublishingAPI()
+    result = module._run_gate(
+        api,
+        "pull_request_target",
+        {"number": 1, "pull_request": {"head": {"sha": HEAD_SHA}}},
+        publish=True,
+    )
+    assert result == 0
+    assert api.published == [
+        ("ci-status-gate", HEAD_SHA, "success"),
+        ("ci-status", HEAD_SHA, "success"),
+    ]
 
 
 def test_pr_file_pagination_accepts_slurped_array_pages() -> None:

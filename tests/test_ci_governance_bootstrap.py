@@ -33,11 +33,12 @@ def test_sensitive_ci_inputs_have_two_trusted_owners() -> None:
 def test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers() -> None:
     text = GATE_WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target:" in text
+    assert "pull_request_review:" in text
     assert "workflow_run:" in text
     assert "workflows: [CI]" in text
     assert "ci-status-gate:" in text
     assert "actions: read" in text
-    assert "checks: read" in text
+    assert "checks: write" in text
     assert "pull-requests: read" in text
     assert "contents: write" not in text
     assert "persist-credentials: false" in text
