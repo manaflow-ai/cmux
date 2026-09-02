@@ -353,7 +353,16 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         select_run = select_step["run"]
         self.assertIn("for candidate in /Applications/Xcode*.app", select_run)
         self.assertIn('[[ -d "$candidate/Contents/Developer" ]]', select_run)
+        self.assertIn('DEVELOPER_DIR="$candidate/Contents/Developer" xcodebuild -version', select_run)
+        self.assertIn("candidate_version", select_run)
         self.assertNotIn("-maxdepth", select_run)
+        self.assertNotIn('"$candidate" > "$XCODE_APP"', select_run)
+
+    def test_release_bun_version_is_pinned(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        setup_bun = next(step for step in sign_steps if step.get("name") == "Setup Bun")
+        self.assertEqual(setup_bun.get("with", {}).get("bun-version"), "1.3.14")
 
     def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
         document = load()
