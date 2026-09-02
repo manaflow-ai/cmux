@@ -15,6 +15,7 @@ import { canonicalizeEmailForMatching } from "../billing/emailMatching";
 import {
   AccountDeletionMutationBlockedError,
   AccountDeletionUserMutationInProgressError,
+  withAccountDeletionUserMutation,
   type AccountDeletionUserMutationLease,
 } from "../account/deletionLock";
 import {
@@ -26,6 +27,7 @@ import {
   FOUNDERS_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
+  hasActiveTeamSubscriptionForTeam,
   isPaidPlanId,
   manualVmPlanOverride,
   metadataPlanId,
@@ -399,10 +401,25 @@ export class AdminTeamNotFoundError extends Error {
   }
 }
 
+/** Reloads the team under a metadata-mutation lease and runs one write. */
+export type FreshAdminTeamMutation = <Result>(
+  teamId: string,
+  operation: (
+    team: AdminStackTeam,
+    lease: AccountDeletionUserMutationLease,
+  ) => Promise<Result>,
+) => Promise<Result>;
+
 /**
  * Writes or clears the team's `cmuxVmPlan` override. A paid team override
  * gives every member the Team plan through billing team resolution, the same
  * way a Stripe Team subscription writes `cmuxPlan: "team"`.
+ *
+ * The write runs under the shared account-mutation lease keyed by the team
+ * id, and the team is re-read inside it, so two admins cannot clobber each
+ * other's metadata. In the same write the `cmuxPlan` mirror is reconciled
+ * against the live Stripe team subscription, so removing a grant from a team
+ * whose subscription lapsed leaves no stale paid mirror behind.
  */
 export async function setTeamManualPlanGrant(input: {
   readonly teamId: string;
@@ -410,33 +427,73 @@ export async function setTeamManualPlanGrant(input: {
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
   readonly now?: () => Date;
   readonly app?: AdminStackApp;
+  readonly withFreshTeam?: FreshAdminTeamMutation;
+  readonly hasActiveTeamSubscription?: (teamId: string) => Promise<boolean>;
   readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
 }): Promise<AdminTeamRow> {
   const app = input.app ?? defaultAdminStackApp();
   const now = input.now ?? (() => new Date());
-  const team = await app.getTeam(input.teamId);
-  if (!team) throw new AdminTeamNotFoundError(input.teamId);
-  const client = metadataRecord(team.clientReadOnlyMetadata);
-  if (input.plan === null) {
-    delete client.cmuxVmPlan;
-  } else {
-    client.cmuxVmPlan = input.plan;
+  const withFreshTeam = input.withFreshTeam ?? defaultWithFreshTeam(app);
+  const hasStripeTeam = input.hasActiveTeamSubscription ?? hasActiveTeamSubscriptionForTeam;
+
+  try {
+    await withFreshTeam(input.teamId, async (team, lease) => {
+      const stripeActive = await hasStripeTeam(team.id);
+      await lease.refresh();
+      const client = metadataRecord(team.clientReadOnlyMetadata);
+      if (input.plan === null) {
+        delete client.cmuxVmPlan;
+      } else {
+        client.cmuxVmPlan = input.plan;
+      }
+      // Mirror reconciliation, identical to syncTeamPlanMetadata.
+      if (stripeActive) {
+        client.cmuxPlan = TEAM_PLAN_ID;
+      } else if (client.cmuxPlan === TEAM_PLAN_ID) {
+        delete client.cmuxPlan;
+      }
+      const server = metadataRecord(team.serverMetadata);
+      const grant: AdminPlanGrantRecord = {
+        plan: input.plan,
+        byUserId: input.admin.id,
+        byEmail: input.admin.primaryEmail ?? null,
+        at: now().toISOString(),
+      };
+      server.cmuxAdminPlanGrant = grant;
+      await team.update({
+        clientReadOnlyMetadata: client as ProMetadataJson,
+        serverMetadata: server as ProMetadataJson,
+      });
+    });
+  } catch (error) {
+    if (error instanceof AdminTeamNotFoundError) throw error;
+    if (
+      error instanceof AccountDeletionMutationBlockedError ||
+      error instanceof AccountDeletionUserMutationInProgressError
+    ) {
+      throw new AdminGrantConflictError(input.teamId);
+    }
+    throw error;
   }
-  const server = metadataRecord(team.serverMetadata);
-  const grant: AdminPlanGrantRecord = {
-    plan: input.plan,
-    byUserId: input.admin.id,
-    byEmail: input.admin.primaryEmail ?? null,
-    at: now().toISOString(),
-  };
-  server.cmuxAdminPlanGrant = grant;
-  await team.update({
-    clientReadOnlyMetadata: client as ProMetadataJson,
-    serverMetadata: server as ProMetadataJson,
-  });
-  const reloaded = (await app.getTeam(input.teamId)) ?? team;
+
+  const reloaded = await app.getTeam(input.teamId);
+  if (!reloaded) throw new AdminTeamNotFoundError(input.teamId);
   const billing = input.stripeBillingStatus ?? stripeBillingStatusForTeam;
   return adminTeamRow(reloaded, await billing(reloaded.id), await memberCount(reloaded));
+}
+
+/** Team lease key. Teams share the account-mutation lease table under a prefixed id. */
+function teamMutationKey(teamId: string): string {
+  return `team:${teamId}`;
+}
+
+function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
+  return async (teamId, operation) =>
+    await withAccountDeletionUserMutation(cloudDb(), teamMutationKey(teamId), async (lease) => {
+      const team = await app.getTeam(teamId);
+      if (!team || team.id !== teamId) throw new AdminTeamNotFoundError(teamId);
+      return await operation(team, lease);
+    });
 }
 
 // ---------------------------------------------------------------------------

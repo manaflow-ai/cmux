@@ -378,8 +378,19 @@ describe("teams", () => {
     ]);
   });
 
-  test("setTeamManualPlanGrant writes and clears the team override with an audit record", async () => {
-    const team = fakeTeam({ id: "t1", members: 2, clientReadOnlyMetadata: { cmuxPlan: "team" } });
+  function directTeamMutation(app: AdminStackApp) {
+    return async <Result>(
+      teamId: string,
+      operation: (team: AdminStackTeam, lease: AccountDeletionUserMutationLease) => Promise<Result>,
+    ): Promise<Result> => {
+      const team = await app.getTeam(teamId);
+      if (!team) throw new AdminTeamNotFoundError(teamId);
+      return await operation(team, lease);
+    };
+  }
+
+  test("setTeamManualPlanGrant writes the override with an audit record and keeps a live Stripe mirror", async () => {
+    const team = fakeTeam({ id: "t1", members: 2, clientReadOnlyMetadata: { cmuxPlan: "team", other: 1 } });
     const app = fakeApp([], [team]);
     const granted = await setTeamManualPlanGrant({
       teamId: "t1",
@@ -387,10 +398,12 @@ describe("teams", () => {
       admin,
       app,
       now: () => new Date("2026-09-02T10:00:00.000Z"),
-      stripeBillingStatus: async () => noStripe,
+      withFreshTeam: directTeamMutation(app),
+      hasActiveTeamSubscription: async () => true,
+      stripeBillingStatus: async () => activeStripe,
     });
     expect(team.updates[0]).toEqual({
-      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "team" },
+      clientReadOnlyMetadata: { cmuxPlan: "team", other: 1, cmuxVmPlan: "team" },
       serverMetadata: {
         cmuxAdminPlanGrant: {
           plan: "team",
@@ -402,23 +415,60 @@ describe("teams", () => {
     });
     expect(granted.isTeam).toBe(true);
     expect(granted.manualPlanId).toBe("team");
+  });
 
+  test("removing a team grant also drops a stale cmuxPlan mirror when Stripe lapsed", async () => {
+    const team = fakeTeam({ id: "t1", clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxPlan: "team" } });
+    const app = fakeApp([], [team]);
     const removed = await setTeamManualPlanGrant({
       teamId: "t1",
       plan: null,
       admin,
       app,
+      withFreshTeam: directTeamMutation(app),
+      hasActiveTeamSubscription: async () => false,
       stripeBillingStatus: async () => noStripe,
     });
-    expect(team.clientReadOnlyMetadata).toEqual({ cmuxPlan: "team" });
+    expect(team.clientReadOnlyMetadata).toEqual({});
+    expect(removed.isTeam).toBe(false);
     expect(removed.manualPlanId).toBeNull();
+    expect(removed.metadataPlanId).toBeNull();
     expect(removed.lastGrant?.plan).toBeNull();
   });
 
-  test("setTeamManualPlanGrant rejects unknown teams", async () => {
+  test("removing a team grant keeps Team for a paying team and writes the mirror", async () => {
+    const team = fakeTeam({ id: "t1", clientReadOnlyMetadata: { cmuxVmPlan: "team" } });
+    const app = fakeApp([], [team]);
+    const removed = await setTeamManualPlanGrant({
+      teamId: "t1",
+      plan: null,
+      admin,
+      app,
+      withFreshTeam: directTeamMutation(app),
+      hasActiveTeamSubscription: async () => true,
+      stripeBillingStatus: async () => activeStripe,
+    });
+    expect(team.clientReadOnlyMetadata).toEqual({ cmuxPlan: "team" });
+    expect(removed.isTeam).toBe(true);
+    expect(removed.manualPlanId).toBeNull();
+  });
+
+  test("setTeamManualPlanGrant rejects unknown teams and maps lease conflicts", async () => {
+    const app = fakeApp([]);
     await expect(
-      setTeamManualPlanGrant({ teamId: "missing", plan: "team", admin, app: fakeApp([]) }),
+      setTeamManualPlanGrant({ teamId: "missing", plan: "team", admin, app, withFreshTeam: directTeamMutation(app) }),
     ).rejects.toBeInstanceOf(AdminTeamNotFoundError);
+    await expect(
+      setTeamManualPlanGrant({
+        teamId: "t1",
+        plan: "team",
+        admin,
+        app: fakeApp([], [fakeTeam({ id: "t1" })]),
+        withFreshTeam: async () => {
+          throw new AccountDeletionUserMutationInProgressError("team:t1");
+        },
+      }),
+    ).rejects.toBeInstanceOf(AdminGrantConflictError);
   });
 });
 
