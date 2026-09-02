@@ -3804,11 +3804,8 @@ mod tests {
             reliable: Arc::clone(&reliable),
         });
         let lease = h.manager.inner.register_control_user(&control);
-        let task = DeferredDetach {
-            control,
-            lease,
-            params: json!({ "surface": 7, "lease": "lease-a" }),
-        };
+        let task =
+            DeferredDetach { control, lease, params: json!({ "surface": 7, "lease": "lease-a" }) };
 
         release_off_runtime_detach(task, Err);
 
