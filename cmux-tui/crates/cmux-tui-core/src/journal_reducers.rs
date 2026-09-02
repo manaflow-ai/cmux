@@ -1042,6 +1042,34 @@ mod tests {
     }
 
     #[test]
+    fn future_plugin_observation_cannot_outdate_a_live_hook() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter":{"id":"claude","version":1}});
+        let plugin_payload = json!({
+            "format": AGENT_PLUGIN_FORMAT,
+            "plugin": {"id":"screen_detector","version":1},
+            "adapter": {"id":"claude","version":1},
+            "event":"state.changed",
+            "normalized": {
+                "state":"blocked",
+                "source_session":"pid:42",
+                "observed_at_ms":u64::MAX.to_string()
+            }
+        });
+        let mut roster = AgentRoster::default();
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let plugin = RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.state.changed",
+            subjects: &subjects,
+            payload: &plugin_payload,
+            committed_at_ms: 20_000,
+        };
+        assert!(roster.apply(&plugin).is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
     fn supervisor_exit_retires_only_old_entries_for_that_plugin() {
         let subjects_a = terminal_subject("term_a");
         let subjects_b = terminal_subject("term_b");
