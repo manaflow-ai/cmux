@@ -510,6 +510,15 @@ import Testing
             ["id": "browser_1", "tab_id": "tab_1", "url": "http://localhost:3000", "title": "wrong"],
         ]
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedBrowserTab, machine: Self.machine) == nil)
+
+        // Older daemons encode an absent multi-tab relationship as JSON null.
+        // The singular tab_id remains enough to retain the placement.
+        var nullTabIDs = snapshot
+        nullTabIDs["terminals"] = [
+            ["id": "term_build", "tab_ids": NSNull(), "tab_id": "tab_1", "title": "build", "lifecycle": "running"],
+        ]
+        let nullTabIDsState = CmuxTuiSnapshotParser.state(fromSnapshot: nullTabIDs, machine: Self.machine)
+        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1"])
     }
 
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
