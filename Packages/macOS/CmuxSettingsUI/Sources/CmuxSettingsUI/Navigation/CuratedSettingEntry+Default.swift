@@ -319,6 +319,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(section: .betaFeatures, id: "nestedTopology", title: "Nested Topology", synonyms: "nested topology herdr virtual descendants host surface sidebar focus beta unstable"),
+            .init(section: .betaFeatures, id: "remoteHerdrMirror", title: "Remote Herdr Mirror", synonyms: "remote herdr mirror unix socket ssh tmux parity tabs panes bonsplit sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
