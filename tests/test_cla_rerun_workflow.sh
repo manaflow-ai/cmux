@@ -501,6 +501,9 @@ run_case() {
   local expected_post="${5:-}"
   local expected_checks="${6:-}"
   local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE comment_body=recheck signature_recorded=false generation="${CLA_GENERATION}"
+  if [[ -n "${ONLY_MODE:-}" && "${ONLY_MODE}" != "${mode}" ]]; then
+    return 0
+  fi
   if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
     comment_author_id=301
@@ -583,15 +586,15 @@ run_case() {
 
 run_case run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case oversized-api-response 1 "Could not query the issue" 0
-run_case minimal-run-association 1 "outdated or malformed pull request base SHA" 0
-run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case minimal-run-association 0 "No failed CLA run exists for this pull request head" 0
+run_case fork-current 1 "older workflow generation" 0
 run_case association-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-stderr-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-stderr-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-api-failure 1 "Could not query pull request associations" 0
-run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case same-repo-empty 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case empty-run-association 1 "older workflow generation" 0
+run_case same-repo-empty 1 "no pull request association with complete source metadata" 0
 run_case association-overflow 1 "Too many pull request associations" 0
 run_case paginated-associations 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case paginated-open-prs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
@@ -600,34 +603,34 @@ run_case paginated-runs 0 "Requested rerun for CLA job 500 in workflow run 400" 
 run_case full-run-window 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case full-run-window-no-match 1 "workflow-run result window is full" 0
 run_case paginated-jobs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case empty-different-execution-associated 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case empty-different-execution-source-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 0
-run_case empty-different-execution-source-mismatch 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case empty-different-execution-check-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 2
-run_case empty-different-execution-check-mismatch 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case fork-null-head-check-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 2
-run_case fork-null-head-no-check 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case check-wrong-app 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
+run_case empty-different-execution-associated 1 "no pull request association with complete source metadata" 0
+run_case empty-different-execution-source-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 2
+run_case empty-different-execution-source-mismatch 1 "no pull request association with complete source metadata" 0
+run_case empty-different-execution-check-bound 1 "no pull request association with complete source metadata" 0
+run_case empty-different-execution-check-mismatch 1 "no pull request association with complete source metadata" 0
+run_case fork-null-head-check-bound 1 "no pull request association with complete source metadata" 0
+run_case fork-null-head-no-check 1 "no pull request association with complete source metadata" 0
+run_case check-wrong-app 1 "No failed CLA check is bound" 0 "" 1
 run_case check-wrong-app-id 1 "No failed CLA check is bound" 0 "" 1
-run_case check-wrong-sha 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case check-wrong-job 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case check-missing-final 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 2
-run_case oversized-check-response 1 "Could not query checks for the exact pull request head" 0 "" 1
-run_case stale-empty-execution 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
-run_case empty-mismatched-newer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case check-wrong-sha 1 "No failed CLA check is bound" 0 "" 1
+run_case check-wrong-job 1 "No failed CLA check is bound" 0 "" 1
+run_case check-missing-final 1 "No failed CLA check is bound" 0 "" 2
+run_case oversized-check-response 1 "Could not query checks for the selected CLA execution" 0 "" 1
+run_case stale-empty-execution 1 "no pull request association with complete source metadata" 0
+run_case empty-mismatched-newer 1 "no pull request association with complete source metadata" 0
 run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case malformed-run-association 1 "malformed pull request associations" 0
 run_case invalid-run-association 1 "malformed pull request associations" 0
 run_case stale-marker 1 "older workflow generation" 0
 run_case unrelated-main-commit 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
+run_case wrong-head-repo 1 "no pull request association with complete source metadata" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant" 0
 run_case recheck-unset-output 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case suffixed-path 1 "No failed CLA run exists for this pull request head" 0
-run_case wrong-workflow-name 1 "No failed CLA run exists for this pull request head" 0
+run_case suffixed-path 0 "No failed CLA run exists for this pull request head" 0
+run_case wrong-workflow-name 0 "No failed CLA run exists for this pull request head" 0
 run_case stale-base-association 1 "outdated or malformed pull request base SHA" 0
 run_case alternate-generation 1 "Unexpected CLA generation marker" 0
 run_case malformed-comment-login 1 "Comment author is malformed" 0

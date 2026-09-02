@@ -21,7 +21,7 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf"
+CLA_ACTION = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af"
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral GitHub-hosted runner. A repository variable could redirect this
 # privileged work to an untrusted self-hosted machine, so the label is an
@@ -98,7 +98,8 @@ RESULT_ENV = {
   "GATE_RESULT" => "${{ needs.CLACommentGate.result }}",
   "ADMITTED" => "${{ needs.CLACommentGate.outputs.admitted || '' }}",
   "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
-  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
+  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}",
+  "CLA_PASSED" => "${{ needs.CLALedgerWriter.outputs.cla_passed || '' }}"
 }.freeze
 CLA_COMMENT_BINDING_OUTPUTS = {
   "comment_id" => "${{ steps.signer_preflight.outputs.comment_id }}",
@@ -1796,7 +1797,7 @@ def validate_workflow(raw)
     "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
     "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes permissions steps],
+    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
     "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
   }
   [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
@@ -1821,7 +1822,8 @@ def validate_workflow(raw)
     }.merge(CLA_COMMENT_BINDING_OUTPUTS)
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
-      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
+      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}",
+      "cla_passed" => "${{ steps.cla_action.outputs.cla_passed }}"
     }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
@@ -1935,7 +1937,10 @@ def validate_workflow(raw)
     [gate["if"], assistant["if"], compatibility["if"], writer_condition],
     admission_run
   )
-  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
+  # Stop at the first sibling branch. A non-signing recheck branch may need
+  # opener identity fields, but those fields must not be duplicated inside the
+  # exact signing declaration branch itself.
+  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?=\n\s*(?:elif|fi))/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
   preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
@@ -1956,9 +1961,9 @@ def validate_workflow(raw)
   fail!("CLALedgerWriter permissions are not least-privilege") unless
     writer["permissions"] == { "contents" => "write", "issues" => "write", "pull-requests" => "write" }
   fail!("RerunFailedCLA permissions are not least-privilege") unless
-    rerun["permissions"] == { "actions" => "write", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
+    rerun["permissions"] == { "actions" => "write", "checks" => "read", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
   fail!("LockMergedPullRequest permissions are not least-privilege") unless
-    lock["permissions"] == { "issues" => "write", "pull-requests" => "read" }
+    lock["permissions"] == { "issues" => "write", "pull-requests" => "write" }
 
   action_step = step_using(writer, CLA_ACTION, "CLALedgerWriter")
   with_values = action_step["with"]
