@@ -135,8 +135,12 @@ remains incompatible.
 - [x] Publish and validate the current Freestyle snapshot with the cmux-tui daemon.
 - [x] Promote the validated public snapshot configuration to the active provider
   manifest and local dogfood environment.
-- [x] Verify Freestyle create/attach, `cmux-remote` session state, and tab/workspace
-  rename persistence against a live sandbox.
+- [x] Verify Freestyle create/attach, `cmux-remote` transport, and provider tunnel
+  recovery against a live sandbox.
+- [ ] Verify the tagged macOS client can reach a private Freestyle VM and observe
+  daemon state plus tab/workspace rename persistence end to end. The API and
+  daemon checks pass, but this Mac's existing WireGuard route currently reports
+  `utun8` without a working provider handshake.
 - [x] Verify local-to-cloud workspace and exact tab rename write-through from the
   catalog projection lifecycle, including restore and existing-target opens.
 - [x] Preserve complete state from legacy Freestyle snapshots without a cursor;
@@ -168,8 +172,10 @@ remains incompatible.
 - [x] Production migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-production` and the production Aurora cluster resource id.
 - [x] Staging and production Cloud VM default provider are set to Freestyle.
 - [x] Freestyle creates are enabled in the verified deployment configuration.
-- [x] Freestyle create, `cmux-remote` attach, state recovery, and rename smoke passed
-  without creating a production VM during the audit.
+- [x] Freestyle create, `cmux-remote` attach, and provider tunnel state-recovery
+  smoke passed without creating a production VM during the audit.
+- [ ] Tagged macOS end-to-end rename smoke is pending a working private-network
+  route; focused client and backend behavior tests pass.
 - [x] Production auth/list smoke passed without creating a production VM.
 - [x] Axiom/OpenTelemetry env is set and redeployed in staging and production.
 - [x] GitHub Cloud VM smoke workflows no longer require `VERCEL_TOKEN`.

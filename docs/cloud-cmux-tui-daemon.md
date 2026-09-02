@@ -324,6 +324,12 @@ duration, rotate provider credentials, and finish browser-proxy and cleanup
 hardening. These checks must use the Mock provider in ordinary CI and the real
 Freestyle provider only in the explicit staging smoke job.
 
+The live provider smoke does not replace the client route check. A tagged Mac
+must have its owner's WireGuard tunnel up before a private VM can be opened. If
+the route is down, the catalog keeps the VM visible with an explicit link error
+and does not issue rename writes. The rollout record must keep this client check
+separate from API create/attach success.
+
 
 ## Cloud tree and agent routing (2026-09-02)
 
