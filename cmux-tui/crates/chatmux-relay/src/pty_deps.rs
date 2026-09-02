@@ -1083,10 +1083,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-relay-relative-executable-policy-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         let cwd = root.join("launch");
         let executable = cwd.join("bin/cmux-tui");
@@ -1106,10 +1103,8 @@ mod tests {
         deps.env.remove("CHATMUX_RELAY_CMUX_TUI");
         assert!(deps.resolve_cmux_tui().await.is_none());
 
-        deps.env.insert(
-            "CHATMUX_RELAY_CMUX_TUI".to_owned(),
-            executable.to_string_lossy().into_owned(),
-        );
+        deps.env
+            .insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), executable.to_string_lossy().into_owned());
         assert_eq!(
             deps.resolve_cmux_tui().await.map(|resolved| resolved.file),
             Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
