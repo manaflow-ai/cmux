@@ -93,24 +93,33 @@ impl JournalPluginChild {
 
 #[cfg(windows)]
 struct WindowsJournalPluginJob {
-    handle: HANDLE,
+    // Keep the kernel handle as an integer in the shared supervisor state.
+    // `windows_sys::HANDLE` is a raw pointer and therefore is not `Send`,
+    // even though Windows kernel handles are process-wide, thread-safe
+    // values. Converting at the FFI boundary preserves the ownership model
+    // without making an unsafe `Send` promise for the containing state.
+    handle: usize,
 }
 
 #[cfg(windows)]
 impl WindowsJournalPluginJob {
+    fn raw_handle(&self) -> HANDLE {
+        self.handle as HANDLE
+    }
+
     fn assign(child: &Child) -> std::io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
         }
-        let job = Self { handle };
+        let job = Self { handle: handle as usize };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
             .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
-                job.handle,
+                job.raw_handle(),
                 JobObjectExtendedLimitInformation,
                 std::ptr::from_ref(&information).cast(),
                 information_size,
@@ -124,7 +133,7 @@ impl WindowsJournalPluginJob {
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
-        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assigned = unsafe { AssignProcessToJobObject(job.raw_handle(), process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
         unsafe {
             CloseHandle(process);
@@ -137,7 +146,7 @@ impl WindowsJournalPluginJob {
 
     fn terminate_descendants(&self) {
         unsafe {
-            TerminateJobObject(self.handle, 1);
+            TerminateJobObject(self.raw_handle(), 1);
         }
     }
 }
@@ -146,7 +155,7 @@ impl WindowsJournalPluginJob {
 impl Drop for WindowsJournalPluginJob {
     fn drop(&mut self) {
         unsafe {
-            CloseHandle(self.handle);
+            CloseHandle(self.raw_handle());
         }
     }
 }
