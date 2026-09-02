@@ -8285,6 +8285,7 @@ pub enum RunOutcome {
 
 struct MachineUpdatePump {
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     provider: Option<JoinHandle<()>>,
     forwarder: Option<JoinHandle<()>>,
 }
@@ -8353,6 +8354,7 @@ pub(crate) enum MachineControllerCompletion {
 struct MachineActionWorker {
     sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -8370,6 +8372,8 @@ impl MachineActionWorker {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let worker =
             std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
                 let mut next_action_id = 1_u64;
@@ -8525,7 +8529,11 @@ impl MachineActionWorker {
                             }
                         }
                     };
-                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                    if !send_machine_controller_completion(
+                        &app_events,
+                        completion,
+                        &worker_cancellation,
+                    ) {
                         break;
                     }
                 }
@@ -8534,7 +8542,7 @@ impl MachineActionWorker {
                 }
                 controller.close();
             })?;
-        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+        Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
     fn perform(
@@ -8624,6 +8632,7 @@ impl MachineActionWorker {
 
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.sender.take();
         if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(worker) = self.worker.take()
@@ -8682,25 +8691,15 @@ fn prepare_machine_session(
 
 fn send_machine_controller_completion(
     app_events: &SyncSender<AppEvent>,
-    mut completion: MachineControllerCompletion,
-    stop: &AtomicBool,
+    completion: MachineControllerCompletion,
+    cancellation: &EventCancellation,
 ) -> bool {
-    loop {
-        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
-                completion = *returned;
-                if stop.load(Ordering::Acquire) {
-                    return false;
-                }
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
-            Err(TrySendError::Full(_)) => {
-                unreachable!("machine completion sender returned a different event")
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
-    }
+    send_bounded_cancelable(
+        app_events,
+        AppEvent::MachineControllerCompleted(Box::new(completion)),
+        cancellation,
+    )
+    .is_ok()
 }
 
 impl MachineUpdatePump {
@@ -8712,38 +8711,25 @@ impl MachineUpdatePump {
         let stop = updates.stop_handle();
         let (updates, _, provider) = updates.into_parts();
         let forwarder_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let forwarder_cancellation = cancellation.clone();
         let forwarder = match std::thread::Builder::new()
             .name("machine-provider-events".into())
             .spawn(move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
                     match updates.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
-                            let mut update = Box::new(update);
-                            loop {
-                                match app_events.try_send(AppEvent::MachineUpdatedForGeneration {
+                            if send_bounded_cancelable(
+                                &app_events,
+                                AppEvent::MachineUpdatedForGeneration {
                                     generation,
-                                    update,
-                                }) {
-                                    Ok(()) => break,
-                                    Err(TrySendError::Full(
-                                        AppEvent::MachineUpdatedForGeneration {
-                                            update: returned,
-                                            ..
-                                        },
-                                    )) => {
-                                        update = returned;
-                                        if forwarder_stop.load(Ordering::Acquire) {
-                                            return;
-                                        }
-                                        std::thread::park_timeout(Duration::from_millis(1));
-                                    }
-                                    Err(TrySendError::Full(_)) => {
-                                        unreachable!(
-                                            "machine update sender returned a different event"
-                                        )
-                                    }
-                                    Err(TrySendError::Disconnected(_)) => return,
-                                }
+                                    update: Box::new(update),
+                                },
+                                &forwarder_cancellation,
+                            )
+                            .is_err()
+                            {
+                                return;
                             }
                         }
                         Err(RecvTimeoutError::Timeout) => {}
@@ -8758,11 +8744,12 @@ impl MachineUpdatePump {
                 return Err(error.into());
             }
         };
-        Ok(Self { stop, provider: Some(provider), forwarder: Some(forwarder) })
+        Ok(Self { stop, cancellation, provider: Some(provider), forwarder: Some(forwarder) })
     }
 
     fn stop_and_join(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(forwarder) = self.forwarder.take() {
             let _ = forwarder.join();
         }
@@ -43755,6 +43742,35 @@ mod tests {
         assert!(started_shutdown.elapsed() < Duration::from_millis(50));
         release.send(()).unwrap();
         closes.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn canceling_machine_controller_completion_send_unblocks_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let completed = super::send_machine_controller_completion(
+                &events,
+                super::MachineControllerCompletion::Updates(Err("cancelled".into())),
+                &worker_cancellation,
+            );
+            completed_tx.send(completed).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert!(!completed_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        worker.join().unwrap();
+        drop(receiver);
     }
 
     #[test]
