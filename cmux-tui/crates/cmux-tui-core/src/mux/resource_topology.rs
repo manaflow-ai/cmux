@@ -2833,7 +2833,7 @@ impl Mux {
                 }
             }
             ResourceOperation::TerminalClose => {
-                let public_id = slots.terminal.clone().context("terminal disappeared")?;
+                let public_id = slots.terminal.context("terminal disappeared")?;
                 let host_id = registry
                     .terminal_host_id(&public_id)?
                     .with_context(|| format!("terminal {public_id} has no durable host"))?;
