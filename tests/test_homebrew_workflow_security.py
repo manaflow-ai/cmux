@@ -304,6 +304,13 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         result = self.run_validator(event, api)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_oversized_asset_metadata_is_rejected(self) -> None:
+        event, api = _base_fixture()
+        api["repos/manaflow-ai/cmux/releases/tags/v1.2.3"]["assets"][0]["size"] = 10**20
+        api["repos/manaflow-ai/cmux/releases/assets/987654321"]["size"] = 10**20
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_noncanonical_asset_url_is_rejected(self) -> None:
         event, api = _base_fixture()
         attacker_url = "https://attacker.invalid/cmux-macos.dmg"

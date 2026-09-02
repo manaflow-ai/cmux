@@ -264,6 +264,9 @@ asset_content_type="$(jq -r --arg name "cmux-macos.dmg" '.assets[] | select(.nam
 asset_url="$(jq -r --arg name "cmux-macos.dmg" '.assets[] | select(.name == $name) | .browser_download_url' "$release_file")"
 [[ "$asset_id" =~ ^[1-9][0-9]*$ ]] || fail "Release asset has an invalid ID"
 [[ "$asset_size" =~ ^[0-9]+$ ]] || fail "Release asset has an invalid size"
+# Bound the decimal length before Bash arithmetic, so a malformed API value
+# cannot overflow the integer evaluator and accidentally pass the range check.
+(( ${#asset_size} <= ${#MAX_ASSET_BYTES} )) || fail "Release DMG size is too large"
 (( asset_size >= MIN_ASSET_BYTES && asset_size <= MAX_ASSET_BYTES )) || \
   fail "Release DMG size is outside the safe range"
 [[ "$asset_digest" =~ $DIGEST_REGEX ]] || fail "Release DMG has no verified SHA-256 digest"
