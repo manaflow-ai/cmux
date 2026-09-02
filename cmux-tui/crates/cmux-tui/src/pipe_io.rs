@@ -21,6 +21,7 @@
 //!   not respawn), 2 when the daemon connection was lost (respawning
 //!   reattaches and resyncs from a fresh replay).
 
+use std::borrow::Cow;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 use crossbeam_channel::{Receiver, Sender};
+use serde::Deserialize;
 
 use crate::session::{
     PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach, RemoteSession,
@@ -46,6 +48,9 @@ pub const EXIT_DAEMON_LOST: i32 = 2;
 /// treats that as a lost transport rather than wedging its reader thread.
 const EVENT_QUEUE_CAPACITY: usize = 4096;
 const EVENT_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PIPE_IO_INPUT_BYTES: usize = crate::pty_input::PTY_INPUT_MAX_BYTES;
+const MAX_PIPE_IO_BASE64_BYTES: usize = MAX_PIPE_IO_INPUT_BYTES.div_ceil(3) * 4;
+const MAX_PIPE_IO_LINE_BYTES: usize = MAX_PIPE_IO_BASE64_BYTES + 128;
 
 /// Emitted before any replay that is not the relay's first output: full
 /// reset plus erase-scrollback, so the replacement replay does not stack on
@@ -96,22 +101,68 @@ pub enum PipeIoRequest {
     Unknown,
 }
 
+#[derive(Deserialize)]
+struct PipeIoWireRequest<'a> {
+    #[serde(borrow)]
+    input: Option<Cow<'a, str>>,
+    resize: Option<PipeIoWireResize>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    claim: bool,
+}
+
+#[derive(Deserialize)]
+struct PipeIoWireResize {
+    cols: Option<u64>,
+    rows: Option<u64>,
+}
+
+fn deserialize_present<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde::de::IgnoredAny::deserialize(deserializer).map(|_| true)
+}
+
 pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
-    let value: serde_json::Value = serde_json::from_str(line)?;
-    if let Some(encoded) = value.get("input").and_then(serde_json::Value::as_str) {
+    if line.len() > MAX_PIPE_IO_LINE_BYTES {
+        anyhow::bail!("pipe-io request line exceeds {MAX_PIPE_IO_LINE_BYTES} bytes");
+    }
+    let request: PipeIoWireRequest<'_> = serde_json::from_str(line)?;
+    if let Some(encoded) = request.input {
+        let encoded = encoded.as_ref();
+        if encoded.len() > MAX_PIPE_IO_BASE64_BYTES {
+            anyhow::bail!("pipe-io input exceeds {MAX_PIPE_IO_INPUT_BYTES} decoded bytes");
+        }
+        if encoded.len() % 4 == 0 {
+            let padding = encoded.bytes().rev().take_while(|byte| *byte == b'=').count();
+            let decoded_len = encoded
+                .len()
+                .checked_div(4)
+                .and_then(|quads| quads.checked_mul(3))
+                .and_then(|bytes| bytes.checked_sub(padding))
+                .unwrap_or(usize::MAX);
+            if decoded_len > MAX_PIPE_IO_INPUT_BYTES {
+                anyhow::bail!("pipe-io input exceeds {MAX_PIPE_IO_INPUT_BYTES} decoded bytes");
+            }
+        } else if base64::decoded_len_estimate(encoded.len()) > MAX_PIPE_IO_INPUT_BYTES {
+            anyhow::bail!("pipe-io input exceeds {MAX_PIPE_IO_INPUT_BYTES} decoded bytes");
+        }
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+        if bytes.len() > MAX_PIPE_IO_INPUT_BYTES {
+            anyhow::bail!("pipe-io input exceeds {MAX_PIPE_IO_INPUT_BYTES} decoded bytes");
+        }
         return Ok(PipeIoRequest::Input(bytes));
     }
-    if let Some(resize) = value.get("resize") {
-        let cols = resize.get("cols").and_then(serde_json::Value::as_u64);
-        let rows = resize.get("rows").and_then(serde_json::Value::as_u64);
+    if let Some(resize) = request.resize {
+        let cols = resize.cols;
+        let rows = resize.rows;
         let (Some(cols), Some(rows)) = (cols, rows) else {
             anyhow::bail!("resize needs numeric cols and rows");
         };
         let (cols, rows) = (u16::try_from(cols)?, u16::try_from(rows)?);
         return Ok(PipeIoRequest::Resize { cols: cols.max(1), rows: rows.max(1) });
     }
-    if value.get("claim").is_some() {
+    if request.claim {
         return Ok(PipeIoRequest::ClaimGeometry);
     }
     Ok(PipeIoRequest::Unknown)
@@ -247,6 +298,34 @@ fn classify_daemon_loss(
     }
 }
 
+fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
+    line.clear();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(line.len());
+        }
+        let (chunk_len, has_newline) = match available.iter().position(|byte| *byte == b'\n') {
+            Some(index) => (index + 1, true),
+            None => (available.len(), false),
+        };
+        if line.len().saturating_add(chunk_len) > MAX_PIPE_IO_LINE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("pipe-io request line exceeds {MAX_PIPE_IO_LINE_BYTES} bytes"),
+            ));
+        }
+        let chunk = &available[..chunk_len];
+        let text = std::str::from_utf8(chunk)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        line.push_str(text);
+        reader.consume(chunk_len);
+        if has_newline {
+            return Ok(line.len());
+        }
+    }
+}
+
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
 fn spawn_stdin_pump(handle: PipeIoSurfaceHandle, lifecycle_sender: Sender<PipeIoEvent>) {
@@ -254,8 +333,13 @@ fn spawn_stdin_pump(handle: PipeIoSurfaceHandle, lifecycle_sender: Sender<PipeIo
         .name("pipe-io-stdin".into())
         .spawn(move || {
             let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
-                let Ok(line) = line else { break };
+            let mut reader = stdin.lock();
+            let mut line = String::new();
+            loop {
+                let Ok(bytes_read) = read_pipe_io_line(&mut reader, &mut line) else { break };
+                if bytes_read == 0 {
+                    break;
+                }
                 if line.trim().is_empty() {
                     continue;
                 }
