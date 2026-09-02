@@ -284,7 +284,8 @@ struct VMSummary {
 /// Plan context served alongside the machine list: how many active VMs the
 /// caller's plan allows, and which plan sets that ceiling.
 struct VMPlanLimits {
-    let maxActiveVms: Int
+    /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
+    let maxActiveVms: Int?
     let planId: String
     /// Days a free-plan machine stays reachable after creation; 0 = no window.
     let freeAccessWindowDays: Int
@@ -527,8 +528,9 @@ actor VMClient {
         }
         var limits: VMPlanLimits?
         if let rawLimits = obj["limits"] as? [String: Any],
-           let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue,
            let planId = rawLimits["planId"] as? String {
+            // Absent or null means the plan has no active-machine cap.
+            let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue
             let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
                 ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
                 ?? 0
