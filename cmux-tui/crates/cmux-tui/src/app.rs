@@ -43682,6 +43682,35 @@ mod tests {
     }
 
     #[test]
+    fn canceling_machine_controller_completion_send_unblocks_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let completed = super::send_machine_controller_completion(
+                &events,
+                super::MachineControllerCompletion::Updates(Err("cancelled".into())),
+                &worker_cancellation,
+            );
+            completed_tx.send(completed).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert!(!completed_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
