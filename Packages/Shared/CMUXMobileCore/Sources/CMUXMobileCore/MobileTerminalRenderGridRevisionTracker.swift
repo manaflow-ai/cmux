@@ -28,10 +28,44 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         }
     }
 
+    /// Capture-independent identity used while a surface has only
+    /// request/response observations. Scrollback depth is a request option,
+    /// not a terminal mutation, so it is intentionally absent here. Once the
+    /// first real emission arrives, the full rendered-content identity is used
+    /// for producer-side comparisons.
+    private struct ObservationContent: Equatable, Sendable {
+        let columns: Int
+        let rows: Int
+        let activeScreen: MobileTerminalRenderGridFrame.Screen
+        let anchor: MobileTerminalRenderGridFrame.Anchor
+        let rowSignatures: [String]
+        let cursor: MobileTerminalRenderGridFrame.Cursor?
+        let terminalForeground: String?
+        let terminalBackground: String?
+        let terminalCursorColor: String?
+        let terminalTheme: TerminalTheme?
+        let terminalConfigTheme: TerminalTheme?
+
+        init(_ content: MobileTerminalRenderGridContent) {
+            columns = content.columns
+            rows = content.rows
+            activeScreen = content.activeScreen
+            anchor = content.anchor
+            rowSignatures = content.rowSignatures
+            cursor = content.cursor
+            terminalForeground = content.terminalForeground
+            terminalBackground = content.terminalBackground
+            terminalCursorColor = content.terminalCursorColor
+            terminalTheme = content.terminalTheme
+            terminalConfigTheme = content.terminalConfigTheme
+        }
+    }
+
     private let renderEpoch: String
     private var renderRevision: UInt64 = 0
     private var emissionRevision: UInt64 = 0
     private var lastContent: MobileTerminalRenderGridContent?
+    private var lastObservationContent: ObservationContent?
 
     /// Creates a tracker for one terminal-runtime lifetime.
     ///
@@ -71,7 +105,16 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
         let renderedContent = content ?? fullFrame.renderedContent()
-        updateContentRevision(renderedContent)
+        if emissionRevision == 0 {
+            // A request-only baseline may have been initialized with a
+            // different scrollback budget. Reuse its capture-independent
+            // identity for the first real emission, then switch to the full
+            // producer identity for all subsequent emissions.
+            updateObservationRevision(ObservationContent(renderedContent))
+        } else {
+            updateContentRevision(renderedContent)
+        }
+        lastContent = renderedContent
         emissionRevision &+= 1
         if emissionRevision == 0 {
             emissionRevision = 1
@@ -107,7 +150,10 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             )
         }
         let renderedContent = content ?? fullFrame.renderedContent()
-        updateContentRevision(renderedContent)
+        // Before the first emission, compare only the capture-independent
+        // identity so repeated polls with different history depths remain
+        // stable while visible output/size changes still advance the token.
+        updateObservationRevision(ObservationContent(renderedContent))
         // Observation is deliberately not an emission. Returning the current
         // emission counter here would let a request/response projection reuse
         // an unrelated live-frame identity as a delta baseline.
@@ -128,6 +174,17 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             }
             lastContent = renderedContent
         }
+    }
+
+    private mutating func updateObservationRevision(
+        _ content: ObservationContent
+    ) {
+        guard lastObservationContent != content else { return }
+        renderRevision &+= 1
+        if renderRevision == 0 {
+            renderRevision = 1
+        }
+        lastObservationContent = content
     }
 
 }
