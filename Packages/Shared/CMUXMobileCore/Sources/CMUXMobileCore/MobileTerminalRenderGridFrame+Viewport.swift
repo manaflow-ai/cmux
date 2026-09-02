@@ -166,28 +166,39 @@ extension MobileTerminalRenderGridFrame {
             spansByRow[span.row, default: []].append(span)
         }
         let resolvedRowCount = max(0, rowCount)
-        let sourceRows: [Int]
+        let sourceRows: AnySequence<Int>
         if let maximumLines {
             guard maximumLines > 0, resolvedRowCount > 0 else { return [] }
             // Scrollback is retained newest-first while wrapping so a narrow
             // client cannot force allocation for every historical row. The
-            // final flatten restores oldest-to-newest wire order.
-            sourceRows = Array(stride(
+            // final flatten restores oldest-to-newest wire order. Keep the
+            // stride lazy as well; materializing a 20,000-row index array
+            // defeats part of the bound before wrapping starts.
+            sourceRows = AnySequence(stride(
                 from: resolvedRowCount - 1,
                 through: 0,
                 by: -1
             ))
         } else {
-            sourceRows = Array(0..<resolvedRowCount)
+            sourceRows = AnySequence(0..<resolvedRowCount)
         }
         var result: [ViewportLine] = []
         var newestFirstRows: [[ViewportLine]] = []
         var newestFirstLineCount = 0
         for sourceRow in sourceRows {
-            var cells = (0..<max(0, sourceColumns)).map { index in
+            let rowSpans = spansByRow[sourceRow] ?? []
+            // Most terminal rows contain only a short prompt or command. Do
+            // not allocate the entire native width for every such row: a
+            // one-column phone projection otherwise turns a 4,096-column ×
+            // 20,000-row history request into tens of millions of blank cell
+            // values before the scrollback cap can take effect.
+            let highestUsedColumn = rowSpans.reduce(0) { partial, span in
+                max(partial, min(sourceColumns, span.column + span.gridCellWidth))
+            }
+            var cells = (0..<max(1, highestUsedColumn)).map { index in
                 ViewportCell(text: " ", styleID: 0, width: 1, sourceColumn: index)
             }
-            for span in spansByRow[sourceRow] ?? [] {
+            for span in rowSpans {
                 var column = span.column
                 var remainingWidth = span.gridCellWidth
                 for character in span.text {
