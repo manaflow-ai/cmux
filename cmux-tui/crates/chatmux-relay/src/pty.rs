@@ -3152,6 +3152,8 @@ mod tests {
         live_auth.lock().unwrap().0 = "observe".to_owned();
         pty.emit("secret");
         assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
+        assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
+        assert!(!h.manager.has_attachment("p1"));
     }
 
     #[tokio::test]
