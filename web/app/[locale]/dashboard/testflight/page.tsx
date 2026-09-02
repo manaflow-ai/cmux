@@ -38,20 +38,35 @@ export default function DashboardTestflightPage(props: PageProps) {
 
   return (
     <Suspense fallback={null}>
-      <DashboardTestflightContent {...props} />
+      <ResolvedDashboardTestflightContent {...props} />
     </Suspense>
   );
 }
 
-export async function DashboardTestflightContent({
+async function ResolvedDashboardTestflightContent({
   params,
   searchParams,
 }: PageProps) {
+  // Framework promises are not stable cache keys across prerender phases.
+  const [{ locale }, query] = await Promise.all([params, searchParams]);
+  const testflight = Array.isArray(query?.testflight)
+    ? query.testflight[0]
+    : query?.testflight;
+
+  return (
+    <DashboardTestflightContent locale={locale} testflight={testflight} />
+  );
+}
+
+export async function DashboardTestflightContent({
+  locale,
+  testflight,
+}: {
+  locale: string;
+  testflight?: string;
+}) {
   "use cache: private";
   cacheLife({ stale: 300 });
-
-  const { locale } = await params;
-  const query = await searchParams;
 
   const user = await requireDashboardUser(locale, "/dashboard/testflight");
 
@@ -63,9 +78,7 @@ export async function DashboardTestflightContent({
   const status = eligible && email
     ? await loadTestflightStatus(email, user.id)
     : { enrolled: false };
-  const banner = testflightBanner(
-    Array.isArray(query?.testflight) ? query?.testflight[0] : query?.testflight,
-  );
+  const banner = testflightBanner(testflight);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">

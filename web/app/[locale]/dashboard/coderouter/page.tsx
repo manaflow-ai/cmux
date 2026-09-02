@@ -82,17 +82,28 @@ export default function CoderouterOverviewPage(props: PageProps) {
 
   return (
     <Suspense fallback={null}>
-      <CoderouterOverviewContent {...props} />
+      <ResolvedCoderouterOverviewContent {...props} />
     </Suspense>
   );
 }
 
-export async function CoderouterOverviewContent({ params, searchParams }: PageProps) {
-  "use cache: private";
-  cacheLife({ stale: 300 });
-
+async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
+
+  return <CoderouterOverviewContent locale={locale} team={team} />;
+}
+
+export async function CoderouterOverviewContent({
+  locale,
+  team,
+}: {
+  locale: string;
+  team?: string;
+}) {
+  "use cache: private";
+  cacheLife({ stale: 300 });
 
   const requestHeaders = await headers();
   const tokenStore = {

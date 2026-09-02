@@ -202,8 +202,7 @@ describe("coderouter dashboard", () => {
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
     const page = await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -220,8 +219,7 @@ describe("coderouter dashboard", () => {
     cutoverReady = false;
 
     const page = await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -237,8 +235,7 @@ describe("coderouter dashboard", () => {
     authJsonAvailable = false;
 
     const page = await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -254,8 +251,7 @@ describe("coderouter dashboard", () => {
     hostedControlConfigured = false;
 
     const page = await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -267,8 +263,8 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
 
     const page = await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
@@ -299,8 +295,7 @@ describe("coderouter dashboard", () => {
     ];
 
     await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -326,8 +321,7 @@ describe("coderouter dashboard", () => {
     ];
 
     await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -354,8 +348,7 @@ describe("coderouter dashboard", () => {
     ];
 
     await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
@@ -382,8 +375,7 @@ describe("coderouter dashboard", () => {
     ];
 
     await CoderouterOverviewContent({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);

@@ -187,8 +187,8 @@ describe("dashboard TestFlight page", () => {
 
 async function renderTestflightPage(searchParams: Record<string, string> = {}) {
   const element = await DashboardTestflightContent({
-    params: Promise.resolve({ locale: "en" }),
-    searchParams: Promise.resolve(searchParams),
+    locale: "en",
+    testflight: searchParams.testflight,
   });
   return renderToStaticMarkup(element);
 }
