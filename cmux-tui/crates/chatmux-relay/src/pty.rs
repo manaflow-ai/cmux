@@ -3008,6 +3008,19 @@ mod tests {
         open_pinned_directory(&directory).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_resolves_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only-scoped");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let resolved = scoped_cwd(Some(directory.to_str().unwrap()), &root.path, None, None)
+            .expect("execute-only cwd must resolve through its pinned descriptor");
+        assert_eq!(resolved.path, std::fs::canonicalize(directory).unwrap());
+    }
+
     #[cfg(unix)]
     #[test]
     fn scoped_cwd_resolves_symlink_components_before_spawn() {
