@@ -17,8 +17,16 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
-  test("pro gets five machines by default", () => {
-    expect(maxActiveVmsForPlan("pro", {})).toBe(5);
+  test("paid plans have no machine cap", () => {
+    expect(maxActiveVmsForPlan("pro", {})).toBeNull();
+    expect(maxActiveVmsForPlan("team", {})).toBeNull();
+    expect(maxActiveVmsForPlan("founders", {})).toBeNull();
+  });
+
+  test("a paid cap exists only as an explicit per-plan operator override", () => {
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" })).toBeNull();
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25" })).toBe(25);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25" })).toBeNull();
   });
 
   test("free allowance is env-overridable only with the explicit escape hatch", () => {
@@ -76,7 +84,7 @@ describe("active-limit response as the paywall moment", () => {
     expect(payload.error).toBe("vm_active_limit_exceeded");
     expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
     expect(String(payload.action)).toContain("Subscribe to cmux Pro");
-    expect(String(payload.action)).toContain("up to 5 active machines");
+    expect(String(payload.action)).not.toContain("up to");
     expect(String(payload.action)).not.toContain("cmux vm rm");
     expect(payload.upgradeRequired).toBe(true);
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");

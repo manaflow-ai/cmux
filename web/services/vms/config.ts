@@ -33,14 +33,8 @@ export function vmCreateDisabledReason(
 
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
-    case "daytona":
-      return "CMUX_VM_DAYTONA_ENABLED";
-    case "blaxel":
-      return "CMUX_VM_BLAXEL_ENABLED";
     default:
       return assertNever(provider);
   }
