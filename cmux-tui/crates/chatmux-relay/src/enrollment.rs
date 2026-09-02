@@ -91,8 +91,16 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         }
     }
 
-    let mut contents = Vec::new();
-    let read_result = file.read_to_end(&mut contents);
+    let mut contents =
+        Vec::with_capacity(metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1) as usize);
+    // `Take` bounds every read from the file. Read one byte past the accepted
+    // size so an exact-limit enrollment remains valid and an oversized one is
+    // detected without reading the rest of the file.
+    let read_result = {
+        let mut limited = Read::by_ref(&mut file).take((MAX_ENROLLMENT_BYTES as u64) + 1);
+        limited.read_to_end(&mut contents).map(|_| ())
+    };
+    let oversized = contents.len() > MAX_ENROLLMENT_BYTES;
 
     // Reopen for writing only after validation and reading. The second open
     // is still O_NOFOLLOW and must resolve to the descriptor's inode before it
@@ -114,7 +122,10 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         // Best-effort overwrite through the already-open descriptor. This
         // keeps shredding tied to the inode that was validated above.
         let _ = write_file.seek(SeekFrom::Start(0));
-        let mut remaining = metadata.len();
+        // Truncation removes all logical contents. Limit the best-effort
+        // physical overwrite so a large sparse file cannot force unbounded
+        // cleanup I/O or temporary disk allocation.
+        let mut remaining = metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1);
         let zeros = [0_u8; 4096];
         while remaining > 0 {
             let chunk = remaining.min(zeros.len() as u64) as usize;
@@ -135,6 +146,9 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         return Err(validation_error);
     }
     read_result.map_err(|_| error("Managed enrollment file is unavailable."))?;
+    if oversized {
+        return Err(error("Managed enrollment file is invalid."));
+    }
     String::from_utf8(contents).map_err(|_| error("Managed enrollment file is unavailable."))
 }
 
@@ -417,6 +431,7 @@ mod tests {
         assert!(!Path::new(&path).exists(), "file must be shredded after the read");
     }
 
+    #[cfg(unix)]
     #[test]
     fn oversized_regular_enrollment_is_rejected_and_deleted() {
         let path = fixture(&enrollment(), 0o600, "oversized");
