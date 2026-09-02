@@ -705,6 +705,48 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     )
 
 
+def test_upload_rejects_archive_with_staging_origin(tmp: Path, fakebin: Path) -> None:
+    archive = tmp / "cmux-staging.xcarchive"
+    _write_fake_archive(
+        archive,
+        bundle_id=BETA_BUNDLE_ID,
+        build_number="20260710041749",
+        marketing_version=BETA_MARKETING_VERSION,
+    )
+    app_info_path = archive / "Products" / "Applications" / "cmux.app" / "Info.plist"
+    info = plistlib.loads(app_info_path.read_bytes())
+    info["CMUXIrohBrokerBaseURL"] = "https://cmux-iroh-dev.example"
+    app_info_path.write_bytes(_plist_bytes(info))
+
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--archive-path",
+            str(archive),
+            "--signing",
+            "manual",
+            "--export-only",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(
+        result.returncode != 0,
+        "upload rejects an archive with a staging broker origin",
+    )
+    _check(
+        "CMUXIrohBrokerBaseURL" in result.stderr
+        and "production" in result.stderr,
+        "staging-origin rejection names the production broker contract",
+    )
+
+
 def test_upload_keychain_group_failure_does_not_dump_entitlements(
     tmp: Path, fakebin: Path
 ) -> None:
@@ -1493,6 +1535,9 @@ def main() -> None:
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
+        test_upload_rejects_archive_with_staging_origin(
+            tmp / "staging-origin-test", fakebin
+        )
         test_upload_keychain_group_failure_does_not_dump_entitlements(
             tmp / "keychain-group-privacy-test", fakebin
         )
