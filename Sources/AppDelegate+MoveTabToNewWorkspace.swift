@@ -16,11 +16,9 @@ extension AppDelegate {
     /// Native terminal context menus use panel ids, so they must share the
     /// same owner lookup as tab-strip, shortcut, and command-palette actions.
     func dockContainingSurface(_ panelId: UUID) -> DockSplitStore? {
-        guard let dock = DockSplitStore.liveStore(containingPanel: panelId),
-              !dock.isRetired else {
-            return nil
+        DockSplitStore.liveStores.first {
+            !$0.isRetired && $0.containsPanel(panelId)
         }
-        return dock
     }
 
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {

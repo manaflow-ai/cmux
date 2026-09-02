@@ -273,7 +273,8 @@ extension DockSplitStore {
             canCloseOtherTabs: tabs.contains {
                 $0.id != tab.id && !$0.isPinned
             },
-            canMoveToNewWorkspace: true
+            canMoveToNewWorkspace:
+                AppDelegate.shared?.dockReferenceTabManager(for: self) != nil
         )
         guard next != menuCapabilities else { return }
         menuCapabilities = next
