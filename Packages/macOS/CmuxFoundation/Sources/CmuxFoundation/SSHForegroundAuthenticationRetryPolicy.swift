@@ -143,13 +143,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           cmux_ssh_list_auth_subtree() (
             /bin/ps -axo pid=,ppid= 2>/dev/null | /usr/bin/awk -v root="$1" '
-              { parent[$1] = $2 }
+              { children[$2] = children[$2] " " $1 }
               END {
                 count = 0; queue[count++] = root; seen[root] = 1; found = root
                 for (cursor = 0; cursor < count; cursor++) {
-                  for (pid in parent) {
-                    if (parent[pid] == queue[cursor] && !(pid in seen)) {
-                      seen[pid] = 1; queue[count++] = pid; found = found " " pid
+                  kids = split(children[queue[cursor]], kid, " ")
+                  for (slot = 1; slot <= kids; slot++) {
+                    if (kid[slot] != "" && !(kid[slot] in seen)) {
+                      seen[kid[slot]] = 1; queue[count++] = kid[slot]; found = found " " kid[slot]
                     }
                   }
                 }
@@ -160,9 +161,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Signals go through xargs in bounded batches so a very wide tree can
           # never exceed the exec argument limit and silently skip the sweep.
           # The root is frozen and observed stopped before the first snapshot,
-          # so a snapshot that holds only the root is already stable; a wider set is frozen and
-          # rescanned until it stops growing, and the final set is frozen once
-          # more before the kill so nothing found by the last rescan can fork.
+          # so a snapshot that holds only the root is already stable; a wider
+          # set is frozen and rescanned until the union of every snapshot stops
+          # growing (a pid seen once stays in the kill set even if a later
+          # snapshot no longer lists it), and the final set is frozen once more
+          # before the kill so nothing found by the last rescan can fork.
           # kill -STOP only queues the signal; wait until the process is seen
           # stopped (or gone) so a fork in flight cannot slip past the snapshot.
           cmux_ssh_auth_wait_stopped() (
@@ -180,13 +183,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_wait_stopped "$1"
             cmux_ssh_auth_subtree_pids=$(cmux_ssh_list_auth_subtree "$1")
             [ -n "$cmux_ssh_auth_subtree_pids" ] || cmux_ssh_auth_subtree_pids="$1"
+            cmux_ssh_auth_subtree_pids=$(printf '%s\\n' $cmux_ssh_auth_subtree_pids | /usr/bin/sort -un | /usr/bin/tr '\\n' ' ')
             cmux_ssh_auth_subtree_rescan=0
-            if [ "$cmux_ssh_auth_subtree_pids" = "$1" ]; then cmux_ssh_auth_subtree_rescan=3; fi
+            if [ "$cmux_ssh_auth_subtree_pids" = "$1 " ]; then cmux_ssh_auth_subtree_rescan=3; fi
             while [ "$cmux_ssh_auth_subtree_rescan" -lt 3 ]; do
               printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
               cmux_ssh_auth_subtree_rescanned=$(cmux_ssh_list_auth_subtree "$1")
-              if [ "$cmux_ssh_auth_subtree_rescanned" = "$cmux_ssh_auth_subtree_pids" ]; then break; fi
-              cmux_ssh_auth_subtree_pids="$cmux_ssh_auth_subtree_rescanned"
+              cmux_ssh_auth_subtree_merged=$(printf '%s\\n' $cmux_ssh_auth_subtree_pids $cmux_ssh_auth_subtree_rescanned | /usr/bin/sort -un | /usr/bin/tr '\\n' ' ')
+              if [ "$cmux_ssh_auth_subtree_merged" = "$cmux_ssh_auth_subtree_pids" ]; then break; fi
+              cmux_ssh_auth_subtree_pids="$cmux_ssh_auth_subtree_merged"
               cmux_ssh_auth_subtree_rescan=$((cmux_ssh_auth_subtree_rescan + 1))
             done
             printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
