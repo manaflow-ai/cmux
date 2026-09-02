@@ -6168,6 +6168,11 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            // Workspace notification mute is persisted in the session
+            // manifest; include it in the autosave fingerprint so toggling
+            // the menu item cannot be lost when no other workspace field
+            // changes.
+            hasher.combine(workspace.isMuted)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

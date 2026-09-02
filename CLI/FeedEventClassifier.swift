@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Classifies a raw agent hook event into our wire `hook_event_name` plus an
@@ -454,7 +455,9 @@ struct FeedEventClassifier {
         displayName: String,
         toolName: String,
         workspaceId: String?,
-        surfaceId: String?
+        surfaceId: String?,
+        agentID: String = "codex",
+        includeAgentContext: Bool = false
     ) -> String? {
         guard classification.notifiesNativeApprovalPrompt
                 || classification.clearsNativeApprovalPrompt else { return nil }
@@ -483,7 +486,16 @@ struct FeedEventClassifier {
                 defaultValue: "\(sanitizedToolName) needs approval"
             )
         }
-        guard let meta = AgentHookNotifyCategory.needsPermission.metaSegment(pending: false) else {
+        let meta: String?
+        if includeAgentContext {
+            meta = AgentHookNotifyCategory.needsPermission.metaSegment(
+                pending: false,
+                agentID: agentID
+            )
+        } else {
+            meta = AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+        }
+        guard let meta else {
             return nil
         }
         let payload = [attentionNotificationField(displayName), attentionNotificationField(subtitle), attentionNotificationField(body)]
