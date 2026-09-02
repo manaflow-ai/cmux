@@ -359,7 +359,9 @@ mountpoint -q /root 2>/dev/null && exit 0
 if [ "\${CMUX_PROVISION_VOLUME_EXPECTED:-0}" = "1" ] && ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then
   mkdir -p ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null || true
   if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then
-    findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${CMUX_HOME_VOLUME_BACKING_PATH} >/dev/null 2>&1 || exit 75
+    # The mount may complete after the check above but before findmnt starts.
+    # Recheck the mountpoint after a poll error before failing closed.
+    if findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${CMUX_HOME_VOLUME_BACKING_PATH} >/dev/null 2>&1; then :; elif mountpoint -q /root 2>/dev/null || mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then :; else exit 75; fi
   else
     exit 75
   fi

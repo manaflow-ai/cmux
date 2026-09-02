@@ -86,7 +86,9 @@ export function cmuxTuiPersistentMountWait(
     `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then ` +
       // util-linux's timeout bounds the handoff wait. If the tool is too old
       // to expose it, fail closed instead of introducing an unbounded wait.
-      `if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${backing} >/dev/null 2>&1 || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
+      // A mount can complete after the second check but before findmnt starts;
+      // accept that race when the post-poll mountpoint check proves it is ready.
+      `if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then if findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${backing} >/dev/null 2>&1; then :; elif mountpoint -q /root 2>/dev/null || mountpoint -q ${backing} 2>/dev/null; then :; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
       `fi;`,
     `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi;`,
     `fi;`,
@@ -288,6 +290,10 @@ const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
 // A one-second direct check keeps the durable root fallback alive without a
 // busy loop and still notices a lost backing mount promptly.
 const CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS = 1;
+// A daemon can be blocked in FUSE I/O and ignore TERM while its home disappears.
+// Keep the restart path bounded, then force the child down so the provider can
+// start the durable fallback.
+const CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS = 2;
 
 /**
  * Runs a layout daemon with an event-driven mount watcher. A persistent mount
@@ -351,15 +357,28 @@ function cmuxTuiSupervisedDaemonInvocation(
       ? `elif ${unwatchableCondition}; then ${signalViewLost}; fi`
       : `fi`,
   ].join(" ");
+  const terminateChild = [
+    `cmux_tui_terminate_child() {`,
+    `cmux_tui_terminate_pid="$1";`,
+    `if [ -z "$cmux_tui_terminate_pid" ]; then return 0; fi;`,
+    `kill -TERM "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
+    `( sleep ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS}; kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true ) &`,
+    `cmux_tui_killer_pid=$!;`,
+    `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
+    `kill -TERM "$cmux_tui_killer_pid" 2>/dev/null || true;`,
+    `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
+    `}`,
+  ].join(" ");
   return [
     `${viewLost}=0`,
     `${parentPid}=$$`,
     `${daemonPid}=''`,
     `${watcherPid}=''`,
+    terminateChild,
     // USR1 is private to this supervisor. TERM/INT/HUP still stop both children
     // cleanly when Blaxel stops the named process during lease revocation.
-    `trap '${viewLost}=1; kill -TERM "$${daemonPid}" 2>/dev/null || true' USR1`,
-    `trap 'kill -TERM "$${daemonPid}" "$${watcherPid}" 2>/dev/null || true; exit 143' TERM INT HUP`,
+    `trap '${viewLost}=1; cmux_tui_terminate_child "$${daemonPid}"' USR1`,
+    `trap 'cmux_tui_terminate_child "$${daemonPid}"; cmux_tui_terminate_child "$${watcherPid}"; exit 143' TERM INT HUP`,
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '${layoutMarker}\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null`,
     // Group the complete selection and `cd` in the child. Without the group,
     // shell precedence backgrounds only the final command after a leading
@@ -371,9 +390,8 @@ function cmuxTuiSupervisedDaemonInvocation(
     // A signal trap can interrupt the first wait before the daemon has handled
     // TERM. Reap it before returning so the provider never restarts alongside
     // a still-running process that still points at the lost view.
-    `if [ "$${viewLost}" -eq 1 ]; then wait "$${daemonPid}" 2>/dev/null || true; fi`,
-    `kill -TERM "$${watcherPid}" 2>/dev/null || true`,
-    `wait "$${watcherPid}" 2>/dev/null || true`,
+    `if [ "$${viewLost}" -eq 1 ]; then cmux_tui_terminate_child "$${daemonPid}"; fi`,
+    `cmux_tui_terminate_child "$${watcherPid}"`,
     `if [ "$${viewLost}" -eq 1 ]; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi`,
     `exit "$${daemonStatus}"`,
   ].join("; ");
