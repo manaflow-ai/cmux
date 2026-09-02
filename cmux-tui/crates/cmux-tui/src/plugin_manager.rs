@@ -470,6 +470,10 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
         if suffix.contains(['?', '#']) {
             anyhow::bail!("plugin git URL must not contain a query or fragment");
         }
+        let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+        if host.starts_with('-') {
+            anyhow::bail!("plugin git URL host must not start with '-'");
+        }
         if let Some((userinfo, _host)) = authority.rsplit_once('@') {
             // Only a plain SSH username is permitted. Every other URL
             // userinfo form can carry credentials and would leak via argv or
