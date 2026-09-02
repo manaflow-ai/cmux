@@ -654,6 +654,30 @@ class InventoryContractTests(unittest.TestCase):
         ]
         self.assertEqual(pending_8698_lines, [])
 
+        # The history section is the human-readable status record for the
+        # merged head. Keep the feature names and their implemented status in
+        # the contract so a version-only edit cannot silently erase them.
+        history = " ".join(prose.split("## Protocol head history", 1)[1].split())
+        self.assertIn(
+            "clear-history and structured shortcut work is now represented in "
+            "the implemented command and action inventory",
+            history,
+        )
+
+        commands = set(inventory["commands"]["control"])
+        self.assertIn("clear-history", commands)
+        actions = {action["key"]: action for action in inventory["tui_actions"]}
+        self.assertEqual(actions["clear-history"]["variant"], "ClearHistory")
+        self.assertEqual(actions["clear-history"]["classification"], "direct")
+        self.assertEqual(actions["clear-history"]["route"], "clear-history")
+        self.assertEqual(actions["show-shortcuts"]["variant"], "ShowShortcuts")
+        self.assertEqual(
+            actions["show-shortcuts"]["classification"], "presentation-only"
+        )
+        self.assertEqual(
+            actions["show-shortcuts"]["route"], "frontend shortcut overlay"
+        )
+
     def test_command_profile_drift_is_rejected(self) -> None:
         inventory = copy.deepcopy(self.inventory())
         inventory["commands"]["local-admin"].remove("shutdown-daemon")
