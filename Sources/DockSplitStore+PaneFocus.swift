@@ -110,10 +110,7 @@ extension DockSplitStore {
             noteKeyboardFocusIntent(window: window)
         case .workspace:
             let appDelegate = AppDelegate.shared
-            let ownerWindow = appDelegate?
-                .dockReferenceTabManager(for: self)
-                .flatMap { appDelegate?.windowId(for: $0) }
-                .flatMap { appDelegate?.mainWindow(for: $0) }
+            let ownerWindow = dockInteractionWindow()
             appDelegate?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -173,9 +170,10 @@ extension DockSplitStore {
         // this intent lets the host complete the handoff when it appears.
         guard scope == .global else { return }
         guard let appDelegate = AppDelegate.shared else { return }
-        let ownerWindow = appDelegate.dockReferenceTabManager(for: self)
-            .flatMap { appDelegate.windowId(for: $0) }
-            .flatMap { appDelegate.mainWindow(for: $0) }
+        // A global Dock is owned by the window whose id is stored in
+        // `workspaceId`. Resolve that identity directly so focus publication
+        // cannot disappear while the window's TabManager is being rebuilt.
+        let ownerWindow = dockInteractionWindow()
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow ?? window)
     }
 

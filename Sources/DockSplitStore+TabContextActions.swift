@@ -220,10 +220,7 @@ extension DockSplitStore {
     }
 
     private var dockContextMenuWindow: NSWindow? {
-        if let app = AppDelegate.shared,
-           let ownerWindow = app.dockReferenceTabManager(for: self)
-               .flatMap({ app.windowId(for: $0) })
-               .flatMap({ app.mainWindow(for: $0) }) {
+        if let ownerWindow = dockInteractionWindow() {
             return ownerWindow
         }
         // A live event window is useful only as a last-resort presenter for a

@@ -297,6 +297,12 @@ final class MainWindowFocusController {
     func resolvedRightSidebarModeForShortcut(in window: NSWindow?) -> RightSidebarMode? {
         guard let window else { return nil }
         let activeMode = activeRightSidebarMode
+        // A delivered Dock interaction is an explicit ownership decision. The
+        // selected Dock panel can temporarily lose AppKit's first responder to
+        // a menu accessory or a reparenting gap; retain Dock routing in that
+        // interval, while still allowing a recognized main-panel responder to
+        // take precedence below.
+        let hasDeliveredDockIntent = focusedRightSidebarMode == .dock
         guard let responder = window.firstResponder else { return activeMode }
 
         // A reparented sidebar host can remain first responder after it leaves
@@ -339,13 +345,16 @@ final class MainWindowFocusController {
         if terminalFocusRequest(for: responder) != nil {
             return nil
         }
+        if selectedFocusedPanelRequest(owning: responder) != nil {
+            return nil
+        }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let panelId = ghosttyView.terminalSurface?.id,
               GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId),
               let dock = dockPanelResolver(panelId),
               dock.scope == .global,
               dock.workspaceId == windowId else {
-            return nil
+            return hasDeliveredDockIntent ? .dock : nil
         }
         return .dock
     }
