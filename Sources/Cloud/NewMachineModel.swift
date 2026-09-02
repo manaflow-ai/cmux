@@ -52,8 +52,8 @@ final class NewMachineModel {
 
     var name: String = ""
     /// Defaults to a kind the backend says it can actually serve (see
-    /// ``selectableKinds``), so the sheet never opens preselected on a kind
-    /// whose create can only fail with an image config error.
+    /// ``defaultKind(imageKinds:)``), so the sheet never opens preselected on
+    /// a kind whose create can only fail with an image config error.
     var kind: VMMachineKind
     var memoryMb: Int
     /// Why the create could not be launched; nil once a retry starts. Failures
@@ -78,17 +78,30 @@ final class NewMachineModel {
         self.imageKinds = imageKinds
         self.submit = submit
         self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId)
-        self.kind = Self.selectableKinds(imageKinds: imageKinds).first ?? .base
+        self.kind = Self.defaultKind(imageKinds: imageKinds)
+    }
+
+    /// Kinds the backend reports it can provision, in picker order.
+    private static func servableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
+        VMMachineKind.allCases.filter { kind in
+            imageKinds.contains { $0.kind == kind }
+        }
     }
 
     /// Kinds the sheet offers: what the backend reports it can provision, and
     /// every kind when it reports none (an older control plane that predates
     /// `limits.imageKinds`, where refusing to offer anything would be worse).
     static func selectableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
-        let servable = VMMachineKind.allCases.filter { kind in
-            imageKinds.contains { $0.kind == kind }
-        }
+        let servable = servableKinds(imageKinds: imageKinds)
         return servable.isEmpty ? VMMachineKind.allCases : servable
+    }
+
+    /// The kind the sheet opens on: the first kind the backend can serve.
+    /// When it reports none, shell-only: no provider ships a desktop image
+    /// today, so preselecting Desktop would make the primary button fail with
+    /// an image config error, while the picker still offers it.
+    static func defaultKind(imageKinds: [VMImageKindOption]) -> VMMachineKind {
+        servableKinds(imageKinds: imageKinds).first ?? .base
     }
 
     var selectableKinds: [VMMachineKind] { Self.selectableKinds(imageKinds: imageKinds) }

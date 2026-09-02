@@ -77,8 +77,21 @@ final class NewMachineModelTests: XCTestCase {
 
     // MARK: CLI arguments
 
-    func testDefaultInvocationRequestsDesktopByKindInTheBackground() {
+    /// With no `limits.imageKinds` from the backend the sheet opens on
+    /// shell-only (no provider ships a desktop image), and the kind travels
+    /// as a flag: no image id is pinned, and the create runs in the background.
+    func testDefaultInvocationRequestsShellOnlyByKindInTheBackground() {
         let (model, _) = makeModel()
+        XCTAssertEqual(model.cliArguments, ["vm", "new", "--base", "--size", "24576", "--focus", "false"])
+        XCTAssertFalse(model.cliArguments.contains("--image"))
+    }
+
+    func testDesktopKindTravelsAsAFlagWhenTheBackendServesIt() {
+        let kinds = [
+            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
+            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
+        ]
+        let (model, _) = makeModel(imageKinds: kinds)
         XCTAssertEqual(model.cliArguments, ["vm", "new", "--desktop", "--size", "24576", "--focus", "false"])
         XCTAssertFalse(model.cliArguments.contains("--image"))
     }
