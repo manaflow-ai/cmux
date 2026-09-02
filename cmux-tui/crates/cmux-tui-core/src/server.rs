@@ -13974,6 +13974,27 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn socket_claim_rejects_a_path_replaced_before_claim() {
+        let dir = TestSocketDir::create("socket-claim-replaced-before-claim");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+
+        assert!(
+            ServedSocketLease::claim_bound(path.clone(), &listener).is_err(),
+            "claim accepted the replacement path instead of the bound listener"
+        );
+
+        drop(listener);
+        assert!(transport::connect(&path).is_ok(), "claim cleanup disrupted the replacement");
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
