@@ -29,7 +29,10 @@ const { DELETE, GET, POST } = await import("../app/api/devices/route");
 const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
 );
-const { clearNativeAuthCacheForTests } = await import("../services/vms/auth");
+const {
+  clearNativeAuthCacheForTests,
+  clearStackThrottleCircuitForTests,
+} = await import("../services/vms/auth");
 
 let sql: Sql | null = null;
 
@@ -108,6 +111,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   clearNativeAuthCacheForTests();
+  clearStackThrottleCircuitForTests();
   currentUserId = "registry-user-1";
   getUser.mockClear();
   if (!sql) return;
