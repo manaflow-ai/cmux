@@ -709,6 +709,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = nil
             listProblem = nil
         } catch let error as VMClientError {
+            guard !Task.isCancelled else { return }
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
                 // notification arrives. Clear the authoritative-looking
@@ -726,6 +727,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            guard !Task.isCancelled else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
