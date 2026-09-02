@@ -31,6 +31,9 @@ function deps(overrides: Partial<VmModelPlaneDependencies> = {}): VmModelPlaneDe
     entitlement: async () => ({ allowed: true, basis: "free_tier", accountCount: 0 }),
     hostedProRequired: () => false,
     edgeOriginEnv: () => undefined,
+    vercelEnv: () => undefined,
+    vercelBranchUrl: () => undefined,
+    vercelBypassSecret: () => undefined,
     ...overrides,
   };
 }
@@ -209,5 +212,35 @@ describe("vmModelPlaneEnabled", () => {
     for (const flag of ["0", "false", "no", "off", "disabled", " OFF "]) {
       expect(vmModelPlaneEnabled(flag)).toBe(false);
     }
+  });
+});
+
+describe("preview deployments serve themselves as the edge origin", () => {
+  test("a Vercel preview uses its branch URL and injects the bypass header", async () => {
+    const provision = await provisionVmModelPlane(
+      { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" },
+      deps({
+        vercelEnv: () => "preview",
+        vercelBranchUrl: () => "cmux-git-feat-manaflow.vercel.app",
+        vercelBypassSecret: () => "bypass-secret",
+      }),
+    );
+    expect(provision.envs.OPENAI_BASE_URL).toBe("https://cmux-git-feat-manaflow.vercel.app/v1");
+    expect(provision.edgeRules[0]?.domain).toBe("cmux-git-feat-manaflow.vercel.app");
+    expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBe("bypass-secret");
+  });
+
+  test("an explicit origin wins over the preview branch URL, and production adds no bypass header", async () => {
+    const provision = await provisionVmModelPlane(
+      { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" },
+      deps({
+        edgeOriginEnv: () => "https://coderouter.dev",
+        vercelEnv: () => "production",
+        vercelBranchUrl: () => "cmux-git-main-manaflow.vercel.app",
+        vercelBypassSecret: () => "bypass-secret",
+      }),
+    );
+    expect(provision.envs.OPENAI_BASE_URL).toBe("https://coderouter.dev/v1");
+    expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBeUndefined();
   });
 });

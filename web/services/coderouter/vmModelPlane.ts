@@ -61,7 +61,14 @@ export type VmModelPlaneDependencies = {
   readonly hostedProRequired: () => boolean;
   /** The raw CMUX_CODEROUTER_EDGE_ORIGIN value; validated by {@link coderouterEdgeOrigin}. */
   readonly edgeOriginEnv: () => string | undefined;
+  /** Vercel deployment facts: a preview serves itself as the edge origin. */
+  readonly vercelEnv: () => string | undefined;
+  readonly vercelBranchUrl: () => string | undefined;
+  /** Vercel's automation bypass secret; injected so the edge can reach an SSO-protected preview. */
+  readonly vercelBypassSecret: () => string | undefined;
 };
+
+export const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
 
 const defaultDependencies: VmModelPlaneDependencies = {
   issueToken: issueRouteToken,
@@ -69,7 +76,32 @@ const defaultDependencies: VmModelPlaneDependencies = {
   entitlement: coderouterEntitlement,
   hostedProRequired: () => process.env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
   edgeOriginEnv: () => process.env[CODEROUTER_EDGE_ORIGIN_ENV],
+  vercelEnv: () => process.env.VERCEL_ENV,
+  vercelBranchUrl: () => process.env.VERCEL_BRANCH_URL,
+  vercelBypassSecret: () => process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
 };
+
+/**
+ * The origin guests dial. An explicit CMUX_CODEROUTER_EDGE_ORIGIN wins; a
+ * Vercel preview serves itself (its branch URL), so a PR can be tested end to
+ * end without touching production; otherwise coderouter.dev.
+ */
+export function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "edgeOriginEnv" | "vercelEnv" | "vercelBranchUrl">): string {
+  const explicit = dependencies.edgeOriginEnv()?.trim();
+  if (explicit) return coderouterEdgeOrigin(explicit);
+  const branchUrl = dependencies.vercelBranchUrl()?.trim();
+  if (dependencies.vercelEnv() === "preview" && branchUrl) {
+    return coderouterEdgeOrigin(`https://${branchUrl.replace(/^https?:\/\//, "")}`);
+  }
+  return DEFAULT_CODEROUTER_EDGE_ORIGIN;
+}
+
+/** Extra headers the edge must add for the origin to be reachable at all (preview SSO bypass). */
+export function edgeOriginHeaders(dependencies: Pick<VmModelPlaneDependencies, "vercelEnv" | "vercelBypassSecret">): Record<string, string> {
+  const secret = dependencies.vercelBypassSecret()?.trim();
+  if (dependencies.vercelEnv() === "preview" && secret) return { [VERCEL_BYPASS_HEADER]: secret };
+  return {};
+}
 
 /**
  * Local-dev kill switch: CMUX_VM_CODEROUTER_ENV_ENABLED=0 creates unwired
@@ -138,7 +170,7 @@ export async function provisionVmModelPlane(
 ): Promise<VmModelPlaneProvision> {
   let origin: string;
   try {
-    origin = coderouterEdgeOrigin(dependencies.edgeOriginEnv());
+    origin = resolveEdgeOrigin(dependencies);
   } catch (err) {
     throw new VmModelPlaneUnavailableError(errorMessage(err), err);
   }
@@ -170,6 +202,7 @@ export async function provisionVmModelPlane(
       {
         domain: new URL(origin).hostname,
         headers: {
+          ...edgeOriginHeaders(dependencies),
           [ROUTE_TOKEN_HEADER]: token,
           [VM_ID_HEADER]: input.cloudVmId,
         },
