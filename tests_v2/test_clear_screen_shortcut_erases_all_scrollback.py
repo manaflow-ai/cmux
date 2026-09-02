@@ -13,6 +13,7 @@ Run against a TAGGED build only (never the user's /tmp/cmux-debug.sock):
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "")
 LINE_PREFIX = "CMUX_CLRSCR_LINE_"
 LINE_COUNT = 400
 # A prompt carrying OSC 133 A/B marks so the terminal knows the cursor is at a
@@ -63,6 +64,10 @@ def _read(c: cmux, ws: str, surface: str, *, scrollback: bool) -> str:
 
 
 def main() -> int:
+    _must(
+        bool(re.fullmatch(r"/tmp/cmux-debug-[A-Za-z0-9][A-Za-z0-9_-]*\.sock", SOCKET_PATH)),
+        "CMUX_SOCKET_PATH must be an explicit tagged socket (/tmp/cmux-debug-<tag>.sock)",
+    )
     ws = ""
     with cmux(SOCKET_PATH) as c:
         created = c._call("workspace.create") or {}
@@ -97,6 +102,9 @@ def main() -> int:
                     _must(time.time() < deadline, "shell never became ready")
 
             # Install a prompt with OSC 133 marks.
+            # Use a known shell because the prompt setup uses POSIX shell syntax.
+            send("exec /bin/bash --noprofile --norc\n")
+            _wait_for(lambda: "$" in _read(c, ws, surface, scrollback=False), timeout_s=5.0)
             send(MARKED_PROMPT_CMD + "\n")
             _wait_for(lambda: "clrscr$" in _read(c, ws, surface, scrollback=False), timeout_s=15.0)
 
