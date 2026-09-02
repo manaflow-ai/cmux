@@ -1,8 +1,5 @@
 name: Release macOS app trigger
 
-# This workflow is an unprivileged event source only. The protected-main
-# `Release macOS app` workflow_run dispatcher performs all release work after
-# it revalidates this exact file and the tag commit.
 on:
   push:
     tags:
