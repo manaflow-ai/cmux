@@ -109,7 +109,7 @@ final class CloudTuiManualMirrorSession {
 
     private let clock: any CloudTuiManualIOClock
 
-    static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
+    nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
