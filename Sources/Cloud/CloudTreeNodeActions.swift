@@ -185,7 +185,10 @@ struct CloudTreeNodeActions {
             copyToPasteboard: { text in
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
-                pasteboard.setString(text, forType: .string)
+                let ok = pasteboard.setString(text, forType: .string)
+                #if DEBUG
+                cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
+                #endif
             },
             refresh: refresh
         )

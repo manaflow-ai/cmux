@@ -55,7 +55,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
@@ -520,14 +520,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Context menu
 
-        func menuNeedsUpdate(_ menu: NSMenu) {
-            menu.removeAllItems()
-            guard let outlineView else { return }
-            let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
-            guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+        func contextMenu(forRow row: Int) -> NSMenu? {
+            guard let outlineView else { return nil }
+            let resolvedRow = row >= 0 ? row : outlineView.selectedRow
+            guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
+            #if DEBUG
+            cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
+            #endif
+            return menu.items.isEmpty ? nil : menu
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
@@ -855,11 +860,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 /// Menu item carrying its own closure; the outline's context menu is rebuilt
 /// per click from the clicked node, so items never outlive their target.
 final class CloudTreeMenuItem: NSMenuItem {
-    private let performAction: @MainActor () -> Void
+    private let runAction: @MainActor () -> Void
 
     init(title: String, action: @escaping @MainActor () -> Void) {
-        performAction = action
-        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        runAction = action
+        // The selector is deliberately NOT named `perform(_:)`: that compiles
+        // to `perform:`, which collides with NSObject's perform machinery and
+        // the click never reached the method. `execute` mirrors the sidebar's
+        // SidebarRowMenuActionItem, the proven shape.
+        super.init(title: title, action: #selector(execute), keyEquivalent: "")
+        target = self
     }
 
     @available(*, unavailable)
@@ -867,8 +877,11 @@ final class CloudTreeMenuItem: NSMenuItem {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc @MainActor private func perform(_ sender: Any?) {
-        performAction()
+    @objc @MainActor private func execute() {
+        #if DEBUG
+        cmuxDebugLog("cloudTree.menu.execute title=\(title)")
+        #endif
+        runAction()
     }
 }
 
@@ -931,9 +944,9 @@ final class CloudTreeContainerView: NSView {
         }
         coordinator.outlineView = outlineView
 
-        let menu = NSMenu()
-        menu.delegate = coordinator
-        outlineView.menu = menu
+        outlineView.contextMenuBuilder = { [weak coordinator] row in
+            coordinator?.contextMenu(forRow: row)
+        }
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
