@@ -534,6 +534,83 @@ describe("cmux-tui install and daemon commands", () => {
     }
   });
 
+  test("keeps the root fallback alive without findmnt when the backing mount is present", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-backing-no-findmnt-"));
+    const fakeBin = join(root, "fake-bin");
+    const home = join(root, "home");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    // Simulate an older image where the util-linux mount poller was not repaired.
+    writeExecutable("findmnt", "#!/bin/sh\nexit 127\n");
+    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
+    writeFileSync(daemonBinary, [
+      "#!/bin/sh",
+      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
+      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
+      "while :; do :; done",
+      "",
+    ].join("\n"));
+    chmodSync(daemonBinary, 0o755);
+    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, "/bin", "/usr/bin"].join(":"),
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: "ignore",
+      });
+      const readyDeadline = Date.now() + 2_000;
+      while (!existsSync(join(state, "daemon-ready")) && Date.now() < readyDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Missing findmnt must select a bounded direct mount check, not signal the
+      // supervisor before the daemon has a chance to serve the mounted home.
+      expect(child.exitCode).toBeNull();
+      writeFileSync(join(state, "backing-unmounted"), "");
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("no-findmnt fallback supervisor test timed out"));
+        }, 3_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+      expect(existsSync(join(state, "daemon-term"))).toBe(true);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("pins the binary in the same persistent location used by layout installs", () => {
     const command = cmuxTuiPinCheckCommand(
       { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
