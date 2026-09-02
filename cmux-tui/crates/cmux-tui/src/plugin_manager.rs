@@ -18,6 +18,7 @@ const MAX_PLUGIN_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_PLUGIN_NAME_BYTES: usize = 64;
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
+const MAX_PLUGIN_REGISTRY_METADATA_BYTES: usize = 16 * 1024;
 /// Bound the number of filesystem entries inspected by one plugin-manager
 /// operation. The registry is user-controlled, so a malicious or stale data
 /// directory must not turn `list` or selector resolution into an unbounded
@@ -665,6 +666,10 @@ fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest>
     parse_manifest_for_kind(&text, kind)
 }
 
+fn read_bounded_plugin_text(path: &Path, max_bytes: usize) -> std::io::Result<String> {
+    config::read_bounded_utf8_file(path, max_bytes)
+}
+
 #[cfg(test)]
 fn parse_manifest(text: &str) -> anyhow::Result<PluginManifest> {
     parse_manifest_for_kind(text, PluginKind::Sidebar)
@@ -933,7 +938,7 @@ struct SelectedPluginConfig {
 
 fn selected_plugin_config(kind: PluginKind) -> anyhow::Result<Option<SelectedPluginConfig>> {
     let path = config::config_path()?;
-    let text = match fs::read_to_string(&path) {
+    let text = match config::read_config_text(&path) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
@@ -1057,7 +1062,7 @@ fn read_registry_metadata(
 ) -> anyhow::Result<PluginRegistryMetadata> {
     validate_plugin_name(name)?;
     let path = registry_metadata_path(install_root, name);
-    let text = fs::read_to_string(&path)
+    let text = read_bounded_plugin_text(&path, MAX_PLUGIN_REGISTRY_METADATA_BYTES)
         .map_err(|error| anyhow::anyhow!("failed to read {}: {error}", path.display()))?;
     let metadata: PluginRegistryMetadata = serde_json::from_str(&text)
         .map_err(|error| anyhow::anyhow!("invalid {}: {error}", path.display()))?;

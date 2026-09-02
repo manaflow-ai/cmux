@@ -137,7 +137,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -156,6 +156,10 @@ use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
+/// Bound every JSON config read before parsing it into a dynamic value.
+/// Normal hand-written configs are far smaller, while a damaged or hostile
+/// file must not be allowed to consume unbounded TUI memory.
+pub(crate) const CONFIG_FILE_MAX_BYTES: usize = 4 * 1024 * 1024;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -4046,7 +4050,7 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
+    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4140,6 +4144,27 @@ fn config_diagnostic(error: &serde_json::Error) -> String {
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+/// Read a UTF-8 file with an explicit byte bound. The extra byte distinguishes
+/// an exact-size file from one that exceeds the limit without allocating an
+/// unbounded buffer.
+pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let mut text = String::new();
+    file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_string(&mut text)?;
+    if text.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("file exceeds {max_bytes}-byte limit"),
+        ));
+    }
+    Ok(text)
+}
+
+pub(crate) fn read_config_text(path: &Path) -> io::Result<String> {
+    read_bounded_utf8_file(path, CONFIG_FILE_MAX_BYTES)
 }
 
 /// The result of replacing the config file. A committed replacement is a
@@ -4255,7 +4280,7 @@ pub(crate) fn write_agent_plugin_at_path(
 }
 
 fn read_config_value(path: &Path) -> anyhow::Result<Value> {
-    match std::fs::read_to_string(path) {
+    match read_config_text(path) {
         Ok(text) if text.trim().is_empty() => Ok(json!({})),
         Ok(text) => serde_json::from_str(&text)
             .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
