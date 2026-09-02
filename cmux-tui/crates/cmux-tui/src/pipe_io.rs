@@ -175,6 +175,12 @@ pub fn run(
     cols: u16,
     rows: u16,
 ) -> anyhow::Result<PipeIoExitReason> {
+    // The attach replay is generated before later commands can run. Without
+    // atomic initial sizing, a legacy daemon can replay bytes for its old
+    // geometry and leave the embedder with permanently mis-wrapped state.
+    if !remote.supports_pipe_io_initial_size() {
+        return Ok(PipeIoExitReason::SetupFailed);
+    }
     let (sender, receiver) = crossbeam_channel::bounded(EVENT_QUEUE_CAPACITY);
     // Lifecycle events have their own reserved signal path. A stalled
     // embedder can fill the byte queue, but it must never be able to hide the
@@ -213,14 +219,6 @@ pub fn run(
         // Classify the startup failure so the embedder can either stop for a
         // retired terminal or reconnect after a lost daemon transport.
         return Ok(attach_failure_exit_reason(&error));
-    }
-    // Older daemons do not accept geometry in the attach request. Apply the
-    // requested initial size explicitly after claiming authority so the
-    // first replay uses the embedder's dimensions on that compatibility path.
-    if !remote.supports_pipe_io_initial_size() {
-        if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
-            return Ok(attach_failure_exit_reason(&error, surface));
-        }
     }
     let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
         Ok(pump) => pump,

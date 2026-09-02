@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -2198,7 +2198,7 @@ impl RemoteSession {
     }
 
     /// Pipe-IO requires the daemon's attach-time geometry handshake so the
-    /// initial replay is rendered for the embedder's requested dimensions.
+    /// initial replay uses the embedder's requested dimensions.
     pub(crate) fn supports_pipe_io_initial_size(&self) -> bool {
         self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
     }
