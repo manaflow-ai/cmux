@@ -50,26 +50,47 @@ import Testing
         ))
     }
 
-    @Test func keepsSignInVisibleWhileCachedSessionRestores() {
-        #expect(MobileRootAuthGate.shouldShowSignIn(
-            stackAuthenticated: true,
-            attachTicketAuthenticated: false,
-            isRestoringSession: true
-        ))
+    @Test func signInOwnsScreenWhileSignedOut() {
         #expect(MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,
             attachTicketAuthenticated: false,
             isRestoringSession: false
+        ))
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true
         ))
         #expect(!MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
             isRestoringSession: false
         ))
+        // A live attach ticket proceeds to the shell to complete the attach.
         #expect(!MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
-            isRestoringSession: true
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+    }
+
+    @Test func keepsSignInVisibleWhileRestoringWithOnboardingPending() {
+        // Onboarding must not present for a cached identity that may still be
+        // rejected, and the pre-onboarding shell would flash the add-device
+        // surface, so that narrow restoring launch stays on sign-in.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+        // Once validation settles, onboarding (not sign-in) owns the screen.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false,
+            onboardingPending: true
         ))
     }
 

@@ -496,7 +496,8 @@ struct CMUXMobileRootView: View {
         } else if MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-            isRestoringSession: authManager.isRestoringSession
+            isRestoringSession: authManager.isRestoringSession,
+            onboardingPending: isOnboardingPending
         ) {
             SignInView()
                 .transition(reduceMotion ? .opacity : .asymmetric(
@@ -828,6 +829,18 @@ struct CMUXMobileRootView: View {
             hasKnownPairedMac: store.hasKnownPairedMac,
             hasAccountMismatch: store.connectionRequiresReauth
         )
+    }
+
+    /// Whether first-run onboarding remains unfinished, i.e. it would present
+    /// once launch restore settles. While pending, a restoring launch stays on
+    /// the sign-in surface (see ``MobileRootAuthGate/shouldShowSignIn``);
+    /// once complete, a primed cached session mounts the shell immediately.
+    private var isOnboardingPending: Bool {
+        #if os(iOS)
+        return onboardingStore.progress != .complete
+        #else
+        return false
+        #endif
     }
 
     /// Whether first-run onboarding should present: only for a settled,
