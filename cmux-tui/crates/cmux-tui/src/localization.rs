@@ -497,6 +497,11 @@ pub(crate) struct RemoteClientMessages {
     wireguard_config_unreadable: &'static str,
     wireguard_config_invalid: &'static str,
     wireguard_start_failed: &'static str,
+    pub wireguard_hub_conflict: &'static str,
+    wireguard_hub_serve_failed: &'static str,
+    wireguard_hub_signal_failed: &'static str,
+    wg_hub_option_required: &'static str,
+    pub wg_hub_help: &'static str,
     known_daemon_not_known: &'static str,
     known_daemon_forgotten: &'static str,
     pub known_daemons_empty: &'static str,
@@ -519,6 +524,18 @@ impl RemoteClientMessages {
 
     pub(crate) fn wireguard_start_failed(&self, error: &str) -> String {
         self.wireguard_start_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_hub_serve_failed(&self, error: &str) -> String {
+        self.wireguard_hub_serve_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_hub_signal_failed(&self, error: &str) -> String {
+        self.wireguard_hub_signal_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wg_hub_option_required(&self, option: &str) -> String {
+        self.wg_hub_option_required.replace("{option}", option)
     }
 
     pub(crate) fn invalid_option_value(&self, option: &str, expected: &str) -> String {
@@ -1446,6 +1463,8 @@ TRANSPORT:
   --iroh-path auto|direct-only|relay-only
   --wireguard-config PATH  dial ws routes inside that tunnel's AllowedIPs
     through an in-process WireGuard peer (owner-only wg-quick file; no root)
+  --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
+    instead; exclusive with --wireguard-config
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
@@ -1570,6 +1589,25 @@ OPTIONS:
         wireguard_config_unreadable: "cannot read WireGuard config {path}: {error} (the file must be a regular file with owner-only permissions)",
         wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
         wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
+        wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
+        wireguard_hub_serve_failed: "could not serve the WireGuard hub socket: {error}",
+        wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
+        wg_hub_option_required: "wg hub requires {option}",
+        wg_hub_help: r#"USAGE: cmux wg hub --config PATH --socket PATH
+
+Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
+processes on an owner-only Unix socket. A WireGuard key supports one live
+session, so every `remote connect --wireguard-hub PATH` sidecar on this machine
+shares this hub instead of handshaking on its own.
+
+  --config PATH  owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint)
+  --socket PATH  Unix socket to serve; parent directory is created 0700, socket 0600
+
+Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
+listening. Only literal IP targets inside AllowedIPs are dialed; other targets
+get SOCKS reply 0x02, names 0x08. Exits on SIGTERM or SIGINT and removes the
+socket.
+"#,
         known_daemon_not_known: "daemon {fingerprint} is not known",
         known_daemon_forgotten: "Forgot daemon {fingerprint}.",
         known_daemons_empty: "No known daemons.",
@@ -2097,6 +2135,8 @@ ID とセッション:
   --iroh-path auto|direct-only|relay-only
   --wireguard-config パス  そのトンネルの AllowedIPs 内の ws ルートを
     プロセス内 WireGuard ピア経由で接続します（所有者のみ読める wg-quick ファイル、root 不要）
+  --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
+    --wireguard-config とは併用できません
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
@@ -2219,6 +2259,24 @@ ID とセッション:
         wireguard_config_unreadable: "WireGuard 設定 {path} を読めません: {error}（所有者のみ読める通常ファイルが必要です）",
         wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
         wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
+        wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
+        wireguard_hub_serve_failed: "WireGuard ハブソケットを提供できませんでした: {error}",
+        wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
+        wg_hub_option_required: "wg hub には {option} が必要です",
+        wg_hub_help: r#"使用方法: cmux wg hub --config パス --socket パス
+
+プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
+他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
+セッションしか維持できないため、このマシンの `remote connect --wireguard-hub パス`
+サイドカーはそれぞれハンドシェイクせず、このハブを共有します。
+
+  --config パス  所有者のみ読める wg-quick ファイル（PrivateKey、Address、AllowedIPs、Endpoint）
+  --socket パス  提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
+
+待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します。
+AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
+SIGTERM または SIGINT で終了し、ソケットを削除します。
+"#,
         known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
         known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
         known_daemons_empty: "登録済みのデーモンはありません。",
