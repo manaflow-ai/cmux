@@ -80,17 +80,26 @@ struct NewMachineModelTests {
 
     // MARK: CLI arguments
 
-    @Test func testDefaultInvocationRequestsDesktopByKindWithoutPinningAnImage() {
+    /// The default size is omitted so the backend applies its plan default,
+    /// which an operator memory brake may have lowered below the plan machine.
+    @Test func testDefaultInvocationRequestsDesktopByKindWithoutPinningAnImageOrSize() {
         let (model, _) = makeModel()
-        #expect(model.cliArguments == ["vm", "new", "--desktop", "--size", "20480"])
+        #expect(model.cliArguments == ["vm", "new", "--desktop"])
         #expect(!(model.cliArguments.contains("--image")))
+        #expect(!(model.cliArguments.contains("--size")))
+    }
+
+    @Test func testNonDefaultSizeTravelsAsAFlag() {
+        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 50, planId: "pro"))
+        model.memoryMb = 16384
+        #expect(model.cliArguments == ["vm", "new", "--base", "--size", "16384"])
     }
 
     @Test func testBaseKindSizeAndNameTravelAsFlags() {
         let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
         model.kind = .base
         model.name = "  build box  "
-        #expect(model.cliArguments == ["vm", "new", "--base", "--size", "20480", "--name", "build box"])
+        #expect(model.cliArguments == ["vm", "new", "--base", "--name", "build box"])
     }
 
     @Test func testBlankNameIsNotSent() {

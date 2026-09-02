@@ -177,11 +177,14 @@ final class NewMachineModel {
 
     /// The exact CLI invocation the create runs. Kind travels as `--base` /
     /// `--desktop`; the backend maps it to an image, so no image id is pinned.
+    /// `--size` travels only for a non-default pick: an omitted size lets the
+    /// backend apply its own plan default, which an operator memory brake
+    /// (`CMUX_VM_*_MAX_MEMORY_MB`) may have clamped below the plan machine.
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
             var arguments = ["vm", "new", kind == .desktop ? "--desktop" : "--base"]
-            if supportsSize {
+            if supportsSize, memoryMb != Self.defaultMemoryMb(planId: plan?.planId) {
                 arguments += ["--size", String(memoryMb)]
             }
             if let trimmedName {
