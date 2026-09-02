@@ -16441,6 +16441,16 @@ impl Drop for Mux {
     }
 }
 
+fn expected_panes_by_screen(
+    panes: &[RegistryPane],
+) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
+    let mut panes_by_screen = HashMap::new();
+    for pane in panes {
+        panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
+    }
+    panes_by_screen
+}
+
 fn restore_resource_state(
     snapshot: RegistrySnapshot,
     topology: ResourceTopologySnapshot,
@@ -16613,13 +16623,11 @@ fn restore_resource_state(
 
     let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
     let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    let panes_by_screen = expected_panes_by_screen(&topology.panes);
+    let empty_expected_panes = HashSet::new();
     for screen in &topology.screens {
-        let expected_panes = topology
-            .panes
-            .iter()
-            .filter(|pane| pane.screen_id == screen.public_id)
-            .map(|pane| pane.public_id.clone())
-            .collect::<HashSet<_>>();
+        let expected_panes =
+            panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
         crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
