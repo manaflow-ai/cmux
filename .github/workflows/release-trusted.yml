@@ -416,10 +416,6 @@ jobs:
           script: |
             const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
             const tag = process.env.RELEASE_TAG;
-            core.setOutput('skip_all', 'false');
-            core.setOutput('skip_upload', 'false');
-            core.setOutput('skip_r2_upload', 'false');
-            core.setOutput('release_state', 'clear');
             if (!tag) {
               core.setFailed('Release asset guard did not receive the validated release tag');
               return;
@@ -434,12 +430,9 @@ jobs:
               const {
                 conflicts,
                 missingImmutableAssets,
-                guardState,
                 hasPartialConflict,
                 shouldSkipBuildAndUpload,
               } = evaluateReleaseAssetGuard({ existingAssetNames });
-
-              core.setOutput('release_state', guardState);
 
               if (hasPartialConflict) {
                 core.setFailed(
@@ -468,7 +461,7 @@ jobs:
             }
 
       - name: Select Xcode
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -496,17 +489,17 @@ jobs:
       # on PATH, which breaks the pinned create-dmg install below. setup-node
       # guarantees node/npm regardless of which runner picks up the job.
       - name: Set up Node
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
 
       - name: Setup Bun
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install build deps
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           ./scripts/install-rust-ci.sh
           CMUX_NODE_BIN="$(command -v node)"
@@ -523,12 +516,12 @@ jobs:
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
@@ -536,18 +529,18 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Setup Go
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: daemon/remote/go.mod
           cache-dependency-path: daemon/remote/go.sum
 
       - name: Derive Sparkle public key from private key
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -560,7 +553,7 @@ jobs:
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
       - name: Build universal app (Release)
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
@@ -570,7 +563,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO build
 
       - name: Import signing cert
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -636,7 +629,7 @@ jobs:
           security list-keychains -d user -s "$keychain_path"
 
       - name: Start Computer Use helper notarization
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -652,14 +645,14 @@ jobs:
             "$APPLE_SIGNING_IDENTITY"
 
       - name: Download universal Ghostty CLI helper
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper
 
       - name: Install universal Ghostty CLI helper
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
@@ -668,7 +661,7 @@ jobs:
           ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Verify binary architectures
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
@@ -690,7 +683,7 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
       - name: Build remote daemon release assets and inject manifest
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
@@ -705,7 +698,7 @@ jobs:
           plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
 
       - name: Run CLI version memory guard regression
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
@@ -713,14 +706,14 @@ jobs:
           CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Verify bundled Ghostty theme picker helper
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           set -euo pipefail
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
 
       - name: Inject Sparkle keys into Info.plist
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: |
           APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
@@ -734,7 +727,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
 
       - name: Embed release provisioning profile
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
         run: |
@@ -767,11 +760,11 @@ jobs:
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
       - name: Strip release binaries
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
 
       - name: Codesign app
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -787,7 +780,7 @@ jobs:
             "$APPLE_SIGNING_IDENTITY"
 
       - name: Notarize app
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -846,7 +839,7 @@ jobs:
           xcrun stapler validate "$DMG_RELEASE"
 
       - name: Upload dSYMs to Sentry
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -860,7 +853,7 @@ jobs:
           "$SENTRY_CLI" debug-files upload --include-sources build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcast
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -872,7 +865,7 @@ jobs:
 
       - name: Attest remote daemon release assets
         id: attest-remote-daemon-release-assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        if: success()
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
@@ -885,7 +878,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-manifest.json
 
       - name: Retry remote daemon release asset attestation
-        if: steps.guard_release_assets.outputs.skip_all != 'true' && steps.attest-remote-daemon-release-assets.outcome == 'failure'
+        if: success() && steps.attest-remote-daemon-release-assets.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -898,7 +891,7 @@ jobs:
 
       - name: Revalidate release tag before GitHub publication
         id: revalidate-release-tag
-        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        if: success()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
@@ -930,7 +923,7 @@ jobs:
             core.notice(`Revalidated ${tag} at ${expectedSha} immediately before GitHub publication`);
 
       - name: Upload release asset
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && steps.revalidate-release-tag.outputs.verified == 'true'
+        if: success() && steps.revalidate-release-tag.outputs.verified == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
@@ -950,7 +943,7 @@ jobs:
 
       - name: Revalidate release tag before R2 publication
         id: revalidate-r2-tag
-        if: steps.guard_release_assets.outputs.skip_r2_upload != 'true'
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
@@ -970,7 +963,7 @@ jobs:
           echo "verified=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload release appcast to R2
-        if: steps.guard_release_assets.outputs.skip_r2_upload != 'true' && steps.revalidate-r2-tag.outputs.verified == 'true'
+        if: success() && steps.revalidate-r2-tag.outputs.verified == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
