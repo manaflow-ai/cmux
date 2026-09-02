@@ -634,6 +634,12 @@ def validate_snapshot(
 
 
 def _pr_files(api: GitHubAPI, number: int, expected_count: object) -> list[str]:
+    if (
+        not isinstance(expected_count, int)
+        or isinstance(expected_count, bool)
+        or expected_count < 0
+    ):
+        raise GateError("pull request file count is malformed")
     payload = api.get(
         f"repos/{api.repository}/pulls/{number}/files?per_page=100", paginate=True
     )
@@ -644,7 +650,7 @@ def _pr_files(api: GitHubAPI, number: int, expected_count: object) -> list[str]:
         if not isinstance(filename, str) or not filename:
             raise GateError("GitHub returned a pull request file without a filename")
         files.append(filename)
-    if isinstance(expected_count, int) and len(files) < expected_count:
+    if len(files) != expected_count:
         raise GateError("GitHub returned an incomplete pull request file list")
     return files
 
