@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
+use crate::resource::TerminalPublicId;
 use crate::workspace_registry::SessionJournalRecord;
 use crate::{AgentSource, AgentState, JournalSubject};
 
@@ -284,7 +285,7 @@ impl AgentRoster {
         // reducer silently reinterpret persisted data, and a done entry can
         // never be produced by `apply` because done removes the row.
         if roster.entries.iter().any(|(terminal_id, entry)| {
-            terminal_id.is_empty()
+            TerminalPublicId::parse(terminal_id).is_err()
                 || agent_state_from_str(&entry.state).is_none()
                 || entry.state == AgentState::Done.as_str()
                 || agent_source_from_str(&entry.source).is_none()
@@ -301,6 +302,8 @@ impl AgentRoster {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    const TEST_TERMINAL_ID: &str = "term_00000000000000000000000000000001";
 
     fn hook_event<'a>(
         sequence: u64,
@@ -323,33 +326,36 @@ mod tests {
 
     #[test]
     fn lifecycle_kinds_fold_into_roster_states() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let payload = json!({});
         let mut roster = AgentRoster::default();
 
         roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
-        assert_eq!(roster.entries["term_a"].state, "idle");
-        assert_eq!(roster.entries["term_a"].agent, None, "payload without adapter has no agent");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "idle");
+        assert_eq!(
+            roster.entries[TEST_TERMINAL_ID].agent, None,
+            "payload without adapter has no agent"
+        );
 
         roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload));
-        assert_eq!(roster.entries["term_a"].state, "working");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "working");
 
         roster.apply(&hook_event(3, "agent.approval.requested", &subjects, &payload));
-        assert_eq!(roster.entries["term_a"].state, "blocked");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "blocked");
 
         // Child events carry no top-level transition.
         let deltas = roster.apply(&hook_event(4, "agent.child.spawned", &subjects, &payload));
         assert!(deltas.is_empty());
-        assert_eq!(roster.entries["term_a"].state, "blocked");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "blocked");
 
         let deltas = roster.apply(&hook_event(5, "agent.session.ended", &subjects, &payload));
-        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: "term_a".into() }]);
+        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: TEST_TERMINAL_ID.into() }]);
         assert!(roster.entries.is_empty());
     }
 
     #[test]
     fn socket_echo_carries_explicit_state_and_loses_to_hook_entries() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let socket_payload = json!({
             "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
             "normalized": {"state": "working", "source": "socket", "source_session": "probe"},
@@ -357,7 +363,7 @@ mod tests {
         let mut roster = AgentRoster::default();
 
         roster.apply(&hook_event(1, "agent.state.changed", &subjects, &socket_payload));
-        let entry = &roster.entries["term_a"];
+        let entry = &roster.entries[TEST_TERMINAL_ID];
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "socket");
         assert_eq!(entry.session.as_deref(), Some("probe"));
@@ -366,19 +372,19 @@ mod tests {
         // A hook event takes the terminal over and names the agent...
         let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
         roster.apply(&hook_event(2, "agent.turn.started", &subjects, &hook_payload));
-        assert_eq!(roster.entries["term_a"].source, "hook");
-        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "hook");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].agent.as_deref(), Some("claude"));
 
         // ...and later socket reports cannot downgrade it.
         let deltas =
             roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
-        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "hook");
     }
 
     #[test]
     fn folds_are_idempotent_per_state_and_deterministic_across_replays() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let payload = json!({});
         let events = [
             "agent.session.started",
@@ -431,14 +437,14 @@ mod tests {
 
     #[test]
     fn screen_detect_events_fold_with_detected_source_and_adapter_agent() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let payload = screen_payload("codex", "working");
         let mut roster = AgentRoster::default();
 
         let deltas =
             roster.apply(&stamped_event(5_000, "agent.state.changed", &subjects, &payload));
         assert_eq!(deltas.len(), 1);
-        let entry = &roster.entries["term_a"];
+        let entry = &roster.entries[TEST_TERMINAL_ID];
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "detected");
         assert_eq!(entry.agent.as_deref(), Some("codex"));
@@ -447,7 +453,7 @@ mod tests {
 
     #[test]
     fn screen_detect_loses_to_fresh_hooks_and_claims_stale_ones() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
         let screen = screen_payload("claude", "blocked");
         let mut roster = AgentRoster::default();
@@ -457,25 +463,25 @@ mod tests {
         let deltas =
             roster.apply(&stamped_event(39_000, "agent.state.changed", &subjects, &screen));
         assert!(deltas.is_empty());
-        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "hook");
 
         // At 30s the hook is stale and screen detection takes over.
         let deltas =
             roster.apply(&stamped_event(40_000, "agent.state.changed", &subjects, &screen));
         assert_eq!(deltas.len(), 1);
-        assert_eq!(roster.entries["term_a"].source, "detected");
-        assert_eq!(roster.entries["term_a"].state, "blocked");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "detected");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "blocked");
 
         // A hook event always reclaims the terminal.
         let deltas =
             roster.apply(&stamped_event(41_000, "agent.turn.started", &subjects, &hook_payload));
         assert_eq!(deltas.len(), 1);
-        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "hook");
     }
 
     #[test]
     fn screen_detect_beats_socket_reports_in_both_directions() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let socket_payload = json!({
             "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
             "normalized": {"state": "idle", "source": "socket"},
@@ -487,19 +493,19 @@ mod tests {
         roster.apply(&stamped_event(1_000, "agent.state.changed", &subjects, &socket_payload));
         let deltas = roster.apply(&stamped_event(2_000, "agent.state.changed", &subjects, &screen));
         assert_eq!(deltas.len(), 1);
-        assert_eq!(roster.entries["term_a"].source, "detected");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "detected");
 
         // ...and a later socket report cannot downgrade it.
         let deltas =
             roster.apply(&stamped_event(3_000, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
-        assert_eq!(roster.entries["term_a"].source, "detected");
-        assert_eq!(roster.entries["term_a"].state, "working");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "detected");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].state, "working");
     }
 
     #[test]
     fn screen_detect_exit_removes_only_detected_entries() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let done = screen_payload("codex", "done");
         let mut roster = AgentRoster::default();
 
@@ -511,7 +517,7 @@ mod tests {
             &screen_payload("codex", "working"),
         ));
         let deltas = roster.apply(&stamped_event(2_000, "agent.session.ended", &subjects, &done));
-        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: "term_a".into() }]);
+        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: TEST_TERMINAL_ID.into() }]);
         assert!(roster.entries.is_empty());
 
         // A fresh hook entry is never removed by a screen exit.
@@ -519,7 +525,7 @@ mod tests {
         roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
         let deltas = roster.apply(&stamped_event(11_000, "agent.session.ended", &subjects, &done));
         assert!(deltas.is_empty());
-        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries[TEST_TERMINAL_ID].source, "hook");
 
         // A socket entry is not removed by a screen exit either.
         let mut socket_roster = AgentRoster::default();
@@ -536,12 +542,12 @@ mod tests {
         let deltas =
             socket_roster.apply(&stamped_event(2_000, "agent.session.ended", &subjects, &done));
         assert!(deltas.is_empty());
-        assert_eq!(socket_roster.entries["term_a"].source, "socket");
+        assert_eq!(socket_roster.entries[TEST_TERMINAL_ID].source, "socket");
     }
 
     #[test]
     fn snapshot_round_trips_and_foreign_producers_are_ignored() {
-        let subjects = terminal_subject("term_a");
+        let subjects = terminal_subject(TEST_TERMINAL_ID);
         let payload = json!({});
         let mut roster = AgentRoster::default();
         roster.apply(&hook_event(1, "agent.turn.started", &subjects, &payload));
@@ -562,14 +568,16 @@ mod tests {
     fn restore_rejects_semantically_invalid_entries() {
         let invalid_snapshots = [
             // Unknown state and source spellings must not be reinterpreted.
-            r#"{"entries":{"term_a":{"state":"running","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
-            r#"{"entries":{"term_a":{"state":"working","source":"poll","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            r#"{"entries":{"term_00000000000000000000000000000001":{"state":"running","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            r#"{"entries":{"term_00000000000000000000000000000001":{"state":"working","source":"poll","session":null,"agent":null,"updated_at_ms":1}}}"#,
             // Done rows are removed during folding and cannot be a live snapshot.
-            r#"{"entries":{"term_a":{"state":"done","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            r#"{"entries":{"term_00000000000000000000000000000001":{"state":"done","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
             // Detected rows must identify the adapter that produced them.
-            r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            r#"{"entries":{"term_00000000000000000000000000000001":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
             // A blank terminal identity cannot be addressed by later events.
             r#"{"entries":{"":{"state":"working","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            // Snapshot keys must use the canonical TerminalPublicId format.
+            r#"{"entries":{"term_a":{"state":"working","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
         ];
 
         for snapshot in invalid_snapshots {
