@@ -6348,8 +6348,9 @@ mod unix {
         fn spawned_pty_child_disarm_prevents_late_kill() {
             let kills = Arc::new(AtomicUsize::new(0));
             let child = GuardTestChild { kills: Arc::clone(&kills) };
-            let mut guard = SpawnedPtyChild::new(Box::new(child), None);
+            let mut guard = SpawnedPtyChild::new(Box::new(child), Some(123));
             let _ = guard.wait_and_disarm();
+            assert_eq!(guard.process_groups, [None, None]);
             drop(guard);
             assert_eq!(kills.load(Ordering::Relaxed), 0);
         }
