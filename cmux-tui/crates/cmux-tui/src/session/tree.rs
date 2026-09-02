@@ -17,7 +17,7 @@ use serde_json::Value;
 
 #[derive(Clone, Default)]
 pub struct TreeView {
-    pub(crate) workspaces: Vec<WorkspaceView>,
+    workspaces: Vec<WorkspaceView>,
     #[allow(dead_code)]
     pub workspace_revision: u64,
     pub pane_revision: Option<u64>,
@@ -349,9 +349,16 @@ impl TreeView {
         self.location_index.get_or_init(|| TreeLocationIndex::build(self))
     }
 
+    /// Mutably access the workspace topology and invalidate cached locations.
+    /// Callers must use this guard before changing workspaces, screens, panes,
+    /// or tabs so indexed lookups rebuild against the new topology.
     pub(crate) fn workspaces_mut(&mut self) -> &mut Vec<WorkspaceView> {
         self.invalidate_location_index();
         &mut self.workspaces
+    }
+
+    pub(crate) fn workspaces(&self) -> &[WorkspaceView] {
+        &self.workspaces
     }
 
     fn pane_location(&self, id: PaneId) -> Option<(usize, usize, usize)> {
@@ -1132,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_lookup_fails_closed_after_direct_public_topology_mutation() {
+    fn indexed_lookup_fails_closed_after_internal_topology_mutation() {
         let tree = || {
             parse_tree(&json!({
                 "workspaces": [{
@@ -1180,6 +1187,39 @@ mod tests {
         replaced.workspaces[0].screens[0].panes[0].tabs[0].surface = 8;
         assert!(replaced.surface(8).is_none());
         assert!(!replaced.select_surface(8));
+    }
+
+    #[test]
+    fn topology_mutation_guard_invalidates_index_before_nested_mutation() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 7, "title": "first"},
+                            {"surface": 8, "title": "retained"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        let mut inserted = tree.workspaces_mut()[0].screens[0].panes[0].tabs[0].clone();
+        inserted.title = "inserted".to_string();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.insert(0, inserted);
+
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("inserted"));
+        assert!(tree.select_surface(8));
     }
 
     #[test]
