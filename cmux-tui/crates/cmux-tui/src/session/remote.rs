@@ -3271,15 +3271,37 @@ impl RemoteSession {
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
         use crossbeam_channel::TrySendError;
+        // Capture ownership before invoking the closure. The output and
+        // replay call sites defer an expensive payload clone in this closure;
+        // sessions without a pipe-IO tap must not pay that cost. Do not hold
+        // the tap lock while constructing that payload, because a large
+        // replay clone must not block attach or teardown on the reader thread.
+        let tap_token = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return false };
+            if tap.surface != surface {
+                return false;
+            }
+            tap.token.clone()
+        };
         let event = event();
         if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
-            return self.signal_pipe_io_event(Some(surface), None, event);
+            // Keep the token fence while releasing the lock. A stale
+            // lifecycle event must not remove a replacement relay.
+            return self.signal_pipe_io_event(Some(surface), Some(&tap_token), event);
         }
         let (stalled_token, pipe_io_owned) = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return false };
             if tap.surface != surface {
                 return false;
+            }
+            if !Arc::ptr_eq(&tap.token, &tap_token) {
+                // A replacement relay won the ownership race while the
+                // payload was being built. Drop the stale event rather than
+                // forwarding it to the new relay, but keep the ownership
+                // fence set so the caller does not parse it locally.
+                return true;
             }
             let retained_bytes = event.retained_bytes();
             if !tap.byte_budget.try_reserve(retained_bytes) {
@@ -6837,6 +6859,103 @@ mod tests {
             second_receiver.try_recv().unwrap(),
             PipeIoEvent::Output(b"replacement".to_vec())
         );
+    }
+
+    #[test]
+    fn pipe_io_forward_does_not_construct_payload_without_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let constructed = Arc::new(AtomicBool::new(false));
+        let marker = constructed.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            marker.store(true, Ordering::Release);
+            PipeIoEvent::Output(vec![0; 1024])
+        }));
+
+        assert!(!constructed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn pipe_io_forward_constructs_payload_without_holding_tap_lock() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let lock_available = Arc::new(AtomicBool::new(false));
+        let marker = lock_available.clone();
+        assert!(session.pipe_io_forward(7, || {
+            marker.store(session.pipe_io_tap.try_lock().is_ok(), Ordering::Release);
+            PipeIoEvent::Output(b"payload".to_vec())
+        }));
+        assert!(lock_available.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"payload".to_vec()));
+    }
+
+    #[test]
+    fn pipe_io_forward_drops_payload_when_tap_is_replaced_during_construction() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let replacement = session.clone();
+
+        assert!(session.pipe_io_forward(7, || {
+            replacement.install_pipe_io_tap(
+                7,
+                second_sender,
+                second_lifecycle_sender,
+                Arc::new(PipeIoByteBudget::new(1024)),
+            );
+            PipeIoEvent::Output(b"stale".to_vec())
+        }));
+        assert!(second_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn pipe_io_forward_does_not_consume_original_surface_for_other_surface_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let replacement = session.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            replacement.install_pipe_io_tap(
+                8,
+                second_sender,
+                second_lifecycle_sender,
+                Arc::new(PipeIoByteBudget::new(1024)),
+            );
+            PipeIoEvent::Output(b"original-surface".to_vec())
+        }));
+        assert!(second_receiver.try_recv().is_err());
     }
 
     #[test]
