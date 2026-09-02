@@ -684,15 +684,12 @@ struct ScopedDirEntry {
 
 struct ScopedDirEntries {
     entries: Vec<ScopedDirEntry>,
-    total: usize,
+    truncated: bool,
 }
 
 /// Read a bounded directory listing.
 ///
-/// The caller needs the total count to report omitted entries, but must not
-/// retain an attacker-controlled number of directory entries in memory. Keep
-/// at most the response cap while continuing the directory walk only to count
-/// the remaining names.
+/// Keep at most one entry beyond the response cap, then stop scanning.
 fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError> {
     #[cfg(unix)]
     {
@@ -712,7 +709,7 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
-        let mut total = 0_usize;
+        let mut truncated = false;
         loop {
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
@@ -723,34 +720,38 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
             if name == b"." || name == b".." {
                 continue;
             }
-            total = total.saturating_add(1);
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
                     name: std::ffi::OsString::from_vec(name.to_vec()),
                     is_dir: entry.d_type == libc::DT_DIR,
                 });
+            } else {
+                truncated = true;
+                break;
             }
         }
         if unsafe { libc::closedir(stream) } != 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        Ok(ScopedDirEntries { entries, total })
+        Ok(ScopedDirEntries { entries, truncated })
     }
     #[cfg(not(unix))]
     {
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
-        let mut total = 0_usize;
+        let mut truncated = false;
         for entry in std::fs::read_dir(&path.path).map_err(HostError::Io)? {
             let entry = entry.map_err(HostError::Io)?;
-            total = total.saturating_add(1);
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
                     name: entry.file_name(),
                     is_dir: entry.file_type().map_err(HostError::Io)?.is_dir(),
                 });
+            } else {
+                truncated = true;
+                break;
             }
         }
-        Ok(ScopedDirEntries { entries, total })
+        Ok(ScopedDirEntries { entries, truncated })
     }
 }
 
@@ -1560,8 +1561,8 @@ fn perform_bounded_file_operation(
                 })
                 .collect();
             names.sort();
-            let more = if entries.total > MAX_LISTING_ENTRIES {
-                format!("\n…[{} more entries]", entries.total - MAX_LISTING_ENTRIES)
+            let more = if entries.truncated {
+                "\n…[more entries omitted]".to_owned()
             } else {
                 String::new()
             };
@@ -1718,6 +1719,15 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
 
     match verb.as_str() {
         "grep" => {
+            let _file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return fail(
+                        "busy",
+                        "relay file actions are busy; retry or restart the relay if this persists",
+                    );
+                }
+            };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
             let path = match scoped(raw, false) {
