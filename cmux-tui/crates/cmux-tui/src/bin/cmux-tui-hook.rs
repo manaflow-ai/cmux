@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_REQUEST_ID_BYTES: usize = 128;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
 /// Bound on the provider-facing wait for the child's "request written"
 /// signal. The child itself gives up at `SOCKET_TIMEOUT` and closes the pipe,
@@ -207,10 +208,7 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .context("CMUX_TUI_SOCKET is required in detached mode")?;
     let mut reader = BufReader::new(io::stdin().lock());
-    let mut request_id = String::new();
-    reader.read_line(&mut request_id).context("read detached request id")?;
-    let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
-    anyhow::ensure!(!request_id.is_empty(), "detached request id is empty");
+    let request_id = read_detached_request_id(&mut reader).context("read detached request id")?;
     let mut encoded = Vec::new();
     reader
         .take(MAX_MESSAGE_BYTES as u64 + 1)
@@ -218,6 +216,23 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
         .context("read detached request")?;
     anyhow::ensure!(encoded.len() <= MAX_MESSAGE_BYTES, "detached request exceeds 4 MiB");
     append_with_receipt(&socket, &request_id, &encoded, &confirm_handoff_on_stdout)
+}
+
+fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String> {
+    let mut request_id = String::new();
+    let bytes_read = reader
+        .take((MAX_REQUEST_ID_BYTES + 1) as u64)
+        .read_line(&mut request_id)
+        .context("read detached request id")?;
+    anyhow::ensure!(request_id.ends_with('\n'), "detached request id is missing its line delimiter");
+    anyhow::ensure!(
+        bytes_read <= MAX_REQUEST_ID_BYTES + 1
+            && request_id.trim_end_matches(['\r', '\n']).len() <= MAX_REQUEST_ID_BYTES,
+        "detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes"
+    );
+    let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
+    anyhow::ensure!(!request_id.is_empty(), "detached request id is empty");
+    Ok(request_id)
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
