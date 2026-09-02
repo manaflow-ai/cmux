@@ -86,7 +86,8 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    ProjectionBranch, ProjectionRailState, ProjectionRevision, ProjectionRow, ProjectionRowsCache,
+    ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -7158,6 +7159,10 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_rows_cache: ProjectionRowsCache,
+    agent_generations: HashMap<WorkspaceId, u64>,
+    agent_unscoped_generation: u64,
+    sidebar_generation: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9426,6 +9431,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_rows_cache: ProjectionRowsCache::default(),
+        agent_generations: HashMap::new(),
+        agent_unscoped_generation: 0,
+        sidebar_generation: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10183,32 +10192,65 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+        let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
+            return Arc::from([]);
+        };
         let empty_collapsed = HashSet::new();
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                .collect::<Vec<_>>()
+            .map(|state| state.collapsed.clone())
+            .unwrap_or(empty_collapsed);
+        let rail_generation =
+            self.projection_rails.get(&spec.id).map_or(0, |state| state.rows_generation);
+        let agent_revision = if spec.includes(SidebarResourceKind::Agents) {
+            let generation = if spec.includes(SidebarResourceKind::Workspaces) {
+                self.tree
+                    .workspaces()
+                    .iter()
+                    .map(|workspace| {
+                        self.agent_generations.get(&workspace.id).copied().unwrap_or(0)
+                    })
+                    .fold(0_u64, u64::wrapping_add)
+            } else {
+                self.tree
+                    .workspaces()
+                    .get(self.sidebar_workspace_selection)
+                    .and_then(|workspace| self.agent_generations.get(&workspace.id).copied())
+                    .unwrap_or(0)
+            };
+            Some(generation.wrapping_add(self.agent_unscoped_generation))
         } else {
-            Vec::new()
+            None
         };
-        crate::sidebar_projection::rows(
-            spec,
-            &self.tree,
-            &agents,
-            self.sidebar_workspace_selection,
-            collapsed,
-        )
+        let revision = ProjectionRevision {
+            tree_workspace: self.tree.workspace_revision,
+            tree_pane: self.tree.pane_revision,
+            agents: agent_revision,
+            selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
+                .then_some(self.sidebar_workspace_selection)
+                .unwrap_or(0),
+            sidebar: self.sidebar_generation,
+            rail: rail_generation,
+        };
+        let tree = &self.tree;
+        let session = &self.session;
+        let selected_workspace = self.sidebar_workspace_selection;
+        self.projection_rows_cache.get_or_build(index, &spec.id, revision, || {
+            let agents = if spec.includes(SidebarResourceKind::Agents) {
+                // Finished reports are historical records, not active agents.
+                // Otherwise detached "surface..." rows remain forever after exit.
+                session
+                    .agents()
+                    .into_iter()
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            crate::sidebar_projection::rows(&spec, tree, &agents, selected_workspace, &collapsed)
+        })
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -10309,6 +10351,29 @@ impl App {
         self.projection_rails.entry(id).or_default()
     }
 
+    fn bump_sidebar_generation(&mut self) {
+        self.sidebar_generation = self.sidebar_generation.saturating_add(1);
+    }
+
+    fn bump_projection_rows_generation(&mut self, index: usize) {
+        let state = self.projection_rail_state_mut(index);
+        state.rows_generation = state.rows_generation.saturating_add(1);
+    }
+
+    fn bump_agent_generation(&mut self, surface: SurfaceId) {
+        let workspace = self
+            .tab_locations
+            .get(&surface)
+            .and_then(|[workspace, ..]| self.tree.workspaces().get(*workspace))
+            .map(|workspace| workspace.id);
+        if let Some(workspace) = workspace {
+            let generation = self.agent_generations.entry(workspace).or_default();
+            *generation = generation.saturating_add(1);
+        } else {
+            self.agent_unscoped_generation = self.agent_unscoped_generation.saturating_add(1);
+        }
+    }
+
     fn invoke_sidebar_action(
         &mut self,
         target: SidebarActionTarget,
@@ -10374,30 +10439,42 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
+        let previous_focus = self.active_focus_state();
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
         self.follow_sidebar_workspace(target.workspace);
+        if previous_focus != self.active_focus_state() {
+            self.bump_sidebar_generation();
+        }
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
         Ok(())
     }
 
     fn follow_sidebar_workspace(&mut self, index: usize) {
+        let changed = self.sidebar_workspace_selection != index;
         if self.sidebar_workspace_selection != index {
             self.tabs_rail_selection = 0;
             self.tabs_rail_scroll = 0;
         }
         self.sidebar_workspace_selection = index;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        if changed {
+            self.bump_sidebar_generation();
+        }
     }
 
     fn activate_workspace(&mut self, index: usize) {
         if index >= self.tree.workspaces().len() || !self.prepare_pty_input_before_mutation() {
             return;
         }
+        let changed = self.tree.active_workspace != index;
         self.follow_sidebar_workspace(index);
         self.tree.active_workspace = index;
+        if changed {
+            self.bump_sidebar_generation();
+        }
         self.select_workspace_for_client(Some(index), None);
     }
 
@@ -10410,10 +10487,23 @@ impl App {
                 if !self.prepare_pty_input_before_mutation() {
                     return Ok(());
                 }
+                let previous = (
+                    self.tree.active_workspace,
+                    self.tree.active_workspace().map(|workspace| workspace.active_screen),
+                    self.tree.active_screen().map(|screen| screen.active_pane),
+                );
                 self.follow_sidebar_workspace(workspace);
                 self.tree.active_workspace = workspace;
                 self.tree.set_active_screen(workspace, screen);
                 self.tree.set_active_pane(workspace, screen, pane);
+                let current = (
+                    self.tree.active_workspace,
+                    self.tree.active_workspace().map(|workspace| workspace.active_screen),
+                    self.tree.active_screen().map(|screen| screen.active_pane),
+                );
+                if previous != current {
+                    self.bump_sidebar_generation();
+                }
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
             }
@@ -11841,6 +11931,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.bump_sidebar_generation();
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -12989,16 +13080,21 @@ impl App {
             .get(workspace_index)
             .and_then(|workspace| workspace.screens.get(screen_index))
             .and_then(|screen| screen.panes.get(pane_index))
+            .filter(|pane| pane.tabs.get(tab_index).is_some())
             .map(|pane| pane.id)
         else {
             return;
         };
+        let previous_focus = self.active_focus_state();
         self.tree.active_workspace = workspace_index;
         if !self.tree.set_active_screen(workspace_index, screen_index)
             || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
             || !self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index)
         {
             return;
+        }
+        if previous_focus != self.active_focus_state() {
+            self.bump_sidebar_generation();
         }
         self.pane_focus_history.record(pane_id);
         self.claim_active_terminal_geometry(true);
@@ -13159,6 +13255,14 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        let live_workspace_ids = self
+            .tree
+            .workspaces()
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<HashSet<WorkspaceId>>();
+        self.agent_generations.retain(|workspace_id, _| live_workspace_ids.contains(workspace_id));
+        self.bump_sidebar_generation();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
                 self.tree.workspaces().iter().position(|workspace| workspace.id == selected)
@@ -14090,6 +14194,8 @@ impl App {
         let valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
+        self.projection_rows_cache.invalidate();
+        self.bump_sidebar_generation();
         self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
         if let Some(id) = focused_projection_id {
             if let Some((index, view)) =
@@ -15481,6 +15587,10 @@ impl App {
                 self.session.refresh_clients_background();
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => {
+                self.bump_agent_generation(surface);
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message =
@@ -16678,6 +16788,17 @@ impl App {
         self.tree.active_surface()
     }
 
+    fn active_focus_state(&self) -> Option<(usize, usize, PaneId, Option<usize>)> {
+        let workspace_index = self.tree.active_workspace;
+        let workspace = self.tree.active_workspace()?;
+        let screen_index = workspace.active_screen;
+        let screen = workspace.screens.get(screen_index)?;
+        let pane_id = screen.active_pane;
+        let pane = screen.panes.iter().find(|pane| pane.id == pane_id)?;
+        let active_tab = pane.tabs.get(pane.active_tab).map(|_| pane.active_tab);
+        Some((workspace_index, screen_index, pane_id, active_tab))
+    }
+
     /// Adopt this client's own remembered focus from the mux (or the
     /// session's last reported focus when this client has none), when the
     /// server has one whose pane still exists in the adopted tree; otherwise
@@ -16701,6 +16822,7 @@ impl App {
         self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
         self.sidebar_workspace_selection =
             workspace_index.min(self.tree.workspaces().len().saturating_sub(1));
+        self.bump_sidebar_generation();
         self.pane_focus_history.record(pane_id);
         self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
@@ -18187,6 +18309,7 @@ impl App {
                     }
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                    self.bump_sidebar_generation();
                 }
             }
             WorkspaceRailTarget::Recoverable(id) => {
@@ -18596,7 +18719,9 @@ impl App {
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
-                self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+                if self.projection_rail_state_mut(view_index).collapsed.insert(branch) {
+                    self.bump_projection_rows_generation(view_index);
+                }
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
             }
@@ -18607,7 +18732,9 @@ impl App {
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
-                self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+                if self.projection_rail_state_mut(view_index).collapsed.remove(&branch) {
+                    self.bump_projection_rows_generation(view_index);
+                }
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
             }
@@ -18625,6 +18752,7 @@ impl App {
                 state.selected_action = Some(next.saturating_sub(rows.len()));
             }
             state.follow_selection = true;
+            self.bump_sidebar_generation();
             return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Char(' '))
@@ -18634,6 +18762,7 @@ impl App {
             if !state.collapsed.remove(&branch) {
                 state.collapsed.insert(branch);
             }
+            self.bump_projection_rows_generation(view_index);
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
@@ -20567,6 +20696,7 @@ impl App {
                     self.sidebar_workspace_selection = self.tree.active_workspace;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.workspace_rail_follow_selection = true;
+                    self.bump_sidebar_generation();
                 } else if !self.sync_sidebar_files_to_focus(true) {
                     self.sidebar_files.refresh();
                 }
@@ -20596,6 +20726,7 @@ impl App {
                 self.sidebar_workspace_selection = self.tree.active_workspace;
                 self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                 self.workspace_rail_follow_selection = true;
+                self.bump_sidebar_generation();
             }
         }
     }
@@ -21959,9 +22090,14 @@ impl App {
             let workspace_index = self.tree.active_workspace;
             let screen_index =
                 self.tree.active_workspace().map(|workspace| workspace.active_screen);
+            let changed =
+                self.tree.active_screen().is_some_and(|screen| screen.active_pane != pane);
             let focused = screen_index
                 .is_some_and(|screen| self.tree.set_active_pane(workspace_index, screen, pane));
             if focused {
+                if changed {
+                    self.bump_sidebar_generation();
+                }
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
             }
@@ -21988,7 +22124,11 @@ impl App {
                 })
             });
             if let Some(target) = target {
+                let changed = self.tree.pane(pane_id).is_some_and(|pane| pane.active_tab != target);
                 self.tree.set_pane_active_tab(pane_id, target);
+                if changed {
+                    self.bump_sidebar_generation();
+                }
             }
         }
         self.claim_active_terminal_geometry(true);
@@ -22009,7 +22149,14 @@ impl App {
         });
         if let Some(target) = target {
             let workspace_index = self.tree.active_workspace;
+            let changed = self
+                .tree
+                .active_workspace()
+                .is_some_and(|workspace| workspace.active_screen != target);
             selected = self.tree.set_active_screen(workspace_index, target);
+            if changed {
+                self.bump_sidebar_generation();
+            }
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
@@ -22021,13 +22168,21 @@ impl App {
         let mut selected = false;
         if !self.tree.workspaces().is_empty() {
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces().len()) {
+                let changed = self.tree.active_workspace != index;
                 self.tree.active_workspace = index;
                 selected = true;
+                if changed {
+                    self.bump_sidebar_generation();
+                }
             } else if let Some(delta) = delta {
+                let previous = self.tree.active_workspace;
                 self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
                     .rem_euclid(self.tree.workspaces().len() as isize))
                     as usize;
                 selected = true;
+                if self.tree.active_workspace != previous {
+                    self.bump_sidebar_generation();
+                }
             }
         }
         if selected && let Some(active) = self.active_pane() {
@@ -22467,12 +22622,14 @@ impl App {
                     if !state.collapsed.remove(&branch) {
                         state.collapsed.insert(branch);
                     }
+                    self.bump_projection_rows_generation(view);
                 }
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
                     state.selected_action = None;
                     state.follow_selection = true;
+                    self.bump_sidebar_generation();
                     self.activate_projection_target(target)?;
                     self.focus = FocusTarget::Pane;
                 }
@@ -23610,14 +23767,16 @@ impl App {
             .hidden_sidebar_views
             .entry(self.config.sidebar.active_profile.clone())
             .or_default();
+        let changed = if visible { hidden.remove(&view_id) } else { hidden.insert(view_id) };
         if visible {
-            hidden.remove(&view_id);
             self.sidebar_visible = true;
         } else {
-            hidden.insert(view_id);
             if hides_focused {
                 self.focus = FocusTarget::Pane;
             }
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
     }
 
@@ -23640,6 +23799,7 @@ impl App {
             })
             .collect();
         self.sidebar_visible = true;
+        self.bump_sidebar_generation();
         if let Some(focused_view) = focused_view {
             let hidden = self
                 .hidden_sidebar_views
@@ -24766,6 +24926,7 @@ mod tests {
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
+    use crate::sidebar_projection::ProjectionRowsCache;
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
     use crossbeam_channel::Receiver;
     use serde_json::Value;
@@ -27954,6 +28115,19 @@ mod tests {
             .selection_for_click(surface.id, (1, 0), SelectionMode::Word)
             .expect("a word click must return the terminal selection range");
         assert_eq!(selection.range(), ((0, 0), (4, 0)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn selection_for_click_propagates_missing_terminal_range() {
+        let (app, mux, surface, _) =
+            selection_fixture("selection-for-click-missing-range-test", b"alpha");
+
+        assert!(
+            app.selection_for_click(surface.id, (10, 0), SelectionMode::Word).is_none(),
+            "a semantic click without a terminal range must return no selection"
+        );
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -43516,6 +43690,436 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    fn projection_test_app(session: Session, levels: Vec<SidebarResourceKind>) -> App {
+        let mut app = test_app(session);
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "projection-active-refresh".into(),
+            levels,
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_workspace_after_client_selection() {
+        let mux = Mux::new("projection-active-workspace-refresh-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app =
+            projection_test_app(Session::Local(mux.clone()), vec![SidebarResourceKind::Workspaces]);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 1, .. }
+                )
+        }));
+
+        app.select_workspace_for_client(Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        for surface in [first, second] {
+            mux.close_surface(surface.id).unwrap();
+        }
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_pane_after_client_focus() {
+        let mux = Mux::new("projection-active-pane-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_pane
+                )
+        }));
+
+        app.focus_pane_after_input(first_pane);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_tab_after_client_selection() {
+        let mux = Mux::new("projection-active-tab-refresh-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![
+                SidebarResourceKind::Workspaces,
+                SidebarResourceKind::Panes,
+                SidebarResourceKind::Tabs,
+            ],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == second.id
+                )
+        }));
+
+        app.select_tab_for_client(Some(pane), Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == first.id
+                )
+        }));
+
+        app.select_created_surface(second.id);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == second.id
+                )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_screen_after_client_selection() {
+        let mux = Mux::new("projection-active-screen-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
+        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        let second_screen_pane =
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_screen_pane
+                )
+        }));
+
+        let first_screen_pane = app
+            .tree
+            .workspaces()
+            .first()
+            .and_then(|workspace| workspace.screens.first())
+            .map(|screen| screen.active_pane)
+            .unwrap();
+        app.select_screen_for_client(Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_screen_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_when_focus_changes_without_active_surface() {
+        let mux =
+            Mux::new("projection-focus-without-surface-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_pane
+                )
+        }));
+
+        for workspace in app.tree.workspaces_mut() {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    pane.tabs.clear();
+                }
+            }
+        }
+        app.activate_projection_target(crate::sidebar_projection::ProjectionTarget::Pane {
+            workspace: 0,
+            screen: 0,
+            pane: first_pane,
+        })
+        .unwrap();
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_after_client_focus_partial_failure() {
+        let mux =
+            Mux::new("projection-client-focus-partial-failure-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app =
+            projection_test_app(Session::Local(mux.clone()), vec![SidebarResourceKind::Workspaces]);
+        app.tree.active_workspace = 0;
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        // Simulate a stale completion. The workspace index is still valid, but
+        // the tab index no longer exists when the client focus is applied.
+        app.tab_locations.insert(second.id, [1, 0, 0, usize::MAX]);
+        app.select_created_surface(second.id);
+
+        // A failed focus request must not leave a partial workspace mutation
+        // behind, or the cached active row can become stale.
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_scope_agent_revision_to_agent_views() {
+        let (mux, surface) = test_mux("projection-agent-revision-scope-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "workspace-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+            SidebarViewSpec {
+                id: "agent-view".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let workspace_before = app.projection_rows_cache.revision_for(0).unwrap();
+        let agent_before = app.projection_rows_cache.revision_for(1).unwrap();
+
+        app.bump_agent_generation(surface.id);
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let workspace_after = app.projection_rows_cache.revision_for(0).unwrap();
+        let agent_after = app.projection_rows_cache.revision_for(1).unwrap();
+
+        assert_eq!(workspace_before, workspace_after);
+        assert_ne!(agent_before, agent_after);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_scope_collapse_revision_to_its_rail() {
+        let (mux, surface) = test_mux("projection-sidebar-revision-scope-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "first-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+            SidebarViewSpec {
+                id: "second-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let first_before = app.projection_rows_cache.revision_for(0).unwrap();
+        let second_before = app.projection_rows_cache.revision_for(1).unwrap();
+        let workspace_id = app.tree.workspaces().first().unwrap().id;
+
+        app.projection_rail_state_mut(0)
+            .collapsed
+            .insert(crate::sidebar_projection::ProjectionBranch::Workspace(workspace_id));
+        app.bump_projection_rows_generation(0);
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let first_after = app.projection_rows_cache.revision_for(0).unwrap();
+        let second_after = app.projection_rows_cache.revision_for(1).unwrap();
+
+        assert_ne!(first_before.rail, first_after.rail);
+        assert_eq!(first_before.sidebar, first_after.sidebar);
+        assert_eq!(second_before, second_after);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_scope_agent_revision_to_selected_workspace() {
+        let (mux, first_surface) = test_mux("projection-agent-owner-scope-test", None);
+        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agent-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        let before = app.projection_rows_cache.revision_for(0).unwrap();
+
+        app.bump_agent_generation(second_surface.id);
+        app.projection_rows(0);
+        let after = app.projection_rows_cache.revision_for(0).unwrap();
+
+        assert_eq!(before, after);
+
+        mux.close_surface(first_surface.id).unwrap();
+        mux.close_surface(second_surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_agent_generations_prune_removed_workspaces() {
+        let (mux, first_surface) = test_mux("projection-agent-generation-prune-test", None);
+        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let first_workspace = app.tree.workspaces()[0].id;
+        let second_workspace = app.tree.workspaces()[1].id;
+
+        app.bump_agent_generation(first_surface.id);
+        app.bump_agent_generation(second_surface.id);
+        assert_eq!(app.agent_generations.len(), 2);
+
+        let mut replacement = app.tree.clone();
+        replacement.workspaces_mut().remove(0);
+        replacement.active_workspace = 0;
+        app.replace_tree(replacement);
+
+        assert!(!app.agent_generations.contains_key(&first_workspace));
+        assert!(app.agent_generations.contains_key(&second_workspace));
+
+        mux.close_surface(first_surface.id).unwrap();
+        mux.close_surface(second_surface.id).unwrap();
+    }
+
     #[test]
     fn projection_stale_action_selection_does_not_retarget_resource_row() {
         let (mux, surface) = test_mux("projection-stale-action-selection-test", None);
@@ -45758,6 +46362,10 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_rows_cache: ProjectionRowsCache::default(),
+            agent_generations: HashMap::new(),
+            agent_unscoped_generation: 0,
+            sidebar_generation: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,

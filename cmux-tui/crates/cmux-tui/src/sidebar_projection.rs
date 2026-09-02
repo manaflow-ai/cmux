@@ -1,6 +1,7 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
@@ -57,6 +58,8 @@ pub(crate) struct ProjectionRailState {
     pub footer_scroll: usize,
     pub follow_selection: bool,
     pub collapsed: HashSet<ProjectionBranch>,
+    /// Revision for row-affecting presentation state in this rail.
+    pub rows_generation: u64,
 }
 
 impl Default for ProjectionRailState {
@@ -68,7 +71,67 @@ impl Default for ProjectionRailState {
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
+            rows_generation: 0,
         }
+    }
+}
+
+/// Revisions that determine whether a projection row list is still valid.
+/// Tree and agent revisions come from the session snapshots, while the
+/// sidebar revision covers presentation state such as selection and collapse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProjectionRevision {
+    pub tree_workspace: u64,
+    pub tree_pane: Option<u64>,
+    /// Agent changes affect only views that include the Agents resource.
+    pub agents: Option<u64>,
+    /// Workspace selection affects flat views that need a workspace context.
+    pub selected_workspace: usize,
+    /// Selection and focus changes that affect every projection view.
+    pub sidebar: u64,
+    /// Collapse changes are scoped to the projection rail being rendered.
+    pub rail: u64,
+}
+
+struct CachedProjectionRows {
+    revision: ProjectionRevision,
+    rows: Arc<[ProjectionRow]>,
+}
+
+#[derive(Default)]
+pub(crate) struct ProjectionRowsCache {
+    entries: HashMap<(usize, String), CachedProjectionRows>,
+}
+
+impl ProjectionRowsCache {
+    pub(crate) fn invalidate(&mut self) {
+        self.entries.clear();
+    }
+
+    pub(crate) fn get_or_build(
+        &mut self,
+        view_index: usize,
+        view_id: &str,
+        revision: ProjectionRevision,
+        build: impl FnOnce() -> Vec<ProjectionRow>,
+    ) -> Arc<[ProjectionRow]> {
+        let key = (view_index, view_id.to_string());
+        if let Some(cached) = self.entries.get(&key)
+            && cached.revision == revision
+        {
+            return Arc::clone(&cached.rows);
+        }
+        let rows: Arc<[ProjectionRow]> = build().into();
+        self.entries.insert(key, CachedProjectionRows { revision, rows: Arc::clone(&rows) });
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) fn revision_for(&self, view_index: usize) -> Option<ProjectionRevision> {
+        self.entries
+            .iter()
+            .find(|((index, _), _)| *index == view_index)
+            .map(|(_, entry)| entry.revision)
     }
 }
 
@@ -280,6 +343,7 @@ fn append_level(
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::sync::Arc;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -429,5 +493,52 @@ mod tests {
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn projection_cache_reuses_rows_until_revision_changes() {
+        let tree = tree();
+        let view = spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs]);
+        let collapsed = HashSet::new();
+        let revision = ProjectionRevision {
+            tree_workspace: tree.workspace_revision,
+            tree_pane: tree.pane_revision,
+            agents: Some(3),
+            selected_workspace: 0,
+            sidebar: 7,
+            rail: 0,
+        };
+        let mut cache = ProjectionRowsCache::default();
+        let mut builds = 0;
+        let first = cache.get_or_build(0, "tabs", revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        let second = cache.get_or_build(0, "tabs", revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+
+        assert_eq!(first, second);
+        assert!(Arc::ptr_eq(&first, &second), "cache hits must share owned rows");
+        assert_eq!(builds, 1);
+
+        let changed = ProjectionRevision { sidebar: 8, ..revision };
+        let third = cache.get_or_build(0, "tabs", changed, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        assert_eq!(third, first);
+        assert_eq!(builds, 2);
+
+        let duplicate_id = cache.get_or_build(1, "tabs", revision, || {
+            builds += 1;
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &[], 0, &collapsed)
+        });
+        assert!(
+            duplicate_id.is_empty(),
+            "distinct view indexes must not reuse rows by duplicate id"
+        );
+        assert_eq!(builds, 3);
     }
 }
