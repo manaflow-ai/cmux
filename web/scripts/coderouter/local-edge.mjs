@@ -49,6 +49,11 @@ const routeToken = option("--route-token", process.env.CMUX_LOCAL_EDGE_ROUTE_TOK
 const vmId = option("--vm-id", process.env.CMUX_LOCAL_EDGE_VM_ID ?? "");
 const port = Number(option("--port", "8443"));
 const stateDir = option("--state-dir", path.join(tmpdir(), "cmux-local-edge"));
+// --dump-dir writes each /v1 request and response body (bodies only, never the
+// injected headers) so a client's exact wire shape can be compared against the
+// origin's answer when a leg fails.
+const dumpDir = option("--dump-dir", "");
+if (dumpDir) mkdirSync(dumpDir, { recursive: true, mode: 0o700 });
 const extraOriginHeaders = Object.fromEntries(
   options("--origin-header").map((pair) => {
     const eq = pair.indexOf("=");
@@ -112,6 +117,10 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
   Object.assign(headers, extraOriginHeaders);
   delete headers.connection;
 
+  const dumpBase = dumpDir && req.url.startsWith("/v1/") ? path.join(dumpDir, `${String(id).padStart(4, "0")}-${req.method}-${req.url.replace(/[^a-z0-9]+/gi, "_").slice(0, 40)}`) : "";
+  const reqChunks = [];
+  const resChunks = [];
+  if (dumpBase) req.on("data", (chunk) => reqChunks.push(chunk));
   const upstream = originAgent.request(
     {
       protocol: origin.protocol,
@@ -125,8 +134,17 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
       const responseHeaders = { ...upstreamRes.headers };
       delete responseHeaders.connection;
       res.writeHead(upstreamRes.statusCode ?? 502, responseHeaders);
+      if (dumpBase) upstreamRes.on("data", (chunk) => resChunks.push(chunk));
       upstreamRes.pipe(res);
       upstreamRes.on("end", () => {
+        if (dumpBase) {
+          const requestHeaders = { ...req.headers };
+          delete requestHeaders[ROUTE_TOKEN_HEADER];
+          delete requestHeaders["authorization"];
+          delete requestHeaders["x-api-key"];
+          writeFileSync(`${dumpBase}.req.json`, JSON.stringify({ headers: requestHeaders, body: Buffer.concat(reqChunks).toString("utf8") }, null, 2));
+          writeFileSync(`${dumpBase}.res.txt`, `HTTP ${upstreamRes.statusCode}\n${JSON.stringify(upstreamRes.headers)}\n\n${Buffer.concat(resChunks).toString("utf8")}`);
+        }
         const forged = forgedToken || forgedVmId ? ` forged-headers-overwritten(token=${forgedToken ? "yes" : "no"},vm=${forgedVmId ? "yes" : "no"})` : "";
         const agent = (req.headers["user-agent"] ?? "").toString().slice(0, 40);
         console.error(`[edge] #${id} ${req.method} ${req.url} -> ${upstreamRes.statusCode} ${Date.now() - startedAt}ms ua="${agent}"${forged}`);

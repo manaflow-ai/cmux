@@ -32,13 +32,22 @@ const edgeCheck = rest.includes("--edge-check");
 // PUT /api/coderouter/claude-upstream, then one `claude -p` turn runs in the
 // guest through the edge. Proves routing, upstream rewrite, and the usage row.
 const claudeCheck = rest.includes("--claude-check");
+// Either an Anthropic API key (CMUX_SMOKE_CLAUDE_API_KEY) or a full
+// PUT /api/coderouter/claude-upstream body (CMUX_SMOKE_CLAUDE_UPSTREAM_JSON,
+// e.g. a bedrock upstream) becomes the smoke team's Claude upstream.
 const claudeUpstreamApiKey = process.env.CMUX_SMOKE_CLAUDE_API_KEY?.trim() ?? "";
+const claudeUpstreamJson = process.env.CMUX_SMOKE_CLAUDE_UPSTREAM_JSON?.trim() ?? "";
+const claudeUpstreamBody = claudeUpstreamJson
+  ? claudeUpstreamJson
+  : claudeUpstreamApiKey
+    ? JSON.stringify({ kind: "anthropic_api_key", apiKey: claudeUpstreamApiKey })
+    : "";
 if (claudeCheck && !edgeCheck) {
   console.error("--claude-check requires --edge-check");
   process.exit(2);
 }
-if (claudeCheck && !claudeUpstreamApiKey) {
-  console.error("--claude-check requires CMUX_SMOKE_CLAUDE_API_KEY in the environment");
+if (claudeCheck && !claudeUpstreamBody) {
+  console.error("--claude-check requires CMUX_SMOKE_CLAUDE_API_KEY or CMUX_SMOKE_CLAUDE_UPSTREAM_JSON in the environment");
   process.exit(2);
 }
 const provider = optionValue(rest, "--provider") ?? "freestyle";
@@ -184,7 +193,7 @@ try {
     const upstream = await fetchWithTimeout(`${targetUrl}/api/coderouter/claude-upstream`, {
       method: "PUT",
       headers: { ...authHeaders, "content-type": "application/json" },
-      body: JSON.stringify({ kind: "anthropic_api_key", apiKey: claudeUpstreamApiKey }),
+      body: claudeUpstreamBody,
     });
     const upstreamText = await upstream.text();
     if (upstream.status !== 200 && upstream.status !== 201) {
