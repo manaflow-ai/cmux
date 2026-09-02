@@ -6,6 +6,8 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
@@ -98,6 +100,11 @@ use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
+
+#[cfg(test)]
+thread_local! {
+    static GRAPHICS_ROUTE_COMPARISONS: Cell<usize> = const { Cell::new(0) };
+}
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -401,6 +408,7 @@ fn send_bounded_cancelable<T>(
 struct SessionEventWorker {
     cancellation: EventCancellation,
     start: Arc<AtomicBool>,
+    stop: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     mux: Option<JoinHandle<()>>,
 }
 
@@ -412,6 +420,11 @@ impl SessionEventWorker {
     fn stop_and_join(&mut self) {
         self.cancellation.cancel();
         self.activate();
+        // Closing the receiver wakes a worker blocked in recv(). This avoids
+        // polling the session event mailbox on a fixed 100 ms timer.
+        if let Some(stop) = self.stop.lock().unwrap().take() {
+            stop.close();
+        }
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
         }
@@ -641,6 +654,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
+    stop_receiver: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     destination_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
     tx: SessionEventSender,
@@ -648,15 +662,14 @@ fn forward_mux_events(
 ) {
     let mut next_recovery_generation = 0_u64;
     while !tx.cancellation.stop.load(Ordering::Acquire) {
-        let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
+        let needs_recovery = match session_events.recv() {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                     return;
                 }
                 false
             }
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => {
+            Err(_) => {
                 if session_events.overflowed() {
                     true
                 } else {
@@ -674,7 +687,16 @@ fn forward_mux_events(
         mux_recovery_generation.store(recovery_generation, Ordering::Release);
         // Subscribe before draining the closed mailbox so new events are
         // retained while every event accepted before overflow is delivered.
-        let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
+        let next_session_events = event_source.events();
+        {
+            let mut stop = stop_receiver.lock().unwrap();
+            if tx.cancellation.stop.load(Ordering::Acquire) {
+                next_session_events.close();
+                return;
+            }
+            *stop = Some(next_session_events.clone());
+        }
+        let overflowed_events = std::mem::replace(&mut session_events, next_session_events);
         for event in overflowed_events.try_iter() {
             if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
@@ -813,11 +835,13 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
+    let stop = Arc::new(Mutex::new(Some(session_events.clone())));
     let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
+    let worker_stop = stop.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)
@@ -831,6 +855,7 @@ fn start_ordered_session_inner(
             forward_mux_events(
                 event_source,
                 session_events,
+                worker_stop,
                 destination_mutation_committed,
                 mux_recovery_sequence,
                 worker_events,
@@ -839,7 +864,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { cancellation, start, mux: Some(mux) },
+        SessionEventWorker { cancellation, start, stop, mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))
@@ -5646,6 +5671,77 @@ impl GraphicIdentity {
             && self.surface == other.surface
             && self.rect == other.rect
     }
+
+    fn layout_key(self) -> GraphicLayoutKey {
+        GraphicLayoutKey {
+            session_generation: self.session_generation,
+            surface: self.surface,
+            x: self.rect.x,
+            y: self.rect.y,
+            width: self.rect.width,
+            height: self.rect.height,
+        }
+    }
+
+    fn route_key(self) -> GraphicRouteKey {
+        GraphicRouteKey { layout: self.layout_key(), pointer_frame_seq: self.pointer_frame_seq }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicLayoutKey {
+    session_generation: u64,
+    surface: SurfaceId,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicRouteKey {
+    layout: GraphicLayoutKey,
+    pointer_frame_seq: Option<u64>,
+}
+
+struct GraphicRouteIndex {
+    routes: HashMap<GraphicRouteKey, bool>,
+    routed_layouts: HashSet<GraphicLayoutKey>,
+}
+
+const GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT: usize = 8;
+
+impl GraphicRouteIndex {
+    fn build(app: &App, graphics: &[GraphicIdentity]) -> Self {
+        let mut routes = HashMap::with_capacity(graphics.len());
+        let mut routed_layouts = HashSet::with_capacity(graphics.len());
+        for &graphic in graphics {
+            let route_key = graphic.route_key();
+            let route_valid = graphic.pointer_frame_seq.is_some_and(|frame_seq| {
+                app.session.surface(graphic.surface).is_some_and(|surface| {
+                    surface.browser_pointer_frame_is_in_current_route(frame_seq)
+                })
+            });
+            routes
+                .entry(route_key)
+                .and_modify(|existing| *existing |= route_valid)
+                .or_insert(route_valid);
+            if route_valid {
+                routed_layouts.insert(route_key.layout);
+            }
+        }
+        Self { routes, routed_layouts }
+    }
+
+    fn has_match(&self, graphic: GraphicIdentity, other: &Self) -> bool {
+        let route_key = graphic.route_key();
+        if other.routes.contains_key(&route_key) {
+            return true;
+        }
+        graphic.pointer_frame_seq.is_some()
+            && self.routes.get(&route_key).copied().unwrap_or(false)
+            && other.routed_layouts.contains(&route_key.layout)
+    }
 }
 
 fn bounding_rect(first: Rect, second: Rect) -> Rect {
@@ -5965,15 +6061,14 @@ impl RenderedPointerFrame {
         }
         if let Some((kind, rect)) =
             self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+            && !self.panes.iter().any(|pane| pane.content.contains(x, y))
         {
-            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
-                return PointerRouteIdentity::Rail {
-                    kind,
-                    rect,
-                    column: x.saturating_sub(rect.x),
-                    row: y.saturating_sub(rect.y),
-                };
-            }
+            return PointerRouteIdentity::Rail {
+                kind,
+                rect,
+                column: x.saturating_sub(rect.x),
+                row: y.saturating_sub(rect.y),
+            };
         }
         if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
             let region = if pane.content.contains(x, y) {
@@ -6837,6 +6932,9 @@ impl GraphicsSceneCache {
     }
 }
 
+#[cfg(test)]
+type TimeoutDrainHook = Box<dyn FnOnce(&mut App) + Send>;
+
 pub struct App {
     pub session: OrderedSession,
     /// The local mux owned by this process. Unlike `session`, this does not
@@ -7060,7 +7158,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
+    timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -8265,6 +8363,7 @@ pub enum RunOutcome {
 
 struct MachineUpdatePump {
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     provider: Option<JoinHandle<()>>,
     forwarder: Option<JoinHandle<()>>,
 }
@@ -8333,6 +8432,7 @@ pub(crate) enum MachineControllerCompletion {
 struct MachineActionWorker {
     sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -8350,6 +8450,8 @@ impl MachineActionWorker {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let worker =
             std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
                 let mut next_action_id = 1_u64;
@@ -8505,7 +8607,11 @@ impl MachineActionWorker {
                             }
                         }
                     };
-                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                    if !send_machine_controller_completion(
+                        &app_events,
+                        completion,
+                        &worker_cancellation,
+                    ) {
                         break;
                     }
                 }
@@ -8514,7 +8620,7 @@ impl MachineActionWorker {
                 }
                 controller.close();
             })?;
-        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+        Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
     fn perform(
@@ -8604,6 +8710,7 @@ impl MachineActionWorker {
 
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.sender.take();
         if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(worker) = self.worker.take()
@@ -8662,25 +8769,15 @@ fn prepare_machine_session(
 
 fn send_machine_controller_completion(
     app_events: &SyncSender<AppEvent>,
-    mut completion: MachineControllerCompletion,
-    stop: &AtomicBool,
+    completion: MachineControllerCompletion,
+    cancellation: &EventCancellation,
 ) -> bool {
-    loop {
-        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
-                completion = *returned;
-                if stop.load(Ordering::Acquire) {
-                    return false;
-                }
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
-            Err(TrySendError::Full(_)) => {
-                unreachable!("machine completion sender returned a different event")
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
-    }
+    send_bounded_cancelable(
+        app_events,
+        AppEvent::MachineControllerCompleted(Box::new(completion)),
+        cancellation,
+    )
+    .is_ok()
 }
 
 impl MachineUpdatePump {
@@ -8692,38 +8789,25 @@ impl MachineUpdatePump {
         let stop = updates.stop_handle();
         let (updates, _, provider) = updates.into_parts();
         let forwarder_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let forwarder_cancellation = cancellation.clone();
         let forwarder = match std::thread::Builder::new()
             .name("machine-provider-events".into())
             .spawn(move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
                     match updates.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
-                            let mut update = Box::new(update);
-                            loop {
-                                match app_events.try_send(AppEvent::MachineUpdatedForGeneration {
+                            if send_bounded_cancelable(
+                                &app_events,
+                                AppEvent::MachineUpdatedForGeneration {
                                     generation,
-                                    update,
-                                }) {
-                                    Ok(()) => break,
-                                    Err(TrySendError::Full(
-                                        AppEvent::MachineUpdatedForGeneration {
-                                            update: returned,
-                                            ..
-                                        },
-                                    )) => {
-                                        update = returned;
-                                        if forwarder_stop.load(Ordering::Acquire) {
-                                            return;
-                                        }
-                                        std::thread::park_timeout(Duration::from_millis(1));
-                                    }
-                                    Err(TrySendError::Full(_)) => {
-                                        unreachable!(
-                                            "machine update sender returned a different event"
-                                        )
-                                    }
-                                    Err(TrySendError::Disconnected(_)) => return,
-                                }
+                                    update: Box::new(update),
+                                },
+                                &forwarder_cancellation,
+                            )
+                            .is_err()
+                            {
+                                return;
                             }
                         }
                         Err(RecvTimeoutError::Timeout) => {}
@@ -8738,11 +8822,12 @@ impl MachineUpdatePump {
                 return Err(error.into());
             }
         };
-        Ok(Self { stop, provider: Some(provider), forwarder: Some(forwarder) })
+        Ok(Self { stop, cancellation, provider: Some(provider), forwarder: Some(forwarder) })
     }
 
     fn stop_and_join(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(forwarder) = self.forwarder.take() {
             let _ = forwarder.join();
         }
@@ -8826,16 +8911,19 @@ fn ensure_managed_workspace_guard(
     Ok(())
 }
 
-pub fn run_with_machine_updates(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+/// Everything one interactive TUI run receives from the launcher.
+pub struct RunRequest {
+    pub session: Session,
+    pub session_label: String,
+    pub default_colors: cmux_tui_core::DefaultColors,
+    pub surface_only: Option<SurfaceId>,
+    pub owner_mux: Option<Arc<Mux>>,
+    pub machine_ui: Option<MachineUiState>,
+    pub machine_controller: Option<Box<dyn MachineController>>,
+    pub startup_config: crate::config::StartupConfigSnapshot,
+}
+
+pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
     let previous_panic_hook_for_threads = previous_panic_hook.clone();
@@ -8849,18 +8937,8 @@ pub fn run_with_machine_updates(
             previous_panic_hook_for_threads(info);
         }
     }));
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        run_with_machine_updates_inner(
-            session,
-            session_label,
-            default_colors,
-            surface_only,
-            owner_mux,
-            machine_ui,
-            machine_controller,
-            startup_config,
-        )
-    }));
+    let result =
+        std::panic::catch_unwind(AssertUnwindSafe(|| run_with_machine_updates_inner(request)));
     let _ = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
 
@@ -8875,16 +8953,17 @@ pub fn run_with_machine_updates(
     }
 }
 
-fn run_with_machine_updates_inner(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutcome> {
+    let RunRequest {
+        session,
+        session_label,
+        default_colors,
+        surface_only,
+        owner_mux,
+        machine_ui,
+        machine_controller,
+        startup_config,
+    } = request;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
     }
@@ -12560,6 +12639,8 @@ impl App {
         processed: GraphicIdentity,
         pending: GraphicIdentity,
     ) -> bool {
+        #[cfg(test)]
+        GRAPHICS_ROUTE_COMPARISONS.with(|count| count.set(count.get().saturating_add(1)));
         if !processed.same_pointer_layout(pending) {
             return false;
         }
@@ -12582,20 +12663,38 @@ impl App {
         previous: &[GraphicIdentity],
         next: &[GraphicIdentity],
     ) -> Option<Rect> {
-        previous
-            .iter()
-            .filter(|graphic| {
-                !next
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            })
-            .chain(next.iter().filter(|graphic| {
-                !previous
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            }))
-            .map(|graphic| graphic.rect)
-            .reduce(bounding_rect)
+        if previous.len().saturating_add(next.len()) <= GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT {
+            return previous
+                .iter()
+                .filter(|graphic| {
+                    !next
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                })
+                .chain(next.iter().filter(|graphic| {
+                    !previous
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                }))
+                .map(|graphic| graphic.rect)
+                .reduce(bounding_rect);
+        }
+        let previous_index = GraphicRouteIndex::build(self, previous);
+        let next_index = GraphicRouteIndex::build(self, next);
+        let mut changed = None;
+        for &graphic in previous {
+            if !previous_index.has_match(graphic, &next_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        for &graphic in next {
+            if !next_index.has_match(graphic, &previous_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        changed
     }
 
     fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
@@ -32202,6 +32301,39 @@ mod tests {
     }
 
     #[test]
+    fn graphics_changed_rect_bound_stays_within_linear_comparison_budget() {
+        let mux = Mux::new("graphics-diff-complexity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let count = 512usize;
+        let previous = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: index as SurfaceId,
+                rect: Rect { x: index as u16, y: 1, width: 1, height: 1 },
+                seq: index as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+        let next = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: (count + index) as SurfaceId,
+                rect: Rect { x: (count + index) as u16, y: 1, width: 1, height: 1 },
+                seq: (count + index) as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+
+        super::GRAPHICS_ROUTE_COMPARISONS.with(|comparisons| comparisons.set(0));
+        assert!(app.graphics_changed_rect_bound(&previous, &next).is_some());
+        let comparisons = super::GRAPHICS_ROUTE_COMPARISONS.with(std::cell::Cell::get);
+        assert!(
+            comparisons <= count.saturating_mul(8),
+            "graphics diff compared {comparisons} pairs for {count} entries"
+        );
+    }
+
+    #[test]
     fn ordinary_browser_repaint_does_not_change_pointer_geometry() {
         let mux = Mux::new("graphics-repaint-pointer-authority-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -34113,6 +34245,7 @@ mod tests {
         let mux = Mux::new("mux-forwarder-overflow-test", SurfaceOptions::default());
         let event_source = Session::Local(mux.clone());
         let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
         for surface in 0..5_000 {
             mux.emit(MuxEvent::Bell(surface));
         }
@@ -34125,6 +34258,7 @@ mod tests {
             forward_mux_events(
                 event_source,
                 session_events,
+                stop_receiver,
                 destination_generation,
                 forwarder_recovery_generation,
                 SessionEventSender::unscoped(tx),
@@ -34177,6 +34311,62 @@ mod tests {
             AppEvent::Mux(MuxEvent::Empty)
         ));
         drop(rx);
+        forwarder.join().unwrap();
+    }
+
+    #[test]
+    fn mux_forwarder_stop_wakes_after_overflow_replaces_mailbox() {
+        let mux = Mux::new("mux-forwarder-overflow-stop-test", SurfaceOptions::default());
+        let event_source = Session::Local(mux.clone());
+        let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
+        let stop_for_test = stop_receiver.clone();
+        for surface in 0..5_000 {
+            mux.emit(MuxEvent::Bell(surface));
+        }
+        let (tx, rx) = crossbeam_channel::bounded(8_192);
+        let titles = Arc::new(MuxTitleIngress::default());
+        let destination_generation = Arc::new(AtomicU64::new(0));
+        let recovery_generation = Arc::new(AtomicU64::new(0));
+        let cancellation = EventCancellation::new();
+        let forwarder_events = SessionEventSender {
+            tx,
+            generation: None,
+            surface_filter: None,
+            cancellation: cancellation.clone(),
+        };
+        let forwarder_recovery_generation = recovery_generation.clone();
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_events(
+                event_source,
+                session_events,
+                stop_receiver,
+                destination_generation,
+                forwarder_recovery_generation,
+                forwarder_events,
+                titles,
+            );
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut recovered = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(AppEvent::MuxRecoveryComplete { .. }) => {
+                    recovered = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert!(recovered, "overflow recovery must install a replacement mailbox");
+
+        // The forwarder is blocked on the replacement mailbox here. Closing
+        // the currently active receiver must wake it without timer polling.
+        cancellation.cancel();
+        stop_for_test.lock().unwrap().take().unwrap().close();
         forwarder.join().unwrap();
     }
 
@@ -37839,11 +38029,11 @@ mod tests {
             text: "expired".to_string(),
             deadline: Instant::now() - Duration::from_millis(1),
         });
-        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen = Arc::new(AtomicBool::new(false));
         let timeout_seen_in_hook = timeout_seen.clone();
         let (events, receiver) = crossbeam_channel::unbounded();
         app.timeout_drain_hook = Some(Box::new(move |app| {
-            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            timeout_seen_in_hook.store(true, Ordering::Relaxed);
             app.toast = Some(Toast {
                 text: "reintroduced".to_string(),
                 deadline: Instant::now() - Duration::from_millis(1),
@@ -37854,7 +38044,7 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(timeout_seen.load(Ordering::Relaxed));
         assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
@@ -43686,6 +43876,35 @@ mod tests {
     }
 
     #[test]
+    fn canceling_machine_controller_completion_send_unblocks_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let completed = super::send_machine_controller_completion(
+                &events,
+                super::MachineControllerCompletion::Updates(Err("cancelled".into())),
+                &worker_cancellation,
+            );
+            completed_tx.send(completed).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert!(!completed_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
@@ -43930,7 +44149,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
