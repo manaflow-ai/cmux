@@ -13,6 +13,10 @@ final class CloudTreeNode: NSObject {
     enum Kind: Equatable {
         /// A cloud machine: the fleet row (plan/free-access state) plus what the catalog knows.
         case machine(MachineSnapshot, SurfaceMachineInfo?)
+        /// A machine being created (or whose create failed): the row that stands
+        /// where the machine will appear, from the sheet's Create until the fleet
+        /// list returns it. Never expandable, never a drag source.
+        case pendingMachine(MachineCreateOperation)
         /// This Mac.
         case localMachine(CloudTreeLocalMachineRow)
         /// "Terminals" pool under a cloud machine: every terminal the machine owns, one
@@ -66,6 +70,7 @@ final class CloudTreeNode: NSObject {
     var structureTag: String {
         switch kind {
         case .machine: return "machine"
+        case .pendingMachine: return "pendingMachine"
         case .localMachine: return "localMachine"
         case .terminalsPool: return "terminalsPool"
         case .displaysPool: return "displaysPool"
@@ -97,6 +102,9 @@ final class CloudTreeNode: NSObject {
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
+        // No machine exists yet; the id keeps the row addressable (drag
+        // registries, debug logs) without colliding with a real machine.
+        case .pendingMachine(let operation): return .cloud("pending:\(operation.id.uuidString)")
         case .localMachine: return .local
         case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine):
             return machine
@@ -113,7 +121,7 @@ final class CloudTreeNode: NSObject {
 
     var isMachineRow: Bool {
         switch kind {
-        case .machine, .localMachine: return true
+        case .machine, .localMachine, .pendingMachine: return true
         default: return false
         }
     }
@@ -122,6 +130,7 @@ final class CloudTreeNode: NSObject {
     var searchableTitle: String {
         switch kind {
         case .machine(let machine, _): return machine.displayName
+        case .pendingMachine(let operation): return operation.request.displayName
         case .localMachine(let row): return row.name
         case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
         case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
@@ -162,7 +171,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _), .port(let resource): return resource
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
     }
@@ -240,6 +249,7 @@ enum CloudTreeNodeBuilder {
 
     static func nodes(
         machines: [MachineSnapshot],
+        pendingCreates: [MachineCreateOperation] = [],
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
@@ -247,6 +257,11 @@ enum CloudTreeNodeBuilder {
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
+        }
+        // Creates the person just started go first: they are what the person is
+        // waiting on, and a failed one must not hide below a long fleet.
+        for operation in pendingCreates {
+            nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
@@ -288,14 +303,16 @@ enum CloudTreeNodeBuilder {
     /// outline instead of the empty state.
     static func isEmpty(
         machines: [MachineSnapshot],
+        pendingCreates: [MachineCreateOperation] = [],
         snapshot: SurfaceCatalogSnapshot,
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> Bool {
-        guard machines.isEmpty else { return false }
+        guard machines.isEmpty, pendingCreates.isEmpty else { return false }
         return !snapshot.machines.contains { includeLocalMachine || !$0.id.isLocal }
     }
 
     static func nodeID(machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)" }
+    static func nodeID(pendingCreate id: UUID) -> String { "pending-machine:\(id.uuidString)" }
     static func nodeID(terminalsPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals" }
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
