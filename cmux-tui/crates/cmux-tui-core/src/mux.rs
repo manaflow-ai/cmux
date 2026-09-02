@@ -22746,6 +22746,106 @@ mod tests {
     }
 
     #[test]
+    fn startup_repairs_a_plugin_projection_lost_after_journal_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-plugin-reconcile-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "plugin-reconcile";
+        let terminal_id;
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let manifest = crate::JournalProducerManifest {
+                producer_id: "screen_test".into(),
+                namespace: "plugin.screen_test".into(),
+                manifest_version: 1,
+                max_sensitivity: crate::JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.screen_test".into()],
+                events: vec![crate::JournalEventSchema {
+                    kind: "plugin.screen_test.agent.state.changed".into(),
+                    schema_version: 1,
+                    class: crate::JournalClass::State,
+                    replay: crate::JournalReplayPolicy::Advisory,
+                    sensitivity: crate::JournalSensitivity::Metadata,
+                    payload_schema: serde_json::json!({"type":"object"}),
+                }],
+            };
+            mux.put_journal_producer(&manifest, "test", "plugin-reconcile-manifest").unwrap();
+            let ingress = crate::JournalIngress {
+                producer_id: "screen_test".into(),
+                manifest_version: 1,
+                kind: "plugin.screen_test.agent.state.changed".into(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: vec![crate::JournalSubject {
+                    kind: "terminal".into(),
+                    id: terminal_id.to_string(),
+                }],
+                sensitivity: None,
+                payload: serde_json::json!({
+                    "format": crate::journal_reducers::AGENT_PLUGIN_FORMAT,
+                    "plugin": {"id":"screen_test", "version":1},
+                    "adapter": {"id":"codex", "version":1},
+                    "event": "state.changed",
+                    "normalized": {
+                        "state":"working",
+                        "source_session":"pid:42",
+                        "observed_at_ms":"100"
+                    }
+                }),
+                causation_id: None,
+                correlation_id: None,
+            };
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            let commit = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&ingress, &validated, "test", "plugin-reconcile-event")
+                .unwrap();
+
+            // The journal transaction has committed. Fail only the following
+            // projection transaction to model a daemon crash in that window.
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+            mux.fold_agent_roster(&ingress, &commit);
+            assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+            mux.shutdown();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let repaired = reopened.list_agents(None, None);
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[0].state, AgentState::Working);
+        assert_eq!(repaired[0].source, AgentSource::Plugin);
+        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
+        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
+        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_agent_hook_projection_does_not_consume_sequence() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
