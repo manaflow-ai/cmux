@@ -22,17 +22,64 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
     let session: MarkdownRendererSession
+    let selectionEventCoordinator: SurfaceSelectionEventCoordinator
+    /// Whether this mounted renderer is the active selection source. The
+    /// renderer stays mounted in text mode for fast mode switches, but its
+    /// hidden DOM must not replace the native editor's source.
+    let selectionEventsEnabled: Bool
     let onRequestPanelFocus: () -> Void
     /// Called after the renderer view is attached to a window. A panel can
     /// request focus before SwiftUI mounts its WebKit view, so the panel uses
     /// this lifecycle signal to complete that request without polling.
     var onViewAttachedToWindow: () -> Void = {}
 
+    /// Creates a renderer with the panel's selection-event coordinator.
+    ///
+    /// The optional parameter preserves the lightweight construction used by
+    /// renderer-only tests; mounted panels always pass their owned coordinator.
+    @MainActor
+    init(
+        markdown: String,
+        theme: MarkdownWebTheme,
+        backgroundColor: NSColor,
+        isVisibleInUI: Bool,
+        panelId: UUID,
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        session: MarkdownRendererSession,
+        selectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil,
+        selectionEventsEnabled: Bool = true,
+        onRequestPanelFocus: @escaping () -> Void,
+        onViewAttachedToWindow: @escaping () -> Void = {}
+    ) {
+        self.markdown = markdown
+        self.theme = theme
+        self.backgroundColor = backgroundColor
+        self.isVisibleInUI = isVisibleInUI
+        self.panelId = panelId
+        self.workspaceId = workspaceId
+        self.filePath = filePath
+        self.fontSize = fontSize
+        self.fontFamily = fontFamily
+        self.maxContentWidth = maxContentWidth
+        self.session = session
+        self.selectionEventCoordinator = selectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
+        self.selectionEventsEnabled = selectionEventsEnabled
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self.onViewAttachedToWindow = onViewAttachedToWindow
+    }
+
     func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        let coordinator = session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        coordinator.selectionEventCoordinator = selectionEventCoordinator
+        return coordinator
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        context.coordinator.selectionEventCoordinator = selectionEventCoordinator
         if let webView = context.coordinator.webView {
             if webView.superview != nil {
                 webView.removeFromSuperview()
@@ -53,6 +100,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            updateSelectionEventRegistration(for: webView, coordinator: context.coordinator)
             return webView
         }
 
@@ -96,6 +144,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
+        updateSelectionEventRegistration(for: webView, coordinator: context.coordinator)
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
@@ -107,6 +156,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        context.coordinator.selectionEventCoordinator = selectionEventCoordinator
+        updateSelectionEventRegistration(for: nsView, coordinator: context.coordinator)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
@@ -121,6 +172,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if let retainedWebView = coordinator.webView, retainedWebView === nsView {
             return
         }
+        coordinator.selectionEventCoordinator?.webBridgeRegistry.detach(webView: nsView)
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
@@ -129,6 +181,27 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
+    }
+
+    /// Attaches the bridge only for the active preview mode. This method is
+    /// called from all representable lifecycle paths because SwiftUI may reuse
+    /// a mounted `WKWebView` without calling `makeNSView` again.
+    @MainActor
+    private func updateSelectionEventRegistration(
+        for webView: WKWebView,
+        coordinator: Coordinator
+    ) {
+        if selectionEventsEnabled {
+            selectionEventCoordinator.webBridgeRegistry.attach(
+                webView: webView,
+                surfaceId: panelId,
+                workspaceIdProvider: { [weak coordinator] in coordinator?.workspaceId },
+                kind: PanelType.markdown.rawValue,
+                filePath: filePath
+            )
+        } else {
+            selectionEventCoordinator.webBridgeRegistry.detach(webView: webView)
+        }
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -151,6 +224,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        var selectionEventCoordinator: SurfaceSelectionEventCoordinator?
         /// Fired after each successful markdown render push (initial shell
         /// load included). Re-rendering replaces the content DOM, so an active
         /// find-in-page search must re-run to restore its highlights.

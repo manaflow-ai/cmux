@@ -331,6 +331,7 @@ extension DockSplitStore {
             installSubscription(for: panel)
             return nil
         }
+        (panel as? any SurfaceSelectionEventOwner)?.detachSurfaceSelectionEvents()
         if let terminalPanel = panel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalDidLeaveDock(
@@ -404,6 +405,8 @@ extension DockSplitStore {
             deferredBrowser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {
             filePreview.updateWorkspaceId(workspaceId)
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.updateWorkspaceId(workspaceId)
         }
     }
 
@@ -598,6 +601,7 @@ extension DockSplitStore {
         focus: Bool,
         reconcileReason: String
     ) {
+        (panel as? any SurfaceSelectionEventOwner)?.reattachSurfaceSelectionEvents()
         installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)

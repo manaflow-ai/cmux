@@ -1247,10 +1247,11 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel, SurfaceSelectionEventOwner {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
+    let surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator
     let filePath: String
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
@@ -1305,11 +1306,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         },
         modeResolver: @escaping @Sendable (URL) async -> FilePreviewMode = { url in
             await FilePreviewKindResolver.resolveMode(url: url)
-        }
+        },
+        surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.surfaceSelectionEventCoordinator = surfaceSelectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1339,6 +1342,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        detachSurfaceSelectionEvents()
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
@@ -1347,6 +1351,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
+    }
+
+    func reattachSurfaceSelectionEvents() {
+        if let textView {
+            attachTextView(textView)
+        }
     }
 
     /// Retargets container-scoped identity after a live panel transfer.

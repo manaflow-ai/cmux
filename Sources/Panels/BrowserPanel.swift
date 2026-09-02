@@ -1881,7 +1881,7 @@ final class BrowserSearchState: ObservableObject {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject {
+final class BrowserPanel: Panel, ObservableObject, SurfaceSelectionEventOwner {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -1983,6 +1983,7 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
+    let surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -3077,6 +3078,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
+        if self.webView === webView {
+            reattachSurfaceSelectionEvents()
+        }
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
@@ -3430,12 +3434,14 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
-        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
+        surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = id
+        self.surfaceSelectionEventCoordinator = surfaceSelectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
@@ -4178,6 +4184,15 @@ final class BrowserPanel: Panel, ObservableObject {
         resumePendingRemoteNavigationIfNeeded()
     }
 
+    func reattachSurfaceSelectionEvents() {
+        surfaceSelectionEventCoordinator.webBridgeRegistry.attach(
+            webView: webView,
+            surfaceId: id,
+            workspaceIdProvider: { [weak self] in self?.workspaceId },
+            kind: panelType.rawValue
+        )
+    }
+
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
         guard !preservesExplicitEphemeralWebsiteDataStore else {
@@ -4471,6 +4486,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
     /// from the fresh web view.
     private func detachWebViewObservers() {
+        surfaceSelectionEventCoordinator.webBridgeRegistry.detach(webView: webView)
         webViewObservers.removeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSameDocumentNavigationMessageHandler.name,
@@ -4978,6 +4994,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        detachSurfaceSelectionEvents()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         trustedLocalFileURL = nil

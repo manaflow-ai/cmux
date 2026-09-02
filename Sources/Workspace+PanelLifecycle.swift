@@ -437,6 +437,8 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        let selectionOwner = (panel ?? panels[panelId]) as? any SurfaceSelectionEventOwner
+        selectionOwner?.detachSurfaceSelectionEvents()
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }

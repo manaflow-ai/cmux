@@ -207,6 +207,12 @@ Options:
 | `--no-ack` | Hide the initial ack frame. |
 | `--no-heartbeat` | Hide heartbeat frames. |
 
+Selection changes are opt-in: subscribe with `--name
+surface.selection_changed` (or include that exact name in `events.stream.names`).
+An unfiltered stream and category-only `surface` stream never receive this
+topic, and selection text is not retained or written to the event log until an
+exact-name subscriber exists.
+
 ## Event catalog
 
 Window:
@@ -275,6 +281,7 @@ Surface and pane:
 | --- | --- |
 | `surface.created` | Terminal, browser, markdown, or file preview surface created in a pane. |
 | `surface.selected` | Selected surface changed inside a pane. Fires for horizontal tab selection and programmatic selection convergence. |
+| `surface.selection_changed` | Debounced content selection changed in a terminal, native text surface, browser, or Markdown preview. Requires an exact-name opt-in. |
 | `surface.focused` | Focused surface changed for a workspace. This is the surface that should receive keyboard/input commands. |
 | `surface.closed` | Surface closed. |
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
@@ -294,6 +301,12 @@ Surface and pane:
 Workspace selection payloads include `previous_workspace_id`, `index`, and
 `tab_count`. Surface selection payloads include `previous_surface_id`, `pane_id`,
 `kind`, and `focused`. Pane focus payloads include `selected_surface_id`.
+
+`surface.selection_changed` payloads use the `surface.read_selection` shape:
+`has_selection`, `kind`, `text`, optional `file_path`, `line_range`, and `url`,
+plus workspace/surface/window IDs and refs. The publisher coalesces changes
+per surface and detaches its source when the owning panel or WebView is closed
+or replaced.
 
 Sidebar metadata:
 
@@ -378,6 +391,12 @@ text fields, and large agent-hook fields redact local text and include only
 length metadata. Feed and agent-hook events keep operational identifiers such as
 hook name, tool name, request id, phase, and decision result so local consumers
 can correlate events without receiving prompt/tool payloads by default.
+
+Selection text is different: it is delivered only to an exact-name
+`surface.selection_changed` subscriber and is absent from default/category
+streams and the durable event log otherwise. Browser password selections and
+cross-origin iframe selections are suppressed; same-origin frame selections
+remain within the owning browser surface.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.

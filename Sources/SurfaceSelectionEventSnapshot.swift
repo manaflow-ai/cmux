@@ -1,0 +1,3 @@
+import CmuxSurfaceSelection
+
+typealias SurfaceSelectionEventSnapshot = CmuxSurfaceSelection.SurfaceSelectionEventSnapshot

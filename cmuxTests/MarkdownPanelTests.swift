@@ -267,6 +267,41 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertNotNil(panel.searchState)
     }
 
+    func testMarkdownSelectionSourceFollowsActiveDisplayMode() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-selection-mode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Selection source".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let coordinator = SurfaceSelectionEventCoordinator(
+            bus: CmuxEventBus(retainedEventLimit: 4),
+            debounceNanoseconds: 1_000_000
+        )
+        let panel = MarkdownPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            surfaceSelectionEventCoordinator: coordinator
+        )
+        defer { panel.close() }
+
+        let textView = NSTextView(frame: .zero)
+        panel.setDisplayMode(.text)
+        panel.attachTextView(textView)
+        XCTAssertTrue(coordinator.publisher.hasRegistration(for: panel.id))
+
+        // The renderer remains mounted while switching modes, but its hidden
+        // WebKit source must not replace the native editor source.
+        panel.setDisplayMode(.preview)
+        XCTAssertFalse(coordinator.publisher.hasRegistration(for: panel.id))
+
+        panel.setDisplayMode(.text)
+        panel.attachTextView(textView)
+        panel.reattachSurfaceSelectionEvents()
+        XCTAssertTrue(coordinator.publisher.hasRegistration(for: panel.id))
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
