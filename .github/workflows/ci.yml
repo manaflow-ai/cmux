@@ -1709,7 +1709,10 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            # CmuxFoundation has several process-tree suites whose child
+            # fixtures share global process resources; run each suite in its
+            # own Swift Testing process just like the auth/transport suites.
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
