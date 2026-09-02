@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
+use crate::resource::TerminalPublicId;
 use crate::workspace_registry::SessionJournalRecord;
 use crate::{AgentSource, AgentState, JournalSubject};
 
@@ -284,7 +285,7 @@ impl AgentRoster {
         // reducer silently reinterpret persisted data, and a done entry can
         // never be produced by `apply` because done removes the row.
         if roster.entries.iter().any(|(terminal_id, entry)| {
-            terminal_id.is_empty()
+            TerminalPublicId::parse(terminal_id).is_err()
                 || agent_state_from_str(&entry.state).is_none()
                 || entry.state == AgentState::Done.as_str()
                 || agent_source_from_str(&entry.source).is_none()
