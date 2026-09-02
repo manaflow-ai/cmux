@@ -68,6 +68,20 @@ if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == partial ]]; then
   exit 1
 fi
 
+if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == arg-limit ]]; then
+  lsof_target_count=0
+  for argument in "$@"; do
+    if [[ "$argument" == /*/cmux-tui ]]; then
+      lsof_target_count=$((lsof_target_count + 1))
+    fi
+  done
+  if (( lsof_target_count > 128 )); then
+    echo 'simulated lsof argument limit' >&2
+    exit 2
+  fi
+  exit 1
+fi
+
 [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == active ]] || exit 1
 active_match=0
 for argument in "$@"; do
@@ -406,6 +420,19 @@ assert_exists .retention-preview
 }
 assert_missing .retention.lock
 
+# A dry run must not recover stale quarantine entries or otherwise mutate the
+# artifact tree. Recovery is reserved for destructive execution.
+make_baseline
+quarantine_root="$test_root/.retention-quarantine.test"
+mkdir "$quarantine_root"
+mv "$test_root/$old_commit" "$quarantine_root/$old_commit"
+set_old_mtime "$quarantine_root"
+printf '.retention-quarantine.test\t100\n' >> "$tmp/stat-map"
+expect_success
+assert_exists ".retention-quarantine.test/$old_commit"
+assert_missing "$old_commit"
+assert_missing .retention.lock
+
 # A process can start using an artifact after the initial batch lsof check.
 # The cleanup must quarantine the directory and recheck the quarantined binary
 # before deleting it, then restore an artifact that became active.
@@ -557,6 +584,25 @@ make_baseline
 test_max_candidates=3
 expect_failure 2
 assert_exists "$old_commit"
+
+# lsof receives bounded batches. A single invocation over 128 targets must
+# fail, while cleanup with 130 candidates succeeds through multiple batches.
+make_baseline
+batch_index=1
+while (( batch_index <= 130 )); do
+  batch_commit="$(printf '%040x' "$((batch_index + 1000))")"
+  make_artifact "$batch_commit"
+  printf '%s\t%s\n' "$batch_commit" "$((1000 - batch_index))" >> "$tmp/stat-map"
+  batch_index=$((batch_index + 1))
+done
+test_count=1
+test_dry_run=1
+expect_success
+test_dry_run=0
+test_confirm=1
+test_lsof_mode=arg-limit
+expect_success
+assert_missing "$old_commit"
 
 # Exercise both documented stat interfaces. The GNU form must be tried first
 # on GNU systems, while the BSD form remains a valid fallback on macOS.
