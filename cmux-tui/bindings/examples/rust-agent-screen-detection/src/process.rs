@@ -1899,6 +1899,28 @@ mod tests {
     }
 
     #[test]
+    fn attached_option_values_preserve_the_following_script() {
+        for (name, argv, expected) in [
+            (
+                "python3.12",
+                vec!["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
+                "codex",
+            ),
+            ("bash", vec!["bash", "--rcfile=/tmp/config", "/tmp/claude"], "claude"),
+            ("bash", vec!["bash", "--init-file=/tmp/config", "/tmp/pi"], "pi"),
+            ("fish", vec!["fish", "--debug=3", "/tmp/codex"], "codex"),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 10, processes: vec![process(10, name, &argv)] };
+            assert_eq!(
+                identify_job(ManifestSet::bundled(), &job).map(|(manifest, _)| manifest.id()),
+                Some(expected),
+                "attached option value must not hide the script: {argv:?}",
+            );
+        }
+    }
+
+    #[test]
     fn python_boolean_site_flag_preserves_script_and_eval_boundaries() {
         let script = ForegroundJob {
             process_group_id: 7,
