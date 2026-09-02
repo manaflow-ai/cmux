@@ -759,13 +759,14 @@ mod detach {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut command = Command::new(exe)
+        let mut command = Command::new(exe);
+        command
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+            .stderr(Stdio::null());
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
         let (sender, receiver) = mpsc::sync_channel(1);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
