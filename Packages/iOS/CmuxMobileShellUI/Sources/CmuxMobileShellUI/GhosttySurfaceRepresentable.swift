@@ -316,6 +316,28 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// (previews, isolated harnesses). Lazy so production mounts, which
         /// receive the composition root's tracker, never build one.
         lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
+        /// Last presentation value SwiftUI delivered through `updateUIView`.
+        /// Kept separate from the effective flag so the application lifecycle
+        /// can suspend the consumer without a scene update having to run, and
+        /// so returning to the foreground restores exactly what SwiftUI asked
+        /// for rather than an unconditional "active".
+        private var desiredPresentationIsActive: Bool
+        /// Driven by the UIApplication lifecycle notifications below. The
+        /// mounted output consumer pumps every chunk on the main actor; its
+        /// only shutdown path used to be the SwiftUI `scenePhase` prop, which
+        /// arrives *as* a scene update. Backgrounding a chatty terminal then
+        /// had to win a race against the main actor the consumer was
+        /// saturating, and losing it is a `0x8BADF00D` scene-update watchdog
+        /// kill. The render side already suspends on these notifications
+        /// (`GhosttySurfaceView`); the consumer must do the same.
+        ///
+        /// Seeded from the live application state rather than `false`, and
+        /// folded into the effective flag before `init` returns: adding the
+        /// observers does not replay the notifications that already fired, so
+        /// a coordinator built while the app is inactive would otherwise
+        /// attach and start its consumer straight back into the watchdog path.
+        /// Injected so that seed is testable without driving `UIApplication`.
+        private var applicationIsBackgrounded: Bool
 
         init(
             workspaceID: String,
@@ -334,12 +356,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
             artifactChipHideClock: any Clock<Duration> = ContinuousClock(),
             outputConsumerRestartClock: any Clock<Duration> = ContinuousClock(),
-            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock()
+            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock(),
+            applicationIsBackgrounded: Bool = UIApplication.shared.applicationState != .active
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
             self.terminalPresentationIsActive = terminalPresentationIsActive
+            self.desiredPresentationIsActive = terminalPresentationIsActive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
@@ -357,7 +381,61 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.artifactChipHideClock = artifactChipHideClock
             self.outputConsumerRestartClock = outputConsumerRestartClock
             self.outputConsumerRecoveryClock = outputConsumerRecoveryClock
+            self.applicationIsBackgrounded = applicationIsBackgrounded
             super.init()
+            observeApplicationLifecycle()
+            // Fold the seed in now. `attach(surfaceView:)` guards on the
+            // effective flag, so leaving it stale until the first notification
+            // or scene update would let a coordinator built in the background
+            // mount a consumer immediately.
+            applyPresentationState()
+        }
+
+        /// Suspend the output consumer on `willResignActive` (which fires
+        /// before `didEnterBackground`, while the scene update that would
+        /// otherwise carry the SwiftUI prop is still cheap to run), with
+        /// `didEnterBackground` as an idempotent backstop. This mirrors the
+        /// render-side suspension in `GhosttySurfaceView` so both halves of a
+        /// terminal stop on the same signal instead of one of them waiting on
+        /// SwiftUI.
+        private func observeApplicationLifecycle() {
+            let center = NotificationCenter.default
+            center.addObserver(
+                self,
+                selector: #selector(handleAppWillResignActive),
+                name: UIApplication.willResignActiveNotification,
+                object: nil
+            )
+            center.addObserver(
+                self,
+                selector: #selector(handleAppDidEnterBackground),
+                name: UIApplication.didEnterBackgroundNotification,
+                object: nil
+            )
+            center.addObserver(
+                self,
+                selector: #selector(handleAppDidBecomeActive),
+                name: UIApplication.didBecomeActiveNotification,
+                object: nil
+            )
+        }
+
+        @objc private func handleAppWillResignActive() {
+            setApplicationBackgrounded(true)
+        }
+
+        @objc private func handleAppDidEnterBackground() {
+            setApplicationBackgrounded(true)
+        }
+
+        @objc private func handleAppDidBecomeActive() {
+            setApplicationBackgrounded(false)
+        }
+
+        private func setApplicationBackgrounded(_ isBackgrounded: Bool) {
+            guard applicationIsBackgrounded != isBackgrounded else { return }
+            applicationIsBackgrounded = isBackgrounded
+            applyPresentationState()
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
@@ -964,6 +1042,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func setTerminalPresentationActive(_ isActive: Bool) {
+            guard desiredPresentationIsActive != isActive else { return }
+            desiredPresentationIsActive = isActive
+            applyPresentationState()
+        }
+
+        /// A backgrounded application never presents a terminal, so the
+        /// lifecycle wins over whatever SwiftUI last asked for. Folding both
+        /// inputs here keeps one mutation path: the notification handlers and
+        /// `updateUIView` cannot disagree about whether the consumer runs.
+        private func applyPresentationState() {
+            let isActive = desiredPresentationIsActive && !applicationIsBackgrounded
             guard terminalPresentationIsActive != isActive else { return }
             terminalPresentationIsActive = isActive
             guard let surfaceView else { return }
