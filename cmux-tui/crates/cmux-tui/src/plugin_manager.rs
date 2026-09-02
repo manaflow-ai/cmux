@@ -1897,6 +1897,13 @@ mod tests {
         let by_command = SelectedPluginConfig { command: Some(command), ..Default::default() };
         assert!(plugin_is_selected(Some(&by_command), "other", &manifest, &dir));
 
+        let by_relative_command = SelectedPluginConfig {
+            command: Some(vec!["bin/sidebar".into()]),
+            cwd: Some(dir.clone()),
+            ..Default::default()
+        };
+        assert!(plugin_is_selected(Some(&by_relative_command), "other", &manifest, &dir));
+
         let sibling_command = SelectedPluginConfig {
             command: Some(vec![dir.join("bin/other").display().to_string()]),
             ..Default::default()
