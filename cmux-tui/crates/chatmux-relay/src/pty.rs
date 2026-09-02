@@ -3359,7 +3359,7 @@ mod tests {
         context
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn exit_publication_retains_closing_id_until_frame_is_sent() {
         let h = harness(None, None);
         let entered = TestArc::new(Barrier::new(2));

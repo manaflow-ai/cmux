@@ -1387,6 +1387,14 @@ mod tests {
     }
 
     #[test]
+    fn child_lifecycle_reserves_termination_and_force_kill_together() {
+        let lifecycle = ChildLifecycle::new();
+        assert!(lifecycle.begin_termination_and_force_kill());
+        assert!(!lifecycle.begin_termination());
+        assert!(!lifecycle.begin_force_kill());
+    }
+
+    #[test]
     fn pipe_control_drop_requests_kill_for_owned_child() {
         let (command_tx, command_rx) = mpsc::channel();
         {
