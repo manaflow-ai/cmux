@@ -1,5 +1,6 @@
 //! Two in-process WireGuard peers over loopback UDP: no root, no interface.
 
+use std::future::Future;
 use std::net::SocketAddr;
 use std::time::Duration;
 
