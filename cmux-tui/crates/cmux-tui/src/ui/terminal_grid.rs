@@ -442,7 +442,7 @@ fn renderable_cell_text(text: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ghostty_vt::{Callbacks, CursorInfo, CursorShape, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, CursorShape, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
 
