@@ -520,6 +520,16 @@ impl ChildLifecycle {
         state.force_kill_started = true;
         true
     }
+
+    fn begin_termination_and_force_kill(&self) -> bool {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.exited || state.termination_started || state.force_kill_started {
+            return false;
+        }
+        state.termination_started = true;
+        state.force_kill_started = true;
+        true
+    }
 }
 
 fn force_kill_process_group(pid: libc::pid_t) {
@@ -556,25 +566,25 @@ impl Drop for MasterControl {
         // A cancelled spawn_blocking task can finish after its JoinHandle has
         // been aborted. Terminate only while the wait thread still owns a
         // live child, and never after it has observed exit with WNOWAIT.
-        if self.lifecycle.begin_termination()
-            && let Ok(mut killer) = self.killer.lock()
-        {
-            let _ = killer.kill();
-        }
-        if self.lifecycle.begin_force_kill() {
+        if self.lifecycle.begin_termination_and_force_kill() {
+            if let Ok(mut killer) = self.killer.lock() {
+                let _ = killer.kill();
+            }
             force_kill_process_group(self.process_group);
         }
     }
 }
 
 impl PtyControl for MasterControl {
-    fn write(&self, data: &[u8]) {
+    fn write(&self, data: &[u8]) -> bool {
         if !reserve_write_bytes(&self.writer_bytes, data.len()) {
-            return;
+            return false;
         }
         if self.writer_tx.try_send(data.to_vec()).is_err() {
             self.writer_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+            return false;
         }
+        true
     }
     fn resize(&self, cols: u16, rows: u16) {
         if let Ok(master) = self.master.lock() {
@@ -584,12 +594,10 @@ impl PtyControl for MasterControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        if self.lifecycle.begin_termination()
-            && let Ok(mut killer) = self.killer.lock()
-        {
-            let _ = killer.kill();
-        }
-        if self.lifecycle.begin_force_kill() {
+        if self.lifecycle.begin_termination_and_force_kill() {
+            if let Ok(mut killer) = self.killer.lock() {
+                let _ = killer.kill();
+            }
             force_kill_process_group(self.process_group);
         }
     }
@@ -617,14 +625,18 @@ struct PipeControl {
 }
 
 impl PtyControl for PipeControl {
-    fn write(&self, data: &[u8]) {
+    fn write(&self, data: &[u8]) -> bool {
         if let Some(stdin_tx) = &self.stdin_tx {
-            if reserve_write_bytes(&self.stdin_bytes, data.len())
-                && stdin_tx.try_send(data.to_vec()).is_err()
-            {
-                self.stdin_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+            if !reserve_write_bytes(&self.stdin_bytes, data.len()) {
+                return false;
             }
+            if stdin_tx.try_send(data.to_vec()).is_err() {
+                self.stdin_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+                return false;
+            }
+            return true;
         }
+        false
     }
     fn resize(&self, _cols: u16, _rows: u16) {}
     fn pause(&self) {}
@@ -910,7 +922,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: impl std::fmt::Display) -> PtyHandl
 
 struct DeadControl;
 impl PtyControl for DeadControl {
-    fn write(&self, _data: &[u8]) {}
+    fn write(&self, _data: &[u8]) -> bool {
+        true
+    }
     fn resize(&self, _cols: u16, _rows: u16) {}
     fn pause(&self) {}
     fn resume(&self) {}
@@ -1225,7 +1239,9 @@ mod tests {
     }
 
     impl PtyControl for TestControl {
-        fn write(&self, _data: &[u8]) {}
+        fn write(&self, _data: &[u8]) -> bool {
+            true
+        }
         fn resize(&self, _cols: u16, _rows: u16) {}
         fn pause(&self) {}
         fn resume(&self) {}

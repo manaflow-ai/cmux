@@ -198,7 +198,7 @@ fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static st
 /// semantics vary by mode: viewer PTYs detach, shell proxies release a
 /// viewer, control handles close the stream.
 pub trait PtyControl: Send + Sync {
-    fn write(&self, data: &[u8]);
+    fn write(&self, data: &[u8]) -> bool;
     fn resize(&self, cols: u16, rows: u16);
     fn pause(&self);
     fn resume(&self);
@@ -460,9 +460,20 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
-                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
-                        control.write(&data);
-                    });
+                    let accepted =
+                        self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                            control.write(&data)
+                        });
+                    if accepted == Some(false) {
+                        self.inner.emit_error_for_generation(
+                            context,
+                            pty_id,
+                            attachment.generation,
+                            &attachment.publication_gate,
+                            "input_overflow",
+                            "terminal input queue is full; retry input",
+                        );
+                    }
                 }
             }
             "pty_resize" => {
@@ -476,7 +487,7 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
-                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                    let _ = self.inner.with_live_attachment(pty_id, &attachment, |control| {
                         control.resize(cols, rows);
                     });
                 }
@@ -488,7 +499,7 @@ impl PtyManager {
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
-                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                    let _ = self.inner.with_live_attachment(pty_id, &attachment, |control| {
                         if pause {
                             control.pause();
                         } else {
@@ -1113,24 +1124,24 @@ impl Inner {
         self.authorize_snapshot_for_generation(pty_id, auth, context, action, 0)
     }
 
-    fn with_live_attachment(
+    fn with_live_attachment<R>(
         &self,
         pty_id: &str,
         attachment: &Attachment,
-        operation: impl FnOnce(&dyn PtyControl),
-    ) {
+        operation: impl FnOnce(&dyn PtyControl) -> R,
+    ) -> Option<R> {
         let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
         {
             let attachments = self.attachments.lock().expect("attach lock");
-            let Some(current) = attachments.get(pty_id) else { return };
+            let Some(current) = attachments.get(pty_id) else { return None };
             if current.generation != attachment.generation
                 || !Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
                 || current.closing.load(Ordering::SeqCst)
             {
-                return;
+                return None;
             }
         }
-        operation(attachment.control.as_ref());
+        Some(operation(attachment.control.as_ref()))
     }
 
     fn authorize_snapshot_for_generation(
@@ -1623,8 +1634,8 @@ impl ShellViewerControl {
 }
 
 impl PtyControl for ShellViewerControl {
-    fn write(&self, data: &[u8]) {
-        self.session.control.write(data);
+    fn write(&self, data: &[u8]) -> bool {
+        self.session.control.write(data)
     }
     fn resize(&self, cols: u16, rows: u16) {
         self.session.control.resize(cols, rows);
@@ -1808,9 +1819,10 @@ struct ControlTerminalControl {
 }
 
 impl PtyControl for ControlTerminalControl {
-    fn write(&self, data: &[u8]) {
+    fn write(&self, data: &[u8]) -> bool {
         self.control
             .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
+        true
     }
     fn resize(&self, cols: u16, rows: u16) {
         self.control.send(
@@ -2425,7 +2437,7 @@ mod tests {
     }
 
     impl PtyControl for FakePty {
-        fn write(&self, data: &[u8]) {
+        fn write(&self, data: &[u8]) -> bool {
             let (entered, release) = {
                 let state = self.state.lock().unwrap();
                 (state.write_entered.clone(), state.write_release.clone())
@@ -2437,6 +2449,7 @@ mod tests {
                 release.wait();
             }
             self.state.lock().unwrap().written.push(data.to_vec());
+            true
         }
         fn resize(&self, cols: u16, rows: u16) {
             self.state.lock().unwrap().resized.push((cols, rows));
