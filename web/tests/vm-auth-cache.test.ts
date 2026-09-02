@@ -166,6 +166,22 @@ describe("Stack Auth throttle circuit", () => {
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 
+  test("requests rejected by the open circuit do not extend it", async () => {
+    setSystemTime(BASE + 30_000);
+    failStackOnce(new AggregateError([
+      new Error("Rate limited, no retry-after header received"),
+    ]));
+    await expect(verifyRequest(nativeRequest("extend-1"))).rejects.toThrow(/rate limited/i);
+
+    setSystemTime(BASE + 30_000 + 9_000);
+    await expect(verifyRequest(nativeRequest("extend-2"))).rejects.toThrow(/rate limited/i);
+
+    setSystemTime(BASE + 30_000 + 10_001);
+    const user = await verifyRequest(nativeRequest("extend-3"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
   test("a non-throttle Stack failure does not open the circuit", async () => {
     setSystemTime(BASE + 60_000);
     failStackOnce(new Error("Stack Auth unreachable"));
