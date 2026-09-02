@@ -445,7 +445,8 @@ struct ShellInner {
 /// A reentrant publication gate for one attachment generation. The gate
 /// serializes route publication and control operations across threads while
 /// allowing an outbound/control callback to synchronously re-enter the same
-/// route (for example, a test sink that closes the PTY).
+/// route (for example, a test sink that closes the PTY). A callback must not
+/// synchronously wait for another thread that needs this same gate.
 struct RouteGate {
     state: Mutex<RouteGateState>,
     changed: Condvar,
