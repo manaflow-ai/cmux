@@ -69,14 +69,17 @@ if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == partial ]]; then
 fi
 
 [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == active ]] || exit 1
+active_match=0
 for argument in "$@"; do
   if [[ "$argument" == /*/cmux-tui ]]; then
     if [[ "${argument##*/}" == cmux-tui && "$argument" == *"/${CMUX_TEST_ACTIVE_COMMIT:-}"/* ]]; then
       printf 'n%s\n' "$argument"
+      active_match=1
     fi
   fi
 done
-exit 0
+(( active_match )) && exit 0
+exit 1
 EOF
 chmod 0755 "$fake_lsof"
 
@@ -146,10 +149,10 @@ write_stat_map() {
 set_old_mtime() {
   local path="$1"
   local old_timestamp
-  if old_timestamp="$(date -v-25H +%m%d%H%M%Y 2>/dev/null)"; then
+  if old_timestamp="$(date -v-25H +%Y%m%d%H%M 2>/dev/null)"; then
     :
   else
-    old_timestamp="$(date -d '25 hours ago' +%m%d%H%M%Y)"
+    old_timestamp="$(date -d '25 hours ago' +%Y%m%d%H%M)"
   fi
   touch -t "$old_timestamp" "$path"
 }
@@ -433,6 +436,7 @@ make_baseline
 expect_success
 mkdir "$test_root/.retention.lock"
 set_old_mtime "$test_root/.retention.lock"
+printf '.retention.lock\t100\n' >> "$tmp/stat-map"
 test_dry_run=0
 test_confirm=1
 expect_success
@@ -446,6 +450,7 @@ expect_success
 mkdir "$test_root/.retention.lock"
 printf 'malformed\n' > "$test_root/.retention.lock/owner"
 set_old_mtime "$test_root/.retention.lock"
+printf '.retention.lock\t100\n' >> "$tmp/stat-map"
 test_dry_run=0
 test_confirm=1
 expect_success
