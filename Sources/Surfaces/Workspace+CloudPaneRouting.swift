@@ -250,6 +250,27 @@ enum CloudWorkspaceRenameWriteThrough {
         return name.isEmpty ? nil : name
     }
 
+    /// Resolves the daemon tab represented by one local projection. An explicit
+    /// tab id is authoritative. A legacy projection may infer a tab only when
+    /// its workspace id agrees with the resource's sole current view. A stale
+    /// workspace id must fail closed, because choosing the sole view anyway can
+    /// rename a different remote placement.
+    static func remoteTabID(for projection: SurfaceProjection?, resource: SurfaceResource) -> String? {
+        if let explicit = projection?.remoteTabID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        guard let views = resource.remoteViews, views.count == 1,
+              let view = views.first,
+              !view.tabID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if let projectedWorkspace = projection?.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !projectedWorkspace.isEmpty,
+           projectedWorkspace != view.workspace.id {
+            return nil
+        }
+        return view.tabID
+    }
+
     /// Enqueues a local workspace rename. Requests for one workspace run in order; a
     /// failed request rolls the local title back only when no newer edit replaced it.
     @MainActor
@@ -327,8 +348,7 @@ enum CloudWorkspaceRenameWriteThrough {
         // A daemon name belongs to one tab placement. A persisted projection id is
         // authoritative. Legacy sessions may infer a target only when there is one
         // view, because choosing among several views would rename the wrong tab.
-        let tabID = projection?.remoteTabID
-            ?? (resource.remoteViews?.count == 1 ? resource.remoteViews?.first?.tabID : nil)
+        let tabID = remoteTabID(for: projection, resource: resource)
         guard let tabID, !tabID.isEmpty else {
             #if DEBUG
             cmuxDebugLog("cloud.rename.terminal.ambiguous panel=\(panelID) resource=\(resource.id.rawValue)")
@@ -421,14 +441,7 @@ enum CloudWorkspaceRenameWriteThrough {
                   resource.kind == .terminal
             else { continue }
 
-            let tabID: String?
-            if let exact = projection.remoteTabID {
-                tabID = exact
-            } else if resource.remoteViews?.count == 1 {
-                tabID = resource.remoteViews?.first?.tabID
-            } else {
-                tabID = nil
-            }
+            let tabID = remoteTabID(for: projection, resource: resource)
             guard let tabID, let tab = tabsByID[tabID] else { continue }
             let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
