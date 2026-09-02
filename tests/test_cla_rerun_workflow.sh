@@ -38,7 +38,16 @@ grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq "COMMENT_ID: \${{ github.event.comment.id }}" "$WORKFLOW"
-grep -Fq '      - .github/scripts/rerun-failed-cla.sh' "$ROOT_DIR/.github/workflows/ci.yml"
+grep -Fq 'types: [opened, reopened, synchronize, ready_for_review]' "$ROOT_DIR/.github/workflows/ci.yml"
+if awk '
+  /^  pull_request:[[:space:]]*$/ { in_pull_request=1; next }
+  in_pull_request && /^  [^[:space:]]/ { in_pull_request=0 }
+  in_pull_request && /^[[:space:]]+paths:/ { found=1 }
+  END { exit found ? 0 : 1 }
+' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo 'CI pull_request trigger must not use a path filter' >&2
+  exit 1
+fi
 if grep -Fq "ref: \${{ github.event.pull_request" "$WORKFLOW"; then
   echo 'FAIL: CLA rerun checkout must never use a pull-request ref' >&2
   exit 1
