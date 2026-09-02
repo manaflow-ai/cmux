@@ -73,6 +73,20 @@ import Testing
         ))
     }
 
+    @Test func launchWithPrimedCachedSessionMountsShellNotSignIn() {
+        // Regression for "loading sign-up screen on every launch": a returning
+        // user's cached session primes authenticated while launch validation is
+        // still in flight, and the root must mount the authenticated shell
+        // immediately (its restoring inputs cover the validation window)
+        // instead of parking every launch on the sign-in surface until the
+        // network validation resolves.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true
+        ))
+    }
+
     @Test func clearsOnlyStaleTemporaryAttachAuthentication() {
         #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: .failed,
