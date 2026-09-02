@@ -14,5 +14,6 @@
 - [Public resource protocol](../spec/resource-api-v2.md): the supported entry point for new clients, with stable opaque IDs, requests, mutations, streams, and errors.
 - [Raw control protocol](protocol.md): private protocol-v12 JSON-lines commands for cmux frontends and compatibility adapters.
 - [Public CLI](../spec/cli.md): noun-first commands and selectors.
+- [Journal and interaction operations](journal-operations.md): named budgets (`diag budgets`) and the `bench interact` interaction-latency benchmark.
 - [SDK contract](../spec/bindings.md): handwritten facades and generated raw layers.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.
