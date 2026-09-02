@@ -850,6 +850,21 @@ mod tests {
     }
 
     #[test]
+    fn bounded_detached_request_id_accepts_maximum_length_with_crlf() {
+        use std::io::Cursor;
+
+        let request_id = "x".repeat(MAX_REQUEST_ID_BYTES);
+        let mut input = request_id.as_bytes().to_vec();
+        input.extend_from_slice(b"\r\n{}");
+        let mut reader = BufReader::new(Cursor::new(input));
+        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
+
+        let mut payload = Vec::new();
+        reader.read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, b"{}");
+    }
+
+    #[test]
     fn bounded_detached_request_id_rejects_an_unterminated_line() {
         use std::io::Cursor;
 
