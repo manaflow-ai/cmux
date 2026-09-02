@@ -307,12 +307,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_snapshot" >> "$cmux_ssh_auth_dynamic_members"
           }
 
-          # The generated authentication wrapper writes one root PID after it
-          # has sent TERM to its command, then waits for the helper ACK before
-          # it waits for that command and exits. This keeps the wrapper alive
-          # while the helper takes the post-TERM process-group snapshot. A
-          # bounded read keeps plain fixtures and failed wrappers from
-          # blocking cleanup.
+          # The generated authentication wrapper publishes the nonce only after
+          # its TERM handler has waited for the command to finish. It then waits
+          # for the helper ACK before exiting. This gives the helper a
+          # happens-before edge for handler-created replacements while keeping
+          # the wrapper alive during the post-TERM process-table snapshot. A
+          # bounded read keeps plain fixtures and failed wrappers from blocking
+          # cleanup.
           cmux_ssh_auth_wait_for_term_event() {
             [ "$cmux_ssh_auth_wait_for_term_event_enabled" = 1 ] || return 0
             [ -n "$cmux_ssh_auth_event_token" ] || return 0
@@ -811,9 +812,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  trap - EXIT HUP INT TERM",
             "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
             "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
-            "    cmux_ssh_auth_signal_completion",
             "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
             "    cmux_ssh_auth_command_pid=",
+            "    cmux_ssh_auth_signal_completion",
             "  fi",
             "  cmux_ssh_auth_capture_cleanup",
             "  exit \"$cmux_ssh_auth_capture_signal_status\"",

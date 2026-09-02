@@ -477,9 +477,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            # Exit immediately after publishing the replacement PID. The
-            # cleanup handshake must discover it before this handler's parent
-            # can disappear and reparent the replacement.
+            # Delay the replacement until the handler has started. The cleanup
+            # handshake must wait for its completion before the parent can
+            # disappear and reparent the replacement.
             trap 'trap "" TERM; /bin/sleep 0.5; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!" > "$CMUX_TEST_REPLACEMENT_PID"; exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
