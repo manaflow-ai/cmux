@@ -94,8 +94,7 @@ entries are never removed, so rollback is a manifest revert. It also moves the
 `cmux-devbox` snapshot slug onto the new id as a dashboard convenience;
 production boots from the immutable `sh-…` id, never the slug. The last
 stdout line is `IMAGE_ID <id>`; `--out <json>` writes the summary.
-Commit the manifest diff in a PR, or run the **Cloud VM devbox bake**
-GitHub Action, which does all of this and opens the PR.
+Commit the manifest diff in a PR; merging it is the promotion.
 
 ## Bake and verify by hand
 

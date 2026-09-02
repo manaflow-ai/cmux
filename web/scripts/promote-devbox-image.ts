@@ -30,8 +30,8 @@
  * verify-devbox-image.ts (boots one VM, deletes it) -> manifest write ->
  * slug pointer. A failed verify writes nothing and exits 1.
  *
- * CI runs this from the `Cloud VM devbox bake` workflow and opens a PR with
- * the manifest diff; humans run it from web/ with the provider key in env.
+ * Run it from web/ with FREESTYLE_API_KEY in the environment of the Freestyle
+ * account the deployment uses, then commit the manifest diff in a PR.
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";

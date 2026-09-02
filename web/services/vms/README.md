@@ -100,8 +100,8 @@ Image policy:
   `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
   `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
   for that reason; re-promote it under cmux's key to make it the default.
-- Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write → PR), or
-  the **Cloud VM devbox bake** GitHub Action, which opens the PR; merging promotes. See
+- Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
+  with the manifest diff; merging promotes. See
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
