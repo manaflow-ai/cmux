@@ -915,6 +915,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
         }
         guard await refresh(force: true),
+              let observed = cloudState,
               let resource = catalog.snapshot.resources(on: machine).first(where: { $0.id == id }),
               let views = resource.remoteViews,
               !views.isEmpty else {
@@ -923,45 +924,146 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
         }
 
-        // A malformed snapshot can repeat a tab id. Keep the last wire value
-        // instead of trapping the main actor while preparing compensation.
-        let previousNames = views.reduce(into: [String: String]()) { result, view in
-            result[view.tabID] = view.name ?? ""
+        // The daemon's tab name is placement-local. Keep one target per exact
+        // tab id, and use the fresh typed state for the old value. A malformed
+        // snapshot cannot make one tab run twice or make compensation restore
+        // an arbitrary wire-order value.
+        var seenTabIDs = Set<String>()
+        let targets: [(tabID: String, previousName: String)] = views.compactMap { view in
+            guard seenTabIDs.insert(view.tabID).inserted,
+                  let tab = observed.tabs.first(where: { $0.id == view.tabID }) else { return nil }
+            return (view.tabID, tab.name ?? "")
         }
-        var renamedTabIDs: [String] = []
+        guard !targets.isEmpty else {
+            throw SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
+            )
+        }
+
+        // Do not spend a revision on a view that already has the requested name.
+        // This also reduces the window in which another client can race the
+        // compatibility fan-out.
+        let pendingTargets = targets.filter { $0.previousName != normalizedName }
+        if pendingTargets.isEmpty { return }
+
+        var lastCommitRevision = observed.cursor.revision
+        var renamedTabs: [(tabID: String, previousName: String, commitRevision: UInt64)] = []
+        var mutationOutcomeUncertain = false
         do {
-            for view in views {
+            for target in pendingTargets {
                 try Task.checkCancellation()
-                _ = try await sendRenameTab(id: view.tabID, name: normalizedName)
-                renamedTabIDs.append(view.tabID)
+                do {
+                    let commitRevision = try await sendRenameTab(
+                        id: target.tabID,
+                        name: normalizedName,
+                        expectedRevision: lastCommitRevision
+                    )
+                    guard commitRevision >= lastCommitRevision else {
+                        mutationOutcomeUncertain = true
+                        throw RemoteRenameError.nonMonotonicRevision(
+                            expectedAtLeast: lastCommitRevision,
+                            received: commitRevision
+                        )
+                    }
+                    renamedTabs.append((target.tabID, target.previousName, commitRevision))
+                    lastCommitRevision = commitRevision
+                } catch {
+                    // A revision conflict is a known refusal before this step
+                    // commits. Transport or malformed-response errors are
+                    // indeterminate: the daemon may have committed before the
+                    // link failed, so compensation would be unsafe.
+                    if !Self.isRevisionConflict(error) { mutationOutcomeUncertain = true }
+                    throw error
+                }
             }
         } catch {
-            // The compatibility fan-out is multi-step. Compensate completed tabs
-            // before exposing the authoritative post-failure snapshot.
-            for tabID in renamedTabIDs.reversed() {
-                do { _ = try await sendRenameTab(id: tabID, name: previousNames[tabID] ?? "") }
-                catch {
-                    #if DEBUG
-                    cmuxDebugLog("cloud.rename.terminal.compensationFailed machine=\(machineID) tab=\(tabID) error=\(String(reflecting: error))")
-                    #endif
+            // Compensation is allowed only when a fresh snapshot proves that
+            // no event followed the last known commit and every completed tab
+            // still carries our requested name. Each restore is itself fenced,
+            // so a concurrent rename between checks cannot be overwritten.
+            var compensated = renamedTabs.isEmpty
+            if !renamedTabs.isEmpty, !mutationOutcomeUncertain,
+               await refresh(force: true),
+               let latest = cloudState,
+               latest.cursor.generation == observed.cursor.generation,
+               latest.cursor.revision == lastCommitRevision,
+               renamedTabs.allSatisfy({ entry in
+                   latest.tabs.first(where: { $0.id == entry.tabID })?.name == normalizedName
+               }) {
+                compensated = true
+                var compensationRevision = latest.cursor.revision
+                for entry in renamedTabs.reversed() {
+                    do {
+                        let revision = try await sendRenameTab(
+                            id: entry.tabID,
+                            name: entry.previousName,
+                            expectedRevision: compensationRevision
+                        )
+                        guard revision >= compensationRevision else {
+                            compensated = false
+                            break
+                        }
+                        compensationRevision = revision
+                    } catch {
+                        compensated = false
+                        break
+                    }
                 }
             }
             _ = await refresh(force: true)
+            if !compensated {
+                throw Self.partialRenameError(
+                    id: id,
+                    applied: renamedTabs.count,
+                    total: pendingTargets.count
+                )
+            }
             throw error
         }
         _ = await refresh(force: true)
     }
 
     @discardableResult
-    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> Data {
+    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> UInt64 {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        return try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
+        let data = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
             socketPath: connected.socketPath,
             tabID: id,
             name: name,
             expectedRevision: expectedRevision
         ))
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let revision = CloudWireNumber.unsigned(object["revision"]) else {
+            throw RemoteRenameError.invalidResponse
+        }
+        return revision
+    }
+
+    private enum RemoteRenameError: Error, LocalizedError {
+        case invalidResponse
+        case nonMonotonicRevision(expectedAtLeast: UInt64, received: UInt64)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidResponse:
+                return String(localized: "cloudTree.error.renameTerminalResponse", defaultValue: "The remote rename response was invalid. Refresh and retry.")
+            case .nonMonotonicRevision(let expected, let received):
+                return String(format: String(localized: "cloudTree.error.renameTerminalRevision", defaultValue: "The remote rename returned revision %2$llu after revision %1$llu. Refresh and retry."), expected, received)
+            }
+        }
+    }
+
+    private static func partialRenameError(
+        id: SurfaceResourceID,
+        applied: Int,
+        total: Int
+    ) -> SurfaceCatalogError {
+        let reason = String(format: String(
+            localized: "cloudTree.error.renameTerminalPartial",
+            defaultValue: "Terminal rename changed %1$d of %2$d remote tabs. Another change prevented a safe rollback. Refresh and retry."
+        ), applied, total)
+        return .partialOperation(id, reason: reason)
     }
 
     /// The terminal lives in the machine's session; only the local pane went away.

@@ -643,6 +643,10 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case ambiguousRemotePlacement(SurfaceResourceID, workspaceID: String)
     case destinationNotFound(String)
     case unsupported(String)
+    /// A multi-step remote operation stopped after at least one committed step.
+    /// The caller must not hide this behind a generic transport error: the
+    /// remote graph may now contain a deliberate partial result.
+    case partialOperation(SurfaceResourceID, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -653,6 +657,7 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
             return "\(id) has more than one tab in remote workspace \(workspaceID); provide the tab id."
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
+        case .partialOperation(_, let reason): return reason
         }
     }
 }

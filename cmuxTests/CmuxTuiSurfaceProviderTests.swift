@@ -329,6 +329,26 @@ import Testing
         ]
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: duplicateTerminals, machine: Self.machine) == nil)
 
+        var missingIdentity = snapshot
+        missingIdentity["tabs"] = [
+            ["pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_build"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: missingIdentity, machine: Self.machine) == nil)
+
+        var missingRelationship = snapshot
+        missingRelationship["screens"] = [["id": "screen_1"]]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: missingRelationship, machine: Self.machine) == nil)
+
+        var missingAgentIdentity = snapshot
+        missingAgentIdentity["agents"] = [["terminal_id": "term_build", "state": "working"]]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: missingAgentIdentity, machine: Self.machine) == nil)
+
+        var conflictingAgents = snapshot
+        conflictingAgents["agents"] = (Self.sessionSnapshot["agents"] as! [[String: Any]]) + [
+            ["id": "agent_2", "terminal_id": "term_build", "state": "blocked", "source": "hook"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: conflictingAgents, machine: Self.machine) == nil)
+
         // A repeated tab reference in one terminal is harmless to identity, but
         // it must not produce duplicate rename targets or duplicate tree rows.
         var repeatedReference = snapshot

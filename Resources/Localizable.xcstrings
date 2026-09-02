@@ -61331,6 +61331,57 @@
         }
       }
     },
+    "cloudTree.error.renameTerminalPartial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal rename changed %1$d of %2$d remote tabs. Another change prevented a safe rollback. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル名はリモートタブ %1$d/%2$d 件で変更されました。別の変更があったため安全にロールバックできません。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote rename response was invalid. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名称変更の応答が無効です。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalRevision": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote rename returned revision %2$llu after revision %1$llu. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名称変更がリビジョン %1$llu の後に %2$llu を返しました。更新して再試行してください。"
+          }
+        }
+      }
+    },
     "cloudTree.error.renameWorkspaceEmptyName": {
       "extractionState": "manual",
       "localizations": {

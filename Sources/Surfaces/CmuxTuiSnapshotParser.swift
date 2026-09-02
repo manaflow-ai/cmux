@@ -9,7 +9,8 @@ import Foundation
 /// `public_session_snapshot_with_journal_head` / `public_terminal_snapshot`):
 /// `workspaces[{id,name,focused}]`, `screens[{id,workspace_id}]`, `panes[{id,screen_id}]`,
 /// `tabs[{id,pane_id,name,content_kind,content_id}]`,
-/// `terminals[{id,tab_id,title,cwd?,lifecycle}]`, `agents[{terminal_id,state,source}]`.
+/// `terminals[{id,tab_id,title,cwd?,lifecycle}]`,
+/// `agents[{id,terminal_id,state,source}]`.
 /// A tab's `name` is the user-set label (`tab.rename`, persisted in the daemon's
 /// registry); the terminal's `title` is PTY-derived. A named view wins over the title.
 struct CmuxTuiSnapshotParser: Sendable {
@@ -226,18 +227,53 @@ struct CmuxTuiSnapshotParser: Sendable {
         )
     }
 
-    /// A remote graph is keyed by daemon IDs. Silently choosing the first or last
-    /// duplicate would make a rename or projection target depend on wire order.
-    /// Reject duplicate identity rows at the synchronization boundary so the
+    /// A synchronizable remote graph is keyed by daemon IDs. Silently choosing
+    /// the first or last malformed row would make a rename or projection target
+    /// depend on wire order, or make an entity disappear while the snapshot is
+    /// still marked current. Reject the whole document at this boundary so the
     /// provider takes its bounded full-snapshot recovery path instead.
     private static func identityCollectionsAreUnique(in snapshot: [String: Any]) -> Bool {
-        for key in ["workspaces", "screens", "panes", "tabs", "terminals", "browsers"] {
+        var agentTerminalIDs = Set<String>()
+        for key in ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"] {
             guard let raw = snapshot[key] else { continue }
             guard let rows = raw as? [[String: Any]] else { return false }
             var ids = Set<String>()
             for row in rows {
-                guard let id = nonEmptyString(row["id"]) else { continue }
-                guard ids.insert(id).inserted else { return false }
+                // Every row in a known collection is part of the identity graph.
+                // Dropping a row with a missing id is equivalent to accepting a
+                // partial snapshot, so it must trigger recovery instead.
+                guard let id = nonEmptyString(row["id"]), ids.insert(id).inserted else {
+                    return false
+                }
+                switch key {
+                case "screens":
+                    guard nonEmptyString(row["workspace_id"]) != nil else { return false }
+                case "panes":
+                    guard nonEmptyString(row["screen_id"]) != nil else { return false }
+                case "tabs":
+                    guard nonEmptyString(row["pane_id"]) != nil,
+                          nonEmptyString(row["content_kind"]) != nil,
+                          nonEmptyString(row["content_id"]) != nil
+                    else { return false }
+                case "terminals":
+                    if let rawTabIDs = row["tab_ids"] {
+                        guard let tabIDs = rawTabIDs as? [String],
+                              tabIDs.allSatisfy({ nonEmptyString($0) != nil })
+                        else { return false }
+                    }
+                    if let rawTabID = row["tab_id"], !(rawTabID is NSNull) {
+                        guard nonEmptyString(rawTabID) != nil else { return false }
+                    }
+                case "browsers":
+                    guard nonEmptyString(row["tab_id"]) != nil else { return false }
+                case "agents":
+                    guard let terminalID = nonEmptyString(row["terminal_id"]),
+                          nonEmptyString(row["state"]) != nil,
+                          agentTerminalIDs.insert(terminalID).inserted
+                    else { return false }
+                default:
+                    break
+                }
             }
         }
         return true
