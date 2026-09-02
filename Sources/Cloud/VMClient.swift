@@ -471,6 +471,28 @@ enum VMAttachEndpoint {
     case websocket(VMWebSocketPtyEndpoint)
 }
 
+/// This Mac's WireGuard tunnel into the account's private Cloud VM network, as
+/// `/api/vm/tunnel` returns it. `clientConfig` is a complete wg-quick config
+/// whose `PrivateKey` line is blank — the private key never leaves this Mac,
+/// so the caller fills it in from local state before use.
+struct VMTunnelEndpoint {
+    let tunnelId: String
+    let provider: String
+    let deviceFingerprint: String
+    let clientConfig: String
+    let clientPublicKey: String
+    let serverPublicKey: String
+    let endpointHost: String?
+    let endpointPort: Int
+    let routes: [String]
+    let addressV4: String?
+    let addressV6: String?
+    let networkCidr: String?
+    let networkCidrV6: String?
+    let created: Bool
+    let rotated: Bool
+}
+
 /// Talks to the manaflow cloud VM backend at `/api/vm/*`. Stack Auth tokens come from
 /// the injected `AuthCoordinator`; the HTTP base URL from `AuthEnvironment.vmAPIBaseURL`.
 ///
@@ -927,6 +949,70 @@ actor VMClient {
             approved: (obj["approved"] as? Bool) ?? false,
             state: state,
             deviceFingerprint: obj["deviceFingerprint"] as? String
+        )
+    }
+
+    /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private
+    /// Cloud VM network. Idempotent per device: safe to call on every launch.
+    /// The server never sees a private key — only `clientPublicKey` travels.
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        deviceName: String? = nil
+    ) async throws -> VMTunnelEndpoint {
+        var body: [String: Any] = [
+            "clientPublicKey": clientPublicKey,
+            "deviceFingerprint": deviceFingerprint,
+        ]
+        if let deviceName, !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["deviceName"] = deviceName
+        }
+        let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
+        try ensureOK(http, data: data)
+        return try Self.decodeTunnelEndpoint(decodeJSONObject(data))
+    }
+
+    /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
+    /// config still on disk stops working immediately.
+    func revokeTunnel(deviceFingerprint: String) async throws {
+        guard var components = URLComponents(string: "/api/vm/tunnel") else {
+            throw VMClientError.malformedResponse("could not build tunnel revoke path")
+        }
+        components.queryItems = [URLQueryItem(name: "deviceFingerprint", value: deviceFingerprint)]
+        let path = components.string ?? "/api/vm/tunnel"
+        let (data, http) = try await request("DELETE", path: path)
+        try ensureOK(http, data: data)
+    }
+
+    private nonisolated static func decodeTunnelEndpoint(_ obj: [String: Any]) throws -> VMTunnelEndpoint {
+        guard let tunnelId = obj["tunnelId"] as? String,
+              let provider = obj["provider"] as? String,
+              let deviceFingerprint = obj["deviceFingerprint"] as? String,
+              let clientConfig = obj["clientConfig"] as? String,
+              let clientPublicKey = obj["clientPublicKey"] as? String,
+              let serverPublicKey = obj["serverPublicKey"] as? String,
+              let endpointPort = optionalInt(obj["endpointPort"])
+        else {
+            throw VMClientError.malformedResponse("Cloud VM tunnel response was missing required fields.")
+        }
+        let address = obj["address"] as? [String: Any]
+        let network = obj["network"] as? [String: Any]
+        return VMTunnelEndpoint(
+            tunnelId: tunnelId,
+            provider: provider,
+            deviceFingerprint: deviceFingerprint,
+            clientConfig: clientConfig,
+            clientPublicKey: clientPublicKey,
+            serverPublicKey: serverPublicKey,
+            endpointHost: obj["endpointHost"] as? String,
+            endpointPort: endpointPort,
+            routes: (obj["routes"] as? [String]) ?? [],
+            addressV4: address?["ipv4"] as? String,
+            addressV6: address?["ipv6"] as? String,
+            networkCidr: network?["cidr"] as? String,
+            networkCidrV6: network?["cidrV6"] as? String,
+            created: (obj["created"] as? Bool) ?? false,
+            rotated: (obj["rotated"] as? Bool) ?? false
         )
     }
 
