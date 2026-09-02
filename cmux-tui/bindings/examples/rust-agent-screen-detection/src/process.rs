@@ -435,14 +435,7 @@ fn shell_option_exits(runtime: &str, flag: &str) -> bool {
             "--dump-po-strings" | "--dump-strings" | "--help" | "--pretty-print" | "--version"
         ),
         "zsh" => matches!(flag, "--help" | "--version"),
-        "fish" => matches!(
-            flag,
-            "-h" | "-v"
-                | "--help"
-                | "--print-debug-categories"
-                | "--print-rusage-self"
-                | "--version"
-        ),
+        "fish" => matches!(flag, "-h" | "-v" | "--help" | "--print-debug-categories" | "--version"),
         _ => false,
     }
 }
@@ -499,7 +492,17 @@ fn shell_option_without_value(runtime: &str, flag: &str) -> bool {
                     | "--version"
             ),
             "zsh" => matches!(flag, "--login" | "--no-rcs" | "--sh" | "--emacs" | "--vi"),
-            "fish" => matches!(flag, "--no-config" | "--no-editing" | "--help" | "--version"),
+            "fish" => matches!(
+                flag,
+                "--interactive"
+                    | "--login"
+                    | "--no-config"
+                    | "--no-editing"
+                    | "--private"
+                    | "--print-rusage-self"
+                    | "--help"
+                    | "--version"
+            ),
             "sh" => matches!(flag, "--login" | "--posix" | "--restricted" | "--verbose"),
             _ => false,
         };
