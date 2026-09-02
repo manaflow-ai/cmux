@@ -685,7 +685,16 @@ fn runtime_option_exits(runtime: &str, argument: &str) -> bool {
     match runtime {
         name if is_python_runtime(name) => matches!(
             argument,
-            "-h" | "-V" | "--help" | "--help-env" | "--help-xoptions" | "--help-all" | "--version"
+            // CPython documents `-?` as an alias for `-h` and `-VV` as the
+            // verbose form of `-V`; both terminate before a script path.
+            "-h" | "-?"
+                | "-V"
+                | "-VV"
+                | "--help"
+                | "--help-env"
+                | "--help-xoptions"
+                | "--help-all"
+                | "--version"
         ),
         _ => false,
     }
