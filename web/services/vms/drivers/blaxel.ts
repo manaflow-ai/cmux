@@ -434,7 +434,15 @@ cua_driver() {
 }
 
 shell_profile() {
-  [ -f "$HOME/.bashrc" ] || printf '%s\\n' "export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]\\\\$ '" "alias ll='ls -la'" > "$HOME/.bashrc"
+  [ -f "$HOME/.bashrc" ] || printf '%s\\n' \\
+    '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' \\
+    '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' \\
+    "export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]\\\\$ '" \\
+    "alias ll='ls -la'" > "$HOME/.bashrc"
+  grep -qF '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' "$HOME/.bashrc" 2>/dev/null || \\
+    printf '%s\\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> "$HOME/.bashrc"
+  grep -qF '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' "$HOME/.bashrc" 2>/dev/null || \\
+    printf '%s\\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> "$HOME/.bashrc"
   grep -q '\\$HOME/.bun' "$HOME/.bashrc" 2>/dev/null || printf '%s\\n' '# cmux provisioning: tools that live on the persistent home' 'export PATH=$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH' >> "$HOME/.bashrc"
   [ -f "$HOME/.profile" ] || printf '%s\\n' '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"' > "$HOME/.profile"
 }
