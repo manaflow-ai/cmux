@@ -929,6 +929,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn close_registration_during_callback_is_not_stranded() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-close-race-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control close race socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control close race socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for close race server");
+            drop(stream);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect close race socket");
+        accepted_rx.await.expect("wait for close race server");
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        control.on_close(Box::new(move || {
+            let _ = started_tx.send(());
+            release_rx.recv().expect("release first close callback");
+        }));
+        start_tx.send(()).expect("start close race server");
+        tokio::time::timeout(Duration::from_secs(1), started_rx)
+            .await
+            .expect("first close callback entered")
+            .expect("first close callback signal");
+
+        let closed = Arc::new(Notify::new());
+        let closed_for_handler = Arc::clone(&closed);
+        control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
+        release_tx.send(()).expect("release first close callback");
+        tokio::time::timeout(Duration::from_secs(1), closed.notified())
+            .await
+            .expect("late close callback after callback race");
+
+        server.await.expect("join close race server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
         let socket_path =
             std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
