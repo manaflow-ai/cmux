@@ -372,6 +372,64 @@ cmux_hosted_retention_lsof_state() {
   return 1
 }
 
+cmux_hosted_retention_collect_lsof_batch() {
+  local lsof_command="$1"
+  local artifact_root="$2"
+  local active_commits_file="$3"
+  local output_file="$4"
+  local error_file="$5"
+  shift 5
+  local lsof_status
+  local lsof_record
+  local active_path
+  local active_commit
+  local record_count=0
+  local saw_usable_name=0
+
+  if "$lsof_command" -F n -- "$@" > "$output_file" 2> "$error_file"; then
+    lsof_status=0
+  else
+    lsof_status=$?
+  fi
+  if [[ -s "$error_file" || "$lsof_status" -gt 1 ]]; then
+    return 2
+  fi
+  while IFS= read -r lsof_record; do
+    record_count=$((record_count + 1))
+    (( record_count <= 512 )) || return 2
+    case "$lsof_record" in
+      n*)
+        active_path="${lsof_record#n}"
+        if [[ "$active_path" != "$artifact_root"/*/cmux-tui ]]; then
+          continue
+        fi
+        active_commit="${active_path%/cmux-tui}"
+        active_commit="${active_commit##*/}"
+        [[ "$active_commit" =~ ^[0-9a-f]{40}$ ]] || return 2
+        printf '%s\n' "$active_commit" >> "$active_commits_file"
+        saw_usable_name=1
+        ;;
+      p*|f*)
+        # lsof always emits the PID field, and versions 4.88 through 4.93.2
+        # also emit a file-descriptor field even when only names are asked.
+        ;;
+      *)
+        return 2
+        ;;
+    esac
+  done < "$output_file"
+  if [[ -s "$output_file" && "$saw_usable_name" -eq 0 ]]; then
+    return 2
+  fi
+  if [[ -s "$output_file" && "$lsof_status" -ne 0 ]]; then
+    return 2
+  fi
+  if (( lsof_status == 0 )) && [[ ! -s "$output_file" ]]; then
+    return 2
+  fi
+  return 0
+}
+
 cmux_hosted_retention_run() {
   local owner_pid="$$"
   CMUX_TUI_HOSTED_RETENTION_OWNER_PID="$owner_pid" \
@@ -415,14 +473,13 @@ cmux_hosted_retention_run_impl() (
   local candidate_action
   local retained=0
   local lsof_command="${CMUX_TUI_HOSTED_RETENTION_LSOF:-lsof}"
-  local lsof_status
-  local lsof_record
-  local active_path
-  local active_commit
   local lsof_target_count=0
   local lsof_output_file
   local lsof_error_file
-  local lsof_record_count=0
+  local lsof_batch_size=128
+  local lsof_batch_targets=()
+  local lsof_batch_count=0
+  local lsof_batch_index=0
   local active_commits_file
   local cleanup_commits_file
   local decision_file
@@ -574,7 +631,9 @@ cmux_hosted_retention_run_impl() (
   fi
   cmux_hosted_retention_cleanup_lock_acquired=1
 
-  cmux_hosted_retention_recover_quarantines "$artifact_root" "$now" 86400 "$scratch_dir"
+  if [[ "$retention_dry_run" == 0 ]]; then
+    cmux_hosted_retention_recover_quarantines "$artifact_root" "$now" 86400 "$scratch_dir"
+  fi
 
   preview_file="$artifact_root/.retention-preview"
   candidate_paths_file="$scratch_dir/candidate-paths"
@@ -805,58 +864,36 @@ cmux_hosted_retention_run_impl() (
   active_commits_file="$scratch_dir/active-commits"
   : > "$active_commits_file"
   if (( lsof_target_count > 0 )); then
-    lsof_output_file="$scratch_dir/lsof-output"
-    lsof_error_file="$scratch_dir/lsof-error"
-    if "$lsof_command" -F n -- "${lsof_targets[@]}" > "$lsof_output_file" 2> "$lsof_error_file"; then
-      lsof_status=0
-    else
-      lsof_status=$?
-    fi
-    if [[ -s "$lsof_error_file" || "$lsof_status" -gt 1 ]]; then
-      cmux_hosted_retention_error "lsof could not establish artifact activity"
-      exit $?
-    fi
-    while IFS= read -r lsof_record; do
-      lsof_record_count=$((lsof_record_count + 1))
-      (( lsof_record_count <= max_candidates * 4 )) || {
-        cmux_hosted_retention_error "lsof returned too many activity records"
+    lsof_batch_targets=()
+    lsof_batch_count=0
+    lsof_batch_index=0
+    for candidate_binary in "${lsof_targets[@]}"; do
+      lsof_batch_targets+=("$candidate_binary")
+      lsof_batch_count=$((lsof_batch_count + 1))
+      if (( lsof_batch_count < lsof_batch_size )); then
+        continue
+      fi
+      lsof_output_file="$scratch_dir/lsof-output-$lsof_batch_index"
+      lsof_error_file="$scratch_dir/lsof-error-$lsof_batch_index"
+      if ! cmux_hosted_retention_collect_lsof_batch \
+        "$lsof_command" "$artifact_root" "$active_commits_file" \
+        "$lsof_output_file" "$lsof_error_file" "${lsof_batch_targets[@]}"; then
+        cmux_hosted_retention_error "lsof could not establish artifact activity"
         exit $?
-      }
-      case "$lsof_record" in
-        n*)
-          active_path="${lsof_record#n}"
-          if [[ "$active_path" != "$artifact_root"/*/cmux-tui ]]; then
-            continue
-          fi
-          active_commit="${active_path%/cmux-tui}"
-          active_commit="${active_commit##*/}"
-          [[ "$active_commit" =~ ^[0-9a-f]{40}$ ]] || {
-            cmux_hosted_retention_error "lsof returned an unexpected artifact path"
-            exit $?
-          }
-          printf '%s\n' "$active_commit" >> "$active_commits_file"
-          ;;
-        p*|f*)
-          # lsof always emits the PID field, and versions 4.88 through 4.93.2
-          # also emit a file-descriptor field even when only names are asked.
-          ;;
-        *)
-          cmux_hosted_retention_error "lsof returned an invalid activity record"
-          exit $?
-          ;;
-      esac
-    done < "$lsof_output_file"
-    if [[ -s "$lsof_output_file" && ! -s "$active_commits_file" ]]; then
-      cmux_hosted_retention_error "lsof returned no usable artifact names"
-      exit $?
-    fi
-    if [[ -s "$lsof_output_file" && "$lsof_status" -ne 0 ]]; then
-      cmux_hosted_retention_error "lsof returned a partial activity result"
-      exit $?
-    fi
-    if (( lsof_status == 0 )) && [[ ! -s "$lsof_output_file" ]]; then
-      cmux_hosted_retention_error "lsof returned no activity records"
-      exit $?
+      fi
+      lsof_batch_targets=()
+      lsof_batch_count=0
+      lsof_batch_index=$((lsof_batch_index + 1))
+    done
+    if (( lsof_batch_count > 0 )); then
+      lsof_output_file="$scratch_dir/lsof-output-$lsof_batch_index"
+      lsof_error_file="$scratch_dir/lsof-error-$lsof_batch_index"
+      if ! cmux_hosted_retention_collect_lsof_batch \
+        "$lsof_command" "$artifact_root" "$active_commits_file" \
+        "$lsof_output_file" "$lsof_error_file" "${lsof_batch_targets[@]}"; then
+        cmux_hosted_retention_error "lsof could not establish artifact activity"
+        exit $?
+      fi
     fi
   fi
   LC_ALL=C sort -u "$active_commits_file" -o "$active_commits_file" || {
