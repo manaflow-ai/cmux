@@ -81,6 +81,7 @@ def run_guard_fixture(
     main_blob: str,
     source_content: str | None = None,
     main_content: str | None = None,
+    tag_target_sha: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Exercise the real guard with a tag-controlled workflow mutation.
 
@@ -102,6 +103,7 @@ def run_guard_fixture(
     )
     source_content_b64 = base64.b64encode(source_content.encode()).decode()
     main_content_b64 = base64.b64encode(main_content.encode()).decode()
+    tag_target_sha = tag_target_sha or source_sha
     harness = f"""
 const core = {{
   setFailed(message) {{ throw new Error(message); }},
@@ -139,7 +141,7 @@ const github = {{ rest: {{
     }},
   }},
   git: {{
-    getRef: async () => ({{ data: {{ object: {{ type: 'commit', sha: '{source_sha}' }} }} }}),
+    getRef: async () => ({{ data: {{ object: {{ type: 'commit', sha: '{tag_target_sha}' }} }} }}),
   }},
 }} }};
 process.env.REPOSITORY = 'manaflow-ai/cmux';
@@ -343,6 +345,20 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             main_content=OBSERVER_CONTENT,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_moved_tag_is_rejected_before_release(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_target_sha="c" * 40,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("moved", result.stderr.lower())
 
 
 if __name__ == "__main__":
