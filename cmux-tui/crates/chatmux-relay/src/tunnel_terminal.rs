@@ -416,6 +416,7 @@ impl Connection {
             local_roots: None,
             owner_user_id: None,
             live_auth: Arc::new(|| ("supervised".to_owned(), None)),
+            live_authorized: Arc::new(|_| true),
             transport_id: Some(self.pty_id.clone()),
             cancellation: self.done.clone(),
         }
