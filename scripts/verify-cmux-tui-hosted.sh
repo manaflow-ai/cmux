@@ -358,6 +358,11 @@ if [[ ! "$retention_count" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_TUI_HOSTED_RETENTION_COUNT must be a positive integer" >&2
   exit 2
 fi
+if ((${#retention_count} > 6)) ||
+  ((${#retention_count} == 6 && retention_count > 100000)); then
+  echo "error: hosted artifact retention count is too large" >&2
+  exit 2
+fi
 if [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "1" ]]; then
   retention_dry_run=true
 elif [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "0" ]]; then
@@ -452,15 +457,37 @@ for candidate_dir in "${cleanup_dirs[@]}"; do
   deletion_dirs+=("$candidate_dir")
 done
 
+artifact_identity() {
+  local artifact_dir="$1"
+  local identity=""
+  if identity="$(stat -f '%i:%m' "$artifact_dir" 2>/dev/null)" &&
+    [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$identity"
+  elif identity="$(stat -c '%i:%Y' "$artifact_dir" 2>/dev/null)" &&
+    [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$identity"
+  else
+    return 1
+  fi
+}
+
 retention_plan_file="$temp_dir/retention-plan"
 {
   printf 'commit\t%s\n' "$commit"
   printf 'retention_count\t%s\n' "$retention_count"
   for candidate_dir in "${hosted_artifact_dirs[@]}"; do
-    printf 'candidate\t%s\n' "$candidate_dir"
+    candidate_identity="$(artifact_identity "$candidate_dir")" || {
+      echo "error: cannot identify hosted artifact generation: $candidate_dir" >&2
+      exit 2
+    }
+    printf 'candidate\t%s\t%s\n' "$candidate_dir" "$candidate_identity"
   done
   for candidate_dir in "${deletion_dirs[@]}"; do
-    printf 'delete\t%s\n' "$candidate_dir"
+    candidate_identity="$(artifact_identity "$candidate_dir")" || {
+      echo "error: cannot identify hosted artifact generation: $candidate_dir" >&2
+      exit 2
+    }
+    printf 'delete\t%s\t%s\n' "$candidate_dir" "$candidate_identity"
   done
 } > "$retention_plan_file"
 if [[ "$retention_dry_run" == true ]]; then
@@ -506,6 +533,15 @@ fi
 
 for candidate_dir in "${deletion_dirs[@]}"; do
   candidate_binary="$candidate_dir/cmux-tui"
+  candidate_identity="$(artifact_identity "$candidate_dir")" || {
+    echo "error: hosted artifact changed before cleanup: $candidate_dir" >&2
+    exit 2
+  }
+  expected_delete_line=$'delete\t'"$candidate_dir"$'\t'"$candidate_identity"
+  if ! grep -F -x -q -- "$expected_delete_line" "$retention_plan_file"; then
+    echo "error: hosted artifact changed before cleanup: $candidate_dir" >&2
+    exit 2
+  fi
   if [[ "$retention_dry_run" == true ]]; then
     echo "Would remove hosted artifact: $candidate_dir" >&2
   else

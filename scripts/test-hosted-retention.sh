@@ -51,5 +51,19 @@ if (( lsof_status == 1 )) && [[ -n "$lsof_stderr" ]]; then
 else
   exit 1
 fi
+valid_retention_count() {
+  [[ "$1" =~ ^[1-9][0-9]*$ ]] || return 1
+  ((${#1} <= 6)) || return 1
+  ((10#$1 <= 100000))
+}
+valid_retention_count 100000
+expect_invalid() { if valid_retention_count 9223372036854775808; then return 1; fi; }
+expect_invalid
+generation_dir="$tmp/generation"
+mkdir "$generation_dir"
+generation_before="$(stat -f '%i:%m' "$generation_dir" 2>/dev/null || stat -c '%i:%Y' "$generation_dir")"
+touch -t 200001010000 "$generation_dir"
+generation_after="$(stat -f '%i:%m' "$generation_dir" 2>/dev/null || stat -c '%i:%Y' "$generation_dir")"
+[[ "$generation_before" != "$generation_after" ]]
 rm -f "$preview"
 echo 'hosted retention token behavior passed'
