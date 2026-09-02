@@ -25,6 +25,7 @@ import {
   type ExecResult,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SSHEndpoint,
   type SnapshotRef,
@@ -320,6 +321,88 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
   };
 }
 
+type FreestyleTunnelOperations = {
+  readonly create: (options: {
+    readonly slug?: string;
+    readonly displayName?: string;
+    readonly clientPublicKey?: string;
+    readonly routes?: string[];
+    readonly vpcs?: { readonly vpcId?: string; readonly vpc?: string }[];
+  }) => Promise<TunnelData>;
+  readonly get: (tunnelIdOrSlug: string) => Promise<TunnelData>;
+  readonly attachVpc: (tunnelIdOrSlug: string, vpcIdOrSlug: string) => Promise<TunnelData>;
+  readonly rotateKey: (
+    tunnelIdOrSlug: string,
+    options: { readonly clientPublicKey?: string },
+  ) => Promise<TunnelData>;
+};
+
+function isTunnelSlugConflict(error: unknown): boolean {
+  return error instanceof FreestyleApiError && error.status === 409 && error.code === "CONFLICT";
+}
+
+function hasVPCAttachment(data: TunnelData, networkId: string): boolean {
+  return data.attachments.some((attachment) => attachment.vpcId === networkId);
+}
+
+/**
+ * Create one device tunnel, or recover the provider resource when a previous
+ * request committed it before the control-plane row did. Freestyle addresses
+ * tunnels by slug, so a conflict is a durable idempotency signal, not a reason
+ * to return a retryable 502 or create a second device identity.
+ */
+export async function createOrReuseFreestyleTunnel(
+  tunnels: FreestyleTunnelOperations,
+  options: CreateProviderTunnelOptions,
+): Promise<ProviderTunnelCreateResult> {
+  const slug = options.slug.trim();
+  const clientPublicKey = options.clientPublicKey.trim();
+  if (!slug) throw new Error("createOrReuseFreestyleTunnel requires a slug");
+  if (!clientPublicKey) throw new Error("createOrReuseFreestyleTunnel requires a client public key");
+
+  try {
+    const data = await tunnels.create({
+      slug,
+      displayName: options.displayName,
+      clientPublicKey,
+      vpcs: [{ vpcId: options.networkId }],
+    });
+    return {
+      tunnel: mapFreestyleTunnel(data, options.networkId),
+      created: true,
+      rotated: false,
+    };
+  } catch (error) {
+    if (!isTunnelSlugConflict(error)) throw error;
+
+    // The create may have succeeded in an earlier request whose DB write was
+    // interrupted. Read by the deterministic slug, repair the requested
+    // attachment, then rotate only when this installation's key changed.
+    let data = await tunnels.get(slug);
+    if (!hasVPCAttachment(data, options.networkId)) {
+      data = await tunnels.attachVpc(slug, options.networkId);
+    }
+    let rotated = false;
+    if (data.clientPublicKey.trim() !== clientPublicKey) {
+      data = await tunnels.rotateKey(slug, { clientPublicKey });
+      rotated = true;
+      // Freestyle preserves attachments during rotation. Keep the invariant
+      // explicit in case an older API response omits one from the result.
+      if (!hasVPCAttachment(data, options.networkId)) {
+        data = await tunnels.attachVpc(slug, options.networkId);
+      }
+    }
+    if (!hasVPCAttachment(data, options.networkId)) {
+      throw new Error(`Freestyle tunnel ${slug} could not attach VPC ${options.networkId}`);
+    }
+    return {
+      tunnel: mapFreestyleTunnel(data, options.networkId),
+      created: false,
+      rotated,
+    };
+  }
+}
+
 /**
  * Inline `tls` rules for a create: egress from the new VM (`source: {}`) to
  * the domain's real origin, with the edge injecting the rule's headers into
@@ -562,11 +645,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
-  async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel> {
-    const clientPublicKey = options.clientPublicKey.trim();
-    if (!clientPublicKey) {
-      throw new ProviderError("freestyle", "createTunnel requires the client's public key");
-    }
+  async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult> {
     return withVmSpan(
       "cmux.vm.provider.create_tunnel",
       {
@@ -578,16 +657,16 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
-          // for the Mac to fill in from its own Keychain.
-          const data = await freestyleClient().tunnels.create({
-            slug: options.slug,
-            displayName: options.displayName,
-            clientPublicKey,
-            vpcs: [{ vpcId: options.networkId }],
+          // for the Mac to fill in from its own Keychain. A slug conflict is
+          // reconciled by the helper, which also preserves the operation
+          // outcome for the control-plane response.
+          const result = await createOrReuseFreestyleTunnel(freestyleClient().tunnels, options);
+          setSpanAttributes(span, { "cmux.vm.tunnel.id": result.tunnel.id });
+          setSpanAttributes(span, {
+            "cmux.vm.tunnel.created": result.created,
+            "cmux.vm.tunnel.rotated": result.rotated,
           });
-          const tunnel = mapFreestyleTunnel(data, options.networkId);
-          setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
-          return tunnel;
+          return result;
         } catch (err) {
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }

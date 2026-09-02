@@ -63,6 +63,8 @@ function tunnelApiData(overrides: Partial<{
     serverPublicKey: "server-key",
     endpointHost: "vpn.freestyle.sh",
     endpointPort: 51820,
+    clientAddressV4: "100.64.0.2",
+    clientAddressV6: "fd7a:7570:6c6b::2",
     routes: ["10.0.0.0/8", "fd00::/8"],
     attachments: overrides.attachments ?? [],
     createdAt: "2026-09-02T00:00:00.000Z",
@@ -134,10 +136,11 @@ describe("Freestyle tunnel create recovery", () => {
         return { ...existing, attachments: [...existing.attachments, tunnelAttachment(vpc)] };
       },
       rotateKey: async (_id: string, options: { clientPublicKey?: string }) => {
-        calls.push(`rotate:${options.clientPublicKey}`);
+        const key = options.clientPublicKey ?? "";
+        calls.push(`rotate:${key}`);
         return {
           ...existing,
-          clientPublicKey: options.clientPublicKey,
+          clientPublicKey: key,
           attachments: [...existing.attachments, tunnelAttachment("vpc-test-1")],
         };
       },
@@ -153,11 +156,17 @@ describe("Freestyle tunnel create recovery", () => {
   test("keeps the ordinary create path unchanged", async () => {
     const calls: string[] = [];
     const api = {
-      create: async (options: typeof tunnelCreateOptions) => {
+      create: async (options: {
+        slug?: string;
+        displayName?: string;
+        clientPublicKey?: string;
+        routes?: string[];
+        vpcs?: { vpcId?: string; vpc?: string }[];
+      }) => {
         calls.push(`create:${options.slug}`);
         return tunnelApiData({
           clientPublicKey: options.clientPublicKey,
-          attachments: [tunnelAttachment(options.networkId)],
+          attachments: [tunnelAttachment("vpc-test-1")],
         });
       },
       get: async () => {

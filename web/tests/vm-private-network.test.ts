@@ -118,7 +118,11 @@ function testGateway(options: {
     createTunnel: (_provider, createOptions) =>
       Effect.sync(() => {
         calls?.createTunnel.push(createOptions);
-        return providerTunnel({ clientPublicKey: createOptions.clientPublicKey });
+        return {
+          tunnel: providerTunnel({ clientPublicKey: createOptions.clientPublicKey }),
+          created: true,
+          rotated: false,
+        };
       }),
     getTunnel: () => Effect.succeed(options.getTunnel === undefined ? providerTunnel() : options.getTunnel),
     rotateTunnelKey: (_provider, tunnelId, clientPublicKey) =>

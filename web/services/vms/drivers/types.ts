@@ -328,6 +328,18 @@ export type ProviderTunnel = {
   readonly addressV6: string | null;
 };
 
+/**
+ * Result of enrolling a client tunnel. `created` describes the provider
+ * resource, not the database row: a provider slug conflict can recover an
+ * orphaned tunnel that already exists. `rotated` says that its client key was
+ * replaced during that recovery.
+ */
+export type ProviderTunnelCreateResult = {
+  readonly tunnel: ProviderTunnel;
+  readonly created: boolean;
+  readonly rotated: boolean;
+};
+
 export type CreateProviderTunnelOptions = {
   readonly slug: string;
   readonly displayName?: string;
@@ -356,7 +368,7 @@ export interface VMPrivateNetworking {
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
-  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel>;
+  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult>;
   /**
    * Read a tunnel back with its address inside `networkId`, re-attaching the
    * network if the attachment is missing. Null when the tunnel is gone at the

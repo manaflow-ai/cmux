@@ -13,6 +13,7 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
@@ -114,7 +115,7 @@ export type VmProviderGatewayShape = {
   readonly createTunnel?: (
     provider: ProviderId,
     options: CreateProviderTunnelOptions,
-  ) => Effect.Effect<ProviderTunnel, VmProviderOperationError>;
+  ) => Effect.Effect<ProviderTunnelCreateResult, VmProviderOperationError>;
   readonly getTunnel?: (
     provider: ProviderId,
     tunnelId: string,
