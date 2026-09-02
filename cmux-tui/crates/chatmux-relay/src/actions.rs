@@ -1106,6 +1106,12 @@ impl Drop for ProcessTreeOwner {
 struct ProcessTreeOwner {
     child: tokio::process::Child,
     job: WindowsJob,
+    armed: bool,
+}
+
+#[cfg(windows)]
+fn windows_job_should_terminate(armed: bool) -> bool {
+    armed
 }
 
 #[cfg(windows)]
@@ -1121,7 +1127,7 @@ impl ProcessTreeOwner {
                 return Err(());
             }
         };
-        Ok(Self { child, job })
+        Ok(Self { child, job, armed: true })
     }
 
     fn terminate(&self) {
@@ -1132,13 +1138,17 @@ impl ProcessTreeOwner {
         self.job.terminate();
     }
 
-    async fn finish(self) {}
+    async fn finish(mut self) {
+        self.armed = false;
+    }
 }
 
 #[cfg(windows)]
 impl Drop for ProcessTreeOwner {
     fn drop(&mut self) {
-        self.job.terminate();
+        if windows_job_should_terminate(self.armed) {
+            self.job.terminate();
+        }
     }
 }
 
