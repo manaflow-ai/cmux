@@ -134,6 +134,16 @@ export type IrohRepositoryShape = {
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  /** Account-owner revocation from the cmux.com dashboard: revoke the ACTIVE
+   * binding carrying this endpointId (at most one, by unique index) without a
+   * device proof — the authenticated web session IS the account owner. This is
+   * the shared-store half of a new-architecture revocation, so old endpoints'
+   * discovery drops the device too (one write, both stacks). */
+  readonly revokeEndpointForAccountOwner: (input: {
+    readonly userId: string;
+    readonly endpointId: string;
+    readonly now: Date;
+  }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   /** Includes a soft-revoked row so an authenticated self-revocation retry can be idempotent. */
   readonly findBindingForRevocationProof: (
     userId: string,
@@ -935,6 +945,47 @@ function makeLiveRepository(): IrohRepositoryShape {
         const revoked = await revokeActiveBindings(tx, {
           userId: input.userId,
           bindingIds: [input.bindingId],
+          now: input.now,
+          reason: "user_requested",
+        });
+        if (revoked.length === 0) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        return {
+          revoked: true,
+          accountRevision: await advanceRouteRevision(tx, input.userId, input.now),
+        };
+      });
+    }),
+
+    revokeEndpointForAccountOwner: (input) => repositoryEffect("revoke_endpoint_owner", async () => {
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [binding] = await tx
+          .select({ id: irohEndpointBindings.id })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.endpointId, input.endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .for("update")
+          .limit(1);
+        if (!binding) {
+          // Idempotent: no active binding (never registered on the old stack,
+          // or already revoked) is success for the shared-store mirror.
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        const revoked = await revokeActiveBindings(tx, {
+          userId: input.userId,
+          bindingIds: [binding.id],
           now: input.now,
           reason: "user_requested",
         });

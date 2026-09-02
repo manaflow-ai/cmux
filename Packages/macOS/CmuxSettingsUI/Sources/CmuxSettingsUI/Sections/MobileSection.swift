@@ -100,6 +100,10 @@ public struct MobileSection: View {
                 SettingsCardDivider()
                 phonePushHideContentRow
                 SettingsCardDivider()
+                // Account-level device management: outside the policy-disabled
+                // group because revoking a lost phone must stay reachable even
+                // when remote control is disabled by the organization.
+                manageDevicesRow
                 Group {
                     pairDeviceRow
                     SettingsCardDivider()
@@ -144,6 +148,38 @@ public struct MobileSection: View {
             phonePush,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    /// Link to the account device dashboard on cmux.com: every Mac and phone
+    /// signed into the account, with status, version/track, sync state, and
+    /// revocation. Hidden when the host provides no web origin.
+    @ViewBuilder
+    private var manageDevicesRow: some View {
+        if let url = hostActions.devicesDashboardURL() {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:mobile:manage-devices",
+                String(
+                    localized: "settings.mobile.manageDevices",
+                    defaultValue: "Account Devices"
+                ),
+                subtitle: String(
+                    localized: "settings.mobile.manageDevices.subtitle",
+                    defaultValue: "See every Mac and iPhone signed into your account, check versions and sync state, and revoke lost devices."
+                )
+            ) {
+                Link(
+                    String(
+                        localized: "settings.mobile.manageDevices.openButton",
+                        defaultValue: "Manage Devices"
+                    ),
+                    destination: url
+                )
+                .cmuxFont(.caption)
+                .accessibilityIdentifier("SettingsMobileManageDevicesLink")
+            }
+            SettingsCardDivider()
+        }
     }
 
     @ViewBuilder

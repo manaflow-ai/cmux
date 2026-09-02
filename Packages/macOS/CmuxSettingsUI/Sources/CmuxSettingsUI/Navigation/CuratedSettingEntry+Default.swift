@@ -225,6 +225,22 @@ extension Array where Element == CuratedSettingEntry {
             // Mobile
             .init(
                 section: .mobile,
+                id: "manage-devices",
+                title: String(
+                    localized: "settings.mobile.manageDevices",
+                    defaultValue: "Account Devices"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.manageDevices.subtitle",
+                    defaultValue: "See every Mac and iPhone signed into your account, check versions and sync state, and revoke lost devices."
+                ),
+                synonyms: """
+                devices device list dashboard manage revoke revoked lost stolen \
+                phone iphone ipad mac account version sync
+                """
+            ),
+            .init(
+                section: .mobile,
                 id: "pairDevice",
                 title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
                 synonyms: """

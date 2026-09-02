@@ -2240,6 +2240,28 @@ class MemoryRepository implements IrohRepositoryShape {
     });
   }
 
+  revokeEndpointForAccountOwner(
+    input: Parameters<IrohRepositoryShape["revokeEndpointForAccountOwner"]>[0],
+  ) {
+    const row = this.bindings.find((candidate) =>
+      candidate.userId === input.userId
+      && candidate.endpointId === input.endpointId
+      && !candidate.revokedAt);
+    if (!row) {
+      return Effect.succeed({
+        revoked: false,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
+    row.revokedAt = input.now;
+    row.revokedReason = "user_requested";
+    this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
+    return Effect.succeed({
+      revoked: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
+  }
+
   pruneExpiredState(input: Parameters<IrohRepositoryShape["pruneExpiredState"]>[0]) {
     let changed = false;
     for (const row of this.bindings.filter((candidate) => candidate.userId === input.userId)) {

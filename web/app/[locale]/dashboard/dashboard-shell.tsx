@@ -69,6 +69,11 @@ export function DashboardShell({
       label: t("accountGroup"),
       items: [
         {
+          href: "/dashboard/devices",
+          label: t("devices"),
+          active: pathname.startsWith("/dashboard/devices"),
+        },
+        {
           href: "/dashboard/billing",
           label: t("billing"),
           active: pathname.startsWith("/dashboard/billing"),

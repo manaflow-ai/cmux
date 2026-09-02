@@ -147,6 +147,12 @@ function wireDate(iso: string): Date {
   return iso as unknown as Date;
 }
 
+/** Inverse of wireDate for reads: generated types say Date, the wire and DO
+ * storage hold RFC3339 strings. */
+function isoFromWire(value: Date | null | undefined): string | null {
+  return value == null ? null : (value as unknown as string);
+}
+
 function rfc3339FromMs(ms: number): string {
   return new Date(ms).toISOString();
 }
@@ -784,6 +790,57 @@ export function parseRevocationRequest(value: unknown): RevocationRequest | null
     || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
   if (typeof value.revoked !== "boolean") return null;
   return { endpointId: value.endpointId, revoked: value.revoked };
+}
+
+// ---- Dashboard read model + retire (worker HTTP routes -> account DO) ----
+
+export interface RetireRequest {
+  endpointId: string;
+}
+
+/** Strict body parse for POST /v1/control/devices/retire (same trust model as
+ * parseRevocationRequest: the account identity never rides in the body). */
+export function parseRetireRequest(value: unknown): RetireRequest | null {
+  if (!isObject(value)) return null;
+  if (!hasOnlyKeys(value, ["endpointId"])) return null;
+  if (typeof value.endpointId !== "string"
+    || value.endpointId.length === 0
+    || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
+  return { endpointId: value.endpointId };
+}
+
+/** One dashboard row: the DO-owned overlay joined onto what the cached broker
+ * directory knows about that endpoint. `listed=false` marks overlay-only rows
+ * whose binding disappeared upstream — kept so a revocation stays visible and
+ * reversible across a binding flap, but never emitted to peers. */
+export interface DashboardDeviceRow {
+  endpointId: string;
+  listed: boolean;
+  bindingId: string | null;
+  deviceId: string | null;
+  clientNamespace: string | null;
+  instanceTag: string | null;
+  homeRelayUrl: string | null;
+  updatedAt: string | null;
+  status: Status;
+  revoked: boolean;
+  appVersion: string | null;
+  releaseTrack: ReleaseTrack | null;
+  capabilities: string[];
+  lastConfirmedAt: string | null;
+  lastAckedRev: number | null;
+  connected: boolean;
+}
+
+/** GET /v1/control/devices response body: the account device list as the
+ * dashboard reads it — every row with its lifecycle status, revoked flag,
+ * version/track, and ack watermark, plus the head revision so per-device sync
+ * state (lastAckedRev vs rev) is comparable client-side. */
+export interface DashboardSnapshot {
+  rev: number;
+  ttlSeconds: number;
+  minimumSupportedVersion: PurpleMinimumSupportedVersion | null;
+  devices: DashboardDeviceRow[];
 }
 
 export interface CtlSocket {
@@ -1424,6 +1481,99 @@ export class ControlPlaneCore {
       }
     }
     return { rev, changed: true, revoked: request.revoked };
+  }
+
+  // ---- Dashboard: read-only account snapshot + retire ----
+
+  /** Build the dashboard read model. Read-only by contract: unlike
+   * mergedDirectory this never calls ensureOverlay, so a GET cannot create
+   * overlay rows. Broker-known bindings come first; overlay-only rows
+   * (binding gone upstream) follow with listed=false. */
+  async dashboardSnapshot(): Promise<DashboardSnapshot> {
+    const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+    const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
+    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
+    const connected = new Set<string>();
+    for (const socket of this.deps.sockets()) {
+      const attachment = socket.getAttachment();
+      if (attachment?.helloed === true && attachment.endpointId !== undefined) {
+        connected.add(attachment.endpointId);
+      }
+    }
+    const devices: DashboardDeviceRow[] = [];
+    const emitted = new Set<string>();
+    for (const binding of broker?.bindings ?? []) {
+      emitted.add(binding.endpointId);
+      const overlay = overlays.get(DEV_PREFIX + binding.endpointId);
+      devices.push({
+        endpointId: binding.endpointId,
+        listed: true,
+        bindingId: binding.bindingId,
+        deviceId: overlay?.deviceId ?? binding.deviceId ?? null,
+        clientNamespace: overlay?.clientNamespace ?? binding.clientNamespace,
+        instanceTag: binding.instanceTag ?? null,
+        homeRelayUrl: binding.homeRelayUrl ?? null,
+        updatedAt: isoFromWire(binding.updatedAt),
+        status: overlay?.status ?? "seeded",
+        revoked: overlay?.revoked ?? false,
+        appVersion: overlay?.appVersion ?? null,
+        releaseTrack: overlay?.releaseTrack ?? null,
+        capabilities: overlay?.capabilities ?? [],
+        lastConfirmedAt: overlay?.lastConfirmedAt ?? null,
+        lastAckedRev: overlay?.lastAckedRev ?? null,
+        connected: connected.has(binding.endpointId),
+      });
+    }
+    for (const [key, overlay] of overlays) {
+      const endpointId = key.slice(DEV_PREFIX.length);
+      if (emitted.has(endpointId)) continue;
+      devices.push({
+        endpointId,
+        listed: false,
+        bindingId: null,
+        deviceId: overlay.deviceId ?? null,
+        clientNamespace: overlay.clientNamespace ?? null,
+        instanceTag: null,
+        homeRelayUrl: null,
+        updatedAt: null,
+        status: overlay.status,
+        revoked: overlay.revoked,
+        appVersion: overlay.appVersion ?? null,
+        releaseTrack: overlay.releaseTrack ?? null,
+        capabilities: overlay.capabilities ?? [],
+        lastConfirmedAt: overlay.lastConfirmedAt ?? null,
+        lastAckedRev: overlay.lastAckedRev ?? null,
+        connected: connected.has(endpointId),
+      });
+    }
+    return {
+      rev,
+      ttlSeconds: DIRECTORY_TTL_SECONDS,
+      minimumSupportedVersion: broker?.minimumSupportedVersion ?? null,
+      devices,
+    };
+  }
+
+  /** Mark one device retired (dashboard "remove": cleanup, NOT a security
+   * action — the admission hook keeps checking only revoked + lease
+   * freshness, and the UX must not read as stolen/revoked). Idempotent. A
+   * retired overlay-only row stops being synthesized into peer directories;
+   * the device's next confirm-on-hello flips it straight back to active,
+   * which is the designed un-retire path. */
+  async handleRetire(
+    request: RetireRequest,
+  ): Promise<{ rev: number; changed: boolean; status: Status }> {
+    const overlay = await this.ensureOverlay(request.endpointId);
+    if (overlay.status === "retired") {
+      const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+      return { rev, changed: false, status: "retired" };
+    }
+    await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
+      ...overlay,
+      status: "retired",
+    });
+    const rev = await this.bumpOverlayRevisionAndBroadcast(null);
+    return { rev, changed: true, status: "retired" };
   }
 
   // ---- Alarm: periodic refresh + pending-snapshot recovery ----

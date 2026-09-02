@@ -173,6 +173,19 @@ enum AuthEnvironment {
         appWebOrigin(environment: environment).appendingPathComponent("app-pro-welcome")
     }
 
+    /// Account device dashboard on the app web origin: the device list as the
+    /// authorization surface (per-device status, version/track, sync state,
+    /// and revocation). Linked from Settings → Mobile.
+    static var devicesDashboardURL: URL {
+        resolvedDevicesDashboardURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedDevicesDashboardURL(environment: [String: String]) -> URL {
+        appWebOrigin(environment: environment)
+            .appendingPathComponent("dashboard")
+            .appendingPathComponent("devices")
+    }
+
     /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`
     /// can explicitly pin checkout elsewhere, otherwise checkout follows the
     /// same app web origin as `/app-pricing`. Direct Stripe Checkout binds the
