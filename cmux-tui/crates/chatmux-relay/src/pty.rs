@@ -1046,23 +1046,48 @@ impl Inner {
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
-            Arc::clone(&current.publication_gate)
+            let authorized = (context.live_authorized)(&current.actor_id);
+            let gate = Arc::clone(&current.publication_gate);
+            if !authorized {
+                drop(attachments);
+                self.emit_error_for_generation(
+                    context,
+                    pty_id,
+                    generation,
+                    &gate,
+                    "trust_revoked",
+                    "PTY output refused after trust change",
+                );
+                return;
+            }
+            gate
         };
         let _publication = gate.lock().expect("attachment publication lock");
-        {
+        let authorized = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
-                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
+            (context.live_authorized)(&current.actor_id)
+        };
+        if !authorized {
+            drop(_publication);
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                generation,
+                publication_gate,
+                "trust_revoked",
+                "PTY output refused after trust change",
+            );
+            return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
@@ -3011,10 +3036,7 @@ mod tests {
         live_auth.lock().unwrap().0 = "observe".to_owned();
         pty.emit("secret");
         assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
-        assert!(h
-            .sent()
-            .iter()
-            .any(|f| ty(f) == "pty_error" && f["code"] == "trust_revoked"));
+        assert!(h.sent().iter().any(|f| ty(f) == "pty_error" && f["code"] == "trust_revoked"));
         assert_eq!(h.manager.attachment_count(), 0);
         assert!(pty.state.lock().unwrap().killed);
     }
