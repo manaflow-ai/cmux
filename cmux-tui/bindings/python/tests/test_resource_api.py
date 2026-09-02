@@ -12,6 +12,7 @@ import cmux
 import cmux._protocol as resource_protocol
 import cmux.aio
 import cmux.raw
+from cmux.resources import _journal_record
 from cmux import (
     AgentId,
     BrowserId,
@@ -106,6 +107,39 @@ def canceled_end(connection, stream_id, **fields):
 
 
 class ResourceApiTests(unittest.TestCase):
+    def test_public_models_export_journal_append_result(self) -> None:
+        self.assertIn("JournalAppendResult", cmux.__all__)
+
+    def test_journal_record_subjects_use_the_declared_wire_grammar(self) -> None:
+        record = {
+            "sequence": "1",
+            "event_id": "event-1",
+            "schema_version": 1,
+            "kind": "plugin.screen-detector.agent.state.changed",
+            "class": "state",
+            "replay": "required",
+            "occurred_at_ms": "1",
+            "committed_at_ms": "2",
+            "producer": {"kind": "plugin", "id": "screen-detector"},
+            "authority": None,
+            "causation_id": None,
+            "correlation_id": None,
+            "causation_depth": 0,
+            "subjects": [],
+            "sensitivity": "metadata",
+            "payload": {},
+            "resource_revision": None,
+            "previous_resource_revision": None,
+        }
+        for subject in (
+            {"kind": "Agent", "id": "agent-1"},
+            {"kind": "agent", "id": ""},
+            {"kind": "agent", "id": "agent-1", "extra": True},
+        ):
+            with self.subTest(subject=subject):
+                with self.assertRaises(cmux.ProtocolError):
+                    _journal_record({**record, "subjects": [subject]})
+
     def test_root_is_resource_api_and_legacy_is_raw_only(self) -> None:
         self.assertIs(cmux.Client, Client)
         self.assertFalse(hasattr(cmux, "CmuxClient"))

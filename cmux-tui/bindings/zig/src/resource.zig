@@ -18521,6 +18521,18 @@ test "generic journal producer values preserve the userland wire contract" {
         decoded_list.producers[0].events[0].kind,
     );
 
+    var malformed_put = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"producer_id\":\"screen-detector\",\"manifest_version\":1," ++
+            "\"namespace\":\"plugin.other\",\"sequence\":\"1\",\"event_id\":\"event-1\"}",
+        .{},
+    );
+    defer malformed_put.deinit();
+    try std.testing.expectError(
+        error.InvalidJournalProducerNamespace,
+        decodeJournalProducerPutResult(malformed_put.value),
+    );
+
     var agent = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"agent_11111111111111111111111111111111\",\"session_id\":\"session_22222222222222222222222222222222\",\"terminal_id\":\"term_33333333333333333333333333333333\",\"state\":\"working\",\"source\":\"plugin\",\"updated_at_ms\":\"9\",\"source_session\":null}",
@@ -18558,6 +18570,17 @@ test "generic journal producer values preserve the userland wire contract" {
         error.InvalidJournalEventSensitivity,
         invalid.validate(),
     );
+
+    const legacy_screen = TerminalScreenResult{
+        .text = "legacy",
+        .cols = 80,
+        .rows = 24,
+        .cursor_row = 0,
+        .cursor_col = 0,
+        .cursor_visible = true,
+        .extra = null,
+    };
+    try std.testing.expect(legacy_screen.revision == null);
 }
 
 test "terminal lifecycle and durable exit constraints are strict" {

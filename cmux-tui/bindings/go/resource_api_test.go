@@ -1204,33 +1204,78 @@ func TestUserlandAgentPluginUsesGenericJournalContract(t *testing.T) {
 	}
 	put, err := session.PutJournalProducer(
 		context.Background(), manifest,
-		MutationOptions{IdempotencyKey: "producer-put"},
+		MutationOptions{
+			IdempotencyKey: "producer-put",
+			Extra: map[string]JSONValue{
+				"future_put": "kept",
+				// Typed fields must win over forward-compatible extras.
+				"manifest": map[string]any{"wrong": true},
+			},
+		},
 	)
 	if err != nil || put.Value.EventID != "event-11" {
 		t.Fatalf("producer put = %#v, %v", put, err)
 	}
+	event := JournalIngress{
+		ProducerID:      manifest.ProducerID,
+		ManifestVersion: 1,
+		Kind:            manifest.Events[0].Kind,
+		SchemaVersion:   1,
+		OccurredAtMS:    func() *Decimal { value := Decimal(10); return &value }(),
+		Subjects:        []JournalSubject{{Kind: "agent", ID: string(testAgentID)}},
+		Payload:         map[string]any{"state": "working"},
+	}
 	appendResult, err := session.AppendJournal(
 		context.Background(),
-		JournalIngress{
-			ProducerID:      manifest.ProducerID,
-			ManifestVersion: 1,
-			Kind:            manifest.Events[0].Kind,
-			SchemaVersion:   1,
-			OccurredAtMS:    func() *Decimal { value := Decimal(10); return &value }(),
-			Subjects:        []JournalSubject{{Kind: "agent", ID: string(testAgentID)}},
-			Payload:         map[string]any{"state": "working"},
+		event,
+		MutationOptions{
+			IdempotencyKey: "event-append",
+			Extra: map[string]JSONValue{
+				"future_append": "kept",
+				// Typed fields must win over forward-compatible extras.
+				"event": map[string]any{"wrong": true},
+			},
 		},
-		MutationOptions{IdempotencyKey: "event-append"},
 	)
 	if err != nil || appendResult.Value.EventID != "event-13" {
 		t.Fatalf("journal append = %#v, %v", appendResult, err)
 	}
 
+	requestsByOperation := make(map[string]map[string]any, 3)
 	for index := 0; index < 3; index++ {
 		request := <-requests
 		if request["operation"] == nil {
 			t.Fatalf("request %d omitted operation: %#v", index, request)
 		}
+		requestsByOperation[request["operation"].(string)] = request
+	}
+	putRequest := requestsByOperation["session.journal.producer.put"]
+	if putRequest == nil {
+		t.Fatalf("journal producer put request was not observed: %#v", requestsByOperation)
+	}
+	if params := requestParams(t, putRequest); params["future_put"] != "kept" {
+		t.Fatalf("put extra field = %#v, want kept", params["future_put"])
+	}
+	manifestValue, ok := requestParams(t, putRequest)["manifest"].(map[string]any)
+	if !ok {
+		t.Fatalf("put typed manifest was replaced by Extra: %#v", putRequest)
+	}
+	if manifestValue["producer_id"] != manifest.ProducerID {
+		t.Fatalf("put manifest producer_id = %#v, want %q", manifestValue["producer_id"], manifest.ProducerID)
+	}
+	appendRequest := requestsByOperation["session.journal.append"]
+	if appendRequest == nil {
+		t.Fatalf("journal append request was not observed: %#v", requestsByOperation)
+	}
+	if params := requestParams(t, appendRequest); params["future_append"] != "kept" {
+		t.Fatalf("append extra field = %#v, want kept", params["future_append"])
+	}
+	eventValue, ok := requestParams(t, appendRequest)["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("append typed event was replaced by Extra: %#v", appendRequest)
+	}
+	if eventValue["producer_id"] != event.ProducerID {
+		t.Fatalf("append event producer_id = %#v, want %q", eventValue["producer_id"], event.ProducerID)
 	}
 }
 

@@ -317,6 +317,47 @@ test("journal records must match their envelope cursor", async () => {
   client.close();
 });
 
+test("journal records validate subject grammar at the decode boundary", async () => {
+  let streamId = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "session.journal.subscribe") return;
+    streamId = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: streamId });
+  });
+  const client = new Client({ transport });
+  const stream = await client.session(SESSION).journal();
+  const next = stream.next();
+  transport.emit({
+    protocol: "cmux.protocol/2",
+    type: "stream_item",
+    stream_id: streamId,
+    sequence: "1",
+    cursor: { generation: String(SESSION), revision: "1" },
+    item: {
+      sequence: "1",
+      event_id: "event_invalid_subject",
+      schema_version: 1,
+      kind: "plugin.screen-detector.agent.state.changed",
+      class: "state",
+      replay: "required",
+      occurred_at_ms: "1",
+      committed_at_ms: "2",
+      producer: { kind: "plugin", id: "screen-detector" },
+      authority: null,
+      causation_id: null,
+      correlation_id: null,
+      causation_depth: 0,
+      subjects: [{ kind: "Agent", id: "agent-1" }],
+      sensitivity: "metadata",
+      payload: {},
+      resource_revision: null,
+      previous_resource_revision: null,
+    },
+  });
+  await assert.rejects(() => next, /journal subject.*lowercase component/);
+  client.close();
+});
+
 test("resource protocol releases cancellation handles at dispatch", async () => {
   for (const synchronous of [true, false]) {
     const transport = new DispatchHandleTransport(synchronous);
