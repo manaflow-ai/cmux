@@ -21,22 +21,84 @@ struct CorpusCase {
 }
 
 const UNICODE_CORPUS: &[CorpusCase] = &[
-    CorpusCase { id: "latin-combining-acute", category: "latin-combining", text: "e\u{301}", width: WidthExpectation::Narrow },
-    CorpusCase { id: "latin-nfc", category: "nfc-nfd", text: "é", width: WidthExpectation::Narrow },
-    CorpusCase { id: "latin-nfd", category: "nfc-nfd", text: "e\u{301}", width: WidthExpectation::Narrow },
-    CorpusCase { id: "hangul-syllable", category: "hangul", text: "한", width: WidthExpectation::Wide },
+    CorpusCase {
+        id: "latin-combining-acute",
+        category: "latin-combining",
+        text: "e\u{301}",
+        width: WidthExpectation::Narrow,
+    },
+    CorpusCase {
+        id: "latin-nfc", category: "nfc-nfd", text: "é", width: WidthExpectation::Narrow
+    },
+    CorpusCase {
+        id: "latin-nfd",
+        category: "nfc-nfd",
+        text: "e\u{301}",
+        width: WidthExpectation::Narrow,
+    },
+    CorpusCase {
+        id: "hangul-syllable",
+        category: "hangul",
+        text: "한",
+        width: WidthExpectation::Wide,
+    },
     CorpusCase { id: "cjk-han", category: "cjk", text: "界", width: WidthExpectation::Wide },
-    CorpusCase { id: "emoji-presentation", category: "emoji-presentation", text: "😀", width: WidthExpectation::Wide },
-    CorpusCase { id: "emoji-zwj-star-wars-regression", category: "emoji-zwj", text: "🧑‍🚀", width: WidthExpectation::Wide },
-    CorpusCase { id: "emoji-zwj-family", category: "emoji-zwj", text: "👨‍👩‍👧‍👦", width: WidthExpectation::Wide },
-    CorpusCase { id: "emoji-variation-selector", category: "variation-selector", text: "☕️", width: WidthExpectation::Policy },
-    CorpusCase { id: "regional-indicator-flag", category: "regional-indicator", text: "🇺🇸", width: WidthExpectation::Wide },
-    CorpusCase { id: "zero-width-joiner", category: "zero-width-joiner", text: "👩‍💻", width: WidthExpectation::Wide },
-    CorpusCase { id: "devanagari-conjunct", category: "devanagari", text: "क्ष", width: WidthExpectation::Wide },
+    CorpusCase {
+        id: "emoji-presentation",
+        category: "emoji-presentation",
+        text: "😀",
+        width: WidthExpectation::Wide,
+    },
+    CorpusCase {
+        id: "emoji-zwj-star-wars-regression",
+        category: "emoji-zwj",
+        text: "🧑‍🚀",
+        width: WidthExpectation::Wide,
+    },
+    CorpusCase {
+        id: "emoji-zwj-family",
+        category: "emoji-zwj",
+        text: "👨‍👩‍👧‍👦",
+        width: WidthExpectation::Wide,
+    },
+    CorpusCase {
+        id: "emoji-variation-selector",
+        category: "variation-selector",
+        text: "☕️",
+        width: WidthExpectation::Policy,
+    },
+    CorpusCase {
+        id: "regional-indicator-flag",
+        category: "regional-indicator",
+        text: "🇺🇸",
+        width: WidthExpectation::Wide,
+    },
+    CorpusCase {
+        id: "zero-width-joiner",
+        category: "zero-width-joiner",
+        text: "👩‍💻",
+        width: WidthExpectation::Wide,
+    },
+    CorpusCase {
+        id: "devanagari-conjunct",
+        category: "devanagari",
+        text: "क्ष",
+        width: WidthExpectation::Wide,
+    },
     CorpusCase { id: "thai", category: "thai", text: "ก", width: WidthExpectation::Narrow },
     CorpusCase { id: "arabic", category: "arabic", text: "م", width: WidthExpectation::Narrow },
-    CorpusCase { id: "box-drawing", category: "box-drawing", text: "┌", width: WidthExpectation::Policy },
-    CorpusCase { id: "east-asian-ambiguous-middle-dot", category: "east-asian-ambiguous", text: "·", width: WidthExpectation::Policy },
+    CorpusCase {
+        id: "box-drawing",
+        category: "box-drawing",
+        text: "┌",
+        width: WidthExpectation::Policy,
+    },
+    CorpusCase {
+        id: "east-asian-ambiguous-middle-dot",
+        category: "east-asian-ambiguous",
+        text: "·",
+        width: WidthExpectation::Policy,
+    },
 ];
 
 fn cell_columns(cell: &Cell) -> u16 {
@@ -208,11 +270,14 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
             case.id
         );
 
-        let lead = row.iter().find(|cell| !cell.text.is_empty()).unwrap_or_else(|| {
-            panic!("case {} produced no lead cell", case.id)
-        });
+        let lead = row
+            .iter()
+            .find(|cell| !cell.text.is_empty())
+            .unwrap_or_else(|| panic!("case {} produced no lead cell", case.id));
         match case.width {
-            WidthExpectation::Narrow => assert_eq!(lead.width, CellWidth::Narrow, "case {}", case.id),
+            WidthExpectation::Narrow => {
+                assert_eq!(lead.width, CellWidth::Narrow, "case {}", case.id)
+            }
             WidthExpectation::Wide => assert_eq!(lead.width, CellWidth::Wide, "case {}", case.id),
             WidthExpectation::Policy => {
                 assert!(
@@ -226,9 +291,9 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
 
         if lead.width == CellWidth::Wide {
             let lead_index = row.iter().position(|cell| !cell.text.is_empty()).unwrap();
-            let tail = row.get(lead_index + 1).unwrap_or_else(|| {
-                panic!("case {} wide lead has no spacer tail", case.id)
-            });
+            let tail = row
+                .get(lead_index + 1)
+                .unwrap_or_else(|| panic!("case {} wide lead has no spacer tail", case.id));
             assert_eq!(tail.width, CellWidth::SpacerTail, "case {}", case.id);
             assert!(tail.text.is_empty(), "case {} spacer tail contains text", case.id);
         }
@@ -237,11 +302,7 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
 
 #[test]
 fn unicode_corpus_resize_and_replay_preserve_cells() {
-    let transcript = UNICODE_CORPUS
-        .iter()
-        .map(|case| case.text)
-        .collect::<Vec<_>>()
-        .join("\r\n");
+    let transcript = UNICODE_CORPUS.iter().map(|case| case.text).collect::<Vec<_>>().join("\r\n");
 
     let mut source = Terminal::new(32, 4, 0, Callbacks::default()).unwrap();
     source.vt_write(format!("\x1b[?2027h{transcript}").as_bytes());
@@ -260,17 +321,17 @@ fn unicode_corpus_resize_and_replay_preserve_cells() {
 
     assert_eq!(restored_frame.size, source_frame.size);
     assert_eq!(restored_frame.styled_rows().len(), source_frame.styled_rows().len());
-    for (row_index, (source_row, restored_row)) in source_frame
-        .styled_rows()
-        .iter()
-        .zip(restored_frame.styled_rows())
-        .enumerate()
+    for (row_index, (source_row, restored_row)) in
+        source_frame.styled_rows().iter().zip(restored_frame.styled_rows()).enumerate()
     {
         assert_eq!(
             row_signature(restored_row),
             row_signature(source_row),
             "resize/replay changed cell roles in row {row_index}"
         );
-        assert!(!row_text(restored_row).contains('\u{FFFD}'), "resize/replay introduced U+FFFD in row {row_index}");
+        assert!(
+            !row_text(restored_row).contains('\u{FFFD}'),
+            "resize/replay introduced U+FFFD in row {row_index}"
+        );
     }
 }
