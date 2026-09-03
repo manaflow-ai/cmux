@@ -221,8 +221,8 @@ final class CloudVMActionLauncher {
     private func cancel(processID: Int32, launchID: UUID) {
         guard let tracked = processes.entry(processID: processID), tracked.launchID == launchID else { return }
         cancelledLaunchIDs.insert(launchID)
-        if tracked.process.isRunning {
-            tracked.process.terminate()
+        if tracked.value.isRunning {
+            tracked.value.terminate()
         }
     }
 
