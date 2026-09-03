@@ -324,7 +324,7 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
-            let mut agent_entries = HashMap::<SurfaceId, ProjectionRow>::new();
+            let mut agent_entries = Vec::<(SurfaceId, ProjectionRow)>::new();
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
             let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -385,17 +385,23 @@ fn append_level(
                             },
                         };
                         if agent_only {
-                            agent_entries.insert(tab.surface, row);
+                            agent_entries.push((tab.surface, row));
                         } else {
                             output.push(row);
                         }
                     }
                 }
             }
-            for surface in agent_order {
-                if let Some(row) = agent_entries.remove(surface) {
-                    output.push(row);
-                }
+            if agent_only {
+                let order_index = agent_order
+                    .iter()
+                    .enumerate()
+                    .map(|(index, surface)| (*surface, index))
+                    .collect::<HashMap<_, _>>();
+                agent_entries.sort_by_key(|(surface, _)| {
+                    order_index.get(surface).copied().unwrap_or(usize::MAX)
+                });
+                output.extend(agent_entries.into_iter().map(|(_, row)| row));
             }
         }
     }
