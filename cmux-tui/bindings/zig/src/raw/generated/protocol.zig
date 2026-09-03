@@ -2908,10 +2908,14 @@ pub fn machineStats(client: anytype, request: MachineStatsRequest) !wire.Decoded
     );
 }
 
-pub fn machineStatsFollow(client: anytype, request: MachineStatsRequest) !client_runtime.Stream {
+pub const machineStatsFollowResult = struct {
+    initial_result: wire.Decoded(MachineStatsResult),
+    stream: client_runtime.Stream,
+};
+pub fn machineStatsFollow(client: anytype, request: MachineStatsRequest) !machineStatsFollowResult {
     var follow_request = request;
     follow_request.follow = true;
-    return client.openStream(
+    var stream = try client.openStream(
         .{
             .name = "machine-stats",
             .authority = "control",
@@ -2921,6 +2925,8 @@ pub fn machineStatsFollow(client: anytype, request: MachineStatsRequest) !client
         follow_request,
         null,
     );
+    const initial_result = try stream.initialResult(MachineStatsResult);
+    return .{ .initial_result = initial_result, .stream = stream };
 }
 
 pub const MachineUsageRequest = struct {};

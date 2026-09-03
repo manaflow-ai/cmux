@@ -468,9 +468,20 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
         "",
         definitions.render().rstrip(),
         "",
+    ]
+    for wire_name, command in document["commands"].items():
+        if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+            lines.extend([
+                f"pub struct {_pascal(str(wire_name))}FollowResult {{",
+                f"    pub initial_result: {result_names[str(wire_name)]},",
+                "    pub stream: CmuxStream,",
+                "}",
+                "",
+            ])
+    lines.extend([
         "#[rustfmt::skip]",
         "impl CmuxClient {",
-    ]
+    ])
     for wire_name, command in document["commands"].items():
         wire_name = str(wire_name)
         method = _snake(wire_name)
@@ -537,13 +548,15 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
                 ]
             )
         if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+            follow_result = f"{_pascal(wire_name)}FollowResult"
             lines.extend(
                 [
                     "",
-                    f"    pub fn {method}_follow(&mut self, mut request: {request_name}) -> Result<CmuxStream> {{",
+                    f"    pub fn {method}_follow(&mut self, mut request: {request_name}) -> Result<{follow_result}> {{",
                     *guards,
                     f"        request.{command['stream']['mode_field']} = Some(true);",
-                    f"        self.execute_stream(&{metadata_name}, &request)",
+                    f"        let (initial_result, stream) = self.execute_stream_with_result(&{metadata_name}, &request)?;",
+                    f"        Ok({follow_result} {{ initial_result, stream }})",
                     "    }",
                 ]
             )

@@ -510,11 +510,15 @@ class ZigEmitter:
                     terminal = "null" if terminal_event is None else _quote(str(terminal_event))
                     lines.extend(
                         [
+                            f"pub const {function}FollowResult = struct {{",
+                            f"    initial_result: wire.Decoded({result_name}),",
+                            "    stream: client_runtime.Stream,",
+                            "};",
                             f"pub fn {function}Follow(client: anytype, request: {request_name}) "
-                            "!client_runtime.Stream {",
+                            f"!{function}FollowResult {{",
                             "    var follow_request = request;",
                             "    follow_request.follow = true;",
-                            "    return client.openStream(",
+                            "    var stream = try client.openStream(",
                         ]
                     )
                     lines.extend(
@@ -529,6 +533,8 @@ class ZigEmitter:
                             "        follow_request,",
                             f"        {terminal},",
                             "    );",
+                            f"    const initial_result = try stream.initialResult({result_name});",
+                            "    return .{ .initial_result = initial_result, .stream = stream };",
                             "}",
                             "",
                         ]

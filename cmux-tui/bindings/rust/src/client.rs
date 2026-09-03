@@ -375,6 +375,19 @@ impl CmuxClient {
     where
         Request: Serialize,
     {
+        let (_, stream) = self.execute_stream_with_result::<Request, Value>(metadata, request)?;
+        Ok(stream)
+    }
+
+    pub(crate) fn execute_stream_with_result<Request, Response>(
+        &mut self,
+        metadata: &'static CommandMetadata,
+        request: &Request,
+    ) -> Result<(Response, CmuxStream)>
+    where
+        Request: Serialize,
+        Response: DeserializeOwned,
+    {
         self.require_compatible(metadata)?;
         let id = Value::from(self.next_id());
         let envelope = request_envelope(metadata.name, id.clone(), request)?;
@@ -404,14 +417,15 @@ impl CmuxClient {
                 continue;
             }
             ensure_success(metadata.name, &message)?;
-            return Ok(CmuxStream {
+            let initial = decode_response(metadata.name, message.clone())?;
+            return Ok((initial, CmuxStream {
                 connection,
                 buffered,
                 control,
                 terminal_event: metadata.stream.and_then(|stream| stream.terminal_event),
                 max_queued_events: self.config.max_queued_events,
                 finished: false,
-            });
+            }));
         }
     }
 

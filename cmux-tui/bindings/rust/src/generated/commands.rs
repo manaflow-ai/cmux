@@ -1326,6 +1326,11 @@ pub struct ZoomPaneRequest {
     pub pane: Optional<T::Id>,
 }
 
+pub struct MachineStatsFollowResult {
+    pub initial_result: T::MachineStatsResult,
+    pub stream: CmuxStream,
+}
+
 #[rustfmt::skip]
 impl CmuxClient {
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
@@ -1541,9 +1546,10 @@ impl CmuxClient {
         self.execute(&MACHINE_STATS_METADATA, &request)
     }
 
-    pub fn machine_stats_follow(&mut self, mut request: MachineStatsRequest) -> Result<CmuxStream> {
+    pub fn machine_stats_follow(&mut self, mut request: MachineStatsRequest) -> Result<MachineStatsFollowResult> {
         request.follow = Some(true);
-        self.execute_stream(&MACHINE_STATS_METADATA, &request)
+        let (initial_result, stream) = self.execute_stream_with_result(&MACHINE_STATS_METADATA, &request)?;
+        Ok(MachineStatsFollowResult { initial_result, stream })
     }
 
     pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {
