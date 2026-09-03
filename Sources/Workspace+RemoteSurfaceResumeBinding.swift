@@ -32,6 +32,7 @@ extension Workspace {
               configuration.preserveAfterTerminalExit,
               !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
+              remoteTerminalSessionStatesBySurfaceId[panelID]?.phase != .ended,
               activeRemoteTerminalSurfaceIds.contains(panelID) else {
             return nil
         }
