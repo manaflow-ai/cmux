@@ -2,6 +2,7 @@ import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
+import { captureCoderouterProductEvent, coderouterRequestFailedEvent } from "./productAnalytics";
 import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
@@ -432,7 +433,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 
 function captureOpenCodeHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId" | "stackUserId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -484,6 +485,20 @@ function captureOpenCodeHealth(input: {
     durationMs,
     responseStreamed: input.responseStreamed ?? false,
   });
+  // The OpenCode proxy does not parse usage, so only failures reach the
+  // person-level project from here.
+  if (input.outcome !== "success" && input.identity) {
+    captureCoderouterProductEvent(coderouterRequestFailedEvent({
+      identity: input.identity,
+      provider: "opencode-go",
+      agent: "opencode",
+      outcome: input.outcome,
+      failureStage: input.failureStage,
+      status: input.status,
+      durationMs,
+      attemptCount: input.attempts ?? 0,
+    }));
+  }
 }
 
 function apiError(

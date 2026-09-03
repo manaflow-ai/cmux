@@ -888,6 +888,7 @@ async function destroyPersonalCloudVms(
         provider: ProviderId;
         afterProviderDestroy: () => void;
         modelPlane: VmModelPlaneRevoker;
+        source: "account_deletion";
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -897,6 +898,7 @@ async function destroyPersonalCloudVms(
           destructiveCleanupStarted = true;
         },
         modelPlane: vmModelPlaneRevoker(),
+        source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);

@@ -317,26 +317,29 @@ export type VmRepositoryShape = {
   /** Endpoint leases issued to one signed-in user and still within their TTL. */
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
-  readonly recordUsageEvent: (input: {
-    readonly userId: string;
-    readonly billingTeamId?: string | null;
-    readonly billingPlanId?: string | null;
-    readonly vmId?: string | null;
-    readonly eventType: string;
-    readonly provider?: ProviderId;
-    readonly imageId?: string;
-    readonly metadata?: Record<string, unknown>;
-  }) => Effect.Effect<void, VmDatabaseError>;
-  readonly recordUsageEvents: (inputs: readonly {
-    readonly userId: string;
-    readonly billingTeamId?: string | null;
-    readonly billingPlanId?: string | null;
-    readonly vmId?: string | null;
-    readonly eventType: string;
-    readonly provider?: ProviderId;
-    readonly imageId?: string;
-    readonly metadata?: Record<string, unknown>;
-  }[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
+};
+
+/**
+ * One usage-ledger row. Persisted to `cloud_vm_usage_events` and, for the
+ * allowlisted lifecycle types, mirrored to PostHog (services/vms/productAnalytics.ts).
+ */
+export type VmUsageEventInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly billingPlanId?: string | null;
+  readonly vmId?: string | null;
+  readonly eventType: string;
+  readonly provider?: ProviderId;
+  readonly imageId?: string;
+  readonly metadata?: Record<string, unknown>;
+  /**
+   * The machine's `createdAt`, supplied by destroy sites so analytics can
+   * report the machine's lifetime. Not persisted: the ledger row already
+   * joins to `cloud_vms` by `vmId`.
+   */
+  readonly vmCreatedAt?: Date | null;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -504,7 +507,8 @@ function boundedReaperKeys(keys: readonly string[]): string[] {
   return normalized;
 }
 
-export const VmRepositoryLive = Layer.succeed(VmRepository, {
+/** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
+export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
@@ -1881,4 +1885,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         metadata: input.metadata ?? {},
       })));
     }),
-});
+};
+
+export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);

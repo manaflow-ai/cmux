@@ -48,10 +48,11 @@ import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } fr
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { withVmProductAnalytics } from "./productAnalytics";
 import {
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
-  VmRepositoryLive,
+  vmRepositoryLiveShape,
   type BeginCreateResult,
   type BeginBaseCreateResult,
   type CloudVmBaseGenerationRow,
@@ -137,7 +138,16 @@ export type VmModelPlaneProvisioner = {
 /** The revoke half alone, for paths that only end a machine. */
 export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
-export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
+/**
+ * The Postgres repository wrapped so every usage-ledger write also reaches
+ * PostHog as a product event (services/vms/productAnalytics.ts).
+ */
+export const VmRepositoryWithAnalyticsLive = Layer.succeed(
+  VmRepository,
+  withVmProductAnalytics(vmRepositoryLiveShape),
+);
+
+export const VmWorkflowLive = Layer.mergeAll(VmRepositoryWithAnalyticsLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
 const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
@@ -396,6 +406,8 @@ export function createVm(input: {
   readonly memoryMb?: number;
   /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
   readonly imageSize?: CreateOptions["imageSize"];
+  /** How the machine came to exist; analytics only. Defaults to `create`. */
+  readonly origin?: VmCreateOrigin;
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -815,7 +827,7 @@ function finishBaseCreate(
       ),
     );
 
-    yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey }, running);
+    yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -871,6 +883,7 @@ function reopenBaseIfProviderDeleted(
             eventType: "vm.destroyed",
             provider: existing.provider,
             imageId: existing.imageId,
+            vmCreatedAt: existing.createdAt,
             metadata: {
               source: "base_open_provider_missing",
               baseName: input.baseName ?? "base",
@@ -953,6 +966,7 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
+      origin: "restore",
       modelPlane: input.modelPlane,
       timing: input.timing,
     });
@@ -1108,7 +1122,7 @@ export function forkVm(input: {
         ),
       );
 
-      yield* recordCreateSuccessEvents(repo, input, running);
+      yield* recordCreateSuccessEvents(repo, { ...input, origin: "fork" }, running);
       const fork = vmEntryFromRow(running);
       yield* repo.recordUsageEvent({
         userId: source.userId,
@@ -1287,6 +1301,7 @@ function reconcileObservedProviderStatus(
         eventType: "vm.destroyed",
         provider: vm.provider,
         imageId: vm.imageId,
+        vmCreatedAt: vm.createdAt,
         metadata: { source: usageEventSource },
       }).pipe(Effect.catchAll(() => Effect.void));
       return "destroyed" as const;
@@ -1629,6 +1644,8 @@ export function destroyVm(input: {
   readonly afterProviderDestroy?: () => void;
   /** Revokes the machine's coderouter tokens once the provider machine is gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Who asked for the destroy; recorded on the ledger row. Defaults to `user_request`. */
+  readonly source?: "user_request" | "account_deletion";
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1710,7 +1727,11 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-      ...(homeVolume ? { metadata: { homeVolume, homeVolumeDeleted } } : {}),
+      vmCreatedAt: vm.createdAt,
+      metadata: {
+        source: input.source ?? "user_request",
+        ...(homeVolume ? { homeVolume, homeVolumeDeleted } : {}),
+      },
     }).pipe(Effect.catchAll(() => Effect.void));
   });
 }
@@ -2530,11 +2551,18 @@ function recordCreateRequestedEvents(
   );
 }
 
+export type VmCreateOrigin = "create" | "restore" | "fork" | "base";
+
 function recordCreateSuccessEvents(
   repo: VmRepositoryShape,
   input: {
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    readonly origin?: VmCreateOrigin;
+    readonly memoryMb?: number;
+    readonly persistentHome?: boolean;
+    readonly perMachineHome?: boolean;
+    readonly imageSize?: CreateOptions["imageSize"];
   },
   running: CloudVmRow,
 ) {
@@ -2553,6 +2581,13 @@ function recordCreateSuccessEvents(
         metadata: {
           idempotencyKeySet: !!input.idempotencyKey,
           imageVersion: running.imageVersion,
+          // Machine shape and origin, so analytics can size the fleet by plan
+          // and tell a fresh create from a restore, fork or base open.
+          origin: input.origin ?? "create",
+          ...(input.memoryMb !== undefined ? { memoryMb: input.memoryMb } : {}),
+          ...(input.imageSize ? { imageSize: input.imageSize.name } : {}),
+          ...(input.persistentHome !== undefined ? { persistentHome: input.persistentHome } : {}),
+          ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
         },
       },
     ]).pipe(Effect.catchAll(() => Effect.void)),

@@ -7,6 +7,10 @@ import {
 } from "../../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../../services/subrouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
+import {
+  captureCoderouterProductEvent,
+  coderouterAccountRemovedEvent,
+} from "../../../../../services/coderouter/productAnalytics";
 
 
 type RouteContext = {
@@ -33,6 +37,11 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
       teamId: team.teamId,
       properties: { source: "legacy_dashboard" },
     });
+    captureCoderouterProductEvent(coderouterAccountRemovedEvent({
+      stackUserId: resolved.value.user.id,
+      teamId: team.teamId,
+      source: "legacy_dashboard",
+    }));
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);

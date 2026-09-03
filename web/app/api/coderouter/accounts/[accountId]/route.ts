@@ -2,6 +2,10 @@ import { removeAccount } from "../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
+  captureCoderouterProductEvent,
+  coderouterAccountRemovedEvent,
+} from "../../../../../services/coderouter/productAnalytics";
+import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "../../../../../services/coderouter/observability";
@@ -69,6 +73,12 @@ export function createDeleteAccountHandler(dependencies: {
         legacy_cleanup_pending: result.legacyCleanupPending,
       },
     });
+    captureCoderouterProductEvent(coderouterAccountRemovedEvent({
+      stackUserId: resolved.value.user.id,
+      teamId: resolved.value.team.teamId,
+      source: "native_api",
+      lastAccount: result.lastAccount,
+    }));
     addCoderouterBreadcrumb("account", "Provider account removed", {
       last_account: result.lastAccount,
       legacy_cleanup_pending: result.legacyCleanupPending,

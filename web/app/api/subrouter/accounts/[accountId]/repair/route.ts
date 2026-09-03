@@ -6,6 +6,10 @@ import {
 } from "../../../../../../services/subrouter/routeHelpers";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { captureCoderouterEvent } from "../../../../../../services/coderouter/analytics";
+import {
+  captureCoderouterProductEvent,
+  coderouterAccountAddedEvent,
+} from "../../../../../../services/coderouter/productAnalytics";
 
 
 type RouteContext = {
@@ -47,6 +51,13 @@ export async function POST(
         already_exists: true,
       },
     });
+    captureCoderouterProductEvent(coderouterAccountAddedEvent({
+      stackUserId: context.user.id,
+      teamId: context.team.teamId,
+      source: "legacy_dashboard",
+      provider: input.value.provider,
+      alreadyExists: true,
+    }));
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);

@@ -9,6 +9,10 @@ import {
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
+  captureCoderouterProductEvent,
+  coderouterClaudeUpstreamEvent,
+} from "../../../../../services/coderouter/productAnalytics";
+import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "../../../../../services/coderouter/observability";
@@ -81,6 +85,11 @@ export function makeClaudeAccountHandlers(
       teamId,
       properties: {},
     });
+    captureCoderouterProductEvent(coderouterClaudeUpstreamEvent({
+      kind: "removed",
+      stackUserId: resolved.value.user.id,
+      teamId,
+    }));
     addCoderouterBreadcrumb("account", "Claude upstream account removed");
     return Response.json({ removed: true, count: 1 }, { headers: { "cache-control": "no-store" } });
   }

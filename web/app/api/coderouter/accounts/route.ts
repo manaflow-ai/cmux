@@ -9,6 +9,10 @@ import {
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
+  captureCoderouterProductEvent,
+  coderouterAccountAddedEvent,
+} from "../../../../services/coderouter/productAnalytics";
+import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
@@ -119,6 +123,13 @@ export function makeCoderouterAccountsPostHandler(
         already_exists: result.alreadyExists,
       },
     });
+    captureCoderouterProductEvent(coderouterAccountAddedEvent({
+      stackUserId: resolved.value.user.id,
+      teamId: resolved.value.team.teamId,
+      source: "native_api",
+      provider: credential.provider,
+      alreadyExists: result.alreadyExists,
+    }));
     addCoderouterBreadcrumb("account", "Provider account stored", {
       provider: credential.provider,
       already_exists: result.alreadyExists,

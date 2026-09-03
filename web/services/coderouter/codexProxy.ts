@@ -8,6 +8,11 @@ import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
 import {
+  captureCoderouterProductEvent,
+  coderouterGenerationEvent,
+  coderouterRequestFailedEvent,
+} from "./productAnalytics";
+import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
@@ -491,7 +496,7 @@ function jsonError(
 
 function captureRouteHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId" | "stackUserId">;
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
@@ -564,6 +569,20 @@ function captureRouteHealth(input: {
     durationMs,
     responseStreamed: input.responseStreamed,
   });
+  // Person-level failure signal in the main project; successes are counted
+  // by the `$ai_generation` event once usage is known.
+  if (input.outcome !== "success" && input.identity) {
+    captureCoderouterProductEvent(coderouterRequestFailedEvent({
+      identity: input.identity,
+      provider: "codex",
+      agent,
+      outcome: input.outcome,
+      failureStage,
+      status: input.status,
+      durationMs,
+      attemptCount: input.attempted,
+    }));
+  }
 }
 
 function captureModelUsage(
@@ -589,6 +608,17 @@ function captureModelUsage(
       ...vmIdProperty(identity.vmId),
     },
   });
+  captureCoderouterProductEvent(coderouterGenerationEvent({
+    identity,
+    provider: "codex",
+    agent: ledger.agent,
+    model: usage.model,
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    status: ledger.status,
+  }));
   recordUsageEvent({
     requestId: ledger.requestId,
     teamId: identity.teamId,

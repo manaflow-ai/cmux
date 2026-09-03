@@ -25,6 +25,11 @@ import {
   type ClaudeUpstream,
 } from "./claudeUpstream";
 import { captureCoderouterEvent } from "./analytics";
+import {
+  captureCoderouterProductEvent,
+  coderouterGenerationEvent,
+  coderouterRequestFailedEvent,
+} from "./productAnalytics";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 import {
   newLedgerRequestId,
@@ -845,6 +850,21 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     responseStreamed: input.responseStreamed,
     upstreamAccountId: input.upstream?.accountId,
   });
+  // Person-level failure signal in the main project; successes are counted
+  // by the `$ai_generation` event once usage is known.
+  if (input.outcome !== "success" && input.identity) {
+    captureCoderouterProductEvent(coderouterRequestFailedEvent({
+      identity: input.identity,
+      provider: "claude",
+      agent,
+      outcome: input.outcome,
+      failureStage: input.failureStage,
+      status: input.status,
+      durationMs,
+      attemptCount: input.attemptCount,
+      upstreamKind: input.upstream?.kind,
+    }));
+  }
 }
 
 function captureModelUsage(
@@ -892,6 +912,18 @@ function captureModelUsage(
     totalTokens: usage.totalTokens,
     status: ledger.status,
   });
+  captureCoderouterProductEvent(coderouterGenerationEvent({
+    identity,
+    provider: "claude",
+    agent: ledger.agent,
+    model: usage.model,
+    inputTokens,
+    cachedInputTokens: usage.cacheReadInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    status: ledger.status,
+    upstreamKind: upstream.kind,
+  }));
 }
 
 function agentFromUserAgent(value: string | null): string {
