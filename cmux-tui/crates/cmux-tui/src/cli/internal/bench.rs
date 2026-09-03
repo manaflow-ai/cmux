@@ -417,6 +417,30 @@ struct ProbeGates {
     release_workers: Barrier,
 }
 
+struct SubscriberGuard {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl SubscriberGuard {
+    fn new(stop: Arc<std::sync::atomic::AtomicBool>, thread: thread::JoinHandle<()>) -> Self {
+        Self { stop, thread: Some(thread) }
+    }
+
+    fn stop_and_join(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for SubscriberGuard {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
 impl ProbeGates {
     fn new(client_count: usize) -> Self {
         let parties = client_count + 1;
@@ -439,6 +463,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let events: Arc<Mutex<VisibilityIndex>> = Arc::new(Mutex::new(VisibilityIndex::default()));
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subscriber_thread = spawn_subscriber(subscriber, Arc::clone(&events), Arc::clone(&stop));
+    let mut subscriber_guard = SubscriberGuard::new(stop, subscriber_thread);
 
     // A baseline terminal to type into. Snapshot the terminal catalog first so
     // teardown can close exactly what this run created.
@@ -512,8 +537,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     for handle in handles {
         let _ = handle.join();
     }
-    stop.store(true, std::sync::atomic::Ordering::Release);
-    let _ = subscriber_thread.join();
+    subscriber_guard.stop_and_join();
 
     let owned_session = guard.owner.as_ref().is_some_and(|owner| owner.should_stop());
     close_created_terminals(
@@ -552,6 +576,11 @@ fn run_separate_typing_probe(
     gates: &ProbeGates,
     deadline: Instant,
 ) {
+    if probes == 0 {
+        let _ = gates.probes_submitted.wait();
+        let _ = gates.release_workers.wait();
+        return;
+    }
     let mut setup_error = None;
     let mut conn = match Conn::open(socket) {
         Ok(conn) => Some(conn),
