@@ -9,6 +9,24 @@ import Testing
 @testable import cmux
 #endif
 
+private final class ProcessOutputResultStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [ProcessOutputResult?] = [nil, nil]
+
+    func set(_ result: ProcessOutputResult, at index: Int) {
+        lock.lock()
+        values[index] = result
+        lock.unlock()
+    }
+
+    func get() -> (ProcessOutputResult?, ProcessOutputResult?) {
+        lock.lock()
+        let result = (values[0], values[1])
+        lock.unlock()
+        return result
+    }
+}
+
 // The descriptor-level read regressions (would-block on an open writer,
 // end-of-file on a closed writer, partial data preserved on a failing read)
 // are covered in CmuxFoundation's FileHandleProcessPipeReadingTests, next to
@@ -151,9 +169,7 @@ struct ProcessPipeReadCrashRegressionTests {
         let releaseDrain = DispatchSemaphore(value: 0)
         let firstFinished = DispatchSemaphore(value: 0)
         let secondFinished = DispatchSemaphore(value: 0)
-        let resultLock = NSLock()
-        var firstResult: ProcessOutputResult?
-        var secondResult: ProcessOutputResult?
+        let results = ProcessOutputResultStore()
         let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { data in
             guard data == Data("tail\n".utf8) else { return }
             drainEntered.signal()
@@ -166,18 +182,14 @@ struct ProcessPipeReadCrashRegressionTests {
 
         DispatchQueue.global().async {
             let result = collector.finishResult()
-            resultLock.lock()
-            firstResult = result
-            resultLock.unlock()
+            results.set(result, at: 0)
             firstFinished.signal()
         }
         #expect(drainEntered.wait(timeout: .now() + 1) == .success)
 
         DispatchQueue.global().async {
             let result = collector.finishResult()
-            resultLock.lock()
-            secondResult = result
-            resultLock.unlock()
+            results.set(result, at: 1)
             secondFinished.signal()
         }
         #expect(secondFinished.wait(timeout: .now() + 0.05) == .timedOut)
@@ -185,11 +197,9 @@ struct ProcessPipeReadCrashRegressionTests {
         releaseDrain.signal()
         #expect(firstFinished.wait(timeout: .now() + 1) == .success)
         #expect(secondFinished.wait(timeout: .now() + 1) == .success)
-        resultLock.lock()
-        let results = (firstResult, secondResult)
-        resultLock.unlock()
-        #expect(results.0 == results.1)
-        #expect(results.0?.stdout == "tail")
+        let collected = results.get()
+        #expect(collected.0 == collected.1)
+        #expect(collected.0?.stdout == "tail")
     }
 
     @Test
