@@ -3932,6 +3932,29 @@ mod tests {
         assert_eq!(decoded.relay_access, vec![access]);
     }
 
+    #[tokio::test]
+    async fn invitation_count_is_bounded_without_evicting_live_entries() {
+        const EXPECTED_MAX_INVITATIONS: usize = 256;
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+
+        for _ in 0..EXPECTED_MAX_INVITATIONS {
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        }
+
+        let error = database
+            .create_invitation(Duration::from_secs(60), Vec::new())
+            .await
+            .expect_err("live invitation cardinality limit was not enforced");
+        assert!(matches!(
+            error,
+            IdentityError::Invalid(message) if message.contains("maximum invitation count")
+        ));
+
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.invitations.len(), EXPECTED_MAX_INVITATIONS);
+    }
+
     #[test]
     fn invitation_rejects_duplicate_relay_bootstrap_routes() {
         let route = "relay+do://relay.example".to_string();
