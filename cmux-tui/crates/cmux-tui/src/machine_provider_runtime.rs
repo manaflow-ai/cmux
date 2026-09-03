@@ -84,12 +84,12 @@ impl ProviderCloseWorker {
                             );
                         }
                         loop {
-                            let Some((key, close)) = pending.lock().ok().and_then(|mut pending| {
-                                pending
-                                    .iter()
-                                    .next()
-                                    .map(|(key, _)| (*key, pending.remove(key).unwrap()))
-                            }) else {
+                            let next = pending.lock().ok().and_then(|mut pending| {
+                                let key = pending.keys().next().copied()?;
+                                let close = pending.remove(&key)?;
+                                Some((key, close))
+                            });
+                            let Some((key, close)) = next else {
                                 break;
                             };
                             match sender.try_send(close) {
