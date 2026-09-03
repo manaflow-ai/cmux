@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { coderouterHealth, type HealthDependencies } from "../services/coderouter/health";
+import { coderouterHealth, type HealthDependencies, type HealthScheduler } from "../services/coderouter/health";
 
 const configured = {
   CODEROUTER_KMS_KEY_ID: "alias/test",
@@ -14,6 +14,26 @@ function dependencies(overrides: Partial<HealthDependencies> = {}): HealthDepend
     env: configured,
     timeoutMs: 200,
     ...overrides,
+  };
+}
+
+function manualScheduler(): HealthScheduler & { fire: () => void } {
+  const timers = new Set<() => void>();
+  return {
+    now: () => 0,
+    setTimeout: (callback) => {
+      timers.add(callback);
+      return callback;
+    },
+    clearTimeout: (handle) => {
+      if (typeof handle === "function") timers.delete(handle as () => void);
+    },
+    fire: () => {
+      for (const callback of [...timers]) {
+        timers.delete(callback);
+        callback();
+      }
+    },
   };
 }
 
@@ -42,22 +62,30 @@ describe("coderouterHealth", () => {
       },
     }));
     expect(down.status).toBe("down");
-    // Only the error class leaves the process, never the message.
-    expect(down.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "PostgresError" });
+    // The public health body contains only a stable reason, never the error
+    // class or message. The class is retained in the internal breadcrumb.
+    expect(down.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "probe_failed" });
+    expect(JSON.stringify(down)).not.toContain("PostgresError");
   });
 
   test("a hung dependency reports a timeout instead of hanging the probe", async () => {
-    const health = await coderouterHealth(dependencies({
+    const scheduler = manualScheduler();
+    const pending = coderouterHealth(dependencies({
       pingPostgres: () => new Promise(() => undefined),
       timeoutMs: 20,
+      scheduler,
     }));
+    await Promise.resolve();
+    scheduler.fire();
+    const health = await pending;
     expect(health.status).toBe("down");
     expect(health.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "timeout" });
   });
 
   test("aborts a dependency when its health budget expires", async () => {
     let observedSignal: AbortSignal | undefined;
-    const health = await coderouterHealth(dependencies({
+    const scheduler = manualScheduler();
+    const pending = coderouterHealth(dependencies({
       pingPostgres: (signal) => {
         observedSignal = signal;
         return new Promise((_resolve, reject) => {
@@ -65,7 +93,11 @@ describe("coderouterHealth", () => {
         });
       },
       timeoutMs: 20,
+      scheduler,
     }));
+    await Promise.resolve();
+    scheduler.fire();
+    const health = await pending;
     expect(health.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "timeout" });
     expect(observedSignal?.aborted).toBe(true);
   });

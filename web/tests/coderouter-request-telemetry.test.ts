@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as analytics from "../services/coderouter/analytics";
 import {
   CODEROUTER_REQUEST_ID_HEADER,
+  UNSCOPED_CODEROUTER_REQUEST_ID,
   classifyCoderouterFault,
   coderouterControlRoute,
   currentCoderouterRequest,
+  currentCoderouterRequestId,
   newCoderouterRequestContext,
   recordCoderouterIdentity,
   recordCoderouterOutcome,
@@ -67,6 +69,16 @@ describe("classifyCoderouterFault", () => {
 });
 
 describe("traceEvents", () => {
+  test("uses route_crash when a handler throws after recording another outcome", () => {
+    const request = new Request("https://coderouter.dev/v1/responses", { method: "POST" });
+    const context = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses", requestId: "req-crash" });
+    context.outcome = { outcome: "success", failureStage: "none", status: 200 };
+    const error = new Error("handler failed");
+    const trace = traceEvents(context, { status: 503, durationMs: 5, error })[0]!;
+    expect(trace.properties.coderouter_outcome).toBe("route_crash");
+    expect(trace.properties.coderouter_failure_stage).toBe("handler");
+  });
+
   test("builds one $ai_trace root, one $ai_span per step, and no $exception on success", () => {
     const request = new Request("https://coderouter.dev/v1/messages", { method: "POST" });
     const context = newCoderouterRequestContext({ request, surface: "messages", route: "/v1/messages", requestId: "req-1" });
@@ -277,6 +289,15 @@ describe("withCoderouterRoute", () => {
     const response = await route(new Request("https://cmux.com/api/coderouter/vm-usage"), undefined);
     expect(response.headers.get(CODEROUTER_REQUEST_ID_HEADER)).toBeTruthy();
     expect(await response.text()).toBe("hello");
+  });
+});
+
+describe("request identifiers", () => {
+  test("does not mint a joinable id outside a route context", () => {
+    expect(currentCoderouterRequest()).toBeUndefined();
+    // Proxy helpers can be called directly by tests and scripts. A stable
+    // marker prevents those calls from creating misleading trace joins.
+    expect(currentCoderouterRequestId()).toBe(UNSCOPED_CODEROUTER_REQUEST_ID);
   });
 });
 

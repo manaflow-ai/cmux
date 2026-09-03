@@ -44,7 +44,7 @@ describe("coderouter alert checks", () => {
     expect(summary.health).toBe("ok");
     expect(summary.ledgerReachable).toBe(true);
     expect(summary.checks.every((check) => !check.triggered)).toBe(true);
-    expect(summary.alertSink).toEqual({ configured: true, droppedAlerts: 0, sent: 0 });
+    expect(summary.alertSink).toEqual({ configured: true, droppedAlerts: 0, sent: 0, deliveryFailures: 0 });
   });
 
   test("one operator-side failure is critical; upstream and tenant failures need their thresholds", async () => {
@@ -129,6 +129,48 @@ describe("coderouter alert checks", () => {
     ], healthy, {});
     const summary = await run();
     expect(sent.length).toBe(1);
-    expect(summary.alertSink).toEqual({ configured: false, droppedAlerts: 1, sent: 0 });
+    expect(summary.alertSink).toEqual({ configured: false, droppedAlerts: 1, sent: 0, deliveryFailures: 0 });
+  });
+
+  test("counts configured webhook failures and keeps checking", async () => {
+    const sent: AlertInput[] = [];
+    const summary = await runCoderouterAlertChecks({
+      env: webhook,
+      health: async () => healthy,
+      routeEvents: async () => ({ ok: true, rows: [
+        { outcome: "provider_unavailable", failure_stage: "account_selection", team_id: "t1", provider: "codex", c: 1 },
+      ] }),
+      sendAlert: async (input) => {
+        sent.push(input);
+        return { sent: false, configured: true, status: 503 };
+      },
+    });
+    expect(sent).toHaveLength(1);
+    expect(summary.alertSink).toEqual({ configured: true, droppedAlerts: 0, sent: 0, deliveryFailures: 1 });
+  });
+
+  test("reports a dropped alert through injected sinks when forced", async () => {
+    const reported: unknown[] = [];
+    const captured: unknown[] = [];
+    await runCoderouterAlertChecks({
+      env: { CMUX_ALERTS_REPORT_FORCE: "1" },
+      health: async () => healthy,
+      routeEvents: async () => ({ ok: true, rows: [
+        { outcome: "provider_unavailable", failure_stage: "account_selection", team_id: "t1", provider: "codex", c: 1 },
+      ] }),
+      sendAlert: async () => ({ sent: false, configured: false }),
+      reportFailure: (...args) => reported.push(args),
+      captureRawBatch: (events) => captured.push(events),
+    });
+    expect(reported).toHaveLength(1);
+    expect(captured).toHaveLength(1);
+    const event = (captured[0] as Array<{ event: string; properties: Record<string, unknown> }>)[0]!;
+    expect(event.event).toBe("coderouter_alert");
+    expect(event.properties).toMatchObject({
+      alert_key: "coderouter-operator-failures",
+      severity: "critical",
+      coderouter_alert_dropped: true,
+      window_minutes: 5,
+    });
   });
 });

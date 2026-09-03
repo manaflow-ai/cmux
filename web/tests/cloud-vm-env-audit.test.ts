@@ -248,7 +248,17 @@ describe("required runtime env keys cover the production provider path", () => {
     ]) {
       expect(requiredRuntimeEnvKeys).toContain(key);
     }
-    for (const key of ["POSTHOG_CODEROUTER_PROJECT_KEY", "CODEROUTER_ANALYTICS_SCOPE_SECRET"]) {
+    for (const key of [
+      "POSTHOG_CODEROUTER_API_HOST",
+      "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+      "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+      "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+      "POSTHOG_CODEROUTER_INGEST_HOST",
+      "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+      "POSTHOG_CODEROUTER_PROJECT_ID",
+      "POSTHOG_CODEROUTER_PROJECT_KEY",
+      "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+    ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(legacyCloudVmEnvKeys).toContain(key);
     }

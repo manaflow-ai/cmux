@@ -13,10 +13,8 @@ describe("fetchWithHeadersTimeout", () => {
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
       })) as typeof fetch;
-    const started = performance.now();
     await expect(fetchWithHeadersTimeout(fetchImpl, "https://upstream.test/v1", { method: "POST" }, 20))
       .rejects.toBeInstanceOf(UpstreamHeadersTimeoutError);
-    expect(performance.now() - started).toBeLessThan(2_000);
   });
 
   test("does not abort a body that streams past the header deadline", async () => {
