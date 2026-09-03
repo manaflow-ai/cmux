@@ -1589,6 +1589,34 @@ mod tests {
         wait_for_signal(&handle.finished, "completed physical close").await;
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn close_times_out_when_physical_link_close_stalls() {
+        let (physical, handle) = gated_close_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+            )
+            .unwrap(),
+        );
+
+        let close = tokio::spawn({
+            let mux = mux.clone();
+            async move { mux.close().await }
+        });
+        wait_for_signal(&handle.started, "stalled physical close").await;
+
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = result.await.expect("aggregate close remained blocked").unwrap();
+        assert!(matches!(
+            result,
+            Err(LinkError::Transport(message)) if message == "timed out closing physical link"
+        ));
+    }
+
     #[tokio::test]
     async fn drop_cancels_pending_physical_reader() {
         let receive_calls = Arc::new(Semaphore::new(0));
