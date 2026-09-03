@@ -9084,6 +9084,7 @@ fn handle_request_with_cancellation(
 
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let machine_stats_follow = matches!(&cmd, Command::MachineStats { follow: true });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -9109,6 +9110,12 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
+    if machine_stats_follow && sent {
+        // The initial command response must reach the client before any
+        // machine-stats-changed event. Start the producer only after the
+        // response write has completed to preserve that protocol ordering.
+        let _ = start_machine_stats_stream(mux, writer);
+    }
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -11150,6 +11157,26 @@ fn terminal_renderer_grant_json(
     })
 }
 
+fn start_machine_stats_stream(mux: &Arc<Mux>, writer: &MessageWriter) -> anyhow::Result<()> {
+    let events = mux.subscribe_machine_stats();
+    let writer = writer.clone();
+    let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
+    std::thread::Builder::new().name("mux-machine-stats-out".into()).spawn(move || {
+        while writer.is_open() && outbound_stream.is_open() {
+            let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let value = subscribed_event_json(&event);
+            if writer.send_stream_backpressured(&value, &outbound_stream).is_err() {
+                break;
+            }
+        }
+    })?;
+    Ok(())
+}
+
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -11208,33 +11235,7 @@ fn handle_command_with_cancellation(
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
         Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
-        Command::MachineStats { follow } => {
-            if follow {
-                // Same connection semantics as `subscribe`: the response carries the
-                // current sample, then `machine-stats-changed` lines follow on this
-                // connection until it closes. Only the stats event reaches this
-                // receiver, so a follower never pays for terminal output traffic.
-                let events = mux.subscribe_machine_stats();
-                let writer = writer.clone();
-                let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-                std::thread::Builder::new().name("mux-machine-stats-out".into()).spawn(
-                    move || {
-                        while writer.is_open() && outbound_stream.is_open() {
-                            let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
-                                Ok(event) => event,
-                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                            };
-                            let value = subscribed_event_json(&event);
-                            if writer.send_stream_backpressured(&value, &outbound_stream).is_err() {
-                                break;
-                            }
-                        }
-                    },
-                )?;
-            }
-            Ok(machine_stats_json(mux.machine_stats().as_ref()))
-        }
+        Command::MachineStats { .. } => Ok(machine_stats_json(mux.machine_stats().as_ref())),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,

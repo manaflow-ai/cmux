@@ -213,6 +213,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     func update(summary: VMSummary) {
         self.summary = summary
+        if summary.status != "running" || info.linkState != .connected {
+            latestStats = nil
+        }
         info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: latestStats, remoteWorkspaces: info.remoteWorkspaces)
         catalog.updateMachine(info)
     }
@@ -267,6 +270,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         do {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+            if info.linkState != .connected {
+                latestStats = nil
+            }
             watchChanges(link: link)
             watchStats(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
@@ -317,6 +323,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
             }
         } catch {
+            latestStats = nil
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
             var text = status?.error ?? CloudMachineLink.errorText(error)
