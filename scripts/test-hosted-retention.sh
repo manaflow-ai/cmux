@@ -32,7 +32,7 @@ set -euo pipefail
 
 if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == error ]]; then
   echo 'simulated lsof failure' >&2
-  exit 1
+  exit 2
 fi
 
 if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == race ]]; then
