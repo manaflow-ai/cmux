@@ -496,6 +496,7 @@ mod tests {
         let state_root = std::env::temp_dir().join(format!("cmux-bench-{session}"));
         let _ = std::fs::remove_file(&socket);
         let _ = std::fs::remove_dir_all(&state_root);
+        cmux_tui_core::server::prepare_socket_parent(&socket, true).unwrap();
         let listener = transport::listen(&socket).unwrap();
         let server_session = session.clone();
         let server = thread::spawn(move || {
