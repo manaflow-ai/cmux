@@ -61,11 +61,10 @@
     "backToSignIn": "العودة إلى تسجيل الدخول"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "سحابة cmux",
     "title": "ليس لديك حق الوصول",
-    "signedOutBody": "سجّل الدخول إلى cmux لعرض هذا الموقع.",
     "signIn": "تسجيل الدخول إلى cmux",
     "signedInAs": "تم تسجيل الدخول باسم {identity}",
+    "switchAccount": "تبديل الحساب",
     "invalidTitle": "رابط الوصول هذا غير صالح",
     "invalidBody": "ارجع إلى الموقع وحاول مرة أخرى.",
     "footer": "تتم إدارة الوصول بواسطة cmux."

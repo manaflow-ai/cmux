@@ -61,11 +61,10 @@
     "backToSignIn": "Torna all'accesso"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cloud cmux",
     "title": "Non hai accesso",
-    "signedOutBody": "Accedi a cmux per visualizzare questo sito.",
     "signIn": "Accedi a cmux",
     "signedInAs": "Accesso effettuato come {identity}",
+    "switchAccount": "Cambia account",
     "invalidTitle": "Questo link di accesso non è valido",
     "invalidBody": "Torna al sito e riprova.",
     "footer": "L’accesso è gestito da cmux."
