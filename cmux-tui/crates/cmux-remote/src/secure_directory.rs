@@ -59,19 +59,49 @@ mod unix {
     const MAX_TRUSTED_SYMLINK_EXPANSIONS: usize = 16;
     const MAX_SYMLINK_TARGET_BYTES: usize = 64 * 1024;
 
+    /// Whether the directories above the final one are checked for other
+    /// users' write access.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum AncestorPolicy {
+        /// Every ancestor must be root- or owner-controlled and not writable
+        /// by others without the sticky bit. Any ancestor another user can
+        /// rename or replace defeats the final directory's protection.
+        Enforce,
+        /// Ancestors are not inspected. Only the final directory is validated.
+        TrustSandbox,
+    }
+
+    /// iOS runs every app in its own sandbox container; no other user can
+    /// reach, rename, or replace anything above the app's directories, so the
+    /// ancestor walk adds nothing there. It does break the iOS Simulator, whose
+    /// per-device `data` directory is mode 0775 and would be rejected as an
+    /// ancestor writable by other users. The final directory is still required
+    /// to be owner-only. Everywhere else the walk is the guarantee.
+    pub(super) fn ancestor_policy() -> AncestorPolicy {
+        #[cfg(target_os = "ios")]
+        {
+            AncestorPolicy::TrustSandbox
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            AncestorPolicy::Enforce
+        }
+    }
+
     pub(super) fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        let policy = ancestor_policy();
         let (absolute, mut pending) = validated_components(path)?;
         let mut directory = open_anchor(absolute)?;
         let mut trusted_symlinks = 0_usize;
         let mut final_component_created = false;
         if !pending.is_empty() {
-            validate_ancestor(&directory, path)?;
+            validate_ancestor(&directory, path, policy)?;
         }
 
         while let Some(component) = pending.pop_front() {
             match open_directory_at(directory.as_raw_fd(), &component) {
                 Ok(next) => {
-                    validate_ancestor(&next, path)?;
+                    validate_ancestor(&next, path, policy)?;
                     directory = next;
                     final_component_created = false;
                 }
@@ -100,7 +130,7 @@ mod unix {
                     let created = create_directory_at(directory.as_raw_fd(), &component)?;
                     let next = open_directory_at(directory.as_raw_fd(), &component)
                         .map_err(|error| with_component_context(path, &component, error))?;
-                    validate_ancestor(&next, path)?;
+                    validate_ancestor(&next, path, policy)?;
                     directory = next;
                     final_component_created = created;
                 }
@@ -258,7 +288,14 @@ mod unix {
         }
     }
 
-    fn validate_ancestor(directory: &File, path: &Path) -> io::Result<()> {
+    pub(super) fn validate_ancestor(
+        directory: &File,
+        path: &Path,
+        policy: AncestorPolicy,
+    ) -> io::Result<()> {
+        if policy == AncestorPolicy::TrustSandbox {
+            return Ok(());
+        }
         let metadata = directory.metadata()?;
         let mode = metadata.permissions().mode();
         let owner = metadata.uid();
@@ -352,7 +389,30 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
+    use super::unix::{AncestorPolicy, ancestor_policy, validate_ancestor};
     use super::{DirectoryAccess, ensure_secure_directory};
+
+    #[test]
+    fn ancestor_walk_is_enforced_everywhere_but_ios() {
+        #[cfg(target_os = "ios")]
+        assert_eq!(ancestor_policy(), AncestorPolicy::TrustSandbox);
+        #[cfg(not(target_os = "ios"))]
+        assert_eq!(ancestor_policy(), AncestorPolicy::Enforce);
+    }
+
+    #[test]
+    fn group_writable_ancestor_is_rejected_under_enforce_and_accepted_under_trust_sandbox() {
+        let directory = tempfile::tempdir().unwrap();
+        let shared = directory.path().join("data");
+        fs::create_dir(&shared).unwrap();
+        // The iOS Simulator's per-device data directory shape.
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o775)).unwrap();
+        let handle = fs::File::open(&shared).unwrap();
+
+        let rejected = validate_ancestor(&handle, &shared, AncestorPolicy::Enforce).unwrap_err();
+        assert!(rejected.to_string().contains("writable by other users"), "{rejected}");
+        validate_ancestor(&handle, &shared, AncestorPolicy::TrustSandbox).unwrap();
+    }
 
     #[test]
     fn creates_nested_owner_controlled_directories_through_ordinary_ancestors() {

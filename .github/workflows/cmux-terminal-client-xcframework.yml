@@ -224,7 +224,11 @@ jobs:
               echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
               echo '#include <stdio.h>'
               echo 'int main(void) { const void *p[] = {'
-              nm -g "$lib" 2>/dev/null | awk '$2 == "T" && $3 ~ /^_cmux_/ { print "  (const void *)&" substr($3, 2) "," }' | sort -u
+              # Apple nm exits 1 on the Rust sysroot members (newer LLVM
+              # bitcode) even though it lists every machine-code symbol, so
+              # its status is ignored; the count check below still fails an
+              # archive that exports nothing.
+              { nm -g "$lib" 2>/dev/null || true; } | awk '$2 == "T" && $3 ~ /^_cmux_/ { print "  (const void *)&" substr($3, 2) "," }' | sort -u
               printf '%s\n' '  0 }; printf("%p\n", p[0]); return 0; }'
             } > "$src"
             local count
