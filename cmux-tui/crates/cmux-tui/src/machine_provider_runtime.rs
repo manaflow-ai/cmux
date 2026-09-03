@@ -46,6 +46,7 @@ struct ProviderCloseWorker {
     sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
     reaper_sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
     shutdown_sender: Option<crossbeam_channel::Sender<()>>,
+    wake_sender: Option<crossbeam_channel::Sender<()>>,
     threads: Vec<std::thread::JoinHandle<()>>,
     pending: Arc<Mutex<HashMap<MachineKey, ProviderCloseTask>>>,
 }
@@ -60,6 +61,7 @@ impl ProviderCloseWorker {
         let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(queue_capacity.max(1));
         let (shutdown_sender, shutdown_receiver) =
             crossbeam_channel::bounded::<()>(worker_count + 1);
+        let (wake_sender, wake_receiver) = crossbeam_channel::bounded::<()>(1);
         let (reaper_sender, reaper_receiver) =
             crossbeam_channel::bounded::<ProviderCloseTask>(PROVIDER_CONNECTION_ADMISSION_CAP);
         let reaper_shutdown = shutdown_receiver.clone();
@@ -88,6 +90,7 @@ impl ProviderCloseWorker {
             let sender = sender.clone();
             let pending = Arc::clone(&pending);
             let shutdown_receiver = shutdown_receiver.clone();
+            let wake_receiver = wake_receiver.clone();
             let thread = std::thread::Builder::new()
                 .name(format!("provider-close-machine-{index}"))
                 .spawn(move || {
@@ -112,6 +115,7 @@ impl ProviderCloseWorker {
                                     stopping = true;
                                     continue;
                                 }
+                                recv(wake_receiver) -> _ => continue,
                                 recv(receiver) -> close => match close {
                                     Ok(close) => close,
                                     Err(_) => break,
@@ -164,6 +168,7 @@ impl ProviderCloseWorker {
             sender: Some(sender),
             reaper_sender: Some(reaper_sender),
             shutdown_sender: Some(shutdown_sender),
+            wake_sender: Some(wake_sender),
             threads,
             pending,
         })
@@ -182,6 +187,9 @@ impl ProviderCloseWorker {
             Err(crossbeam_channel::TrySendError::Full(close)) => {
                 if let Ok(mut pending) = self.pending.lock() {
                     pending.insert(key, close);
+                    if let Some(wake_sender) = self.wake_sender.as_ref() {
+                        let _ = wake_sender.try_send(());
+                    }
                     Ok(())
                 } else {
                     Err(crossbeam_channel::TrySendError::Disconnected(close))
@@ -211,6 +219,7 @@ impl Drop for ProviderCloseWorker {
         }
         self.sender.take();
         self.reaper_sender.take();
+        self.wake_sender.take();
         for thread in self.threads.drain(..) {
             // A close RPC has its own request deadline, but dropping the
             // runtime must not wait for that remote deadline. Reap a worker
