@@ -225,8 +225,21 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             }
             try Task.checkCancellation()
             if state == .awaitingApproval { setState(.starting, generation: generation) }
-            try await controller.start()
-            try await withDeadline(timing.connectTimeout) { try await self.waitForLink(.connected) }
+            // The extension outlives the app: after a crash or `kill`, the
+            // tunnel can already be connected, and `startVPNTunnel` on a live
+            // session posts no status change to wait for. Read the current
+            // status and adopt a running tunnel instead of restarting it.
+            let current = await controller.currentStatus()
+            linkStatus = current
+            switch current {
+            case .connected:
+                logger.notice("adopting a tunnel that is already connected")
+            case .connecting, .reasserting:
+                try await withDeadline(timing.connectTimeout) { try await self.waitForLink(.connected) }
+            case .disconnected, .disconnecting, .invalid:
+                try await controller.start()
+                try await withDeadline(timing.connectTimeout) { try await self.waitForLink(.connected) }
+            }
             setState(.up, generation: generation)
             restartIdleTimer()
             logger.notice("tunnel up")
@@ -237,8 +250,11 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             let message = Self.userMessage(for: error)
             setState(.failed(message), generation: generation)
             logger.error("tunnel start failed: \(message, privacy: .public)")
-            // Leave nothing half-started behind a failure.
-            try? await controller.stop()
+            // Leave nothing half-started behind a failure — unless a newer start
+            // has taken over in the meantime; its tunnel is not ours to stop.
+            if startGeneration == generation {
+                try? await controller.stop()
+            }
             throw (error as? CloudTunnelError) ?? CloudTunnelError.startFailed(message)
         }
     }

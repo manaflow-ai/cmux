@@ -260,6 +260,41 @@ struct CloudTunnelCoordinatorTests {
         #expect(await harness.coordinator.state == .up)
     }
 
+    @Test("a tunnel left connected by a previous app instance is adopted, not restarted")
+    func adoptsAlreadyConnectedTunnel() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connected
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        #expect(await harness.coordinator.state == .up)
+        // Configuration is re-saved (install) but the live link is kept as is.
+        #expect(harness.controller.calls == ["install"])
+        #expect(harness.enroller.enrollCount == 1)
+    }
+
+    @Test("a superseded start that fails late does not stop the newer start's tunnel")
+    func supersededStartFailureLeavesNewerTunnelAlone() async {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        let first = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+
+        // `cmux vpn down` while the approval is pending supersedes start A.
+        await harness.coordinator.requestDown()
+        #expect(await harness.coordinator.state == .off)
+
+        // Start B comes up normally.
+        harness.controller.holdInstallForApproval = false
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        #expect(await harness.coordinator.state == .up)
+        let callsWithBUp = harness.controller.calls
+
+        // Start A resumes with a failure; its cleanup must not touch B's tunnel.
+        harness.controller.approve(with: FakeTunnelController.Failure.refused)
+        await first.value
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == callsWithBUp)
+    }
+
     @Test("sign-out and revoke tear the tunnel down; revoke also deletes the configuration")
     func signOutAndRevoke() async throws {
         let harness = Harness()
@@ -307,10 +342,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     private var recorded: [String] = []
     private var configurations: [CloudTunnelProviderConfiguration] = []
     private var continuations: [AsyncStream<CloudTunnelLinkStatus>.Continuation] = []
-    private var approvalContinuations: [CheckedContinuation<Void, Never>] = []
+    private var approvalContinuations: [CheckedContinuation<Void, any Error>] = []
     private var _startError: (any Error)?
     private var _connectsOnStart = true
     private var _holdInstallForApproval = false
+    private var _currentStatusValue: CloudTunnelLinkStatus = .disconnected
 
     var calls: [String] { lock.withLock { recorded } }
     var installedConfigurations: [CloudTunnelProviderConfiguration] { lock.withLock { configurations } }
@@ -329,6 +365,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
         get { lock.withLock { _holdInstallForApproval } }
         set { lock.withLock { _holdInstallForApproval = newValue } }
     }
+    /// What `currentStatus()` answers: the link a previous app instance left behind.
+    var currentStatusValue: CloudTunnelLinkStatus {
+        get { lock.withLock { _currentStatusValue } }
+        set { lock.withLock { _currentStatusValue = newValue } }
+    }
 
     var statusUpdates: AsyncStream<CloudTunnelLinkStatus> {
         AsyncStream { continuation in
@@ -342,16 +383,24 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
         }
     }
 
-    func approve() {
+    /// Resolve every pending approval: the user allowed the extension, or
+    /// (with `error`) macOS refused it.
+    func approve(with error: (any Error)? = nil) {
         let waiting = lock.withLock {
             let pending = approvalContinuations
             approvalContinuations.removeAll()
             return pending
         }
-        for continuation in waiting { continuation.resume() }
+        for continuation in waiting {
+            if let error {
+                continuation.resume(throwing: error)
+            } else {
+                continuation.resume()
+            }
+        }
     }
 
-    func currentStatus() async -> CloudTunnelLinkStatus { .disconnected }
+    func currentStatus() async -> CloudTunnelLinkStatus { currentStatusValue }
 
     func install(
         _ configuration: CloudTunnelProviderConfiguration,
@@ -363,7 +412,7 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
         }
         if holdInstallForApproval {
             onNeedsUserApproval()
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 lock.withLock { approvalContinuations.append(continuation) }
             }
         }
