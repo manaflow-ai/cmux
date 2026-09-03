@@ -401,6 +401,10 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
  </picture>
 </a>
 
+## Companion Tools
+
+- [**Aliyun Model Studio CLI**](https://github.com/modelstudioai/cli) (`bailian-cli`) — Official CLI for the Aliyun AI platform (China-site `aliyun.com` accounts). Extends coding agents with image/video generation, knowledge retrieval, app orchestration, and model deployment.
+
 ## Contributing
 
 Ways to get involved:
