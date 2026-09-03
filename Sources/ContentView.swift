@@ -851,6 +851,7 @@ struct ContentView: View {
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
 
     @MainActor
     init(
@@ -858,7 +859,8 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        statusIconImageLoader: (any SidebarStatusIconImageLoading)? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
@@ -866,6 +868,8 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
+        self.statusIconImageLoader = statusIconImageLoader
+            ?? SidebarStatusIconImageLoader(fileReader: SidebarStatusIconFileReader())
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -1745,6 +1749,7 @@ struct ContentView: View {
             isPresented: sidebarState.isVisible,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            statusIconImageLoader: statusIconImageLoader,
             windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
@@ -10894,6 +10899,7 @@ struct VerticalTabsSidebar: View, Equatable {
     var isPresented: Bool = true
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
@@ -11863,6 +11869,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 + tabManager.tabs.map { .workspace($0.id) }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
+            statusIconImageLoader: statusIconImageLoader,
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             liveRowIds: liveRowIds,
             selectedWorkspaceId: selectedWorkspaceId,
@@ -14973,6 +14980,7 @@ struct VerticalTabsSidebar: View, Equatable {
         SidebarWorkspaceRowView(
             snapshot: input.rowSnapshot(list: listSnapshot),
             actions: actionFactory(input),
+            statusIconImageLoader: statusIconImageLoader,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
     }
@@ -15403,6 +15411,7 @@ struct TabItemView: View, Equatable {
 #endif
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
 
     @State private var contextMenuVisible = false
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
@@ -15863,6 +15872,7 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        statusIconImageLoader: statusIconImageLoader,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -16542,6 +16552,7 @@ extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
@@ -16556,6 +16567,7 @@ private struct SidebarMetadataRows: View {
             ForEach(visibleEntries, id: \.key) { entry in
                 SidebarMetadataEntryRow(
                     entry: entry,
+                    statusIconImageLoader: statusIconImageLoader,
                     isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
                     fontScale: fontScale,
@@ -16596,10 +16608,13 @@ private struct SidebarMetadataRows: View {
 
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var loadedImage: CGImage?
 
     var body: some View {
         Group {
@@ -16617,6 +16632,16 @@ private struct SidebarMetadataEntryRow: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onFocus() }
             }
+        }
+        .task(id: entry.icon) {
+            guard case .imageFile(let path) = entry.sidebarIcon else {
+                loadedImage = nil
+                return
+            }
+            loadedImage = nil
+            let image = await statusIconImageLoader.image(at: path)
+            guard !Task.isCancelled else { return }
+            loadedImage = image
         }
     }
 
@@ -16655,10 +16680,10 @@ private struct SidebarMetadataEntryRow: View {
             return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
         case .text(let value):
             return AnyView(Text(value).cmuxFont(size: 8 * fontScale, weight: .semibold))
-        case .imageFile(let path):
-            guard let image = SidebarStatusIconImageLoader.image(at: path) else { return nil }
+        case .imageFile:
+            guard let loadedImage else { return nil }
             return AnyView(
-                Image(nsImage: image)
+                Image(decorative: loadedImage, scale: 1)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()

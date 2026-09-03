@@ -47,12 +47,7 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(SidebarStatusIcon(token: token) == nil)
     }
 
-    @Test func statusImageLoaderReadsColorAssetAndRejectsUnsafeInputs() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-status-icon-tests-" + UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
+    @Test func statusImageLoaderReadsColorAssetAndRejectsUnsafeInputs() async throws {
         let bitmap = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 2,
@@ -67,20 +62,39 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         ))
         bitmap.setColor(.systemRed, atX: 0, y: 0)
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
-        let imageURL = directory.appendingPathComponent("agent.png")
-        try data.write(to: imageURL)
+        let loader = SidebarStatusIconImageLoader { path, _ in
+            switch path {
+            case "/tmp/agent.png", "/tmp/agent.svg": data
+            case "/tmp/oversized.png": Data(count: 1_000_001)
+            default: nil
+            }
+        }
 
-        let loaded = try #require(SidebarStatusIconImageLoader.image(at: imageURL.path))
-        #expect(!loaded.isTemplate)
-        #expect(SidebarStatusIconImageLoader.image(at: "agent.png") == nil)
+        let loaded = try #require(await loader.image(at: "/tmp/agent.png"))
+        #expect(loaded.width == 2)
+        #expect(loaded.height == 2)
+        #expect(await loader.image(at: "agent.png") == nil)
+        #expect(await loader.image(at: "/tmp/oversized.png") == nil)
+        #expect(await loader.image(at: "/tmp/agent.svg") == nil)
+    }
 
-        let oversizedURL = directory.appendingPathComponent("oversized.png")
-        try Data(count: 1_000_001).write(to: oversizedURL)
-        #expect(SidebarStatusIconImageLoader.image(at: oversizedURL.path) == nil)
+    @Test func statusImageLoaderRejectsExcessiveDecodedDimensions() async throws {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 2_049,
+            pixelsHigh: 2_049,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let data = try #require(bitmap.representation(using: .png, properties: [:]))
+        let loader = SidebarStatusIconImageLoader { _, _ in data }
 
-        let unsupportedURL = directory.appendingPathComponent("agent.svg")
-        try data.write(to: unsupportedURL)
-        #expect(SidebarStatusIconImageLoader.image(at: unsupportedURL.path) == nil)
+        #expect(await loader.image(at: "/tmp/oversized-dimensions.png") == nil)
     }
 
     @Test func appendLogEntryTrimsAndDropsEmpty() {

@@ -12,6 +12,7 @@ import SwiftUI
 @MainActor
 final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceRowTableCellView")
+    private var statusIconImageLoader: (any SidebarStatusIconImageLoading)?
 
     // Chrome
     private let backgroundView = NSView()
@@ -71,6 +72,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private weak var pumpWorkspace: Workspace?
     private var pumpRebuild: (@MainActor () -> Void)?
     private var isPresentationActive = true
+
+    convenience init(statusIconImageLoader: any SidebarStatusIconImageLoading) {
+        self.init(frame: .zero)
+        self.statusIconImageLoader = statusIconImageLoader
+    }
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,
@@ -748,7 +754,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
             ? model.snapshot.metadataEntries : []
         let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
-        Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
+        Self.pool(&metadataRows, count: visible.count, parent: contentContainer) {
+            SidebarRowIconTextLine(statusIconImageLoader: statusIconImageLoader)
+        }
         for (index, entry) in visible.enumerated() {
             // Legacy parity: on the selected row an explicit entry color
             // yields to the selected foreground — otherwise agent-status

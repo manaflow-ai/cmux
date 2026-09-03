@@ -1,5 +1,6 @@
 import CmuxNotifications
 import CmuxAppKitSupportUI
+import CmuxSidebar
 import SwiftUI
 
 /// Container-level bridge mounting the AppKit-owned default workspace list once.
@@ -15,6 +16,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     let contentUpdate: ContentUpdate
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
     let workspaceIds: [UUID]
     /// Stable row identities currently owned by the sidebar. Group headers
     /// use their group id here because their anchor workspace can be promoted.
@@ -34,7 +36,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 #endif
 
     func makeCoordinator() -> SidebarWorkspaceTableController {
-        SidebarWorkspaceTableController()
+        SidebarWorkspaceTableController(statusIconImageLoader: statusIconImageLoader)
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
