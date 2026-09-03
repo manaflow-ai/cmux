@@ -259,6 +259,17 @@ actor RemoteTmuxSSHTransport {
         }
     }
 
+    /// Whether the shared ControlMaster is live, WITHOUT trying to open one.
+    ///
+    /// `ssh -O check` hits the local control socket only, so it returns in
+    /// milliseconds and can never prompt for credentials. That makes it the safe
+    /// probe for "has the user finished authenticating in the login terminal yet?" —
+    /// unlike ``ensureMasterReady()``, which would attempt a `BatchMode` open and
+    /// burn a failed authentication attempt while the user is still typing.
+    func isMasterLive() async -> Bool {
+        (try? await masterIsRunning()) ?? false
+    }
+
     /// Tears down the shared SSH master (e.g. when the user removes a host).
     func shutdownMaster() async {
         _ = try? await Self.runProcess(
@@ -375,13 +386,24 @@ actor RemoteTmuxSSHTransport {
     /// the user must fix `known_hosts` themselves. Algorithm-negotiation failures
     /// ("no matching host key type") are deliberately NOT matched: an interactive
     /// retry cannot fix them, so they surface as a normal error instead.
+    /// Lines are read one at a time so that a line about something other than the
+    /// ssh handshake cannot supply the phrase. tmux reports a socket it cannot open
+    /// as `error connecting to /tmp/tmux-501/default (Permission denied)`, and
+    /// ``listSessions()`` consults this before the no-server branch, so matching it
+    /// would offer an interactive login for a problem no login can fix.
     static func indicatesAuthRequired(_ stderr: String) -> Bool {
-        let lowered = stderr.lowercased()
-        return lowered.contains("permission denied")
-            || lowered.contains("host key verification failed")
-            || lowered.contains("remote host identification has changed")
-            || lowered.contains("authentication failed")
-            || lowered.contains("too many authentication failures")
+        stderr.lowercased()
+            .split(whereSeparator: \.isNewline)
+            .contains(where: Self.lineIndicatesAuthRequired)
+    }
+
+    private static func lineIndicatesAuthRequired(_ lowercasedLine: Substring) -> Bool {
+        guard !lowercasedLine.contains("error connecting to /") else { return false }
+        return lowercasedLine.contains("permission denied")
+            || lowercasedLine.contains("host key verification failed")
+            || lowercasedLine.contains("remote host identification has changed")
+            || lowercasedLine.contains("authentication failed")
+            || lowercasedLine.contains("too many authentication failures")
     }
 
     // MARK: - Process plumbing
