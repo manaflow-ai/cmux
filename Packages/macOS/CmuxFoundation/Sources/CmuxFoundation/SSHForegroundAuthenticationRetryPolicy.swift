@@ -263,7 +263,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
                   proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
                   proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
-                  # libproc.h's proc_bsdinfo layout places pbi_pgid after
+                  # libproc.h proc_bsdinfo layout places pbi_pgid after
                   # pbi_nfiles (offset 100), then pbi_nice (offset 116), with
                   # the two start-time uint64 values at offsets 120 and 128.
                   proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
@@ -1228,7 +1228,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
                     proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
                     proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
-                    # libproc.h's proc_bsdinfo layout places pbi_pgid after
+                    # libproc.h proc_bsdinfo layout places pbi_pgid after
                     # pbi_nfiles (offset 100), then pbi_nice (offset 116), with
                     # the two start-time uint64 values at offsets 120 and 128.
                     proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
