@@ -158,7 +158,7 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 | ⌃ ⌘ ] | Następna przestrzeń robocza |
 | ⌃ ⌘ [ | Poprzednia przestrzeń robocza |
 | ⌘ ⇧ W | Zamknij przestrzeń roboczą |
-| ⌘ ⇧ R | Zmień nazwę przestrzeni roboczej |
+| ⌥ ⌘ R | Zmień nazwę przestrzeni roboczej |
 | ⌥ ⌘ E | Edytuj opis przestrzeni roboczej |
 | ⌘ B | Przełącz pasek boczny |
 | ⌥ ⌘ B | Przełącz prawy pasek boczny |

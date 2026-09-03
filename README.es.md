@@ -158,7 +158,7 @@ Para más información sobre cómo configurar cmux, [visita nuestra documentaci�
 | ⌃ ⌘ ] | Siguiente espacio de trabajo |
 | ⌃ ⌘ [ | Espacio de trabajo anterior |
 | ⌘ ⇧ W | Cerrar espacio de trabajo |
-| ⌘ ⇧ R | Renombrar espacio de trabajo |
+| ⌥ ⌘ R | Renombrar espacio de trabajo |
 | ⌥ ⌘ E | Editar descripción del espacio de trabajo |
 | ⌘ B | Alternar barra lateral |
 | ⌥ ⌘ B | Alternar barra lateral derecha |

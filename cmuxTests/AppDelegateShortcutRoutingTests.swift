@@ -4830,7 +4830,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
     }
 
-    func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
+    func testConfiguredCmdOptionRRequestsRenameWorkspaceInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -4861,7 +4861,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(workspaceToken) }
 
-        let renameTabExpectation = expectation(description: "Rename tab notification should not fire for Cmd+Shift+R")
+        let renameTabExpectation = expectation(description: "Rename tab notification should not fire for Cmd+Option+R")
         renameTabExpectation.isInverted = true
         let renameTabToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameTabRequested,
@@ -4874,11 +4874,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "r",
-            modifiers: [.command, .shift],
+            modifiers: [.command, .option],
             keyCode: 15, // kVK_ANSI_R
             windowNumber: window.windowNumber
         ) else {
-            XCTFail("Failed to construct Cmd+Shift+R event")
+            XCTFail("Failed to construct Cmd+Option+R event")
             return
         }
 

@@ -158,7 +158,7 @@ Per maggiori informazioni su come configurare cmux, [consulta la nostra document
 | ⌃ ⌘ ] | Workspace successivo |
 | ⌃ ⌘ [ | Workspace precedente |
 | ⌘ ⇧ W | Chiudi workspace |
-| ⌘ ⇧ R | Rinomina workspace |
+| ⌥ ⌘ R | Rinomina workspace |
 | ⌥ ⌘ E | Modifica descrizione del workspace |
 | ⌘ B | Mostra/nascondi barra laterale |
 | ⌥ ⌘ B | Mostra/nascondi barra laterale destra |

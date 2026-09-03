@@ -156,7 +156,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌃ ⌘ ] | Next workspace |
 | ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
-| ⌘ ⇧ R | Rename workspace |
+| ⌥ ⌘ R | Rename workspace |
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
 | ⌥ ⌘ B | Toggle right sidebar |

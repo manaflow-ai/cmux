@@ -92,7 +92,7 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
-    @Test func defaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() throws {
+    @Test func defaultCmdOptionRRequestsRenameWorkspace() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
 
@@ -120,15 +120,15 @@ struct AppDelegateRenameShortcutContextTests {
             }
             defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            let cmdShiftR = try #require(makeKeyDownEvent(
+            let cmdOptionR = try #require(makeKeyDownEvent(
                 key: "r",
-                modifiers: [.command, .shift],
+                modifiers: [.command, .option],
                 keyCode: 15,
                 windowNumber: window.windowNumber
             ))
 
 #if DEBUG
-            #expect(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
+            #expect(appDelegate.debugHandleCustomShortcut(event: cmdOptionR))
 #else
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -191,7 +191,7 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
-    @Test func focusedBrowserCmdShiftRUsesHardReloadInsteadOfRenameWorkspaceDefault() throws {
+    @Test func focusedBrowserCmdShiftRUsesHardReload() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
 
@@ -205,6 +205,20 @@ struct AppDelegateRenameShortcutContextTests {
             let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
 
             #expect(manager.focusedBrowserPanel != nil)
+
+            // Preserve the pre-fix binding as if an existing user had it saved.
+            let legacyRenameWorkspaceShortcut = StoredShortcut(
+                key: "r",
+                command: true,
+                shift: true,
+                option: false,
+                control: false
+            )
+            let legacyShortcutData = try JSONEncoder().encode(legacyRenameWorkspaceShortcut)
+            UserDefaults.standard.set(
+                legacyShortcutData,
+                forKey: KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey
+            )
 
             let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
@@ -241,6 +255,188 @@ struct AppDelegateRenameShortcutContextTests {
 
             #expect(!renameWorkspacePosted.wasPosted)
             #expect(hardReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func focusedBrowserHardReloadPreservesUnrelatedSettingsFileOrder() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let settingsFileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+            try writeSettingsFile(
+                """
+                {
+                  "shortcuts": {
+                    "bindings": {
+                      "editWorkspaceDescription": "cmd+shift+r"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            KeyboardShortcutSettings.settingsFileStore.reload()
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            let editDescriptionPosted = ShortcutNotificationFlag()
+            let editDescriptionToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteEditWorkspaceDescriptionRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                editDescriptionPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(editDescriptionToken) }
+
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .shift],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(editDescriptionPosted.wasPosted)
+            #expect(!hardReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func focusedBrowserCmdOptionRRequestsRenameWorkspace() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            #expect(manager.focusedBrowserPanel != nil)
+
+            let renameWorkspacePosted = ShortcutNotificationFlag()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspacePosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
+
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .option],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(renameWorkspacePosted.wasPosted)
+            #expect(!hardReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func focusedBrowserCustomHardReloadBindingWinsOverRenameWorkspaceDefault() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let customHardReload = StoredShortcut(
+                key: "r",
+                command: true,
+                shift: false,
+                option: true,
+                control: false
+            )
+            // The shared policy intentionally allows this prioritized pair even
+            // when hard reload is the action being rebound, so runtime dispatch
+            // must honor the same winner as Settings.
+            KeyboardShortcutSettings.setShortcut(customHardReload, for: .browserHardReload)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            #expect(manager.focusedBrowserPanel != nil)
+
+            let renameWorkspacePosted = ShortcutNotificationFlag()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspacePosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
+
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .option],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(hardReloadPosted.wasPosted)
+            #expect(!renameWorkspacePosted.wasPosted)
         }
     }
 
@@ -419,6 +615,14 @@ struct AppDelegateRenameShortcutContextTests {
             }
         }
         try body()
+    }
+
+    private func writeSettingsFile(_ contents: String, to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func makeKeyDownEvent(

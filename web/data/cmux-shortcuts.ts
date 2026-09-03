@@ -11,6 +11,7 @@ export function localizedShortcutText(text: LocalizedText, locale: string) {
 
 export type Shortcut = {
   id: string;
+  // Modifier glyphs describe platform key symbols, not translatable prose.
   combos: string[][];
   description: LocalizedText;
   note?: LocalizedText;
@@ -140,7 +141,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
-      { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
+      { id: "renameWorkspace", combos: [["⌥", "⌘", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
       { id: "markWorkspaceDone", combos: [["⌘", ";"]], description: { en: "Mark workspace as done", ja: "ワークスペースを完了にする" } },
       { id: "cycleWorkspaceStatus", combos: [["⌘", "⇧", ";"]], description: { en: "Cycle workspace status one lane forward", ja: "ワークスペースのステータスを1つ先へ切り替え" } },

@@ -158,7 +158,7 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 | ⌃ ⌘ ] | Sljedeći radni prostor |
 | ⌃ ⌘ [ | Prethodni radni prostor |
 | ⌘ ⇧ W | Zatvori radni prostor |
-| ⌘ ⇧ R | Preimenuj radni prostor |
+| ⌥ ⌘ R | Preimenuj radni prostor |
 | ⌥ ⌘ E | Uredi opis radnog prostora |
 | ⌘ B | Prikaži/sakrij bočnu traku |
 | ⌥ ⌘ B | Prikaži/sakrij desnu bočnu traku |

@@ -15111,7 +15111,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
+        // Apply the pair-specific hard-refresh priority (including an explicitly
+        // persisted legacy Rename Workspace binding) without changing unrelated
+        // application-shortcut order.
+        let renameWorkspaceMatches = matchConfiguredShortcut(event: event, action: .renameWorkspace)
+        if handleRenameWorkspaceHardReloadConflict(
+            event,
+            renameWorkspaceMatches: renameWorkspaceMatches
+        ) {
+            return true
+        }
+
+        if renameWorkspaceMatches {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
@@ -15763,11 +15774,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserHardReload) {
-            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
-                return false
-            }
-            hardReloadBrowserPanelForShortcut(focusedBrowserPanel)
+        // Ordinary hard reload stays in its established browser-routing position;
+        // only the Rename Workspace/browser pair is pre-routed above.
+        if handleBrowserHardReloadShortcut(event) {
             return true
         }
 

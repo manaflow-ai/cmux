@@ -40725,6 +40725,9 @@ export default CMUXSessionRestore;
         \(c7)  ::\(reset)
         """
 
+        // Modifier glyphs are locale-independent protocol symbols. The welcome
+        // block intentionally remains a fixed English CLI reference, so this
+        // value must not be routed through the app's localization catalog.
         let shortcuts = """
           \(bold)Shortcuts\(reset)
 
@@ -40736,7 +40739,7 @@ export default CMUXSessionRestore;
           \(bold)\u{2318}D\(reset)\(subdued)                  Split right\(reset)
           \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 Split down\(reset)
           \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 Command palette\(reset)
-          \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
+          \(bold)\u{2325}\u{2318}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
           \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)

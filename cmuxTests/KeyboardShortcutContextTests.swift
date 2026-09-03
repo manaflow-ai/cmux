@@ -146,8 +146,64 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
-        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
+    func testRenameWorkspaceIsAvailableAcrossPanels() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .application)
+    }
+
+    func testRenameWorkspaceDefaultIsDistinctFromBrowserHardReload() {
+        let renameWorkspace = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        let browserHardReload = KeyboardShortcutSettings.Action.browserHardReload.defaultShortcut
+        let legacyRenameWorkspace = StoredShortcut(
+            key: "r",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+
+        XCTAssertEqual(
+            renameWorkspace,
+            StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertEqual(
+            ShortcutAction.renameWorkspace.defaultStroke,
+            ShortcutStroke(key: "r", command: true, option: true)
+        )
+        XCTAssertNotEqual(renameWorkspace, browserHardReload)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameWorkspace.conflicts(
+                with: browserHardReload,
+                proposedAction: .browserHardReload,
+                configuredShortcut: browserHardReload
+            )
+        )
+        // Existing installs can still have the old ⌘⇧R application binding.
+        // Hard reload is pre-routed in a focused browser, so Settings must let
+        // that legacy binding remain recordable instead of reporting a conflict.
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameWorkspace.conflicts(
+                with: browserHardReload,
+                proposedAction: .browserHardReload,
+                configuredShortcut: legacyRenameWorkspace
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserHardReload.conflicts(
+                with: legacyRenameWorkspace,
+                proposedAction: .renameWorkspace,
+                configuredShortcut: browserHardReload
+            )
+        )
+        // The compatibility exception is pair-specific. A different
+        // application-scoped action must still be rejected for the hard-reload
+        // chord because the runtime route does not preempt it here.
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.toggleSidebar.conflicts(
+                with: legacyRenameWorkspace,
+                proposedAction: .browserHardReload,
+                configuredShortcut: legacyRenameWorkspace
+            )
+        )
     }
 
     func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {

@@ -158,7 +158,7 @@ Pour plus d'informations sur la configuration de cmux, [consultez notre document
 | ⌃ ⌘ ] | Espace de travail suivant |
 | ⌃ ⌘ [ | Espace de travail précédent |
 | ⌘ ⇧ W | Fermer l'espace de travail |
-| ⌘ ⇧ R | Renommer l'espace de travail |
+| ⌥ ⌘ R | Renommer l'espace de travail |
 | ⌥ ⌘ E | Modifier la description de l'espace de travail |
 | ⌘ B | Basculer la barre latérale |
 | ⌥ ⌘ B | Basculer la barre latérale droite |

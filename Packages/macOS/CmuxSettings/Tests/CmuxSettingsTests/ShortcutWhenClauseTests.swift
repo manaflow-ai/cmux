@@ -68,6 +68,24 @@ struct ShortcutWhenClauseTests {
             sidebar, lhsHasPriority: true, .always, rhsHasPriority: false))
     }
 
+    @Test func actionPriorityResolvesOnlyLegacyRenamePair() {
+        #expect(
+            ShortcutAction.browserHardReload.hasPriorityForShortcutConflict(
+                with: .renameWorkspace
+            )
+        )
+        #expect(
+            !ShortcutAction.renameWorkspace.hasPriorityForShortcutConflict(
+                with: .browserHardReload
+            )
+        )
+        #expect(
+            !ShortcutAction.browserHardReload.hasPriorityForShortcutConflict(
+                with: .toggleSidebar
+            )
+        )
+    }
+
     @Test func fullyShadowedLoserStillCollides() {
         let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
         // A binding scoped entirely inside the winner's context would never

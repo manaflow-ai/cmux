@@ -158,7 +158,7 @@ Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokument
 | ⌃ ⌘ ] | Nächster Arbeitsbereich |
 | ⌃ ⌘ [ | Vorheriger Arbeitsbereich |
 | ⌘ ⇧ W | Arbeitsbereich schließen |
-| ⌘ ⇧ R | Arbeitsbereich umbenennen |
+| ⌥ ⌘ R | Arbeitsbereich umbenennen |
 | ⌥ ⌘ E | Arbeitsbereichsbeschreibung bearbeiten |
 | ⌘ B | Seitenleiste umschalten |
 | ⌥ ⌘ B | Rechte Seitenleiste umschalten |
