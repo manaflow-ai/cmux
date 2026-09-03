@@ -1,7 +1,7 @@
 import CmuxFoundation
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -14,7 +14,9 @@ import XCTest
 // are covered in CmuxFoundation's FileHandleProcessPipeReadingTests, next to
 // the moved implementation. This app-side test pins the consumer behavior
 // that depends on app types.
-final class ProcessPipeReadCrashRegressionTests: XCTestCase {
+@Suite
+struct ProcessPipeReadCrashRegressionTests {
+    @Test
     func testProcessOutputCollectorTreatsBrokenReadDescriptorAsClosedPipe() {
         let stdout = Pipe()
         let stderr = Pipe()
@@ -26,9 +28,10 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         let output = collector.finish()
 
-        XCTAssertEqual(output, "")
+        #expect(output == "")
     }
 
+    @Test
     func testProcessOutputCollectorKeepsUtf8BoundariesAndSeparatesStdout() {
         let stdout = Pipe()
         let stderr = Pipe()
@@ -42,13 +45,14 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         let result = collector.finishResult()
 
-        XCTAssertLessThanOrEqual(result.stdout.utf8.count, 32 * 1024)
-        XCTAssertNotNil(String(data: Data(result.stdout.utf8), encoding: .utf8))
-        XCTAssertNil(result.machineId, "machine protocol is authoritative only on stdout")
-        XCTAssertNil(MachineCreateCoordinator.createdMachineID(fromOutput: result.stdout))
-        XCTAssertTrue(result.output.contains("OK machine=stderr-id"))
+        #expect(result.stdout.utf8.count <= 32 * 1024)
+        #expect(String(data: Data(result.stdout.utf8), encoding: .utf8) != nil)
+        #expect(result.machineId == nil, "machine protocol is authoritative only on stdout")
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: result.stdout) == nil)
+        #expect(result.output.contains("OK machine=stderr-id"))
     }
 
+    @Test
     func testProcessOutputCollectorKeepsMachineProtocolAfterTranscriptEviction() {
         let stdout = Pipe()
         let stderr = Pipe()
@@ -61,10 +65,11 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         let result = collector.finishResult()
 
-        XCTAssertEqual(result.machineId, "calm-petrel")
-        XCTAssertLessThanOrEqual(result.stdout.utf8.count, 32 * 1024)
+        #expect(result.machineId == "calm-petrel")
+        #expect(result.stdout.utf8.count <= 32 * 1024)
     }
 
+    @Test
     func testProcessOutputCollectorSkipsMalformedBytesAndKeepsFollowingText() {
         let stdout = Pipe()
         let stderr = Pipe()
@@ -76,9 +81,10 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         let result = collector.finishResult()
 
-        XCTAssertTrue(result.stdout.contains("Error"))
+        #expect(result.stdout.contains("Error"))
     }
 
+    @Test
     func testProcessOutputCollectorDeliversStderrProgressToLiveConsumer() {
         let stdout = Pipe()
         let stderr = Pipe()
@@ -93,6 +99,6 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         _ = collector.finishResult()
 
-        XCTAssertTrue(chunks.contains("waiting for link\n"))
+        #expect(chunks.contains("waiting for link\n"))
     }
 }
