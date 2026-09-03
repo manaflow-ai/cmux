@@ -9501,6 +9501,57 @@ mod tests {
     }
 
     #[test]
+    fn fixed_request_deadline_caps_queue_write_and_response_wait() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        // Hold admission long enough to consume part of the request budget,
+        // then hold the ordered writer for another phase. The writer never
+        // sends a response, so a request that recreates a relative timeout
+        // for each phase runs well past its fixed budget.
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let timeout = Duration::from_millis(180);
+        let request_session = session.clone();
+        let (started_tx, started_rx) = channel();
+        let (finished_tx, finished_rx) = channel();
+        let request = std::thread::spawn(move || {
+            let started = Instant::now();
+            started_tx.send(started).unwrap();
+            let result = request_session.request_with_deadline(
+                json!({"cmd": "fixed-deadline-probe"}),
+                RequestDeadline::Fixed(timeout),
+            );
+            finished_tx.send((started.elapsed(), result)).unwrap();
+        });
+
+        let started = started_rx.recv().unwrap();
+        let pending_deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < pending_deadline, "request did not reach pending state");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(60));
+        drop(queue_guard);
+        std::thread::sleep(Duration::from_millis(60));
+        control.release();
+
+        let (elapsed, result) = finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("fixed-deadline request did not finish");
+        request.join().unwrap();
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            elapsed < timeout + Duration::from_millis(70),
+            "fixed request deadline was reset between phases: started at {started:?}, elapsed {elapsed:?}"
+        );
+    }
+
+    #[test]
     fn bounded_admission_rejects_an_expired_deadline_after_lock_acquisition() {
         let session = test_session(Box::new(SilentWriter));
         let deadline = Instant::now() - Duration::from_millis(1);
