@@ -483,7 +483,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func finishResult() -> ProcessOutputResult {
         lock.lock()
-        guard !isFinished else {
+        if isFinished {
             let output = formattedResultLocked()
             lock.unlock()
             return output
@@ -508,7 +508,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func cancel() {
         lock.lock()
-        guard !isFinished else {
+        if isFinished {
             lock.unlock()
             return
         }
