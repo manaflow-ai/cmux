@@ -291,15 +291,28 @@ impl Conn {
     }
 
     fn read_value_until(&mut self, deadline: Instant) -> Result<Value, String> {
-        let remaining = bounded_wait_duration(deadline, RPC_TIMEOUT);
-        if remaining.is_zero() {
-            return Err("benchmark deadline exceeded".into());
+        loop {
+            let remaining = bounded_wait_duration(deadline, Duration::from_millis(100));
+            if remaining.is_zero() {
+                return Err("benchmark deadline exceeded".into());
+            }
+            self.reader
+                .get_mut()
+                .set_read_timeout(Some(remaining))
+                .map_err(|error| format!("timeout: {error}"))?;
+            match self.read_value() {
+                Ok(value) => return Ok(value),
+                Err(error)
+                    if error.starts_with("read:")
+                        && (error.contains("timed out")
+                            || error.contains("would block")
+                            || error.contains("temporarily unavailable")) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
         }
-        self.reader
-            .get_mut()
-            .set_read_timeout(Some(remaining))
-            .map_err(|error| format!("timeout: {error}"))?;
-        self.read_value()
     }
 
     /// Send a command and return its `data`, ignoring any event lines.
