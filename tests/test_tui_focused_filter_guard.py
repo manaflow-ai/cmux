@@ -9,6 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+PACKAGE_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
@@ -106,3 +107,35 @@ def test_tui_status_names_remain_stable() -> None:
         workflow["jobs"]["hosted-verification"]["name"]
         == "${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}"
     )
+
+
+def _resolve_mode_boolean(value: object, mode: str) -> bool:
+    """Evaluate the small expression subset used by workflow mode inputs."""
+
+    if isinstance(value, bool):
+        return value
+    expression = str(value).strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2].strip()
+    if expression == "true":
+        return True
+    if expression == "false":
+        return False
+    if expression == "inputs.mode == 'full'":
+        return mode == "full"
+    raise AssertionError(f"unsupported mode expression: {value!r}")
+
+
+def test_full_mode_runs_cloudflare_relay_and_focused_mode_skips_it() -> None:
+    caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    package = yaml.safe_load(PACKAGE_WORKFLOW.read_text(encoding="utf-8"))
+    caller_with = caller["jobs"]["build-artifacts"]["with"]
+    cloudflare_job = package["jobs"]["cloudflare-relay"]
+
+    # Model GitHub's mode expression and the called job's `if` condition. This
+    # catches a green full gate that silently disables relay verification.
+    assert cloudflare_job["if"] == "inputs.build_cloudflare_relay"
+    for mode, expected in (("focused", False), ("full", True)):
+        relay_input = _resolve_mode_boolean(caller_with["build_cloudflare_relay"], mode)
+        relay_runs = relay_input
+        assert relay_runs is expected
