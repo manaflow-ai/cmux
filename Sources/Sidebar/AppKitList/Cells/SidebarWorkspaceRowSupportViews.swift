@@ -283,21 +283,29 @@ final class SidebarRowIconTextLine: NSView {
         secondTextView.isHidden = true
         iconLabel.isHidden = true
         iconView.isHidden = true
+        iconView.image = nil
+        iconView.contentTintColor = nil
         iconSize = 0
-        if let icon = entry.icon {
-            if icon.hasPrefix("emoji:") {
+        if let icon = entry.sidebarIcon {
+            switch icon {
+            case .emoji(let value):
                 iconLabel.isHidden = false
-                iconLabel.stringValue = String(icon.dropFirst("emoji:".count))
+                iconLabel.stringValue = value
                 iconLabel.font = .systemFont(ofSize: model.scaled(9))
                 iconSize = model.scaled(9) + 3
-            } else if icon.hasPrefix("text:") {
+            case .text(let value):
                 iconLabel.isHidden = false
-                iconLabel.stringValue = String(icon.dropFirst("text:".count))
+                iconLabel.stringValue = value
                 iconLabel.font = .systemFont(ofSize: model.scaled(8), weight: .semibold)
                 iconLabel.textColor = color
                 iconSize = model.scaled(8) + 3
-            } else {
-                let name = icon.hasPrefix("sf:") ? String(icon.dropFirst("sf:".count)) : icon
+            case .imageFile(let path):
+                if let image = SidebarStatusIconImageLoader.image(at: path) {
+                    iconView.isHidden = false
+                    iconView.image = image
+                    iconSize = model.scaled(10) + 3
+                }
+            case .systemSymbol(let name):
                 if let image = RenderableSystemSymbol.configuredAppKitImage(
                     systemName: name, pointSize: model.scaled(8), weight: .medium
                 ) {

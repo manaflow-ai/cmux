@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import Testing
@@ -28,6 +29,58 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         )
         model.addStatusEntry(entry)
         #expect(model.statusEntries["agent"] == entry)
+    }
+
+    @Test(arguments: [
+        ("bolt.fill", SidebarStatusIcon.systemSymbol("bolt.fill")),
+        ("sf:hammer", SidebarStatusIcon.systemSymbol("hammer")),
+        ("emoji: 🚀 ", SidebarStatusIcon.emoji("🚀")),
+        ("text: CI ", SidebarStatusIcon.text("CI")),
+        ("image: ~/.config/cmux/icons/codex.png ", SidebarStatusIcon.imageFile("~/.config/cmux/icons/codex.png")),
+    ])
+    func statusIconParsesSupportedTokens(_ token: String, _ expected: SidebarStatusIcon) {
+        #expect(SidebarStatusIcon(token: token) == expected)
+    }
+
+    @Test(arguments: [nil, "", "   ", "image:", "emoji:  ", "sf:\n"])
+    func statusIconRejectsEmptyTokens(_ token: String?) {
+        #expect(SidebarStatusIcon(token: token) == nil)
+    }
+
+    @Test func statusImageLoaderReadsColorAssetAndRejectsUnsafeInputs() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-status-icon-tests-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 2,
+            pixelsHigh: 2,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        bitmap.setColor(.systemRed, atX: 0, y: 0)
+        let data = try #require(bitmap.representation(using: .png, properties: [:]))
+        let imageURL = directory.appendingPathComponent("agent.png")
+        try data.write(to: imageURL)
+
+        let loaded = try #require(SidebarStatusIconImageLoader.image(at: imageURL.path))
+        #expect(!loaded.isTemplate)
+        #expect(SidebarStatusIconImageLoader.image(at: "agent.png") == nil)
+
+        let oversizedURL = directory.appendingPathComponent("oversized.png")
+        try Data(count: 1_000_001).write(to: oversizedURL)
+        #expect(SidebarStatusIconImageLoader.image(at: oversizedURL.path) == nil)
+
+        let unsupportedURL = directory.appendingPathComponent("agent.svg")
+        try data.write(to: unsupportedURL)
+        #expect(SidebarStatusIconImageLoader.image(at: unsupportedURL.path) == nil)
     }
 
     @Test func appendLogEntryTrimsAndDropsEmpty() {
