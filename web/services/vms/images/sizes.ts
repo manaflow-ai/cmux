@@ -11,7 +11,7 @@
  * `md` is Freestyle's bare default slug (`freestyle/ubuntu`); the others keep
  * Freestyle's suffixes.
  */
-export type VmImageSizeName = "sm" | "md" | "lg" | "xl" | "2xl";
+export type VmImageSizeName = "sm" | "md" | "lg" | "lgx" | "xl" | "2xl";
 
 export type VmImageSize = {
   readonly name: VmImageSizeName;
@@ -21,13 +21,16 @@ export type VmImageSize = {
   /** MiB (a "64 GB" disk is 65536, matching how Freestyle counts). */
   readonly storageMb: number;
   /** The Freestyle base snapshot with this exact shape. */
-  readonly freestyleBase: string;
+  /** The Freestyle catalog base that boots at this shape; absent for a shape cmux derives by resize only. */
+  readonly freestyleBase?: string;
 };
 
 export const VM_IMAGE_SIZES: readonly VmImageSize[] = [
   { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" },
   { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768, freestyleBase: "freestyle/ubuntu" },
   { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536, freestyleBase: "freestyle/ubuntu-lg" },
+  // Not in Freestyle's catalog: the step the 20 GB plan machine lands on, derived by resize.
+  { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },
   { name: "xl", cpu: 16, memoryMb: 32768, storageMb: 131072, freestyleBase: "freestyle/ubuntu-xl" },
   { name: "2xl", cpu: 32, memoryMb: 65536, storageMb: 131072, freestyleBase: "freestyle/ubuntu-2xl" },
 ];
