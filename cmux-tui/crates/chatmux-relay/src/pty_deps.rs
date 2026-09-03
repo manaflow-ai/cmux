@@ -558,6 +558,7 @@ enum PtyChildCommand {
 }
 
 const PTY_OBSERVER_MAX_FAILURES: usize = 8;
+const PTY_REAP_MAX_FAILURES: usize = 8;
 
 /// Own the PTY child and serialize commands with the final reap. If exit
 /// observation becomes unavailable, poll `try_wait` while still receiving
@@ -571,13 +572,27 @@ fn run_pty_wait_owner(
     lifecycle: Arc<ChildLifecycle>,
 ) -> i64 {
     let mut observer_unavailable = false;
+    let mut reap_failures = 0;
     loop {
         let command = if observer_unavailable {
             match command_rx.recv_timeout(PTY_REAP_RETRY) {
                 Ok(command) => command,
                 Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                     Ok(Some(_)) => break,
-                    Ok(None) | Err(_) => continue,
+                    Ok(None) => {
+                        reap_failures = 0;
+                        continue;
+                    }
+                    Err(_) => {
+                        reap_failures += 1;
+                        if reap_failures < PTY_REAP_MAX_FAILURES {
+                            continue;
+                        }
+                        // A broken non-blocking wait implementation cannot
+                        // establish whether the child exited. Fall through
+                        // to the definitive wait so ownership still ends.
+                        break;
+                    }
                 },
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
