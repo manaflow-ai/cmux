@@ -350,7 +350,7 @@ impl Conn {
     }
 
     fn request_until(&mut self, request: Value, deadline: Instant) -> Result<Value, String> {
-        let id = self.send(request)?;
+        let id = self.send_until(request, deadline)?;
         loop {
             let value = self.read_value_until(deadline)?;
             if value.get("event").is_some() {
