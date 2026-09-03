@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
+import {
+  stackAccessTokenVerifierFromEnv,
+  verifyStackAccessTokenLocally,
+  type StackAccessTokenIdentity,
+} from "../auth/stackAccessToken";
 import { hasAuthRateLimitSignal } from "./authErrors";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
@@ -508,6 +513,58 @@ export async function verifyRequest(
     return await authedUserFromStackUser(user, options);
   }
   return null;
+}
+
+export type VerifiedIdentity = {
+  readonly id: string;
+  /** How the identity was established; surfaced for logs and tests. */
+  readonly source: "access_token" | "stack";
+};
+
+type VerifyIdentityOptions = {
+  readonly allowCookie?: boolean;
+  /**
+   * Skip the local token check and ask Stack, so a revoked session is refused
+   * immediately. Use for sensitive, low-volume operations.
+   */
+  readonly requireStackSession?: boolean;
+  /** Test seam for the local token verifier. */
+  readonly verifyAccessToken?: (
+    accessToken: string,
+  ) => Promise<StackAccessTokenIdentity | null>;
+};
+
+/**
+ * Establish only WHO the caller is, for routes that need the user id and
+ * nothing else (the iroh trust broker). A native bearer token is verified
+ * locally against Stack's published signing keys, so the ~100 req/s of device
+ * registration traffic no longer costs one Stack `users/me` call each. Any
+ * token the local check cannot accept (expired, unknown key, malformed, keys
+ * unavailable) falls back to `verifyRequest`, which asks Stack and refreshes.
+ *
+ * Trade-off, stated: a session revoked at Stack stays accepted here until its
+ * access token expires. Stack access tokens live one hour. Routes that gate
+ * money or account mutation must keep using `verifyRequest`.
+ */
+export async function verifyRequestIdentity(
+  request: Request,
+  options: VerifyIdentityOptions = {},
+): Promise<VerifiedIdentity | null> {
+  if (!isStackConfigured()) return null;
+  const tokens = parseNativeStackTokens(request);
+  if (tokens && !options.requireStackSession) {
+    const verifier = options.verifyAccessToken
+      ? null
+      : stackAccessTokenVerifierFromEnv();
+    const local = options.verifyAccessToken
+      ? await options.verifyAccessToken(tokens.accessToken)
+      : verifier
+        ? await verifyStackAccessTokenLocally(tokens.accessToken, verifier)
+        : null;
+    if (local) return { id: local.userId, source: "access_token" };
+  }
+  const user = await verifyRequest(request, { allowCookie: options.allowCookie });
+  return user ? { id: user.id, source: "stack" } : null;
 }
 
 async function authedUserFromStackUser(
