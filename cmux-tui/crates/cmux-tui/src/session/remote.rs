@@ -1677,7 +1677,8 @@ impl InteractiveWriter {
             state.queued_bytes = 0;
         }
         self.shared.changed.notify_all();
-        if let Err(abort_error) = self.abort_transport() {
+        let abort_result = self.abort_transport();
+        if let Err(abort_error) = abort_result {
             self.record_abort_failure(&abort_error);
         }
     }
