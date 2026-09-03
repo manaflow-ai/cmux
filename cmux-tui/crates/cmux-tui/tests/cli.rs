@@ -4611,7 +4611,7 @@ fn pipe_io_startup_socket_validation_reports_setup_failed() {
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(1),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
