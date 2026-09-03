@@ -3050,7 +3050,10 @@ mod tests {
 
     #[test]
     fn provider_connection_admission_cap_is_explicit_and_reusable() {
-        let admissions = AtomicUsize::new(PROVIDER_CONNECTION_ADMISSION_CAP);
+        let admissions = AtomicUsize::new(0);
+        for _ in 0..PROVIDER_CONNECTION_ADMISSION_CAP {
+            assert!(try_admit_provider_connection(&admissions));
+        }
         assert!(!try_admit_provider_connection(&admissions));
         admissions.fetch_sub(1, Ordering::AcqRel);
         assert!(try_admit_provider_connection(&admissions));
