@@ -24,6 +24,7 @@ const STATE_VERSION: u32 = 1;
 /// understand the original version-1 state.
 pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
+const MAX_LIVE_INVITATIONS: usize = 256;
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
@@ -1126,6 +1127,11 @@ impl AuthDatabase {
         let mut state = self.state.lock().await;
         state.ensure_open()?;
         state.prune_invitations(now);
+        if state.invitations.len() >= MAX_LIVE_INVITATIONS {
+            return Err(IdentityError::Invalid(format!(
+                "maximum invitation count ({MAX_LIVE_INVITATIONS}) reached"
+            )));
+        }
         state.invitations.insert(
             id,
             InvitationRecord {
@@ -3934,11 +3940,10 @@ mod tests {
 
     #[tokio::test]
     async fn invitation_count_is_bounded_without_evicting_live_entries() {
-        const EXPECTED_MAX_INVITATIONS: usize = 256;
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
 
-        for _ in 0..EXPECTED_MAX_INVITATIONS {
+        for _ in 0..MAX_LIVE_INVITATIONS {
             database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
         }
 
@@ -3952,7 +3957,7 @@ mod tests {
         ));
 
         let persisted = load_state(&temp.path().join("devices.json")).unwrap();
-        assert_eq!(persisted.invitations.len(), EXPECTED_MAX_INVITATIONS);
+        assert_eq!(persisted.invitations.len(), MAX_LIVE_INVITATIONS);
     }
 
     #[test]
