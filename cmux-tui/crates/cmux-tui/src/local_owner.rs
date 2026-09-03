@@ -467,3 +467,49 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     Ok(SpawnedOwner { state })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::thread;
+
+    #[test]
+    fn adopting_running_bench_owner_removes_unused_state_root() {
+        let session = format!("bench-adopt-state-cleanup-{}", std::process::id());
+        let socket = cmux_tui_core::server::try_default_socket_path(&session).unwrap();
+        let state_root = std::env::temp_dir().join(format!("cmux-bench-{session}"));
+        let _ = std::fs::remove_file(&socket);
+        let _ = std::fs::remove_dir_all(&state_root);
+        let listener = transport::listen(&socket).unwrap();
+        let server_session = session.clone();
+        let server = thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            let mut request = Vec::new();
+            BufReader::new(&mut stream).read_until(b'\n', &mut request).unwrap();
+            let request: Value = serde_json::from_slice(&request).unwrap();
+            let response = json!({
+                "id": request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                    "lifecycle_ready": true,
+                    "session": server_session,
+                    "pid": 4242,
+                    "generation": "test-generation"
+                }
+            });
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+        });
+
+        let owner = ensure_owner_for_bench(&session, &socket).unwrap();
+        assert_eq!(owner.pid(), 4242);
+        assert!(!state_root.exists(), "adopting an owner must remove its unused temporary state root");
+
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&socket);
+        let _ = std::fs::remove_file(socket.with_file_name(format!("{session}.sock.spawn-lock")));
+    }
+}
