@@ -698,6 +698,33 @@ describe("claude proxy failover across accounts", () => {
     expect(selected).toEqual(["acct-api-1", "acct-api-2"]);
   });
 
+  test("bounds account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const bounded = createClaudeMessagesProxy({
+      ...dependencies,
+      select: async (_teamId, input) => {
+        selectionSignal = input.signal;
+        await new Promise<never>(() => undefined);
+      },
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const result = await routedWith(bounded, messagesRequest());
+
+    expect(result.response.status).toBe(503);
+    expect(result.outcome).toMatchObject({
+      outcome: "provider_unavailable",
+      failureStage: "account_selection",
+    });
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   test("usage rows name the account that served the request", async () => {
     upstream = apiKeyUpstream;
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
@@ -707,6 +734,15 @@ describe("claude proxy failover across accounts", () => {
     expect(usage?.properties).toMatchObject({ upstream_kind: "anthropic_api_key", upstream_account_id: "acct-api-1" });
   });
 });
+
+async function routedWith(
+  proxy: (request: Request) => Promise<Response>,
+  request: Request,
+): Promise<{ response: Response; outcome: CoderouterOutcome | undefined }> {
+  const context = newCoderouterRequestContext({ request, surface: "messages", route: "/v1/messages" });
+  const response = await runWithCoderouterRequest(context, () => proxy(request));
+  return { response, outcome: context.outcome };
+}
 
 describe("bedrock helpers", () => {
   test("maps Anthropic ids, dated ids and latest aliases", () => {
