@@ -69,13 +69,31 @@ impl ProviderCloseWorker {
             let thread = std::thread::Builder::new()
                 .name(format!("provider-close-machine-{index}"))
                 .spawn(move || {
+                    let mut stopping = false;
                     loop {
-                        let close = crossbeam_channel::select! {
-                            recv(shutdown_receiver) -> _ => break,
-                            recv(receiver) -> close => match close {
+                        let close = if stopping {
+                            match receiver.try_recv() {
                                 Ok(close) => close,
-                                Err(_) => break,
-                            },
+                                Err(crossbeam_channel::TryRecvError::Empty) => {
+                                    let pending_empty = pending.lock().map_or(true, |pending| pending.is_empty());
+                                    if pending_empty {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+                            }
+                        } else {
+                            crossbeam_channel::select! {
+                                recv(shutdown_receiver) -> _ => {
+                                    stopping = true;
+                                    continue;
+                                }
+                                recv(receiver) -> close => match close {
+                                    Ok(close) => close,
+                                    Err(_) => break,
+                                },
+                            }
                         };
                         {
                             let close = close;
