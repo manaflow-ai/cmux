@@ -1249,53 +1249,53 @@ impl Inner {
             return;
         }
 
-        // Keep both locks held until the attachment is installed. `close`
-        // takes opening_state first, so it cannot observe a gap between
-        // removing the opening marker and inserting the attachment.
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        let cancelled = opening.cancelled.get(&pty_id) == Some(&opening_generation);
-        if cancelled {
-            opening.cancelled.remove(&pty_id);
-            opening.ids.remove(&pty_id);
-            drop(opening);
-            drop(attachments);
-            reservation.active = false;
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
-            return;
-        }
-        // A terminal callback locks its publication gate before it rechecks
-        // the attachment map. Acquire the previous generation's gate before
-        // replacing it, otherwise a same-ID open can overtake a blocked exit.
-        if let Some(previous_gate) =
-            attachments.get(&pty_id).map(|previous| Arc::clone(&previous.publication_gate))
-        {
-            drop(attachments);
-            drop(opening);
-            let _previous_publication = previous_gate.lock_async().await;
-            opening = self.opening_state.lock().expect("opening state lock");
-            attachments = self.attachments.lock().expect("attach lock");
+        // `close` takes opening_state first, so keep that lock across the
+        // publication decision. Never keep either std mutex guard across an
+        // await, because this handler runs in Tokio's Send task pool.
+        let previous_gate = {
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            let attachments = self.attachments.lock().expect("attach lock");
             if opening.cancelled.get(&pty_id) == Some(&opening_generation) {
                 opening.cancelled.remove(&pty_id);
                 opening.ids.remove(&pty_id);
-                drop(opening);
                 drop(attachments);
                 reservation.active = false;
                 opened.closing.store(true, Ordering::SeqCst);
                 opened.control.kill();
                 return;
             }
+            attachments.get(&pty_id).map(|previous| Arc::clone(&previous.publication_gate))
+        };
+        // A terminal callback locks its publication gate before it rechecks
+        // the attachment map. Acquire the previous generation's gate before
+        // replacing it, otherwise a same-ID open can overtake a blocked exit.
+        if let Some(previous_gate) = previous_gate {
+            let _previous_publication = previous_gate.lock_async().await;
+            let cancelled = {
+                let mut opening = self.opening_state.lock().expect("opening state lock");
+                let cancelled = opening.cancelled.get(&pty_id) == Some(&opening_generation);
+                if cancelled {
+                    opening.cancelled.remove(&pty_id);
+                    opening.ids.remove(&pty_id);
+                }
+                cancelled
+            };
+            if cancelled {
+                reservation.active = false;
+                opened.closing.store(true, Ordering::SeqCst);
+                opened.control.kill();
+                return;
+            }
         }
+        let mut opening = self.opening_state.lock().expect("opening state lock");
         // This is the publication linearization point. Read the live
         // authority only after waiting for any prior generation's publication
         // gate and while the opening state is held. Do not invoke the public
         // live-auth callback while the attachment map mutex is held. The
         // opening lock serializes competing reservations; reacquiring the
         // attachment map after the read keeps callbacks outside map locks.
-        drop(attachments);
         let live_auth = Self::auth_snapshot(context);
-        attachments = self.attachments.lock().expect("attach lock");
+        let mut attachments = self.attachments.lock().expect("attach lock");
         if !self.auth_allows_claim(&live_auth, actor, &cwd.path, 0) {
             drop(opening);
             drop(attachments);
@@ -1828,8 +1828,11 @@ impl Inner {
             opening.cancelled.insert(pty_id.to_owned(), entry_generation);
         }
         drop(opening);
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(pty_id).cloned()
+        };
+        let Some(attachment) = attachment else {
             return;
         };
         if generation.is_none_or(|expected| attachment.generation == expected)
@@ -2082,8 +2085,11 @@ impl Inner {
 
     async fn close_authorized_async(self: &Arc<Self>, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(pty_id).cloned()
+        };
+        let Some(attachment) = attachment else {
             self.close_if_transport_async(pty_id, context.transport_id.as_deref(), None).await;
             return;
         };
@@ -2154,8 +2160,11 @@ impl Inner {
             opening.cancelled.insert(pty_id.to_owned(), entry_generation);
         }
         drop(opening);
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(pty_id).cloned()
+        };
+        let Some(attachment) = attachment else {
             return;
         };
         if generation.is_none_or(|expected| attachment.generation == expected)
