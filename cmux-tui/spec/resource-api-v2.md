@@ -567,6 +567,7 @@ cmux workspace ws_… screen current pane current split --right
 cmux terminal term_… screen read
 cmux terminal term_… keys ctrl-c
 cmux sidebar plugin list
+cmux agent plugin list
 ```
 
 Root control scopes are `machine`, `session`, `client`, `workspace`, `screen`,
@@ -584,9 +585,11 @@ event. `--quiet` suppresses success output. Results use stdout. Diagnostics
 use stderr. Exit codes are 0 success, 1 operation failure, 2 usage, and 3
 transport.
 
-Local filesystem actions are `sidebar plugin install|update|remove|use` and
-configuration discovery. Their results use the same output modes but they do
-not cross the session protocol.
+Local filesystem actions are `sidebar plugin install|update|remove|use`,
+`agent plugin install|list|update|remove|use`, and configuration discovery.
+Their results use the same output modes but they do not cross the session
+protocol. Agent plugin actions select the userland background detector and
+write `agents.plugin`; they do not add agent implementation to core.
 
 ## SDK boundary
 
