@@ -9,7 +9,7 @@ const {
   evaluateReleaseAssetGuard,
 } = require("./release_asset_guard");
 
-test("marks guard as complete and skips build/upload when all immutable assets already exist", () => {
+test("marks guard as complete when all immutable assets already exist", () => {
   const result = evaluateReleaseAssetGuard({
     existingAssetNames: [...IMMUTABLE_RELEASE_ASSETS, "notes.txt"],
   });
@@ -17,9 +17,7 @@ test("marks guard as complete and skips build/upload when all immutable assets a
   assert.deepEqual(result.conflicts, IMMUTABLE_RELEASE_ASSETS);
   assert.deepEqual(result.missingImmutableAssets, []);
   assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.COMPLETE);
-  assert.equal(result.hasPartialConflict, false);
-  assert.equal(result.shouldSkipBuildAndUpload, true);
-  assert.equal(result.shouldSkipUpload, true);
+  assert.deepEqual(Object.keys(result).sort(), ["conflicts", "guardState", "missingImmutableAssets"]);
 });
 
 test("marks guard as clear when immutable assets are not present", () => {
@@ -30,9 +28,6 @@ test("marks guard as clear when immutable assets are not present", () => {
   assert.deepEqual(result.conflicts, []);
   assert.deepEqual(result.missingImmutableAssets, IMMUTABLE_RELEASE_ASSETS);
   assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.CLEAR);
-  assert.equal(result.hasPartialConflict, false);
-  assert.equal(result.shouldSkipBuildAndUpload, false);
-  assert.equal(result.shouldSkipUpload, false);
 });
 
 test("marks guard as partial when only some immutable assets exist", () => {
@@ -47,7 +42,4 @@ test("marks guard as partial when only some immutable assets exist", () => {
     IMMUTABLE_RELEASE_ASSETS.filter((assetName) => !partialAssets.includes(assetName)),
   );
   assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
-  assert.equal(result.hasPartialConflict, true);
-  assert.equal(result.shouldSkipBuildAndUpload, false);
-  assert.equal(result.shouldSkipUpload, false);
 });

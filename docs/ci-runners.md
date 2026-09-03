@@ -90,6 +90,18 @@ runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, and `tart-small`
 for targeted fleet validation. These choices are available only through
 `workflow_dispatch`.
 
+## Protected release tags
+
+The `release.yml` tag workflow is an unprivileged observer. The protected-main
+`release-trusted.yml` workflow performs every checkout, signing operation, and
+publication. Repository administrators must keep an active ruleset for
+`refs/tags/v*` that grants release-tag create, update, and delete operations
+only to the release authority, and rejects force-updates. The ruleset is a
+deployment prerequisite because the workflow token cannot prove tag-policy
+state. The dispatcher still resolves the tag to an immutable commit SHA and
+requires that SHA to be an ancestor of protected `main`; a tag-policy failure
+must stop a release before any secret-bearing job runs.
+
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
