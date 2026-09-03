@@ -17,6 +17,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{self, BufReader, Read, Write};
+use std::sync::mpsc;
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -261,6 +262,21 @@ impl Conn {
         Ok(Self { reader: BufReader::new(stream), next_id: 1, read_buffer: Vec::new() })
     }
 
+    fn open_until(socket: &std::path::Path, deadline: Instant) -> Result<Self, String> {
+        let remaining = bounded_wait_duration(deadline, RPC_TIMEOUT);
+        if remaining.is_zero() {
+            return Err("benchmark deadline exceeded".into());
+        }
+        let socket = socket.to_path_buf();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = sender.send(Self::open(&socket));
+        });
+        receiver
+            .recv_timeout(remaining)
+            .map_err(|_| "benchmark connect deadline exceeded".to_string())?
+    }
+
     fn send(&mut self, mut request: Value) -> Result<u64, String> {
         let id = self.next_id;
         self.next_id += 1;
@@ -490,7 +506,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let bench_deadline = Instant::now() + BENCH_DEADLINE;
 
     // Subscriber connection: timestamp every tree delta.
-    let mut subscriber = Conn::open(&socket)?;
+    let mut subscriber = Conn::open_until(&socket, bench_deadline)?;
     subscriber.request_until(json!({"cmd":"identify"}), bench_deadline)?;
     subscriber.request_until(json!({"cmd":"subscribe","tree_events":"deltas"}), bench_deadline)?;
     let events: Arc<Mutex<VisibilityIndex>> = Arc::new(Mutex::new(VisibilityIndex::default()));
@@ -500,7 +516,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     // A baseline terminal to type into. Snapshot the terminal catalog first so
     // teardown can close exactly what this run created.
-    let mut control = Conn::open(&socket)?;
+    let mut control = Conn::open_until(&socket, bench_deadline)?;
     control.request_until(json!({"cmd":"identify"}), bench_deadline)?;
     let initial_terminals =
         list_terminal_ids(&mut control, bench_deadline)?.into_iter().map(|(id, _)| id).collect();
@@ -557,7 +573,9 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     // Wait until every create connection has submitted its batch, then run
     // the separate-connection probe while those requests remain unread.
-    let _ = gates.creates_submitted.wait();
+    let _ = gates
+        .creates_submitted
+        .wait_timeout(bounded_wait_duration(bench_deadline, Duration::from_secs(1)));
     run_separate_typing_probe(
         &socket,
         baseline_surface,
@@ -611,12 +629,16 @@ fn run_separate_typing_probe(
     deadline: Instant,
 ) {
     if probes == 0 {
-        let _ = gates.probes_submitted.wait();
-        let _ = gates.release_workers.wait();
+        let _ = gates
+            .probes_submitted
+            .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+        let _ = gates
+            .release_workers
+            .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
         return;
     }
     let mut setup_error = None;
-    let mut conn = match Conn::open(socket) {
+    let mut conn = match Conn::open_until(socket, deadline) {
         Ok(conn) => Some(conn),
         Err(error) => {
             setup_error = Some(error);
@@ -648,8 +670,11 @@ fn run_separate_typing_probe(
         }
     }
 
-    let _ = gates.probes_submitted.wait();
-    let _ = gates.release_workers.wait();
+    let _ = gates
+        .probes_submitted
+        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+    let _ =
+        gates.release_workers.wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
 
     if let Some(Err(error)) =
         conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report, deadline))
@@ -830,7 +855,7 @@ fn run_create_loop(
     deadline: Instant,
 ) -> Result<(), String> {
     let mut setup_error = None;
-    let mut conn = match Conn::open(socket) {
+    let mut conn = match Conn::open_until(socket, deadline) {
         Ok(conn) => Some(conn),
         Err(error) => {
             setup_error = Some(error);
@@ -866,9 +891,14 @@ fn run_create_loop(
     // All workers reach this point before any response is read. The main
     // thread uses this barrier to start the separate-connection probe against
     // the same in-flight create load.
-    let _ = gates.creates_submitted.wait();
-    let _ = gates.probes_submitted.wait();
-    let _ = gates.release_workers.wait();
+    let _ = gates
+        .creates_submitted
+        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+    let _ = gates
+        .probes_submitted
+        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+    let _ =
+        gates.release_workers.wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
 
     let Some(mut conn) = conn else {
         return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
@@ -1066,7 +1096,7 @@ fn measure_first_frame(
     surface_id: u64,
     deadline: Instant,
 ) -> Option<Duration> {
-    let mut conn = Conn::open(socket).ok()?;
+    let mut conn = Conn::open_until(socket, deadline).ok()?;
     conn.request_until(json!({"cmd":"identify"}), deadline).ok()?;
     let start = Instant::now();
     let id = conn
