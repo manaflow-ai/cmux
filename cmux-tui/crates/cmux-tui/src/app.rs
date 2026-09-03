@@ -30870,6 +30870,10 @@ mod tests {
         let placeholder = app.active_pane().expect("placeholder takes focus");
         assert!(is_placeholder_id(placeholder));
         assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+        // The overlay may be reapplied before the next authoritative tree
+        // adoption. Reapplying it directly must not duplicate the pane.
+        app.apply_create_placeholders();
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
         app.sync_layout((200, 40));
         assert!(app.pane_areas.iter().any(|area| area.pane == placeholder));
         assert_eq!(app.pane_areas.len(), 2);
