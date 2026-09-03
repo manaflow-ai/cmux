@@ -23597,7 +23597,10 @@ mod tests {
             1
         );
         assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
-        assert!(mux.list_agents(Some(second.id), None).is_empty());
+        // The roster is journal-derived and folds the second hook even while
+        // its public resource projection waits in the retry queue. The
+        // terminal-scoped retry must still leave that second hook pending.
+        assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
         mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
