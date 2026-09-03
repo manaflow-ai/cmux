@@ -183,6 +183,10 @@ if cmux_hosted_retention_validate_no_symlink_ancestors "$tmp/base-link" cmux-tui
   echo "symlinked artifact base was accepted" >&2
   exit 1
 fi
+if cmux_hosted_retention_validate_no_symlink_ancestors "$tmp/../tmp" cmux-tui target hosted; then
+  echo "path traversal base was accepted" >&2
+  exit 1
+fi
 
 # A clean checkout can lack cmux-tui/target. The safe parent creation path
 # must create it only after ancestor validation.

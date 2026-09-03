@@ -39,6 +39,10 @@ cmux_hosted_retention_validate_no_symlink_ancestors() {
   local current_path
 
   [[ -n "$base_path" ]] || return 1
+  # Reject traversal components before resolving relative paths.
+  case "/$base_path/" in
+    */./*|*/../*) return 1 ;;
+  esac
   if [[ "$base_path" == /* ]]; then
     normalized_base="$base_path"
   else
