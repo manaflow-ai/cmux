@@ -428,10 +428,10 @@ impl Connection {
         // End permit remains last in FIFO order.
         let overflow = encode_overflow_frame();
         let overflow_bytes = overflow.len() as u64;
-        if self.reserve_bytes(overflow_bytes, true) {
-            if self.writer_tx.try_send(WriterMessage::Frame(overflow)).is_err() {
-                self.release_bytes(overflow_bytes);
-            }
+        if self.reserve_bytes(overflow_bytes, true)
+            && self.writer_tx.try_send(WriterMessage::Frame(overflow)).is_err()
+        {
+            self.release_bytes(overflow_bytes);
         }
         self.paused.store(true, Ordering::SeqCst);
         // Publish the final pause before cancellation. The flow worker reads
