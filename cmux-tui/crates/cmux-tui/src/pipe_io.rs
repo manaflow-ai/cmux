@@ -219,7 +219,7 @@ pub fn run(
     // first replay uses the embedder's dimensions on that compatibility path.
     if !remote.supports_pipe_io_initial_size() {
         if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
-            return Ok(attach_failure_exit_reason(&error, surface));
+            return Ok(attach_failure_exit_reason(&error));
         }
     }
     let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
