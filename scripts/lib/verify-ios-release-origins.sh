@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep the native macOS tool as the production default while allowing the
+# artifact harness (and other non-macOS validation environments) to inject a
+# compatible plist reader. The upload script already exposes this seam through
+# PLISTBUDDY, so the shared origin gate must use the same parser.
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+
 # Fail-closed artifact gate for every signed/unsigned iOS Release archive.
 # TestFlight and App Store builds use the production Stack project and must
 # carry only production API, Iroh broker, and presence origins. This checks the

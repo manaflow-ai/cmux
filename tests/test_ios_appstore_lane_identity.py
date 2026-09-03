@@ -139,6 +139,8 @@ def entitlements_for_bundle(bundle_id):
     _write_executable(
         fakebin / "PlistBuddy",
         """#!/usr/bin/env python3
+import json
+import os
 import plistlib
 import sys
 from pathlib import Path
@@ -178,6 +180,9 @@ def set_value(root, path, value):
 
 
 args = sys.argv[1:]
+log_path = os.environ.get("CMUX_FAKE_PLISTBUDDY_LOG")
+if log_path:
+    Path(log_path).open("a", encoding="utf-8").write(json.dumps(args) + "\\n")
 if args[:1] != ["-c"] or len(args) < 3:
     raise SystemExit(1)
 
@@ -812,6 +817,39 @@ def test_upload_keychain_group_failure_does_not_dump_entitlements(
         and '"aps-environment"' not in result.stderr
         and '"com.apple.developer.applesignin"' not in result.stderr,
         "keychain-group failure does not dump signed entitlements",
+    )
+
+
+def test_release_origin_gate_uses_configured_plistbuddy(tmp: Path, fakebin: Path) -> None:
+    archive = tmp / "origin-gate-archive"
+    _write_fake_archive(
+        archive,
+        bundle_id=BETA_BUNDLE_ID,
+        build_number="20260710041755",
+        marketing_version=BETA_MARKETING_VERSION,
+    )
+    env = _base_env(tmp, fakebin)
+    log_path = tmp / "plistbuddy.jsonl"
+    env["CMUX_FAKE_PLISTBUDDY_LOG"] = str(log_path)
+    app = archive / "Products" / "Applications" / "cmux.app"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "scripts" / "lib" / "verify-ios-release-origins.sh"),
+            "--app",
+            str(app),
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "release-origin gate accepts a valid production archive")
+    _check(
+        log_path.exists()
+        and any(
+            "Print :CFBundleIdentifier" in line
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+        ),
+        "release-origin gate uses the configured PlistBuddy parser",
     )
 
 
@@ -1581,6 +1619,9 @@ def main() -> None:
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
         test_upload_keychain_group_failure_does_not_dump_entitlements(
             tmp / "keychain-group-privacy-test", fakebin
+        )
+        test_release_origin_gate_uses_configured_plistbuddy(
+            tmp / "origin-gate-test", fakebin
         )
         test_upload_strips_framework_without_valid_executable(
             tmp / "beta-framework-strip-test", fakebin
