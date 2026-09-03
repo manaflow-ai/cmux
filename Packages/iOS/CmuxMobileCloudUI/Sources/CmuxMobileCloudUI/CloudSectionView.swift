@@ -120,6 +120,12 @@ struct CloudFailureRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(CloudFailureCopy.message(for: failure))
                 .foregroundStyle(.secondary)
+            // The underlying error, so a dogfooder can report the exact cause.
+            Text(failure.detail)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("CloudFailureDetail")
             Button(L10n.string("mobile.cloud.retry", defaultValue: "Retry"), action: retry)
                 .buttonStyle(.bordered)
         }
