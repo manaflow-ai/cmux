@@ -7618,6 +7618,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             }],
             0,
@@ -7698,6 +7699,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: surface,
             }
         }
@@ -7728,6 +7730,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
+            agent: None,
             updated_at_ms: 41,
         };
         let mut cache = RemoteTreeCache::default();
@@ -7999,6 +8002,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,
@@ -8039,6 +8043,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,

@@ -4335,7 +4335,7 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
         Ok(text) if text.trim().is_empty() => Ok(json!({})),
         Ok(text) => serde_json::from_str(&text)
             .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(json!({})),
         Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
     }
 }
@@ -4400,7 +4400,7 @@ fn write_config_value_atomic_with_sync_and_staging(
                 staged = Some((tmp_path, file));
                 break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         }
     }
@@ -4449,7 +4449,7 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
         }
         match std::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !std::fs::metadata(&current)?.is_dir() {
                     anyhow::bail!(
                         "config parent component {} is not a directory",
@@ -6078,7 +6078,7 @@ mod tests {
                     .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&path) {
                     Ok(()) => return Self { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create config test directory failed: {error}"),
                 }
             }
@@ -7521,7 +7521,7 @@ mod tests {
             let descriptor = unsafe { libc::kqueue() };
             #[cfg(target_os = "linux")]
             if descriptor < 0 {
-                let error = std::io::Error::last_os_error();
+                let error = io::Error::last_os_error();
                 if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
                     return None;
                 }
@@ -7531,7 +7531,7 @@ mod tests {
             assert!(
                 descriptor >= 0,
                 "observe helper child {pid}: {}",
-                std::io::Error::last_os_error()
+                io::Error::last_os_error()
             );
             // SAFETY: pidfd_open and kqueue return a new owned descriptor.
             let descriptor =
@@ -7562,7 +7562,7 @@ mod tests {
                 assert!(
                     registered >= 0,
                     "register helper child {pid} exit: {}",
-                    std::io::Error::last_os_error()
+                    io::Error::last_os_error()
                 );
             }
 
@@ -7721,7 +7721,7 @@ mod tests {
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
             println!("{READY_MARKER}{}", child.id());
-            std::io::stdout().flush().unwrap();
+            io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
@@ -7783,7 +7783,7 @@ mod tests {
         if unsafe { libc::kill(pid, 0) } == 0 {
             return true;
         }
-        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -7810,7 +7810,7 @@ mod tests {
         assert!(output.len() > 4 * 1024);
 
         let reader =
-            read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
+            read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
 
         assert_eq!(reader.wait(), Some(output));
     }
@@ -7819,7 +7819,7 @@ mod tests {
     fn ghostty_config_helper_output_reader_enforces_byte_limit() {
         let output = "x".repeat(GHOSTTY_HELPER_OUTPUT_MAX_BYTES as usize + 1);
 
-        let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output)).unwrap();
 
         assert_eq!(reader.wait(), None);
     }

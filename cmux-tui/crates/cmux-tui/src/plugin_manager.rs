@@ -864,6 +864,7 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn is_sensitive_env_name(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
     name.contains("TOKEN")

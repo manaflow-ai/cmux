@@ -182,6 +182,7 @@ struct ProjectionContext {
     pane: Option<PaneId>,
 }
 
+#[cfg(test)]
 pub(crate) fn rows(
     spec: &SidebarViewSpec,
     tree: &TreeView,
@@ -583,7 +584,7 @@ mod tests {
     #[test]
     fn screen_detect_agents_view_sorts_by_attention_then_recency() {
         let mut tree = tree();
-        tree.workspaces[0].screens[0].panes[0].tabs = vec![
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs = vec![
             tab(4, "idle-late"),
             tab(5, "working-old"),
             tab(6, "blocked-old"),
@@ -633,7 +634,7 @@ mod tests {
     #[test]
     fn agent_order_cache_reuses_order_until_roster_or_tree_changes() {
         let mut tree = tree();
-        tree.workspaces[0].screens[0].panes[0].tabs = vec![tab(4, "working"), tab(5, "blocked")];
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs = vec![tab(4, "working"), tab(5, "blocked")];
         let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
             surface,
             state: state.into(),
@@ -689,7 +690,7 @@ mod tests {
             &mut cache,
         );
         assert_eq!(cache.order, vec![4, 5]);
-        tree.workspaces[0].screens[0].panes[0].tabs.reverse();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.reverse();
         let rows = rows_cached(
             &spec(vec![SidebarResourceKind::Agents]),
             &tree,
