@@ -397,10 +397,8 @@ final class MainActorOutputCoalescer: @unchecked Sendable {
         }
         deliveryTask = Task {
             for await data in pair.stream {
-                var safeData = data
-                while !safeData.isEmpty && String(data: safeData, encoding: .utf8) == nil { safeData.removeLast() }
-                while let first = safeData.first, (first & 0xC0) == 0x80 { safeData.removeFirst() }
-                guard let text = String(data: safeData, encoding: .utf8), !text.isEmpty else { continue }
+                let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+                guard !text.isEmpty else { continue }
                 await MainActor.run { handler(text) }
             }
         }
