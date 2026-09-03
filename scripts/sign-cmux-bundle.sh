@@ -120,6 +120,13 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   for helper_dir in bin libexec; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
       [[ -f "$helper" && -x "$helper" ]] || continue
+      # Scripts are sealed by the bundle signature. Code-signing them directly
+      # stores the signature in an extended attribute, which Sparkle's
+      # BinaryDelta refuses to diff, so it would block delta updates.
+      if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
+        echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
+        continue
+      fi
       echo "==> signing helper $(basename "$helper")"
       /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
     done
@@ -259,6 +266,7 @@ fi
 for helper_dir in bin libexec; do
   for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
     [[ -f "$helper" && -x "$helper" ]] || continue
+    /usr/bin/file -b "$helper" | grep -q 'Mach-O' || continue
     if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
          | grep -q "application-identifier"; then
       echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2

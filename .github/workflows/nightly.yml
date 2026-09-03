@@ -423,7 +423,8 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
-    timeout-minutes: 60
+    # Delta generation against two previous builds adds about 15 minutes.
+    timeout-minutes: 80
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -791,16 +792,35 @@ jobs:
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
 
+      - name: Fetch previous nightly builds for delta updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
+            --repo manaflow-ai/cmux \
+            --release-tag nightly \
+            --variant "$NIGHTLY_VARIANT" \
+            --exclude-build "$NIGHTLY_BUILD" \
+            --count 2 \
+            --out previous-nightlies
+
       - name: Generate Sparkle appcasts (nightly)
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          # Deltas from the two previous builds of this track, named
+          # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
+          SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
+          SPARKLE_MAXIMUM_DELTAS: "2"
         run: |
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"
-          ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
+          SPARKLE_DELTA_NAME_PREFIX="cmux-nightly-macos-${NIGHTLY_VARIANT}-" \
+            ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"
+          ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST" ./*.delta 2>/dev/null || true
+          grep -c 'sparkle:deltas' "$NIGHTLY_APPCAST" || echo "no deltas in $NIGHTLY_APPCAST (no previous build of this track)"
 
       - name: Upload nightly variant artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -808,6 +828,7 @@ jobs:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: |
             cmux-nightly-macos-*.dmg
+            cmux-nightly-macos-*.delta
             appcast*.xml
           if-no-files-found: error
           retention-days: 3
@@ -879,6 +900,7 @@ jobs:
           name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
           path: |
             nightly-out/cmux-nightly-macos*.dmg
+            nightly-out/cmux-nightly-macos*.delta
             nightly-out/appcast*.xml
           if-no-files-found: error
 
@@ -910,6 +932,7 @@ jobs:
             - legacy `cmux-nightly-macos.dmg` and feed `appcast.xml` currently serve the `${{ needs.decide.outputs.legacy_variant }}` build; installs on the legacy feed move to their architecture's feed on their next update check
           files: |
             nightly-out/cmux-nightly-macos-*-${{ github.run_id }}*.dmg
+            nightly-out/cmux-nightly-macos-*-${{ github.run_id }}*.delta
             nightly-out/cmux-nightly-macos-arm64.dmg
             nightly-out/cmux-nightly-macos-x86_64.dmg
             nightly-out/cmux-nightly-macos.dmg

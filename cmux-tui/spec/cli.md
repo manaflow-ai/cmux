@@ -58,9 +58,14 @@ owner from an owner still starting.
 ```text
 cmux server start [START OPTIONS]
 cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
 cmux server stop [--session <name>] [--socket <path>] [--force]
 cmux server reload-config [--session <name>] [--socket <path>]
 ```
+
+`server stats` prints the `server-stats` diagnostics (registry lock contention
+with holder sites, journal writer batches and commit latency, connection
+admission); see `docs/journal-operations.md` for how to read it.
 
 `server start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the

@@ -122,6 +122,15 @@
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"
   },
+  "cloudPublicationAccess": {
+    "title": "You don't have access",
+    "signIn": "Sign in to cmux",
+    "signedInAs": "Signed in as {identity}",
+    "switchAccount": "Switch account",
+    "invalidTitle": "This access link isn't valid",
+    "invalidBody": "Return to the site and try again.",
+    "footer": "Access is managed by cmux."
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",

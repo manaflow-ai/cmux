@@ -60,6 +60,15 @@
     "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
     "backToSignIn": "로그인으로 돌아가기"
   },
+  "cloudPublicationAccess": {
+    "title": "액세스 권한이 없습니다",
+    "signIn": "cmux에 로그인",
+    "signedInAs": "{identity}(으)로 로그인됨",
+    "switchAccount": "계정 전환",
+    "invalidTitle": "이 액세스 링크는 유효하지 않습니다",
+    "invalidBody": "사이트로 돌아가 다시 시도하세요.",
+    "footer": "액세스는 cmux에서 관리합니다."
+  },
   "common": {
     "downloadForMac": "Mac용 다운로드",
     "viewOnGitHub": "GitHub에서 보기",

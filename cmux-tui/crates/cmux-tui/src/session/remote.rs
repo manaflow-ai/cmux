@@ -1087,14 +1087,17 @@ impl PendingRemoteRequests {
         progressed
     }
 
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.requests.len()
     }
 
+    #[cfg(test)]
     fn values(&self) -> impl Iterator<Item = &PendingRemoteRequest> {
         self.requests.values()
     }

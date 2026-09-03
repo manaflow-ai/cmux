@@ -375,8 +375,10 @@ the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/p
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
 and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
-`sha256sum -c` verification. A create is `vms.create`, the grow-only resize, and one
-model-plane env file write; the baked supervisor starts the daemon with a fresh identity
+`sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
+TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
+the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
+daemon with a fresh identity
 within a second of resume (the snapshot is a memory image, so the identity is keyed on
 the platform instance id). Attach heals a daemon that is not listening, reinstalling only
 when the binary is missing or behind the manifest pin. The daemon runs as root with
@@ -405,15 +407,15 @@ route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-a
 every attach-time heal, which is also what makes the VPC address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
-no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
-`/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
-That file carries base URLs, a placeholder key, and the VM id only; the credential is
+no create-time env; the guest's model-plane env is the same for every machine and baked at
+`/etc/cmux/model-plane.env`, which `/etc/cmux/agent-config.sh` sources when no boot env and no
+per-home file exist. It carries alias base URLs and a placeholder key only; the credential is
 edge-injected (see "Model plane" below).
 
 Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
 "the account holding uid 1000, or root in an image with no such account", and the devbox image
-ships a uid-1000 user — leaving it unset would silently move the daemon, its install, and the
-model-plane write off the root layout they are baked around.
+ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
+the root layout they are baked around.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
@@ -448,20 +450,22 @@ No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `model
 provisioner (`services/vms/modelPlaneGateway.ts` adapting
 `services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
 provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
-and returns guest env (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL`,
-placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`, `CMUX_VM_ID`) plus one edge rule for the
-coderouter host with headers `x-coderouter-route-token` and `x-cmux-vm-id`. The Freestyle
-driver passes the rule inline as `tls.rules` on the create; the platform steers the host to
-its edge and installs its CA in the guest at boot, and the edge injects (and overwrites) those
-headers on every request. coderouter rejects a bound token whose request carries a different
-VM id. Rules created after boot never reach a running guest, so the rule is never added later.
+and returns one edge rule: domain `coderouter.cmux.internal` (the alias every guest dials;
+`CMUX_VM_EDGE_ALIAS_DOMAIN` overrides it per deployment, never per machine), destination host
+this deployment's API host, and headers `x-coderouter-route-token` and `x-cmux-vm-id`. The
+Freestyle driver passes the rule inline as `tls.rules` on the create; the platform resolves the
+alias to its edge, installs its CA in the guest at boot, terminates TLS for the alias, forwards
+to the destination host, and injects (and overwrites) those headers on every request.
+coderouter rejects a bound token whose request carries a different VM id. Rules created after
+boot never reach a running guest, so the rule is never added later.
 
-The guest dials the real name, `https://coderouter.dev` by default;
-`CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https origin) points guests at a preview deployment.
-Injection activates 20-30 s after boot, so the driver ends bootstrap with a guest-side probe of
-`https://<host>/v1/models` (one exec, bounded loop) and rolls the machine back if it never
-succeeds. Node harnesses (Claude Code, pi) need `NODE_EXTRA_CA_CERTS`, which
-`agent-config.sh` exports when the platform CA file exists.
+Because the guest always dials the alias, its env is identical everywhere and is baked
+(`services/coderouter/vmGuestEnv.ts`, written by the bake to `/etc/cmux/model-plane.env`):
+`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL` on the alias origin and the
+placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`. `CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https
+origin) only moves the rule's destination, for a preview deployment. Injection activates a few
+seconds after boot; nothing waits for it. Node harnesses (Claude Code, pi) need
+`NODE_EXTRA_CA_CERTS`, which `agent-config.sh` exports when the platform CA file exists.
 
 Provisioning is mandatory: a coderouter outage fails the create with
 `vm_model_plane_unavailable` (503, retryable), refunds the create credit, marks the row failed

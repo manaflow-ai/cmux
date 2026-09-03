@@ -392,6 +392,126 @@ struct VMOpenPortEndpoint {
     let openUrl: String
 }
 
+enum VMPublicationAccessMode: String, CaseIterable, Sendable {
+    case personal
+    case team
+    case `public`
+}
+
+/// One DNS change returned for a custom-domain publication. The control-plane
+/// contract deliberately keeps records typed so CLI JSON remains stable when
+/// additional record kinds are introduced later.
+struct VMPublicationDNSInstruction: Equatable, Sendable {
+    let purpose: String
+    let recordTypes: [String]
+    let name: String
+    let value: String
+
+    var foundationObject: [String: Any] {
+        [
+            "purpose": purpose,
+            "recordTypes": recordTypes,
+            "name": name,
+            "value": value,
+        ]
+    }
+}
+
+struct VMPublicationVerification: Equatable, Sendable {
+    let verificationID: String
+    let domain: String
+    let state: String
+    let verificationInstruction: VMPublicationDNSInstruction
+    let routingInstruction: VMPublicationDNSInstruction
+    let certificateInstruction: VMPublicationDNSInstruction
+
+    var foundationObject: [String: Any] {
+        [
+            "verificationId": verificationID,
+            "domain": domain,
+            "state": state,
+            "dnsInstructions": [
+                "verification": verificationInstruction.foundationObject,
+                "routing": routingInstruction.foundationObject,
+                "certificate": certificateInstruction.foundationObject,
+            ],
+        ]
+    }
+}
+
+/// Stable native view of `/api/vm/publications`. Optional values are emitted
+/// as JSON null by the socket layer instead of disappearing, which keeps
+/// scripts independent of a publication's access mode or domain kind.
+struct VMPublication: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let url: String
+    let domainKind: String
+    let vmID: String
+    let port: Int
+    let accessMode: VMPublicationAccessMode
+    let teamID: String?
+    let state: String
+    let routingRevision: Int
+    let verification: VMPublicationVerification?
+
+    var foundationObject: [String: Any] {
+        [
+            "id": id,
+            "hostname": hostname,
+            "url": url,
+            "domainKind": domainKind,
+            "vmId": vmID,
+            "port": port,
+            "accessMode": accessMode.rawValue,
+            "teamId": teamID.map { $0 as Any } ?? NSNull(),
+            "state": state,
+            "routingRevision": routingRevision,
+            "verification": verification.map { $0.foundationObject as Any } ?? NSNull(),
+        ]
+    }
+}
+
+/// One publication routed through a custom zone, as listed with that zone.
+struct VMPublicationDomainPublication: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let state: String
+
+    var foundationObject: [String: Any] {
+        ["id": id, "hostname": hostname, "state": state]
+    }
+}
+
+/// Stable native view of `/api/vm/domains`: the custom domains one account
+/// owns, listed apart from the publications routed through them. The DNS
+/// checklist is ordered as it should be added: ownership TXT, apex routing,
+/// `*` routing, and the `_acme-challenge` delegation.
+struct VMPublicationDomain: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let verificationState: String
+    let certificateState: String
+    let createdAt: String?
+    let dnsInstructions: [VMPublicationDNSInstruction]
+    let publications: [VMPublicationDomainPublication]
+
+    var foundationObject: [String: Any] {
+        [
+            "id": id,
+            "hostname": hostname,
+            "verificationState": verificationState,
+            "certificateState": certificateState,
+            "createdAt": createdAt.map { $0 as Any } ?? NSNull(),
+            "dnsInstructions": dnsInstructions.isEmpty
+                ? NSNull()
+                : dnsInstructions.map(\.foundationObject),
+            "publications": publications.map(\.foundationObject),
+        ]
+    }
+}
+
+
 struct VMSnapshotResult {
     let id: String
     let name: String?
@@ -647,6 +767,279 @@ actor VMClient {
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
+    }
+
+    func listPublications() async throws -> [VMPublication] {
+        let (data, http) = try await request("GET", path: "/api/vm/publications")
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let items = (object["publications"] as? [[String: Any]])
+            ?? (object["items"] as? [[String: Any]]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingList",
+                defaultValue: "Cloud VM publication list response was missing `publications`."
+            ))
+        }
+        return try items.map(Self.decodePublication)
+    }
+
+    func listPublicationDomains() async throws -> [VMPublicationDomain] {
+        let (data, http) = try await request("GET", path: "/api/vm/domains")
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let items = object["domains"] as? [[String: Any]] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDomainList",
+                defaultValue: "Cloud VM domain list response was missing `domains`."
+            ))
+        }
+        return try items.map(Self.decodePublicationDomain)
+    }
+
+    /// Verify a zone by name; a publication hostname or id resolves to its zone server-side.
+    func verifyPublicationDomain(name: String) async throws -> VMPublicationDomain {
+        let encodedName = try pathSegment(name, fieldName: "domain")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/domains/\(encodedName)/verify"
+        )
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let domain = object["domain"] as? [String: Any] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDomain",
+                defaultValue: "Cloud VM domain verification response was missing `domain`."
+            ))
+        }
+        return try Self.decodePublicationDomain(domain)
+    }
+
+    func createPublication(
+        vmID: String,
+        port: Int,
+        hostname: String?,
+        accessMode: VMPublicationAccessMode,
+        teamID: String?
+    ) async throws -> VMPublication {
+        var body: [String: Any] = [
+            "vmId": vmID,
+            "port": port,
+            "accessMode": accessMode.rawValue,
+        ]
+        if let hostname, !hostname.isEmpty { body["hostname"] = hostname }
+        if let teamID, !teamID.isEmpty { body["teamId"] = teamID }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/publications",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func verifyPublication(id: String) async throws -> VMPublication {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/publications/\(encodedID)/verify"
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func updatePublicationAccess(
+        id: String,
+        accessMode: VMPublicationAccessMode,
+        teamID: String?
+    ) async throws -> VMPublication {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let body: [String: Any] = [
+            "accessMode": accessMode.rawValue,
+            // An explicit null clears a team left over from a previous team publication.
+            "teamId": teamID.map { $0 as Any } ?? NSNull(),
+        ]
+        let (data, http) = try await request(
+            "PATCH",
+            path: "/api/vm/publications/\(encodedID)",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func deletePublication(id: String) async throws {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)")
+        try ensureOK(http, data: data)
+    }
+
+    private nonisolated static func decodePublicationMutation(_ object: [String: Any]) throws -> VMPublication {
+        let publication = (object["publication"] as? [String: Any]) ?? object
+        return try decodePublication(publication)
+    }
+
+    private nonisolated static func decodePublication(_ object: [String: Any]) throws -> VMPublication {
+        guard let id = publicationString(object, keys: ["id"]),
+              let hostname = publicationString(object, keys: ["hostname", "domain"]),
+              let vmID = publicationString(object, keys: ["vmId", "vm_id"]),
+              let port = optionalInt(object["port"]), (1...65_535).contains(port),
+              let accessRaw = publicationString(object, keys: ["accessMode", "access_mode"])?.lowercased(),
+              let accessMode = VMPublicationAccessMode(rawValue: accessRaw) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingFields",
+                defaultValue: "Cloud VM publication response was missing required fields."
+            ))
+        }
+        let url = publicationString(object, keys: ["url"]) ?? "https://\(hostname)"
+        let state = publicationString(object, keys: ["state"]) ?? "unknown"
+        let routingRevision = optionalInt(object["routingRevision"] ?? object["routing_revision"]) ?? 0
+        let teamID = publicationString(object, keys: ["teamId", "team_id"])
+        let verification: VMPublicationVerification?
+        if let rawVerification = object["verification"] as? [String: Any] {
+            verification = try decodePublicationVerification(rawVerification)
+        } else {
+            verification = nil
+        }
+        let domainKind = publicationString(object, keys: ["domainKind", "domain_kind"])?
+            .lowercased()
+            ?? (verification == nil ? "generated" : "custom")
+        return VMPublication(
+            id: id,
+            hostname: hostname,
+            url: url,
+            domainKind: domainKind,
+            vmID: vmID,
+            port: port,
+            accessMode: accessMode,
+            teamID: teamID,
+            state: state,
+            routingRevision: routingRevision,
+            verification: verification
+        )
+    }
+
+    private nonisolated static func decodePublicationVerification(
+        _ object: [String: Any]
+    ) throws -> VMPublicationVerification {
+        guard let verificationID = publicationString(object, keys: ["verificationId", "verification_id"]),
+              let domain = publicationString(object, keys: ["domain", "hostname"]),
+              let state = publicationString(object, keys: ["state"]),
+              let dns = (object["dnsInstructions"] as? [String: Any])
+                ?? (object["dns_instructions"] as? [String: Any]),
+              let routingObject = dns["routing"] as? [String: Any],
+              let certificateObject = dns["certificate"] as? [String: Any] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDNS",
+                defaultValue: "Cloud VM publication verification response was missing DNS instructions."
+            ))
+        }
+        guard let verificationObject = (dns["verification"] as? [String: Any])
+            ?? (object["verificationRecord"] as? [String: Any])
+            ?? (object["verification_record"] as? [String: Any]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDNS",
+                defaultValue: "Cloud VM publication verification response was missing DNS instructions."
+            ))
+        }
+        return VMPublicationVerification(
+            verificationID: verificationID,
+            domain: domain,
+            state: state,
+            verificationInstruction: try decodePublicationDNSInstruction(
+                verificationObject,
+                fallbackPurpose: "verification"
+            ),
+            routingInstruction: try decodePublicationDNSInstruction(
+                routingObject,
+                fallbackPurpose: "routing"
+            ),
+            certificateInstruction: try decodePublicationDNSInstruction(
+                certificateObject,
+                fallbackPurpose: "certificate"
+            )
+        )
+    }
+
+    private nonisolated static func decodePublicationDNSInstruction(
+        _ object: [String: Any],
+        fallbackPurpose: String
+    ) throws -> VMPublicationDNSInstruction {
+        let recordTypes = ((object["recordTypes"] as? [String])
+            ?? (object["record_types"] as? [String])
+            ?? publicationString(object, keys: ["type"]).map { [$0] }
+            ?? [])
+            .map { $0.uppercased() }
+            .filter { !$0.isEmpty }
+        guard !recordTypes.isEmpty,
+              let name = publicationString(object, keys: ["name"]),
+              let value = publicationString(object, keys: ["value"]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.invalidDNS",
+                defaultValue: "Cloud VM publication response contained an invalid DNS instruction."
+            ))
+        }
+        return VMPublicationDNSInstruction(
+            purpose: publicationString(object, keys: ["purpose"]) ?? fallbackPurpose,
+            recordTypes: recordTypes,
+            name: name,
+            value: value
+        )
+    }
+
+    private nonisolated static func decodePublicationDomain(_ object: [String: Any]) throws -> VMPublicationDomain {
+        let missingFields = String(
+            localized: "cloudVM.publication.error.missingDomainFields",
+            defaultValue: "Cloud VM domain response was missing required fields."
+        )
+        guard let id = publicationString(object, keys: ["id"]),
+              let hostname = publicationString(object, keys: ["hostname"]) else {
+            throw VMClientError.malformedResponse(missingFields)
+        }
+        let rawInstructions = (object["dnsInstructions"] as? [[String: Any]])
+            ?? (object["dns_instructions"] as? [[String: Any]])
+            ?? []
+        let dnsInstructions = try rawInstructions.map { raw in
+            try decodePublicationDNSInstruction(raw, fallbackPurpose: "routing")
+        }
+        let rawPublications = (object["publications"] as? [[String: Any]]) ?? []
+        let publications = try rawPublications.map { raw -> VMPublicationDomainPublication in
+            guard let publicationID = publicationString(raw, keys: ["id"]),
+                  let publicationHostname = publicationString(raw, keys: ["hostname"]) else {
+                throw VMClientError.malformedResponse(missingFields)
+            }
+            return VMPublicationDomainPublication(
+                id: publicationID,
+                hostname: publicationHostname,
+                state: publicationString(raw, keys: ["state"]) ?? "unknown"
+            )
+        }
+        return VMPublicationDomain(
+            id: id,
+            hostname: hostname,
+            verificationState: publicationString(
+                object,
+                keys: ["verificationState", "verification_state"]
+            ) ?? "unknown",
+            certificateState: publicationString(
+                object,
+                keys: ["certificateState", "certificate_state"]
+            ) ?? "unknown",
+            createdAt: publicationString(object, keys: ["createdAt", "created_at"]),
+            dnsInstructions: dnsInstructions,
+            publications: publications
+        )
+    }
+
+    private nonisolated static func publicationString(
+        _ object: [String: Any],
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            guard let raw = object[key] as? String else { continue }
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+        }
+        return nil
     }
 
     /// A valid `kind` string → the kind; anything else → nil so the image

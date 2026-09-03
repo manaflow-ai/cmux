@@ -60,6 +60,15 @@
     "genericBody": "โปรดลองอีกครั้ง หากยังมีปัญหา โปรดติดต่อฝ่ายสนับสนุน",
     "backToSignIn": "กลับไปที่การลงชื่อเข้าใช้"
   },
+  "cloudPublicationAccess": {
+    "title": "คุณไม่มีสิทธิ์เข้าถึง",
+    "signIn": "ลงชื่อเข้าใช้ cmux",
+    "signedInAs": "ลงชื่อเข้าใช้เป็น {identity}",
+    "switchAccount": "สลับบัญชี",
+    "invalidTitle": "ลิงก์เข้าถึงนี้ไม่ถูกต้อง",
+    "invalidBody": "กลับไปยังเว็บไซต์แล้วลองอีกครั้ง",
+    "footer": "cmux เป็นผู้จัดการสิทธิ์เข้าถึง"
+  },
   "common": {
     "downloadForMac": "ดาวน์โหลดสำหรับ Mac",
     "viewOnGitHub": "ดูบน GitHub",
