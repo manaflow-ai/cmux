@@ -516,8 +516,15 @@ fn force_kill_process_group(pid: libc::pid_t) {
     if pid > 0 {
         // `kill(2)` only queues the signal. It does not touch the blocking
         // ChildKiller handle or wait for the child to exit.
-        unsafe {
-            let _ = libc::kill(-pid, libc::SIGKILL);
+        let group_result = unsafe { libc::kill(-pid, libc::SIGKILL) };
+        if group_result != 0 {
+            // Keep the primary child from being stranded if the process
+            // group has already changed or disappeared. Descendants are
+            // best-effort in this error path; the wait owner still reaps the
+            // primary child through its owned handle.
+            unsafe {
+                let _ = libc::kill(pid, libc::SIGKILL);
+            }
         }
     }
 }
@@ -687,7 +694,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             let _ = child.kill();
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
-        wait_lifecycle.mark_exited_before_reap();
         exit_completion.child_exited(code);
     });
 
