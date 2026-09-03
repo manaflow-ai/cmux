@@ -8,7 +8,7 @@ import Testing
 /// A connection has two distinct credential demands: an initial request, which
 /// must remain credential-free until the server challenges it, and an explicit
 /// authentication challenge. Keeping those demands separate prevents a
-    /// successful allow-all request from touching LocalAuthentication.
+/// successful allow-all request from touching LocalAuthentication.
 @Suite(.serialized)
 struct SocketCredentialResolverTests {
     private final class CallCounter: @unchecked Sendable {
