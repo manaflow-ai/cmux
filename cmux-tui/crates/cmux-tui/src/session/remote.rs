@@ -7200,7 +7200,7 @@ mod tests {
         state.lock().unwrap().sender = None;
 
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let completion = Arc::new(WorkerCompletion::with_runtime(runtime.clone(), None, true));
+        let completion = Arc::new(WorkerCompletion::with_runtime(runtime, None, true));
         let worker_release = release.clone();
         let worker_completion = completion.clone();
         let handle = std::thread::spawn(move || {
