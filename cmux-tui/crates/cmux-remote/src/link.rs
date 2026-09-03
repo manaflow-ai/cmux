@@ -3,6 +3,7 @@ use std::fmt;
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -39,6 +40,12 @@ pub trait FrameLink: Send + Sync {
     async fn send(&self, frame: Bytes) -> Result<(), LinkError>;
     async fn receive(&self) -> Result<Option<Bytes>, LinkError>;
     async fn close(&self) -> Result<(), LinkError>;
+    /// Requests cancellation of cleanup started by [`Self::close`].
+    ///
+    /// Links without separately owned cleanup work may keep the default no-op
+    /// implementation. Composite links must cancel any child task that would
+    /// otherwise outlive the caller's close deadline.
+    fn abort_close(&self) {}
 }
 
 #[derive(Clone, Debug)]
@@ -634,10 +641,11 @@ pub struct LaneMuxLink {
     description: String,
     maximum: usize,
     routes: BTreeMap<Lane, OutboundSender>,
-    links: Vec<Arc<dyn FrameLink>>,
+    links: StdMutex<Vec<Arc<dyn FrameLink>>>,
     incoming: Arc<Mutex<Ingress>>,
     lifecycle: LinkLifecycle,
     tasks: StdMutex<Vec<JoinHandle<()>>>,
+    close_task: StdMutex<Option<JoinHandle<()>>>,
     closed: AtomicBool,
     close_state: watch::Sender<LinkCloseState>,
     #[cfg(test)]
@@ -799,6 +807,7 @@ impl LaneMuxLink {
             })),
             lifecycle,
             tasks: StdMutex::new(tasks),
+            close_task: StdMutex::new(None),
             closed: AtomicBool::new(false),
             close_state,
             #[cfg(test)]
@@ -1633,6 +1642,35 @@ mod tests {
         ));
         assert!(weak_physical.upgrade().is_none(), "stalled physical link was retained by mux");
         drop(mux);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn abort_close_stops_background_cleanup_task() {
+        let (physical, handle) = gated_close_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+            )
+            .unwrap(),
+        );
+
+        let close = tokio::spawn({
+            let mux = mux.clone();
+            async move { mux.close().await }
+        });
+        wait_for_signal(&handle.started, "stalled physical close").await;
+
+        mux.abort_close();
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let result = result.await.expect("abort_close did not stop cleanup task").unwrap();
+        assert!(matches!(
+            result,
+            Err(LinkError::Protocol(message)) if message == "lane mux shutdown task stopped"
+        ));
     }
 
     #[tokio::test]
