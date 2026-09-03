@@ -105,13 +105,6 @@ export type CreateOptions = {
    */
   edgeRules?: readonly VmEdgeRule[];
   /**
-   * Scheduler for work that must not delay the create response: the guest
-   * probe that waits for the provider's TLS edge to activate the coderouter
-   * rule (Freestyle takes seconds). The route passes its after-response hook;
-   * a caller without one (scripts, tests) gets the work awaited inline.
-   */
-  afterResponse?: (work: () => Promise<void>) => void;
-  /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
    * from other members — the owner's other machines, and the owner's computer
@@ -135,7 +128,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata" | "afterResponse"> & {
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -360,7 +353,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */

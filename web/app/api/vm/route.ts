@@ -491,7 +491,6 @@ export async function POST(request: Request): Promise<Response> {
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
             imageSize: imageSelection.size ?? undefined,
-            afterResponse: runAfterResponse,
             modelPlane,
             timing,
           }));
