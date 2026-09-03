@@ -15,7 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona", "blaxel"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -200,6 +200,82 @@ export const accountMutationLeases = pgTable(
   (table) => [
     index("account_mutation_leases_expiry_idx").on(table.expiresAt),
     index("account_mutation_leases_operation_idx").on(table.operationId),
+  ],
+);
+
+/**
+ * The one private network that holds every Cloud VM belonging to a user.
+ *
+ * Machines are attached to it at create, and the user's own computer reaches
+ * them through a WireGuard tunnel attached to the same network — so the
+ * cmux-tui daemon needs no public inbound port at all. One row per
+ * (user, provider): the network is the user's, not a machine's, and it
+ * outlives every machine on it.
+ */
+export const cloudVmNetworks = pgTable(
+  "cloud_vm_networks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    provider: vmProvider("provider").notNull(),
+    /** The provider's id for the network (Freestyle `vpc-…`). */
+    providerNetworkId: text("provider_network_id").notNull(),
+    /** The slug we asked the provider for, so an orphan is traceable to its owner. */
+    slug: text("slug"),
+    cidr: text("cidr"),
+    cidrV6: text("cidr_v6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_networks_user_provider_unique").on(table.userId, table.provider),
+    uniqueIndex("cloud_vm_networks_provider_network_id_unique")
+      .on(table.provider, table.providerNetworkId),
+  ],
+);
+
+/**
+ * One WireGuard tunnel per (user, device): the user's Mac as a member of their
+ * own private network.
+ *
+ * The client keypair is generated on the Mac and only its public half is ever
+ * sent here, so no row in this table can be used to impersonate a device — and
+ * a config re-issued to a reinstalled app is useless without the private key
+ * still in that Mac's Keychain. `revokedAt` is set when the device is
+ * unenrolled; the provider-side tunnel is deleted in the same workflow.
+ */
+export const cloudVmTunnels = pgTable(
+  "cloud_vm_tunnels",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    networkId: uuid("network_id")
+      .notNull()
+      .references(() => cloudVmNetworks.id, { onDelete: "cascade" }),
+    provider: vmProvider("provider").notNull(),
+    /** The provider's id for the tunnel (Freestyle `tun-…`). */
+    providerTunnelId: text("provider_tunnel_id").notNull(),
+    /** Stable per-installation device id minted by the Mac app. */
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    /** Human label for the device, shown when listing enrolled computers. */
+    deviceName: text("device_name"),
+    /** Base64 Curve25519 public key. The private half never leaves the Mac. */
+    clientPublicKey: text("client_public_key").notNull(),
+    /** The tunnel's address inside the network — what the user's VMs see as the Mac. */
+    addressV4: text("address_v4"),
+    addressV6: text("address_v6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastConfigIssuedAt: timestamp("last_config_issued_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_tunnels_user_device_unique")
+      .on(table.userId, table.deviceFingerprint)
+      .where(sql`${table.revokedAt} is null`),
+    uniqueIndex("cloud_vm_tunnels_provider_tunnel_id_unique")
+      .on(table.provider, table.providerTunnelId),
+    index("cloud_vm_tunnels_network_idx").on(table.networkId),
   ],
 );
 
@@ -717,6 +793,34 @@ export const billingEmailVerificationDeliveries = pgTable(
   },
   (table) => [
     index("billing_email_verification_deliveries_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
+// Operator Pro grants addressed to an email that may not have a Stack user
+// yet. Applied to the account at its next verified sign-in (like billing email
+// claims), then marked applied. Revoked rows are never applied.
+export const adminPlanGrants = pgTable(
+  "admin_plan_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Canonicalized email (services/billing/emailMatching). */
+    email: text("email").notNull(),
+    plan: text("plan").notNull(),
+    grantedByUserId: text("granted_by_user_id").notNull(),
+    grantedByEmail: text("granted_by_email"),
+    /** Set with applied_user_id while a sign-in is applying the row; stale after ADMIN_GRANT_CLAIM_TTL_MS. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    appliedUserId: text("applied_user_id"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("admin_plan_grants_email_idx").on(table.email),
+    // At most one open (unapplied, unrevoked) grant per canonical email.
+    uniqueIndex("admin_plan_grants_open_email_unique")
+      .on(table.email)
+      .where(sql`${table.appliedAt} is null and ${table.revokedAt} is null`),
   ],
 );
 

@@ -60,12 +60,13 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
-    RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
-    RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
-    ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
+    RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistryPane, RegistrySnapshot, RegistryTab,
+    RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -1121,6 +1122,14 @@ struct HookFence {
     ended: bool,
 }
 
+/// Durable hook projection carried by a hook-sourced agent report. Socket
+/// reports carry none; hook reports carry the fence state and the journal
+/// sequence that produced it.
+struct DurableHookReport {
+    state: crate::workspace_registry::AgentHookProjectionState,
+    journal_sequence: u64,
+}
+
 /// Session-less adapters get a local generation token. The journal sequence
 /// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
 /// the previous fence identity after restart.
@@ -1706,6 +1715,8 @@ type KittyImageBudgetOperationHook =
     Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits, Instant) -> anyhow::Result<()> + Send + Sync>;
 #[cfg(test)]
 type TerminalSpawnAfterCellPixelSnapshotHook = Arc<dyn Fn(bool) + Send + Sync>;
+#[cfg(test)]
+type TerminalSpawnBeforeCellPixelReconcileHook = Arc<dyn Fn(&Arc<Surface>) + Send + Sync>;
 
 type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
 
@@ -1998,6 +2009,7 @@ pub struct Mux {
     /// registry, then state.
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
+    machine_public_id: crate::resource::MachinePublicId,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -2048,6 +2060,9 @@ pub struct Mux {
     #[cfg(test)]
     terminal_spawn_after_cell_pixel_snapshot:
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
+    #[cfg(test)]
+    terminal_spawn_before_cell_pixel_reconcile:
+        Mutex<Option<TerminalSpawnBeforeCellPixelReconcileHook>>,
     #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
     pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
@@ -2125,6 +2140,9 @@ pub struct Mux {
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
     resource_creation_handoff: Mutex<()>,
+    /// Serializes the check-and-create sequence used when an attached local
+    /// frontend bootstraps an otherwise empty session.
+    initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
@@ -2173,14 +2191,16 @@ impl Mux {
         target: crate::ResourceTarget,
         selectors: &crate::ResourceSelectors,
     ) -> Result<crate::ResolvedResourcePath, ResourceError> {
-        let registry = self.workspace_registry.lock().unwrap();
+        // Session and machine identity never change for the life of a mux, so
+        // selector resolution must not queue behind the registry mutex, which
+        // the journal writer holds across every fsync.
         let state = self.state.lock().unwrap();
         resolve_resource_selectors(
             &state,
             ResourceSelectorContext {
-                machine_id: registry.machine_id(),
+                machine_id: &self.machine_public_id,
                 machine_name: None,
-                session_id: registry.session_id(),
+                session_id: &self.session_public_id,
                 session_name: &self.session,
             },
             target,
@@ -2364,6 +2384,7 @@ impl Mux {
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
+        let machine_public_id = registry.machine_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
             &journal_producers,
@@ -2377,6 +2398,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
+            machine_public_id,
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -2417,6 +2439,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
+            #[cfg(test)]
+            terminal_spawn_before_cell_pixel_reconcile: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
             pending_terminal_hosts: Mutex::new(HashMap::new()),
@@ -2488,6 +2512,7 @@ impl Mux {
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
+            initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
@@ -2534,6 +2559,10 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
+    }
+
+    pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
+        self.initial_bootstrap.lock().unwrap()
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2620,8 +2649,10 @@ impl Mux {
                             &key,
                             sequence,
                             &ingress,
-                            AGENT_HOOK_RETRY_ERROR,
-                            agent_hook_retry_class(&error),
+                            AgentHookPendingFailure {
+                                error: AGENT_HOOK_RETRY_ERROR,
+                                retry_class: agent_hook_retry_class(&error),
+                            },
                         )
                         .is_err()
                     {
@@ -2930,7 +2961,6 @@ impl Mux {
                 &terminal_id,
                 TerminalLifecycle::Adopting,
                 Some(&record.incarnation),
-                None,
             ) {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
@@ -3330,7 +3360,6 @@ impl Mux {
                                 &terminal_id,
                                 TerminalLifecycle::Adopting,
                                 Some(&record.incarnation),
-                                None,
                             )
                             .is_err()
                         {
@@ -3966,7 +3995,7 @@ impl Mux {
                     id: workspace.id,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -5441,8 +5470,10 @@ impl Mux {
                         idempotency_key,
                         commit.sequence,
                         ingress,
-                        AGENT_HOOK_RETRY_ERROR,
-                        agent_hook_retry_class(&error),
+                        AgentHookPendingFailure {
+                            error: AGENT_HOOK_RETRY_ERROR,
+                            retry_class: agent_hook_retry_class(&error),
+                        },
                     )
                 {
                     self.report_internal_diagnostic(
@@ -5531,7 +5562,6 @@ impl Mux {
         // fence for a start would let a delayed, session-less start mutate a
         // newer lifecycle.
         let agent_session_id = explicit_session_id
-            .clone()
             .or_else(|| {
                 (!is_session_start)
                     .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
@@ -5573,8 +5603,7 @@ impl Mux {
             AgentSource::Hook,
             Some(marker),
             true,
-            Some(hook_state),
-            Some(sequence),
+            Some(DurableHookReport { state: hook_state, journal_sequence: sequence }),
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5788,6 +5817,26 @@ impl Mux {
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
+
+        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
+        if let Some(database_path) = database_path {
+            let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
+            let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
+            let head_sequence = loop {
+                let page = cursor.next_page(1024)?;
+                let head = page.head_sequence;
+                let empty = page.records.is_empty();
+                for record in page.records {
+                    reducer.apply(&record)?;
+                }
+                if empty {
+                    break head;
+                }
+            };
+            cursor.finish()?;
+            return reducer.finish(head_sequence);
+        }
+
         let mut sequence = checkpoint.source_sequence;
         let mut target_head = None;
         let head_sequence = loop {
@@ -6295,7 +6344,6 @@ impl Mux {
         terminal_id: &str,
         lifecycle: TerminalLifecycle,
         incarnation: Option<&str>,
-        exit: Option<Value>,
     ) -> anyhow::Result<(RegistryTerminal, u64)> {
         anyhow::ensure!(
             lifecycle != TerminalLifecycle::Exited,
@@ -6309,7 +6357,7 @@ impl Mux {
             terminal_id,
             lifecycle,
             incarnation,
-            exit,
+            None,
         )?;
         self.emit_terminal_registry_changed(&registry, result.1);
         Ok(result)
@@ -6703,6 +6751,27 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), Some(reservation))
     }
 
+    fn persist_terminal_cell_pixel_reconcile_failure(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<()> {
+        let detail = format!("{error:#}");
+        eprintln!(
+            "cmux-tui: terminal {terminal_id} cell-pixel reconciliation failed before \
+             publication: {}",
+            detail.escape_debug()
+        );
+        self.persist_terminal_exit(
+            terminal_id,
+            incarnation,
+            &TerminalExit::unknown("cell-pixel-reconcile-failed"),
+        )
+        .context("could not persist terminal exit after cell-pixel reconciliation failed")?;
+        Ok(())
+    }
+
     fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -6833,7 +6902,7 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
-            let ready_revision = {
+            {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let ready = commit_terminal_lifecycle(
                     &mut registry,
@@ -6852,25 +6921,18 @@ impl Mux {
                     }
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
-                ready_revision
-            };
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.transition_terminal_lifecycle(
-                            "terminal-exited",
-                            "terminal-cell-pixel-reconcile-failed",
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
-                            TerminalLifecycle::Exited,
                             Some(&identity.incarnation),
-                            Some(serde_json::json!({
-                                "reason":"cell-pixel-reconcile-failed",
-                                "error":error.to_string(),
-                                "ready_revision":ready_revision,
-                            })),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -6972,16 +7034,23 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, revision);
             }
+            #[cfg(test)]
+            if let Some(hook) =
+                self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone()
+            {
+                hook(&surface);
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.persist_terminal_exit(
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
                             Some(&incarnation),
-                            &TerminalExit::unknown(format!("cell-pixel-reconcile-failed: {error}")),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -8946,7 +9015,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
+        self.report_agent_with_sequence_lock(surface, state, source, session, false, None)
     }
 
     fn report_agent_with_sequence_lock(
@@ -8956,8 +9025,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
         sequence_lock_held: bool,
-        hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
-        journal_sequence: Option<u64>,
+        hook: Option<DurableHookReport>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -8979,8 +9047,8 @@ impl Mux {
             &mutation,
             &fingerprint,
             sequence_lock_held,
-            hook_state.as_ref(),
-            journal_sequence,
+            hook.as_ref().map(|hook| &hook.state),
+            hook.as_ref().map(|hook| hook.journal_sequence),
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9196,10 +9264,10 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.clone().or(record.session.clone()),
+            "source_session":persisted_source_session.or(record.session.clone()),
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.clone());
+        public_value["source_session"] = serde_json::json!(record.session);
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9216,40 +9284,28 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
-            Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-                sequence,
-            )?,
-            None => registry.commit_agent_projection_with_hook_state(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-            )?,
-        };
-        if !commit.replayed {
-            if let (Some(direct_state), Some(sequence_guard)) =
+        let commit = registry.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            &terminal_id,
+            &value,
+            &deltas,
+            effective_hook_state,
+            journal_sequence,
+        )?;
+        if !commit.replayed
+            && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
-            {
-                sequence_guard.insert(
-                    terminal_id.clone(),
-                    HookFence {
-                        session_id: direct_state.agent_session_id.clone(),
-                        sequence: direct_state.applied_sequence,
-                        ended: false,
-                    },
-                );
-            }
+        {
+            sequence_guard.insert(
+                terminal_id.clone(),
+                HookFence {
+                    session_id: direct_state.agent_session_id.clone(),
+                    sequence: direct_state.applied_sequence,
+                    ended: false,
+                },
+            );
         }
         state.resource_revision = commit.revision;
         if !commit.replayed {
@@ -16385,6 +16441,16 @@ impl Drop for Mux {
     }
 }
 
+fn expected_panes_by_screen(
+    panes: &[RegistryPane],
+) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
+    let mut panes_by_screen: HashMap<ScreenPublicId, HashSet<PanePublicId>> = HashMap::new();
+    for pane in panes {
+        panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
+    }
+    panes_by_screen
+}
+
 fn restore_resource_state(
     snapshot: RegistrySnapshot,
     topology: ResourceTopologySnapshot,
@@ -16557,13 +16623,11 @@ fn restore_resource_state(
 
     let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
     let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    let panes_by_screen = expected_panes_by_screen(&topology.panes);
+    let empty_expected_panes = HashSet::new();
     for screen in &topology.screens {
-        let expected_panes = topology
-            .panes
-            .iter()
-            .filter(|pane| pane.screen_id == screen.public_id)
-            .map(|pane| pane.public_id.clone())
-            .collect::<HashSet<_>>();
+        let expected_panes =
+            panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
         crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
@@ -19163,6 +19227,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restore_screen_pane_index_preserves_validation_inputs() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let first_screen = restore_screen_id(1);
+        let second_screen = restore_screen_id(2);
+
+        let mut duplicate_panes = topology.panes.clone();
+        duplicate_panes.push(duplicate_panes[0].clone());
+        let expected = expected_panes_by_screen(&duplicate_panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(4));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(1));
+        assert!(expected.get(&restore_screen_id(999)).is_none());
+
+        let mut mismatched = topology;
+        mismatched.panes[3].screen_id = second_screen.clone();
+        let expected = expected_panes_by_screen(&mismatched.panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(3));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(2));
+        assert_eq!(
+            restore_resource_state(snapshot, mismatched).err().unwrap().to_string(),
+            format!("screen {first_screen} layout does not cover its panes exactly once")
+        );
+    }
+
     fn resource_restore_patch(
         snapshot: &RegistrySnapshot,
         topology: &ResourceTopologySnapshot,
@@ -20027,6 +20115,93 @@ mod tests {
         assert_eq!(*observed_unlocked.lock().unwrap(), vec![true]);
         assert_eq!(mux.cell_pixel_size(), (9, 18));
         assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    fn spawn_terminal_with_cell_pixel_failure(
+        mux: &Arc<Mux>,
+        fail_exit_persistence: bool,
+    ) -> (String, anyhow::Result<Arc<Surface>>) {
+        *mux.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |unlocked| {
+                assert!(unlocked, "terminal spawn retained the cell-pixel lifecycle lock");
+                mux.upgrade().unwrap().set_cell_pixel_size(9, 18);
+            }
+        }));
+        *mux.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |surface| {
+                surface.fail_next_test_master_resize();
+                if fail_exit_persistence {
+                    mux.upgrade()
+                        .unwrap()
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .set_terminal_exit_failure(true)
+                        .unwrap();
+                }
+            }
+        }));
+        let workspace =
+            mux.create_empty_workspace(Some("cell-pixel-failure".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal_hex = terminal_id.to_hex();
+        let reservation = TerminalReservationRequest {
+            terminal_id,
+            mutation: WorkspaceMutation::new("cell-pixel-failure", "test").unwrap(),
+            fingerprint: serde_json::json!({"test":"cell-pixel-failure"}),
+            expected_generation: None,
+            expected_revision: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let result = mux.spawn_surface_in_workspace_reserved(
+            &workspace.key,
+            None,
+            Some((80, 24)),
+            None,
+            reservation,
+        );
+        (terminal_hex, result)
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_uses_stable_exit_reason() {
+        let mux = test_mux();
+        let (terminal_id, result) = spawn_terminal_with_cell_pixel_failure(&mux, false);
+
+        let error = result.expect_err("injected cell-pixel failure must abort terminal creation");
+        assert!(format!("{error:#}").contains("injected PTY master resize failure"));
+        let exited = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(&terminal_id)
+            .unwrap()
+            .unwrap()
+            .exit
+            .unwrap();
+        assert_eq!(
+            exited["outcome"],
+            serde_json::json!({
+                "kind":"unknown",
+                "reason":"cell-pixel-reconcile-failed",
+            })
+        );
+        assert!(!exited.to_string().contains("injected PTY master resize failure"));
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_propagates_exit_persistence_error() {
+        let mux = test_mux();
+        let (_, result) = spawn_terminal_with_cell_pixel_failure(&mux, true);
+
+        let error = result.expect_err("injected persistence failure must abort terminal creation");
+        assert!(
+            format!("{error:#}")
+                .contains("could not persist terminal exit after cell-pixel reconciliation failed"),
+            "unexpected terminal creation error: {error:#}"
+        );
     }
 
     #[test]
@@ -23149,8 +23324,10 @@ mod tests {
                 "pending-before-close",
                 1,
                 &ingress,
-                AGENT_HOOK_RETRY_ERROR,
-                crate::workspace_registry::AgentHookRetryClass::Transient,
+                AgentHookPendingFailure {
+                    error: AGENT_HOOK_RETRY_ERROR,
+                    retry_class: crate::workspace_registry::AgentHookRetryClass::Transient,
+                },
             )
             .unwrap();
         mux.purge_terminal_side_tables(&terminal_id);
@@ -27680,7 +27857,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Adopting,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
@@ -27781,7 +27957,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Running,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
 
@@ -29079,4 +29254,41 @@ mod tests {
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
+}
+#[test]
+fn initial_bootstrap_lock_serializes_concurrent_callers() {
+    use std::sync::{Arc, Barrier, mpsc};
+    use std::thread;
+
+    let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
+    let barrier = Arc::new(Barrier::new(2));
+    let (event_tx, event_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    thread::scope(|scope| {
+        let first_barrier = barrier.clone();
+        let first_mux = mux.clone();
+        let first_event_tx = event_tx.clone();
+        scope.spawn(move || {
+            let _guard = first_mux.lock_initial_bootstrap();
+            first_event_tx.send(()).unwrap();
+            first_barrier.wait();
+            release_rx.recv().unwrap();
+        });
+
+        let second_barrier = barrier.clone();
+        let second_mux = mux.clone();
+        scope.spawn(move || {
+            second_barrier.wait();
+            let _guard = second_mux.lock_initial_bootstrap();
+            event_tx.send(()).unwrap();
+        });
+
+        // The first caller holds the lock while the second caller attempts to
+        // acquire it. The second event must therefore remain blocked until
+        // the first caller is released.
+        event_rx.recv().unwrap();
+        assert!(event_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+        event_rx.recv().unwrap();
+    });
 }
