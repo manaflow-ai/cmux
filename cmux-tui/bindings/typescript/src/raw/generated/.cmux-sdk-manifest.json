@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "commands.ts",
-      "sha256": "14aad5c10b9acd0806fedbd8a232d0739f54db96fe115d35104729abd3b43fdd",
-      "size": 50774
+      "sha256": "cfe5de8fde1d54e2b38f50a05458e8c19ce9863b7f9f05c0ce15ff7ba839902f",
+      "size": 50781
     },
     {
       "path": "events.ts",

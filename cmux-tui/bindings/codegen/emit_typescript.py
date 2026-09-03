@@ -212,11 +212,7 @@ def _render_commands(ir: Any, document: Mapping[str, Any]) -> str:
             result = f"T.{result}"
         capability = _literal(command["capability"])
         stream = command["stream"]
-        stream_kind = (
-            _literal(stream["kind"])
-            if stream is not None and stream.get("mode_field") != "follow"
-            else "null"
-        )
+        stream_kind = _literal(stream["kind"]) if stream is not None else "null"
         lines.append(f"  {_property(wire_name)}: {{")
         lines.append(f"    request: {request_names[wire_name]};")
         lines.append(f"    result: {result};")
