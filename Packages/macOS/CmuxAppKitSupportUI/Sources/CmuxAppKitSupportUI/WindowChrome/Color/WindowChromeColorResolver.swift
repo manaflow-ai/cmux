@@ -16,7 +16,10 @@ public struct WindowChromeColorResolver: Sendable {
         srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         let luminance = 0.299 * red + 0.587 * green + 0.114 * blue
         let isLight = luminance > 0.5
-        let amount: CGFloat = isLight ? -0.12 : 0.16
+        // Asymmetric because sRGB gamma compresses a fixed RGB step far more
+        // near white than near black. These deltas put both sides at CIE
+        // dL* ~7 against their own background once composited.
+        let amount: CGFloat = isLight ? -0.30 : 0.16
         let separatorAlpha: CGFloat = isLight ? 0.26 : 0.36
         return NSColor(
             red: min(1.0, max(0.0, red + amount)),
