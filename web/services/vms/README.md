@@ -102,7 +102,7 @@ Image policy:
   `sh-d7bffdc6f05c43babbb4d0ea09d0b7a5`, `md` `sh-fe9e83bddc334e3e9fe54f4f373ca94f`, `lg`
   `sh-e1fce6fe80ed4c7baa232652bea458a7`, `xl` `sh-18c1a1a4d1234af1bc4e8259797998a5`, `2xl`
   `sh-104cd498ec394912ac69821b825aeeaa`. The retired beta entry stays listed for the record and is
-  never a default; earlier public entries (the `edge1` ladder before it) stay for rollback.
+  never a default; earlier public entries (the `20260903b` and `edge1` ladders before it) stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR

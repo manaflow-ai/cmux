@@ -1663,6 +1663,9 @@ describe("VM Effect workflows", () => {
     });
     let providerCreateCalls = 0;
     let providerMemoryMb: number | undefined;
+    let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
+    let providerAfterResponse: ((work: () => Promise<void>) => void) | null = null;
+    const afterResponse = (work: () => Promise<void>) => { void work(); };
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
@@ -1705,6 +1708,8 @@ describe("VM Effect workflows", () => {
         Effect.sync(() => {
           providerCreateCalls += 1;
           providerMemoryMb = options.memoryMb;
+          providerImageSize = options.imageSize ?? null;
+          providerAfterResponse = options.afterResponse ?? null;
           return {
             provider: "freestyle" as const,
             providerVmId: "provider-vm-usage-events",
@@ -1736,6 +1741,8 @@ describe("VM Effect workflows", () => {
         image: "snapshot-test",
         imageVersion: "test-version",
         memoryMb: 3072,
+        imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+        afterResponse,
         idempotencyKey: "usage-events",
       }).pipe(Effect.provide(layer)),
     );
@@ -1743,6 +1750,10 @@ describe("VM Effect workflows", () => {
     expect(created.providerVmId).toBe("provider-vm-usage-events");
     expect(providerCreateCalls).toBe(1);
     expect(providerMemoryMb).toBe(3072);
+    // A sized image reaches the driver as the shape to boot at, never to resize to.
+    expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
+    // The route's after-response scheduler reaches the driver, so the edge probe never blocks the request.
+    expect(providerAfterResponse).toBe(afterResponse);
     expect(usageEventAttempts).toBe(2);
   });
 
