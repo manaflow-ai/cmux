@@ -212,21 +212,19 @@ extension TerminalController {
                 ))
                 didRegisterOptimistically = true
             }
-            let opened = try await catalog.project(resource, into: destination, focus: focus, reuseExisting: false)
-            var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
-            let url = await catalog.resources[resource]?.url ?? ""
-            payload["url"] = url
-            payload["open_url"] = url
-            // Refresh after projection. A concurrent refresh can replace the
-            // optimistic resource before project() resolves it as a known
-            // resource, producing a spurious unknownResource error.
-            if didRegisterOptimistically {
+            defer {
+                guard didRegisterOptimistically else { return }
                 Task { @MainActor in
                     if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
                         await provider.refresh(force: true)
                     }
                 }
             }
+            let opened = try await catalog.project(resource, into: destination, focus: focus, reuseExisting: false)
+            var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
+            let url = await catalog.resources[resource]?.url ?? ""
+            payload["url"] = url
+            payload["open_url"] = url
             return payload
         }
     }

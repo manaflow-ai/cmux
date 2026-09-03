@@ -526,7 +526,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
-        if case .stdout = stream { onOutput?(data) }
+        onOutput?(data)
         lock.lock()
         defer { lock.unlock() }
 
