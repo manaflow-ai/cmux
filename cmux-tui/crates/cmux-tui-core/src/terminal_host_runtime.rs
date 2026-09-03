@@ -8983,21 +8983,6 @@ mod unix {
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
         }
 
-        #[allow(dead_code)]
-        trait ParserBudgetStopSimulation {
-            fn parser_stopped(&self);
-        }
-
-        impl ParserBudgetStopSimulation for ParserBudget {
-            fn parser_stopped(&self) {
-                // This models the parser worker disappearing without releasing
-                // its last reservation. The current implementation has no
-                // liveness state to change, so the wake is intentionally not
-                // enough to unblock the waiter.
-                self.available.notify_all();
-            }
-        }
-
         #[test]
         fn parser_budget_waiter_exits_when_parser_stops() {
             let budget = Arc::new(ParserBudget::new(4));
