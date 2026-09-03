@@ -18,6 +18,48 @@ extension CMUXCLI {
         )
     }
 
+    /// Returns live PIDs whose executable and argv identify an agent session.
+    /// This catches a resumed process after its hook record has gone stale or
+    /// missed the replacement PID. The caller must still validate the agent
+    /// and session token in the returned process arguments.
+    func sessionsListAgentProcessIDs(
+        executableBasename: String,
+        containingSessionID sessionID: String
+    ) -> [Int] {
+        guard !sessionID.isEmpty else { return [] }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL]
+        var size: size_t = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
+              size >= MemoryLayout<kinfo_proc>.stride else {
+            return []
+        }
+        let count = size / MemoryLayout<kinfo_proc>.stride
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        guard sysctl(
+            &mib,
+            u_int(mib.count),
+            &processes,
+            &size,
+            nil,
+            0
+        ) == 0 else {
+            return []
+        }
+        let normalizedExecutable = executableBasename.lowercased()
+        return processes.prefix(size / MemoryLayout<kinfo_proc>.stride).compactMap { process -> Int? in
+            let pid = Int(process.kp_proc.p_pid)
+            guard pid > 0,
+                  let identity = sessionsListProcessIdentity(for: pid),
+                  identity.arguments.contains(sessionID) else {
+                return nil
+            }
+            let executable = identity.executablePath.map { ($0 as NSString).lastPathComponent }
+                ?? identity.arguments.first.map { ($0 as NSString).lastPathComponent }
+            guard executable?.lowercased() == normalizedExecutable else { return nil }
+            return pid
+        }
+    }
+
     func sessionsListProcessStartTimeMatchesRecord(
         _ processStartTime: TimeInterval,
         record: ClaudeHookSessionRecord
