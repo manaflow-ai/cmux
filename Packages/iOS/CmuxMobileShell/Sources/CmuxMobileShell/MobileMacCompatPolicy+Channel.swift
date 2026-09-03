@@ -14,12 +14,11 @@ extension MobileMacCompatPolicy {
             let normalized = instanceTag?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            switch normalized {
-            case nil, "", "default":
+            if normalized == nil || normalized == "" || normalized == "default" {
                 self = .stable
-            case "nightly":
+            } else if normalized == "nightly" {
                 self = .nightly
-            default:
+            } else {
                 return nil
             }
         }
