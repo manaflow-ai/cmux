@@ -700,15 +700,23 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
     std::thread::spawn(move || {
-        let observed_exit = child
-            .process_id()
-            .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok());
-        if observed_exit {
-            wait_lifecycle.mark_exited_before_reap();
-        } else if wait_lifecycle.termination_requested() {
-            // If exit observation failed after a caller requested
-            // termination, the wait owner retains the blocking fallback.
-            let _ = child.kill();
+        // Do not reap until WNOWAIT has fenced the PID. If observation fails,
+        // retain ownership and retry rather than releasing a PID that a late
+        // control drop could mistake for this child. A requested termination
+        // may use the owned blocking handle as the final fallback.
+        loop {
+            if child
+                .process_id()
+                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok())
+            {
+                wait_lifecycle.mark_exited_before_reap();
+                break;
+            }
+            if wait_lifecycle.termination_requested() {
+                let _ = child.kill();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         exit_completion.child_exited(code);
