@@ -47,10 +47,14 @@ herdr-specific CWD code is copied. Later upstream commits
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
 `da8c7b05f9ef7898cfb7494989df8a533b947bb9`, `99c23cd1ea7468bd3661f6483c7105396503b417`,
-`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`, and
-`18e69891dca486d669a584facd80644bb51f54a2` change Windows launch, process
-environment, process-job, input handling, remote multiline paste, OpenSSH
-mouse input, or the application/client shell rendering architecture. The
+`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`,
+`18e69891dca486d669a584facd80644bb51f54a2`,
+`45484aab84430ac2b18c7bbf44aba15f2b039677`,
+`e22cba35ef7b405758097a5f9436aae8fb4caaf0`,
+`2ae8b91ca5919c26df7ce779b0e9a5dd98b769ae`, and
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0` change Windows launch, process
+environment, process-job, input handling, recent terminal reads, graphics
+ownership, or the application/client shell rendering architecture. The
 post-audit multi-client tab-view change
 `6c0bb273d5d5405a00985621b17e36f8b4d64609` and the reliable delayed-prompt
 change `8633a398e653eee47b375c963996c78a8a14aa48` change host/client and PTY
@@ -62,10 +66,11 @@ before it promises upgrades across host versions. Recheck these upstream
 areas before publishing a Windows package.
 
 The herdr repository tip checked on 2026-09-02 is
-`5a2dee700eeeea68267a4d16777307632f77172f`. The commits after the
-agent-surface revision change client mouse selection and Windows worktree
-removal; they do not change `src/detect` or the manifests. The agent-surface
-revision is the reproducible capability-audit pin.
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`. The commits after the
+agent-surface revision change client rendering, terminal reads, graphics,
+Windows input and worktree handling, or sidebar focus. They do not change
+`src/detect` or the manifests. The agent-surface revision is the reproducible
+capability-audit pin.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is

@@ -26,10 +26,10 @@ The capability audit was rerun against herdr's agent-surface revision
 `987b070fbfa187e85009b45cd7e208fc6175ff6a`. It found the exact Pi bundled CLI
 path correction from `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` and the Claude
 background-shell manifest correction from `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
-Both are ported and tested. The multi-client tab-view and delayed-prompt commits
-are host/client and PTY input work, outside this manifest package. The package
-does not claim parity with that transport or input work. The repository tip
-checked on 2026-09-02 is `5a2dee700eeeea68267a4d16777307632f77172f`;
-commits after the agent-surface revision change client mouse selection and
-Windows worktree removal, not `src/detect` or the manifests. The agent-surface
+Both are ported and tested. The multi-client tab-view, delayed-prompt,
+recent-read, graphics, Windows input, and sidebar-focus commits are host/client
+work outside this manifest package. The package does not claim parity with
+that transport or input work. The repository tip checked on 2026-09-02 is
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`; commits after the agent-surface
+revision do not change `src/detect` or the manifests. The agent-surface
 revision is the reproducible capability-audit pin.

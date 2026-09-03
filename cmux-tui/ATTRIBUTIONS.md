@@ -97,19 +97,24 @@ independent multi-client tab views in
 not detector behavior. The latest delayed-agent-prompt fix in
 `8633a398e653eee47b375c963996c78a8a14aa48` changes PTY input sequencing, and
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c` hardens malformed Windows process
-environments in portable-pty. These changes are outside this Unix userland
-package and are not copied. If cmux needs atomic text-plus-Enter submission,
-that belongs in a separate generic terminal-input contract, not in a detector
-or an agent-specific core method. A standalone release must define and test
-SDK endpoint-generation compatibility before it promises binary upgrades
-across host versions. Review the Windows changes before publishing a Windows
-package.
+environments in portable-pty. The later generic terminal-read fix
+`45484aab84430ac2b18c7bbf44aba15f2b039677`, graphics ownership fix
+`e22cba35ef7b405758097a5f9436aae8fb4caaf0`, Windows input fix
+`2ae8b91ca5919c26df7ce779b0e9a5dd98b769ae`, and sidebar-focus fix
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0` are also outside detector
+behavior. These changes are not copied. If cmux needs atomic text-plus-Enter
+submission, that belongs in a separate generic terminal-input contract, not in
+a detector or an agent-specific core method. A standalone release must define
+and test SDK endpoint-generation compatibility before it promises binary
+upgrades across host versions. Review the Windows changes before publishing a
+Windows package.
 
 The herdr repository tip checked on 2026-09-02 is
-`5a2dee700eeeea68267a4d16777307632f77172f`. The commits after the
-agent-surface revision change client mouse selection and Windows worktree
-removal; they do not change `src/detect` or the manifests. The agent-surface
-revision is therefore the reproducible capability-audit pin.
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`. The commits after the
+agent-surface revision change client rendering, terminal reads, graphics,
+Windows input and worktree handling, or sidebar focus. They do not change
+`src/detect` or the manifests. The agent-surface revision is therefore the
+reproducible capability-audit pin.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

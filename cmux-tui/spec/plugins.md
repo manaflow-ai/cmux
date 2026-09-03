@@ -355,7 +355,7 @@ application policy into cmux core.
 | Native session report (`pane.report_agent_session`) | Native hook integrations can retain opaque session references; the userland screen plugin does not report or resume them | Do not let an untrusted screen guess authorize a resume command. Add a generic opaque reference only with an explicit host resume contract. |
 | Presentation metadata (`pane.report_metadata`) and state labels/tokens | Generic journal `native` and `extra` data can be retained, but it does not override host lifecycle or labels | Keep display metadata in host projections. Do not let plugin payloads change semantic state by side effect. |
 | Child-agent topology and rollups | A screen plugin reports one terminal observation. Core has no vendor child graph or rollup policy | Require explicit parent references and a generic graph contract before adding topology. |
-| Remote client endpoint compatibility | Herdr commit `8633a398e653eee47b375c963996c78a8a14aa48` changes its transport endpoint generation, not the userland detector contract | Define and test SDK endpoint-generation compatibility before a standalone binary promises daemon upgrades. Do not import herdr's transport implementation into the detector. |
+| Remote client endpoint compatibility | Herdr's endpoint-generation work (`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`) changes its transport endpoint generation, not the userland detector contract | Define and test SDK endpoint-generation compatibility before a standalone binary promises daemon upgrades. Do not import herdr's transport implementation into the detector. |
 
 This inventory was rechecked against herdr's agent-surface revision
 `987b070fbfa187e85009b45cd7e208fc6175ff6a`. It includes the exact Pi bundled
@@ -376,20 +376,23 @@ The reference package has no Windows SDK transport or native process backend
 and does not own launch, input, or remote paste handling, so those changes
 remain outside this plugin. Review them before publishing Windows support.
 
-The latest audited Windows commits, `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`
+The latest audited upstream commits, `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`
 and `18e69891dca486d669a584facd80644bb51f54a2`, fix remote multiline paste
-and OpenSSH mouse input. The independent multi-client tab-view change
-`6c0bb273d5d5405a00985621b17e36f8b4d64609` and the reliable delayed-prompt
-change `8633a398e653eee47b375c963996c78a8a14aa48` are application/client and
-PTY input architecture, not detector policy. The malformed Windows process
-environment fix `5616196942cbe752cc0659b9bd0fb616b2a6ed5c` is portable-pty
-behavior. These changes are outside the userland detector. Before publishing
-a standalone binary, define and test SDK endpoint-generation compatibility
-across host versions. The herdr repository tip checked on 2026-09-02 is
-`5a2dee700eeeea68267a4d16777307632f77172f`; commits after the agent-surface
-revision change client mouse selection and Windows worktree removal, not
-`src/detect` or the manifests. The agent-surface revision is the reproducible
-capability-audit pin.
+and OpenSSH mouse input. The endpoint-generation change
+`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`, independent multi-client tab-view
+change `6c0bb273d5d5405a00985621b17e36f8b4d64609`, delayed-prompt change
+`8633a398e653eee47b375c963996c78a8a14aa48`, recent-read change
+`45484aab84430ac2b18c7bbf44aba15f2b039677`, graphics ownership change
+`e22cba35ef7b405758097a5f9436aae8fb4caaf0`, and sidebar-focus change
+`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0` are application, client, PTY,
+or generic terminal architecture, not detector policy. The malformed Windows
+process environment fix `5616196942cbe752cc0659b9bd0fb616b2a6ed5c` is
+portable-pty behavior. These changes are outside the userland detector. Before
+publishing a standalone binary, define and test SDK endpoint-generation
+compatibility across host versions. The herdr repository tip checked on
+2026-09-02 is `94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`; commits after the
+agent-surface revision do not change `src/detect` or the manifests. The
+agent-surface revision is the reproducible capability-audit pin.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
