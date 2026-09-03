@@ -110,6 +110,13 @@ pub(crate) struct TerminalMessages {
     pub pty_input_exited: &'static str,
     pub attach_outcome_unknown: &'static str,
     pub operation_failed: &'static str,
+    /// One inline line in a PTY pane whose attach has not delivered a frame.
+    pub pane_starting: &'static str,
+    /// One inline line under the last frame of a PTY pane whose process exited.
+    pub pane_exited: &'static str,
+    /// One inline line where a pane would have appeared, when its create
+    /// was refused. `{cause}` is a product-safe failure category.
+    pub pane_create_failed: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -117,6 +124,9 @@ pub(crate) struct SessionMessages {
     pub creation_reconciling: &'static str,
     pub operation_reconciling: &'static str,
     pub operation_failed: &'static str,
+    /// `{operation}` is `operation_failed`; `{cause}` is a product-safe failure category.
+    pub operation_failed_with_cause: &'static str,
+    pub operation_failed_generic_cause: &'static str,
     pub operation_canceled: &'static str,
     pub mux_subscription_recovered: &'static str,
     mux_subscription_recovery_failed: &'static str,
@@ -1268,11 +1278,16 @@ static ENGLISH: Catalog = Catalog {
         pty_input_exited: "Terminal exited; input was not sent",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
+        pane_starting: "starting…",
+        pane_exited: "process exited",
+        pane_create_failed: "could not open: {cause}",
     },
     session: SessionMessages {
         creation_reconciling: "Session creation may have completed; checking its receipt",
         operation_reconciling: "Session operation may have completed; refreshing the layout",
         operation_failed: "Session operation failed",
+        operation_failed_with_cause: "{operation}: {cause}",
+        operation_failed_generic_cause: "the operation was rejected; check the session and retry",
         operation_canceled: "Session operation was canceled",
         mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
         mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
@@ -1918,11 +1933,16 @@ static JAPANESE: Catalog = Catalog {
         pty_input_exited: "ターミナルが終了したため、入力は送信されませんでした",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
+        pane_starting: "起動中…",
+        pane_exited: "プロセスが終了しました",
+        pane_create_failed: "開けませんでした: {cause}",
     },
     session: SessionMessages {
         creation_reconciling: "セッションの作成が完了している可能性があります。結果を確認しています",
         operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
         operation_failed: "セッション操作に失敗しました",
+        operation_failed_with_cause: "{operation}: {cause}",
+        operation_failed_generic_cause: "操作が拒否されました。セッションを確認して再試行してください",
         operation_canceled: "セッション操作はキャンセルされました",
         mux_subscription_recovered: "Mux イベントの滞留が上限を超えました。購読を復旧しました",
         mux_subscription_recovery_failed: "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: {error}",

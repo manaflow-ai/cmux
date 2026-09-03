@@ -718,6 +718,16 @@ impl Session {
         }
     }
 
+    /// Whether a remote surface was retired after its process exited while
+    /// the authoritative tree still lists its tab. Local surfaces retain the
+    /// handle until removal, so the missing-mirror fallback does not apply.
+    pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.surface_is_exited(id),
+        }
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         match self {
             Session::Local(_) => Ok(self.tree()),
@@ -2865,6 +2875,22 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
 }
 
+/// A remote session whose control socket accepts requests and never answers.
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_silent_requests(capabilities: HashSet<String>) -> Session {
+    Session::Remote(remote::test_session_with_silent_requests(capabilities))
+}
+
+/// A remote session whose control socket answers every request with
+/// `responder(&request)` and records the requests it received.
+#[cfg(test)]
+pub(crate) fn test_remote_session_answering(
+    responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
+) -> (Session, std::sync::mpsc::Receiver<Value>) {
+    let (session, requests) = remote::test_session_answering(responder);
+    (Session::Remote(session), requests)
+}
+
 /// A remote session whose event transport already died with `reason`, the
 /// state the reader thread leaves behind before it synthesizes
 /// `MuxEvent::Empty` on connection loss.
@@ -2919,6 +2945,14 @@ pub(crate) fn test_remote_session_with_browser_pointer_range(
 #[cfg(test)]
 pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
     Session::Remote(remote::test_session_with_provider_authority_without_guard())
+}
+
+/// Seed a remote session's cached tree for app tests. Local sessions ignore it.
+#[cfg(test)]
+pub(crate) fn test_seed_remote_tree(session: &Session, tree: TreeView) {
+    if let Session::Remote(remote) = session {
+        remote.test_replace_cached_tree(tree);
+    }
 }
 
 #[cfg(test)]

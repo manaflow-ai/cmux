@@ -467,6 +467,31 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         return DrawCursors::default();
     }
     let Some(surface) = app.session.surface(area.surface) else {
+        // The tree lists the tab but no mirror exists yet: either a client
+        // placeholder for a create still in flight (or refused), or an attach
+        // that has not started. Say so rather than leaving the grid blank.
+        if let Some(cause) = app.create_placeholder_failure(area.surface) {
+            draw_lifecycle_line(
+                frame,
+                rect,
+                PaneLifecycleText::Failed(cause),
+                app.chrome.browser_message_fg,
+            );
+        } else if app.session.surface_is_exited(area.surface) {
+            draw_lifecycle_line(
+                frame,
+                rect,
+                PaneLifecycleText::Exited,
+                app.chrome.browser_message_fg,
+            );
+        } else if app.tree.surface_kind(area.surface) != SurfaceKind::Browser {
+            draw_lifecycle_line(
+                frame,
+                rect,
+                PaneLifecycleText::Starting,
+                app.chrome.browser_message_fg,
+            );
+        }
         return DrawCursors::default();
     };
     surface.take_dirty();
@@ -525,6 +550,14 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &app.chrome,
         |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
     );
+    // Lifecycle is state, not silence: a pane that is still attaching says so
+    // instead of showing an empty grid, and an exited pane keeps its last
+    // frame with one line saying the process is gone.
+    if let Some(lifecycle) =
+        pane_lifecycle_text(surface.is_dead(), app.session.surface_is_ready_for_input(area.surface))
+    {
+        draw_lifecycle_line(frame, rect, lifecycle, app.chrome.browser_message_fg);
+    }
     if !focused && theme.dim_inactive {
         let screen = frame.area();
         let max_x = rect.x.saturating_add(rect.width).min(screen.width);
@@ -538,6 +571,71 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
     }
     DrawCursors { input: None, terminal: focused.then_some(cursor).flatten() }
+}
+
+/// Which lifecycle line a PTY pane shows, if any. Exit wins over a pending
+/// attach because an exited surface never becomes ready.
+pub(crate) fn pane_lifecycle_text(dead: bool, ready_for_input: bool) -> Option<PaneLifecycleText> {
+    if dead {
+        Some(PaneLifecycleText::Exited)
+    } else if !ready_for_input {
+        Some(PaneLifecycleText::Starting)
+    } else {
+        None
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PaneLifecycleText {
+    Starting,
+    Exited,
+    /// A create the daemon refused; carries the daemon's cause.
+    Failed(String),
+}
+
+impl PaneLifecycleText {
+    fn message(&self) -> String {
+        match self {
+            Self::Starting => localization::catalog().terminal.pane_starting.to_string(),
+            Self::Exited => localization::catalog().terminal.pane_exited.to_string(),
+            Self::Failed(cause) => {
+                localization::catalog().terminal.pane_create_failed.replace("{cause}", cause)
+            }
+        }
+    }
+}
+
+/// `Starting` is centered in the (empty) grid; `Exited` sits on the last
+/// content row so the final frame stays readable above it.
+fn draw_lifecycle_line(frame: &mut Frame, rect: Rect, lifecycle: PaneLifecycleText, fg: Color) {
+    let screen = frame.area();
+    let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
+    let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
+    if max_cols == 0 || max_rows == 0 {
+        return;
+    }
+    let text = truncate(&lifecycle.message(), max_cols as usize);
+    let text_w = text.width() as u16;
+    let exited = matches!(&lifecycle, PaneLifecycleText::Exited);
+    let (x, y) = match lifecycle {
+        PaneLifecycleText::Starting | PaneLifecycleText::Failed(_) => {
+            (rect.x + max_cols.saturating_sub(text_w) / 2, rect.y + max_rows / 2)
+        }
+        PaneLifecycleText::Exited => (rect.x, rect.y + max_rows - 1),
+    };
+    if exited {
+        let buf = frame.buffer_mut();
+        for col in 0..max_cols {
+            buf[(rect.x + col, y)].set_symbol(" ").set_style(Style::default());
+        }
+    }
+    frame.buffer_mut().set_stringn(
+        x,
+        y,
+        &text,
+        max_cols as usize,
+        Style::default().fg(fg).add_modifier(Modifier::DIM),
+    );
 }
 
 fn draw_browser_content(
