@@ -150,6 +150,7 @@ export type ClaudeAccountStore = {
    */
   markCooldown(accountId: string, until: Date, failureCode: string, countTowardBroken: boolean): Promise<number>;
   markBroken(accountId: string, at: Date): Promise<void>;
+  setCooldownUntil(accountId: string, until: Date): Promise<void>;
   /** Success: bumps `lastUsedAt` and resets `consecutiveFailures`. */
   touchUsed(accountId: string, at: Date): Promise<void>;
   /** Broken accounts nobody has been emailed about yet, across all teams. */
@@ -202,6 +203,13 @@ const MAX_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_EXHAUSTED_RETRY_SECONDS = 15;
 /** Consecutive 401/403 answers before an account is `broken` and leaves rotation. */
 export const BROKEN_AFTER_FAILURES = 3;
+/**
+ * Rest after the first and second rejection. Short on purpose: a revoked key
+ * does not come back, so the account should reach `broken` (and its owner the
+ * email) within minutes of continuous use, while one transient 401 costs only
+ * a minute. A third rejection marks it broken instead of resting again.
+ */
+export const INVALID_CREDENTIAL_BACKOFF_MS: readonly number[] = [60_000, 5 * 60_000];
 export const INVALID_CREDENTIAL_FAILURE_CODE = "invalid_credential";
 
 export function isClaudeAccountId(value: unknown): value is string {
@@ -439,9 +447,13 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const at = now();
     const credentialFailure = failureCode === INVALID_CREDENTIAL_FAILURE_CODE;
     const failures = await store.markCooldown(accountId, new Date(at.getTime() + clamped), failureCode, credentialFailure);
-    if (credentialFailure && failures >= BROKEN_AFTER_FAILURES) {
+    if (!credentialFailure) return;
+    if (failures >= BROKEN_AFTER_FAILURES) {
       await store.markBroken(accountId, at);
+      return;
     }
+    const backoff = INVALID_CREDENTIAL_BACKOFF_MS[Math.min(failures, INVALID_CREDENTIAL_BACKOFF_MS.length) - 1]!;
+    await store.setCooldownUntil(accountId, new Date(at.getTime() + backoff));
   }
 
   async function touchUsed(accountId: string): Promise<void> {
@@ -710,6 +722,12 @@ const drizzleStore: ClaudeAccountStore = {
       .update(coderouterClaudeAccounts)
       .set({ state: "broken", brokenAt: at, updatedAt: at })
       .where(and(eq(coderouterClaudeAccounts.id, accountId), eq(coderouterClaudeAccounts.state, "active")));
+  },
+  async setCooldownUntil(accountId, until) {
+    await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ cooldownUntil: until })
+      .where(eq(coderouterClaudeAccounts.id, accountId));
   },
   async touchUsed(accountId, at) {
     await cloudDb()

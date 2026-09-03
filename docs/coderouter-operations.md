@@ -231,8 +231,8 @@ same secret added twice returns the existing account (`alreadyExists`, 200) via 
 sha256 fingerprint. Claude accepts only `claude setup-token` tokens; in a terminal the CLI runs
 that command for the user and keeps the printed token. cmux never runs an OAuth flow of its own.
 
-In the proxy, three consecutive 401/403 answers (`consecutive_failures`, reset on any success)
-mark a Claude account `broken`: it leaves rotation, shows as `broken (invalid_credential)` with the
+In the proxy, a rejected credential rests the account one minute, then five minutes, and the third
+consecutive 401/403 (`consecutive_failures`, reset on any success) marks a Claude account `broken`: it leaves rotation, shows as `broken (invalid_credential)` with the
 repair command in the CLI and the dashboard, and is never retried until replaced. Codex/OpenCode
 subscriptions already reach `expired`/`broken` through the refresh path.
 

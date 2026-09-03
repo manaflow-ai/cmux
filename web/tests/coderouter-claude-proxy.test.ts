@@ -586,7 +586,7 @@ describe("claude proxy failover across accounts", () => {
     expect(health?.properties).toMatchObject({ outcome: "success", attempt_count: 2, upstream_account_id: "acct-api-2" });
   });
 
-  test("a rejected credential cools the account down for fifteen minutes", async () => {
+  test("a rejected credential cools the account down and is counted toward broken", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
     const responses = [
@@ -595,7 +595,7 @@ describe("claude proxy failover across accounts", () => {
     ];
     upstreamResponse = () => responses.shift()!();
     expect((await messages(messagesRequest())).status).toBe(200);
-    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 15 * 60_000, failureCode: "invalid_credential" }]);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 60_000, failureCode: "invalid_credential" }]);
   });
 
   test("returns the last upstream error when every account has been tried", async () => {

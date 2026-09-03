@@ -93,6 +93,10 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
       const row = rows.get(accountId)!;
       if (row.state === "active") rows.set(accountId, { ...row, state: "broken", brokenAt: at });
     },
+    async setCooldownUntil(accountId, until) {
+      const row = rows.get(accountId)!;
+      rows.set(accountId, { ...row, cooldownUntil: until });
+    },
     async touchUsed(accountId, at) {
       const row = rows.get(accountId)!;
       rows.set(accountId, { ...row, lastUsedAt: at, consecutiveFailures: 0 });
@@ -331,7 +335,11 @@ describe("claude upstream accounts service", () => {
     expect(store.rows.get(a.id)!).toMatchObject({ state: "active", consecutiveFailures: 2 });
     await svc.touchUsed(a.id);
     expect(store.rows.get(a.id)!.consecutiveFailures).toBe(0);
-    for (let i = 0; i < 3; i += 1) await svc.cooldown(a.id, 1000, "invalid_credential");
+    await svc.cooldown(a.id, 1000, "invalid_credential");
+    expect(store.rows.get(a.id)!.cooldownUntil).toEqual(new Date(store.clock.now.getTime() + 60_000));
+    await svc.cooldown(a.id, 1000, "invalid_credential");
+    expect(store.rows.get(a.id)!.cooldownUntil).toEqual(new Date(store.clock.now.getTime() + 5 * 60_000));
+    await svc.cooldown(a.id, 1000, "invalid_credential");
     const row = store.rows.get(a.id)!;
     expect(row.state).toBe("broken");
     expect(row.brokenAt).toEqual(store.clock.now);

@@ -93,8 +93,12 @@ const MODELS_TIMEOUT_MS = 10_000;
 export const MAX_UPSTREAM_ATTEMPTS = 4;
 /** 429 without a usable reset header. */
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
-/** 401/403: the credential is revoked, expired, or lacks access; a human must act. */
-export const INVALID_CREDENTIAL_COOLDOWN_MS = 15 * 60_000;
+/**
+ * 401/403: the credential is revoked, expired, or lacks access. The account
+ * service escalates this (one minute, five minutes, then `broken`), so the
+ * value here is only the first rest.
+ */
+export const INVALID_CREDENTIAL_COOLDOWN_MS = 60_000;
 /** 5xx / 529 / transport failure: transient, give the account a short rest. */
 export const UPSTREAM_UNAVAILABLE_COOLDOWN_MS = 20_000;
 
