@@ -1653,7 +1653,7 @@ PACKAGE_BUILD_JOBS = (
 def _package_workflow_document() -> dict[str, object]:
     document = yaml.load(
         workflow("cmux-tui-build-package.yml"),
-        Loader=yaml.BaseLoader,
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserve raw workflow expressions
     )
     assert isinstance(document, dict)
     return document
