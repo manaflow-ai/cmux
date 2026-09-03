@@ -10,7 +10,6 @@ public import SwiftUI
 /// a controller is in the environment.
 public struct CloudEntryRow: View {
     @Environment(\.cloudSessionController) private var controller
-    @State private var isPresented = false
 
     /// Creates the row.
     public init() {}
@@ -18,7 +17,7 @@ public struct CloudEntryRow: View {
     public var body: some View {
         if let controller {
             Button {
-                isPresented = true
+                controller.isFlowPresented = true
             } label: {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
@@ -33,9 +32,6 @@ public struct CloudEntryRow: View {
             }
             .foregroundStyle(.primary)
             .accessibilityIdentifier("MobileCloudEntryRow")
-            .fullScreenCover(isPresented: $isPresented) {
-                CloudFlowView(controller: controller)
-            }
         }
     }
 }
