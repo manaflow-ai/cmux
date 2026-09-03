@@ -34,7 +34,8 @@ The relay applies the attach stream's coupled `colors` metadata as ordered VT
 sidecar bytes after the replay or live output it describes. This uses OSC
 10/11/12, OSC 4/104, and DECSCUSR, so a raw embedder receives the same default,
 cursor, and sparse palette state as a byte-mode attach client. A live palette
-snapshot resets prior authored entries before applying its sparse entries;
+snapshot resets entries removed from the prior authored snapshot before applying
+its sparse entries;
 omitted live color fields remain unchanged.
 stdin takes one JSON object per line: `{"input":"<base64>"}` forwards bytes to
 the terminal, `{"resize":{"cols":N,"rows":N}}` drives the attached viewer
