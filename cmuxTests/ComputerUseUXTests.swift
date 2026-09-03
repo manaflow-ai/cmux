@@ -1166,10 +1166,13 @@ struct ComputerUseUXTests {
     /// Regression: the helper mark must be centered by its visible bounds,
     /// not by the asymmetric ink centroid. This samples the same runtime
     /// artwork shown in the hero and compact drag tile.
-    @Test @MainActor
-    func helperIconCursorBoundingBoxStaysCenteredInItsTile() throws {
+    @MainActor
+    @Test(arguments: [false, true])
+    func helperIconCursorBoundingBoxStaysCenteredInItsTile(
+        darkMode: Bool
+    ) throws {
         let image = try #require(
-            ComputerUseHelperIconRenderer.image(darkMode: true)
+            ComputerUseHelperIconRenderer.image(darkMode: darkMode)
         )
         let bitmap = try #require(
             image.representations.compactMap { $0 as? NSBitmapImageRep }.first
@@ -1215,6 +1218,100 @@ struct ComputerUseUXTests {
         let boundsMidY = (Double(minY) + Double(maxY)) / 2
         #expect(abs(boundsMidX - Double(width) / 2) <= 1)
         #expect(abs(boundsMidY - Double(height) / 2) <= 1)
+    }
+
+    /// The expanded overview, completion state, and compact companion all
+    /// consume one measured token set. Keep the baseline explicit so a later
+    /// visual tweak cannot silently make one presentation drift from the
+    /// others.
+    @Test func computerUseOnboardingUsesOneMeasuredVisualGrid() {
+        let tokens = ComputerUseOnboardingVisualTokens.reference
+
+        #expect(tokens.expandedWindowSize == CGSize(width: 600, height: 440))
+        #expect(tokens.heroArtworkSize == 64)
+        #expect(tokens.permissionCardHeight == 72)
+        #expect(tokens.permissionCardRowsSpacing == 12)
+        #expect(tokens.permissionCardCornerRadius == 16)
+        #expect(tokens.permissionCardIconSize == 38)
+        #expect(tokens.permissionActionSize == CGSize(width: 62, height: 26))
+        #expect(tokens.titlePointSize == 25)
+        #expect(tokens.bodyPointSize == 13)
+        #expect(tokens.permissionTitlePointSize == 15)
+        #expect(tokens.permissionDetailPointSize == 12.5)
+        #expect(tokens.actionPointSize == 13)
+        #expect(tokens.titleMinimumScaleFactor == 0.8)
+        #expect(tokens.compactTextMinimumScaleFactor == 0.72)
+
+        #expect(
+            tokens.companionSize
+                == ComputerUsePermissionCompanionLayout.size
+        )
+        #expect(
+            tokens.companionHorizontalInset
+                == ComputerUsePermissionCompanionLayout.horizontalInset
+        )
+        #expect(
+            tokens.companionVerticalInset
+                == ComputerUsePermissionCompanionLayout.verticalInset
+        )
+        #expect(
+            tokens.companionLeadingColumnWidth
+                == ComputerUsePermissionCompanionLayout.leadingColumnWidth
+        )
+        #expect(
+            tokens.companionHeaderHeight
+                == ComputerUsePermissionCompanionLayout.headerHeight
+        )
+        #expect(
+            tokens.companionDragRowHeight
+                == ComputerUsePermissionCompanionLayout.dragRowHeight
+        )
+        #expect(
+            tokens.companionColumnSpacing
+                == ComputerUsePermissionCompanionLayout.columnSpacing
+        )
+        #expect(
+            tokens.companionRowSpacing
+                == ComputerUsePermissionCompanionLayout.rowSpacing
+        )
+
+        #expect(tokens.tileCornerRadius(for: 1_024) == 224)
+        #expect(tokens.tileCornerRadius(for: tokens.heroArtworkSize) == 14)
+        #expect(
+            tokens.tileCornerRadius(for: tokens.permissionCardIconSize) == 8
+        )
+        #expect(
+            tokens.tileCornerRadius(
+                for: ComputerUsePermissionCompanionLayout.dragRowHeight
+            ) == ComputerUsePermissionCompanionLayout.rowCornerRadius
+        )
+        #expect(
+            tokens.tileCornerRadius(for: tokens.companionHelperIconSize)
+                == ComputerUsePermissionCompanionLayout.helperIconCornerRadius
+        )
+    }
+
+    /// The cursor's ink is intentionally asymmetric. Centering its measured
+    /// bounds, rather than its area centroid, keeps the blue mark optically
+    /// inside the dark tile at every raster size.
+    @Test func computerUseHelperIconCentersTheMeasuredCursorBounds() {
+        let tokens = ComputerUseOnboardingVisualTokens.reference
+        let bounds = tokens.helperIconCursorBoundsInCanvas
+        let canvas = CGRect(origin: .zero, size: tokens.helperIconCanvasSize)
+
+        #expect(tokens.helperIconCursorIsOpticallyCentered(tolerance: 0.5))
+        #expect(abs(bounds.midX - canvas.midX) <= 0.5)
+        #expect(abs(bounds.midY - canvas.midY) <= 0.5)
+        #expect(
+            abs(tokens.helperIconCursorTranslation.x - 251.0085) < 0.01
+        )
+        #expect(
+            abs(tokens.helperIconCursorTranslation.y - 251.0085) < 0.01
+        )
+        #expect(bounds.minX >= 0)
+        #expect(bounds.minY >= 0)
+        #expect(bounds.maxX <= canvas.maxX)
+        #expect(bounds.maxY <= canvas.maxY)
     }
 
     @Test func permissionCompanionStartsSmallAndCenteredOverMainWindow() {

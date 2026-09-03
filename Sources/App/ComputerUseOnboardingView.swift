@@ -62,6 +62,10 @@ struct ComputerUseOnboardingView: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    private var visualTokens: ComputerUseOnboardingVisualTokens {
+        ComputerUseOnboardingVisualTokens.reference
+    }
+
     private var helperIcon: NSImage? {
         ComputerUseHelperIconRenderer.image(darkMode: colorScheme == .dark)
     }
@@ -142,7 +146,10 @@ struct ComputerUseOnboardingView: View {
                 permissionOnboarding
             }
         }
-        .frame(width: 600, height: 440)
+        .frame(
+            width: visualTokens.expandedWindowSize.width,
+            height: visualTokens.expandedWindowSize.height
+        )
     }
 
     /// While the direct-capture probe is up, the system shows its "requesting
@@ -165,27 +172,29 @@ struct ComputerUseOnboardingView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 46)
+                    .padding(.top, visualTokens.expandedHeroTopInset)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
                     defaultValue: "Enable cmux Computer Use"
                 ))
-                .font(.system(size: 25, weight: .bold))
-                .padding(.top, 18)
+                .font(.system(size: visualTokens.titlePointSize, weight: .bold))
+                .lineLimit(2)
+                .minimumScaleFactor(visualTokens.titleMinimumScaleFactor)
+                .padding(.top, visualTokens.heroTitleSpacing)
 
                 Text(heroDetail)
-                .font(.system(size: 13))
-                .foregroundStyle(overviewSecondaryText)
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 9)
+                    .font(.system(size: visualTokens.bodyPointSize))
+                    .foregroundStyle(overviewSecondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(visualTokens.heroDetailLineSpacing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, visualTokens.heroDetailSpacing)
 
                 permissionOverview
-                    .padding(.top, 22)
+                    .padding(.top, visualTokens.heroPermissionsSpacing)
 
-                Spacer(minLength: 12)
+                Spacer(minLength: visualTokens.expandedFooterMinimumGap)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.helperNote",
@@ -195,9 +204,9 @@ struct ComputerUseOnboardingView: View {
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 18)
+                .padding(.bottom, visualTokens.expandedFooterBottomInset)
             }
-            .padding(.horizontal, 40)
+            .padding(.horizontal, visualTokens.expandedContentHorizontalInset)
 
             ComputerUseWindowDragRegion()
                 .frame(maxWidth: .infinity)
@@ -215,43 +224,49 @@ struct ComputerUseOnboardingView: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 60, height: 60)
-            .padding(.top, 108)
+            .frame(
+                width: visualTokens.completionMarkSize,
+                height: visualTokens.completionMarkSize
+            )
+            .padding(.top, visualTokens.completionTopInset)
             .accessibilityHidden(true)
 
             Text(String(
                 localized: "computerUse.onboarding.done.title",
                 defaultValue: "cmux Computer Use Is Ready"
             ))
-            .font(.system(size: 25, weight: .bold))
-            .padding(.top, 20)
+            .font(.system(size: visualTokens.titlePointSize, weight: .bold))
+            .lineLimit(2)
+            .minimumScaleFactor(visualTokens.titleMinimumScaleFactor)
+            .padding(.top, visualTokens.completionTitleSpacing)
 
             Text(String(
                 localized: "computerUse.onboarding.done.detailReady",
                 defaultValue: "Setup is complete. You can now ask cmux to use apps on your Mac."
             ))
-            .font(.system(size: 13))
+            .font(.system(size: visualTokens.bodyPointSize))
             .foregroundStyle(overviewSecondaryText)
             .multilineTextAlignment(.center)
-            .lineSpacing(3)
-            .padding(.top, 9)
+            .lineSpacing(visualTokens.heroDetailLineSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, visualTokens.completionDetailSpacing)
 
             ProgressView()
                 .controlSize(.small)
                 .tint(.secondary)
-                .padding(.top, 28)
+                .padding(.top, visualTokens.completionProgressSpacing)
 
             Spacer()
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, visualTokens.completionContentHorizontalInset)
     }
 
     /// The flat cmux brand blue (#2D8CFF) — the midpoint of the cursor
     /// artwork's palette, used as a solid fill. Onboarding chrome stays flat;
     /// gradients live only inside the icon artwork itself.
-    static let brandBlue = Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0)
+    static let brandBlue = ComputerUseOnboardingVisualTokens.reference.brandBlue
     /// The flat cmux brand violet (#6C5CFF), the palette's far endpoint.
-    static let brandViolet = Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0)
+    static let brandViolet = ComputerUseOnboardingVisualTokens.reference.brandViolet
 
     private var helperHeroIcon: some View {
         Group {
@@ -263,7 +278,12 @@ struct ComputerUseOnboardingView: View {
                     .interpolation(.high)
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(
+                        cornerRadius: visualTokens.tileCornerRadius(
+                            for: visualTokens.heroArtworkSize
+                        ),
+                        style: .continuous
+                    )
                         .fill(Self.brandBlue)
                     Image(systemName: "cursorarrow.motionlines")
                         .font(.system(size: 26, weight: .semibold))
@@ -271,12 +291,15 @@ struct ComputerUseOnboardingView: View {
                 }
             }
         }
-        .frame(width: 64, height: 64)
+        .frame(
+            width: visualTokens.heroArtworkSize,
+            height: visualTokens.heroArtworkSize
+        )
         .accessibilityHidden(true)
     }
 
     private var permissionOverview: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: visualTokens.permissionCardRowsSpacing) {
             permissionCard(
                 permissionStep: .accessibility,
                 granted: accessibilityGranted,
@@ -323,30 +346,46 @@ struct ComputerUseOnboardingView: View {
         title: String,
         detail: String
     ) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: visualTokens.permissionCardContentSpacing) {
             permissionIcon(for: permissionStep)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: visualTokens.permissionCardTextSpacing) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(
+                        .system(
+                            size: visualTokens.permissionTitlePointSize,
+                            weight: .semibold
+                        )
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(visualTokens.titleMinimumScaleFactor)
                 Text(detail)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: visualTokens.permissionDetailPointSize))
                     .foregroundStyle(overviewSecondaryText)
                     .lineLimit(1)
+                    .minimumScaleFactor(visualTokens.compactTextMinimumScaleFactor)
+                    .allowsTightening(true)
             }
+            .layoutPriority(1)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: visualTokens.permissionCardContentSpacing)
             permissionAction(for: permissionStep, granted: granted)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, visualTokens.permissionCardHorizontalInset)
         .frame(maxWidth: .infinity)
-        .frame(height: 72)
+        .frame(height: visualTokens.permissionCardHeight)
         .background(
             permissionCardBackground,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            in: RoundedRectangle(
+                cornerRadius: visualTokens.permissionCardCornerRadius,
+                style: .continuous
+            )
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(
+                cornerRadius: visualTokens.permissionCardCornerRadius,
+                style: .continuous
+            )
                 .strokeBorder(permissionCardBorder, lineWidth: 1)
         }
     }
@@ -356,8 +395,17 @@ struct ComputerUseOnboardingView: View {
     @ViewBuilder
     private func permissionIcon(for permissionStep: ComputerUseOnboardingStep) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(permissionStep == .accessibility ? Self.brandBlue : Self.brandViolet)
+            RoundedRectangle(
+                cornerRadius: visualTokens.tileCornerRadius(
+                    for: visualTokens.permissionCardIconSize
+                ),
+                style: .continuous
+            )
+                .fill(
+                    permissionStep == .accessibility
+                        ? Self.brandBlue
+                        : Self.brandViolet
+                )
             Image(
                 systemName: permissionStep == .accessibility
                     ? "accessibility"
@@ -366,7 +414,10 @@ struct ComputerUseOnboardingView: View {
             .font(.system(size: 20, weight: .medium))
             .foregroundStyle(.white)
         }
-        .frame(width: 38, height: 38)
+        .frame(
+            width: visualTokens.permissionCardIconSize,
+            height: visualTokens.permissionCardIconSize
+        )
         .accessibilityHidden(true)
     }
 
@@ -389,7 +440,9 @@ struct ComputerUseOnboardingView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.green)
                 Text(String(localized: "computerUse.onboarding.done", defaultValue: "Done"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(
+                        .system(size: visualTokens.actionPointSize, weight: .semibold)
+                    )
                     .foregroundStyle(.secondary)
             }
         } else {
@@ -405,8 +458,13 @@ struct ComputerUseOnboardingView: View {
                     localized: "computerUse.onboarding.allow",
                     defaultValue: "Allow"
                 ))
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 62, height: 26)
+                .font(
+                    .system(size: visualTokens.actionPointSize, weight: .semibold)
+                )
+                .frame(
+                    width: visualTokens.permissionActionSize.width,
+                    height: visualTokens.permissionActionSize.height
+                )
                 .foregroundStyle(.white)
                 .background(Self.brandBlue, in: Capsule())
                 .opacity(isButtonEnabled ? 1 : 0.5)
@@ -701,241 +759,6 @@ struct ComputerUseOnboardingView: View {
                 step = .screenRecording
                 onExpandedRequested()
             }
-        }
-    }
-}
-
-enum ComputerUsePermissionCompanionLayout {
-    static let size = CGSize(width: 472, height: 112)
-    static let horizontalInset: CGFloat = 12
-    static let verticalInset: CGFloat = 8
-    static let leadingColumnWidth: CGFloat = 40
-    static let headerHeight: CGFloat = 48
-    static let dragRowHeight: CGFloat = 40
-    static let columnSpacing: CGFloat = 8
-    static let rowSpacing: CGFloat = 8
-}
-
-/// The borderless drag surface shown beside System Settings.
-///
-/// Both rows use the same fixed leading column and inter-column spacing, so
-/// the instruction text and app tile share an exact leading edge.
-@MainActor
-struct ComputerUsePermissionCompanionView: View {
-    let permissionStep: ComputerUseOnboardingStep
-    @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
-    let applicationName: String
-    let helperAppURL: URL?
-    let onBack: @MainActor () -> Void
-    let onDragEnded: @MainActor (NSDragOperation) -> Void
-    let onLayoutReady: @MainActor () -> Void
-
-    private var message: ComputerUsePermissionCompanionMessage {
-        ComputerUsePermissionCompanionMessage.resolve(
-            permissionStep: permissionStep,
-            screenCaptureConsentPending: presentationState.screenCaptureConsentPending
-        )
-    }
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var helperIcon: NSImage? {
-        ComputerUseHelperIconRenderer.image(darkMode: colorScheme == .dark)
-    }
-
-    var body: some View {
-        VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
-            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(ComputerUseOnboardingView.brandBlue)
-                    .frame(width: 30, height: 30)
-                    .background(
-                        Color.accentColor.opacity(0.12),
-                        in: Circle()
-                    )
-                    .frame(
-                        width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
-                        height: ComputerUsePermissionCompanionLayout.headerHeight
-                    )
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(instruction)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.88)
-
-                    Text(followUp)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: ComputerUsePermissionCompanionLayout.headerHeight,
-                    maxHeight: ComputerUsePermissionCompanionLayout.headerHeight,
-                    alignment: .leading
-                )
-                .accessibilityElement(children: .combine)
-            }
-
-            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary.opacity(0.72))
-                .frame(
-                    width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
-                    height: ComputerUsePermissionCompanionLayout.dragRowHeight
-                )
-                .background(
-                    Color.primary.opacity(0.055),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(
-                            Color(nsColor: .separatorColor).opacity(0.32),
-                            lineWidth: 0.5
-                        )
-                }
-                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-                .accessibilityLabel(
-                    String(localized: "computerUse.onboarding.back", defaultValue: "Back")
-                )
-
-                helperDragTile
-            }
-        }
-        .padding(.horizontal, ComputerUsePermissionCompanionLayout.horizontalInset)
-        .padding(.vertical, ComputerUsePermissionCompanionLayout.verticalInset)
-        .frame(
-            width: ComputerUsePermissionCompanionLayout.size.width,
-            height: ComputerUsePermissionCompanionLayout.size.height
-        )
-        .background(
-            Color(nsColor: .windowBackgroundColor),
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.5),
-                    lineWidth: 0.5
-                )
-        }
-        .onAppear(perform: onLayoutReady)
-    }
-
-    /// A file-URL drag source accepted by the macOS permission lists.
-    private var helperDragTile: some View {
-        HStack(spacing: 10) {
-            Group {
-                if let helperIcon {
-                    Image(nsImage: helperIcon)
-                        .resizable()
-                        .interpolation(.high)
-                } else {
-                    Image(systemName: "app.dashed")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 26, height: 26)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(
-                        Color(nsColor: .separatorColor).opacity(0.35),
-                        lineWidth: 0.5
-                    )
-            }
-            .accessibilityHidden(true)
-
-            Text(applicationName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Spacer(minLength: 10)
-        }
-        .padding(.horizontal, 11)
-        .frame(
-            maxWidth: .infinity,
-            minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
-            maxHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
-            alignment: .leading
-        )
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.055))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.035))
-                }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(
-                    Color.accentColor.opacity(0.18),
-                    lineWidth: 0.5
-                )
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            ComputerUseAppDragSource(
-                helperAppURL: helperAppURL,
-                helperIcon: helperIcon,
-                onDragEnded: onDragEnded
-            )
-            .accessibilityHidden(true)
-            .allowsHitTesting(helperAppURL != nil)
-        }
-        .help(String(
-            localized: "computerUse.onboarding.dragTooltip",
-            defaultValue: "Drag \(applicationName) into the permission list"
-        ))
-        .opacity(helperAppURL == nil ? 0.55 : 1)
-    }
-
-    private var instruction: String {
-        switch message {
-        case .dragIntoAccessibility:
-            String(
-                localized: "computerUse.onboarding.companion.accessibility",
-                defaultValue: "Drag \(applicationName) into Accessibility"
-            )
-        case .dragIntoScreenshots:
-            String(
-                localized: "computerUse.onboarding.companion.screenRecording",
-                defaultValue: "Drag \(applicationName) into Screenshots"
-            )
-        case .confirmScreenCapture:
-            String(
-                localized: "computerUse.onboarding.companion.confirmCapture",
-                defaultValue: "Allow screen capture in the macOS alert"
-            )
-        }
-    }
-
-    private var followUp: String {
-        switch message {
-        case .dragIntoAccessibility, .dragIntoScreenshots:
-            String(
-                localized: "computerUse.onboarding.companion.turnOn",
-                defaultValue: "Then turn it on."
-            )
-        case .confirmScreenCapture:
-            String(
-                localized: "computerUse.onboarding.companion.confirmCapture.detail",
-                defaultValue: "The system “bypass” warning is expected here."
-            )
         }
     }
 }

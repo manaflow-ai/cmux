@@ -1054,8 +1054,11 @@
 		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
 		C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */; };
 		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
+		C0A714000000000000000002 /* ComputerUseOnboardingVisualTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A714000000000000000001 /* ComputerUseOnboardingVisualTokens.swift */; };
 		C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */; };
 		C0A711210000000000000002 /* ComputerUseOnboardingWindowPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */; };
+		C0A714200000000000000002 /* ComputerUsePermissionCompanionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A714200000000000000001 /* ComputerUsePermissionCompanionLayout.swift */; };
+		C0A714100000000000000002 /* ComputerUsePermissionCompanionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A714100000000000000001 /* ComputerUsePermissionCompanionView.swift */; };
 		C0A713000000000000000002 /* ComputerUsePermissionRequestOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713000000000000000001 /* ComputerUsePermissionRequestOutcome.swift */; };
 		C0A711300000000000000002 /* ComputerUsePermissionRowAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */; };
 		C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */; };
@@ -4142,8 +4145,11 @@
 		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
 		C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingStep.swift; sourceTree = "<group>"; };
 		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
+		C0A714000000000000000001 /* ComputerUseOnboardingVisualTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingVisualTokens.swift; sourceTree = "<group>"; };
 		C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingWindowController.swift; sourceTree = "<group>"; };
 		C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingWindowPlacement.swift; sourceTree = "<group>"; };
+		C0A714200000000000000001 /* ComputerUsePermissionCompanionLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionCompanionLayout.swift; sourceTree = "<group>"; };
+		C0A714100000000000000001 /* ComputerUsePermissionCompanionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionCompanionView.swift; sourceTree = "<group>"; };
 		C0A713000000000000000001 /* ComputerUsePermissionRequestOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionRequestOutcome.swift; sourceTree = "<group>"; };
 		C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionRowAction.swift; sourceTree = "<group>"; };
 		C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionStatus.swift; sourceTree = "<group>"; };
@@ -7033,9 +7039,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */,
 					C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */,
 					C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */,
+					C0A714000000000000000001 /* ComputerUseOnboardingVisualTokens.swift */,
 					C0A710100000000000000001 /* ComputerUseOnboardingView.swift */,
 					C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */,
 					C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */,
+					C0A714200000000000000001 /* ComputerUsePermissionCompanionLayout.swift */,
+					C0A714100000000000000001 /* ComputerUsePermissionCompanionView.swift */,
 					C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */,
 					C0A710C20000000000000001 /* ComputerUseHelperLaunchConfiguration.swift */,
 					C0A713020000000000000001 /* ComputerUseLiveDriverSession.swift */,
@@ -10460,8 +10469,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */,
 					C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */,
 					C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */,
+					C0A714000000000000000002 /* ComputerUseOnboardingVisualTokens.swift in Sources */,
 					C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */,
 					C0A711210000000000000002 /* ComputerUseOnboardingWindowPlacement.swift in Sources */,
+					C0A714200000000000000002 /* ComputerUsePermissionCompanionLayout.swift in Sources */,
+					C0A714100000000000000002 /* ComputerUsePermissionCompanionView.swift in Sources */,
 					C0A713000000000000000002 /* ComputerUsePermissionRequestOutcome.swift in Sources */,
 					C0A711300000000000000002 /* ComputerUsePermissionRowAction.swift in Sources */,
 					C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */,
