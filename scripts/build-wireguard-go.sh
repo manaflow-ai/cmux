@@ -16,14 +16,18 @@
 #   CONFIGURATION                     Release always requires a real toolchain
 #   CMUX_WIREGUARD_GO_REQUIRE         1: fail when `go` is missing
 #                                     0: build a stub archive and warn
-#                                     default: 1 for Release or CI, else 0
+#                                     default: 1 for Release builds, else 0
+#                                     (Debug CI runners have no Go; the stub
+#                                     is fine there because a Debug build can
+#                                     never load the extension)
 #   CMUX_WIREGUARD_GO_BINARY          explicit `go` executable (default: PATH lookup)
 #
 # Without Go the script emits a STUB archive: every exported wg* symbol fails,
 # and the marker symbol `cmux_wireguard_go_bridge_is_stub` is defined so
-# scripts/sign-cmux-bundle.sh refuses to ship it. A dev build cannot load the
-# extension anyway (no signed entitlement), so a stub keeps `reload.sh` green on
-# machines without Go while Release builds fail closed.
+# scripts/sign-cmux-bundle.sh refuses to ship it. A Debug build cannot load the
+# extension anyway (no signed entitlement), so a stub keeps `reload.sh` and the
+# Debug CI lanes green on machines without Go, while Release builds fail closed
+# and the release workflows install Go before building.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,7 +44,7 @@ case "${CMUX_WIREGUARD_GO_REQUIRE:-}" in
   1|true|TRUE|yes|YES) REQUIRE_GO=1 ;;
   0|false|FALSE|no|NO) REQUIRE_GO=0 ;;
   "")
-    if [[ "$CONFIGURATION" == "Release" || -n "${CI:-}" ]]; then
+    if [[ "$CONFIGURATION" == "Release" ]]; then
       REQUIRE_GO=1
     else
       REQUIRE_GO=0
