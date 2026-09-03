@@ -2148,6 +2148,7 @@ impl RemoteSession {
     /// establishment outside `RemoteSession` lets clients use a local socket,
     /// an SSH relay, or another authenticated tunnel without teaching the
     /// session and rendering layers about those transports.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
         Self::connect_stream_with_subscription(stream, true)
     }
@@ -4117,6 +4118,7 @@ impl RemoteSession {
 
     /// Refresh the workspace tree with a bounded request deadline. Used by
     /// reconnect classification, where a stale daemon must not hold the relay.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn refresh_tree_with_timeout(&self, timeout: Duration) -> anyhow::Result<TreeView> {
         self.refresh_tree_until(Instant::now() + timeout)
     }
@@ -8282,7 +8284,7 @@ mod tests {
         assert_eq!(command["enabled"], true);
         assert_eq!(command["exclusive"], true);
         assert!(command.get("no_reply").is_none());
-        assert!(finished_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        assert!(finished_rx.try_recv().is_err());
 
         session.handle_line(json!({"id": command["id"], "ok": true, "data": null}));
         assert!(finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());

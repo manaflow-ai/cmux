@@ -928,7 +928,7 @@ mod tests {
         let gate = Arc::new(StderrGate::default());
         let (entered_sender, entered_receiver) = sync_channel(0);
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
-        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let lines = Arc::new(Mutex::new(Vec::new()));
 
         let writer_gate = gate.clone();
         let writer_lines = lines.clone();
