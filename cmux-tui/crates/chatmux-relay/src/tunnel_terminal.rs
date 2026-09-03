@@ -416,9 +416,14 @@ impl Connection {
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
+        if !pause
+            && (self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
+                || self.writer_tx.capacity() <= FLOW_PAUSE_MESSAGES)
+        {
+            return;
+        }
         let changed = if pause {
-            self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
-                && !self.paused.swap(true, Ordering::SeqCst)
+            !self.paused.swap(true, Ordering::SeqCst)
         } else {
             self.paused.swap(false, Ordering::SeqCst)
         };
