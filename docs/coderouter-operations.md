@@ -220,6 +220,31 @@ remove all; `PUT` is an alias of `POST`) and `PATCH/DELETE /api/coderouter/claud
 add, enable/disable, and remove. Rows migrated from the single-upstream table keep their
 `aad_version 1` ciphertext binding and get a masked identifier on first read.
 
+## Credential health: validation, broken accounts, and the one-time email
+
+`accounts add` probes the credential before storing it (`count_tokens` with the key, the token
+plus the OAuth beta, or a SigV4-signed Bedrock CountTokens): 401/403 answers 422
+`credential_rejected` and nothing is stored, any other answer stores it as verified, an unreachable
+provider stores it unverified (`validation: "unreachable"`), and `--no-validate` / `?validate=0`
+skips the probe. A Claude Code token's profile email becomes its label when none was given. The
+same secret added twice returns the existing account (`alreadyExists`, 200) via a team-scoped
+sha256 fingerprint. Claude accepts only `claude setup-token` tokens; in a terminal the CLI runs
+that command for the user and keeps the printed token. cmux never runs an OAuth flow of its own.
+
+In the proxy, three consecutive 401/403 answers (`consecutive_failures`, reset on any success)
+mark a Claude account `broken`: it leaves rotation, shows as `broken (invalid_credential)` with the
+repair command in the CLI and the dashboard, and is never retried until replaced. Codex/OpenCode
+subscriptions already reach `expired`/`broken` through the refresh path.
+
+`/api/cron/coderouter-account-health` (vercel.json, twice an hour, `CRON_SECRET`) emails the
+owners: the creator of a Claude account when known, otherwise every member of the team. One
+email per recipient per run lists every account of theirs that broke, with what happened, why
+(per kind: expired or revoked setup-token, rotated key, deactivated IAM key, refused refresh), and
+the exact commands plus the dashboard link. Each account is emailed about exactly once
+(`broken_notified_at`); a failed send leaves it unmarked for the next run, an account with no
+reachable recipient is marked so it is not re-queried forever. Sender `coderouter@cmux.com`
+(`CMUX_CODEROUTER_FROM_EMAIL` overrides), reply-to `support@cmux.com`, via Resend.
+
 ## The flat CLI surface
 
 `cmux coderouter accounts` is the one list (Codex and OpenCode subscriptions, Claude Code OAuth

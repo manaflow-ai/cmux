@@ -34,6 +34,10 @@
     {
       "path": "/api/cron/vm-reaper",
       "schedule": "49 * * * *"
+    },
+    {
+      "path": "/api/cron/coderouter-account-health",
+      "schedule": "11,41 * * * *"
     }
   ]
 }

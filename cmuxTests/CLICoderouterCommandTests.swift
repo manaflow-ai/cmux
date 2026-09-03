@@ -632,6 +632,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(state.commands.contains { $0.contains("claude_upstream.update") })
     }
 
+    func testCoderouterAccountsAddPassesNoValidateAndReportsVerification() throws {
+        nonisolated(unsafe) var receivedParams: [String: Any] = [:]
+        let apiKey = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz"
+        let (verified, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "anthropic-key"],
+            socketName: "coderouter-accounts-add-verified",
+            extraEnvironment: ["ANTHROPIC_API_KEY": apiKey]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"), "accountsTotal": 1, "alreadyExists": false, "validation": "ok"])
+        }
+        XCTAssertEqual(verified.status, 0, verified.stderr)
+        XCTAssertNil(receivedParams["validate"], "validation is the default; the param is only sent to opt out")
+        XCTAssertTrue(verified.stdout.contains("(verified with the provider)"), verified.stdout)
+
+        let (skipped, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "anthropic-key", "--no-validate"],
+            socketName: "coderouter-accounts-add-skip",
+            extraEnvironment: ["ANTHROPIC_API_KEY": apiKey]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"), "accountsTotal": 1, "alreadyExists": false, "validation": "skipped"])
+        }
+        XCTAssertEqual(skipped.status, 0, skipped.stderr)
+        XCTAssertEqual(receivedParams["validate"] as? Bool, false)
+    }
+
+    func testCoderouterAccountsAddReportsAnAlreadyPresentSecret() throws {
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "claude"],
+            socketName: "coderouter-accounts-add-dup",
+            extraEnvironment: ["CLAUDE_CODE_OAUTH_TOKEN": Self.sampleOAuthToken]
+        ) { method, _ in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"), "accountsTotal": 1, "alreadyExists": true, "validation": "ok"])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "Already added: anthropic_oauth sk-ant-oat01-...HIJ (work) is on this team, nothing changed.\n  id: \(Self.accountA)\n")
+    }
+
+    func testCoderouterAccountsShowsBrokenAccountsWithTheRepair() throws {
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts"],
+            socketName: "coderouter-accounts-broken"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([
+                    Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work", state: "broken", lastFailureCode: "invalid_credential"),
+                ]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": []])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let line = try XCTUnwrap(result.stdout.split(separator: "\n").map(String.init).first { $0.hasPrefix("claude") })
+        XCTAssertTrue(line.contains("broken (invalid_credential)"), line)
+        XCTAssertTrue(line.contains("replace it: cmux coderouter accounts add"), line)
+    }
+
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
         // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
         // point is that the socket is never consulted for a non-cmux verb.

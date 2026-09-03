@@ -567,6 +567,8 @@ export const coderouterAccounts = pgTable(
     cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
+    /** When the team was emailed about this account being broken or expired; sent once. */
+    brokenNotifiedAt: timestamp("broken_notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1366,10 +1368,17 @@ export const coderouterClaudeAccounts = pgTable(
     label: text("label").notNull().default(""),
     /** Masked credential (`sk-ant-...ab12`), non-secret, computed at insert. */
     identifier: text("identifier").notNull().default(""),
-    state: text("state").$type<"active" | "disabled">().notNull().default("active"),
+    state: text("state").$type<"active" | "disabled" | "broken">().notNull().default("active"),
     cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
+    /** Consecutive credential rejections (401/403); reset on success, broken at the threshold. */
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    brokenAt: timestamp("broken_at", { withTimezone: true }),
+    /** When the owner was emailed about this account being broken; null = not yet. Sent once. */
+    brokenNotifiedAt: timestamp("broken_notified_at", { withTimezone: true }),
+    /** sha256 over (team, kind, secret); dedupes the same credential added twice. */
+    fingerprint: text("fingerprint").notNull().default(""),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
     ciphertext: text("ciphertext").notNull(),
     nonce: text("nonce").notNull(),
@@ -1396,8 +1405,11 @@ export const coderouterClaudeAccounts = pgTable(
     ),
     check(
       "coderouter_claude_accounts_state_check",
-      sql`${table.state} IN ('active', 'disabled')`,
+      sql`${table.state} IN ('active', 'disabled', 'broken')`,
     ),
+    uniqueIndex("coderouter_claude_accounts_fingerprint_idx")
+      .on(table.teamId, table.fingerprint)
+      .where(sql`${table.fingerprint} <> ''`),
     check(
       "coderouter_claude_accounts_algorithm_check",
       sql`${table.algorithm} = 'aes-256-gcm'`,

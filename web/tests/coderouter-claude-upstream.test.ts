@@ -11,6 +11,7 @@ import {
 import type { CredentialKeyService } from "../services/coderouter/encryption";
 import { makeClaudeUpstreamHandlers } from "../app/api/coderouter/claude-upstream/route";
 import { makeClaudeAccountHandlers } from "../app/api/coderouter/claude-upstream/[accountId]/route";
+import type { CredentialProbeResult as ProbeResult } from "../services/coderouter/claudeCredentialProbe";
 
 const API_KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
 const API_KEY_2 = "sk-ant-api03-zyxwvutsrqponmlkjihgfedcba9876543210";
@@ -79,13 +80,31 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
       }
       return removed;
     },
-    async markCooldown(accountId, until, failureCode) {
+    async findByFingerprint(teamId, fingerprint) {
+      return [...rows.values()].find((row) => row.teamId === teamId && row.fingerprint === fingerprint && fingerprint !== "") ?? null;
+    },
+    async markCooldown(accountId, until, failureCode, countTowardBroken) {
       const row = rows.get(accountId)!;
-      rows.set(accountId, { ...row, cooldownUntil: until, lastFailureCode: failureCode });
+      const consecutiveFailures = countTowardBroken ? row.consecutiveFailures + 1 : row.consecutiveFailures;
+      rows.set(accountId, { ...row, cooldownUntil: until, lastFailureCode: failureCode, consecutiveFailures });
+      return consecutiveFailures;
+    },
+    async markBroken(accountId, at) {
+      const row = rows.get(accountId)!;
+      if (row.state === "active") rows.set(accountId, { ...row, state: "broken", brokenAt: at });
     },
     async touchUsed(accountId, at) {
       const row = rows.get(accountId)!;
-      rows.set(accountId, { ...row, lastUsedAt: at });
+      rows.set(accountId, { ...row, lastUsedAt: at, consecutiveFailures: 0 });
+    },
+    async listBrokenUnnotified() {
+      return [...rows.values()].filter((row) => row.state === "broken" && row.brokenNotifiedAt === null);
+    },
+    async markNotified(accountIds, at) {
+      for (const id of accountIds) {
+        const row = rows.get(id);
+        if (row && row.brokenNotifiedAt === null) rows.set(id, { ...row, brokenNotifiedAt: at });
+      }
     },
   };
 }
@@ -93,9 +112,12 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
 function service(store = memoryStore()) {
   let counter = 0;
   const ids = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
+  const inner = createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test", now: () => store.clock.now, newId: ids });
   return {
     store,
-    service: createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test", now: () => store.clock.now, newId: ids }),
+    inner,
+    // `add` unwrapped to the description for the many tests that only need it.
+    service: { ...inner, add: async (...args: Parameters<typeof inner.add>) => (await inner.add(...args)).account },
   };
 }
 
@@ -286,6 +308,41 @@ describe("claude upstream accounts service", () => {
     expect(await svc.select("team-1", { stickyKey: "vm-1" })).toEqual({ kind: "none" });
   });
 
+  test("adding the same secret twice returns the existing account", async () => {
+    const { inner, store } = service();
+    const first = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "work" });
+    const again = await inner.add("team-1", "user-2", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "other" });
+    expect(first.alreadyExists).toBe(false);
+    expect(again).toEqual({ account: first.account, alreadyExists: true });
+    expect(store.rows.size).toBe(1);
+    // A different team may hold the same secret.
+    const elsewhere = await inner.add("team-2", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    expect(elsewhere.alreadyExists).toBe(false);
+    expect(store.rows.size).toBe(2);
+    expect(store.rows.get(first.account.id)!.fingerprint).toHaveLength(64);
+  });
+
+  test("three consecutive credential rejections mark the account broken; a success resets the count", async () => {
+    const { service: svc, store } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    await svc.cooldown(a.id, 1000, "invalid_credential");
+    await svc.cooldown(a.id, 1000, "rate_limited");
+    await svc.cooldown(a.id, 1000, "invalid_credential");
+    expect(store.rows.get(a.id)!).toMatchObject({ state: "active", consecutiveFailures: 2 });
+    await svc.touchUsed(a.id);
+    expect(store.rows.get(a.id)!.consecutiveFailures).toBe(0);
+    for (let i = 0; i < 3; i += 1) await svc.cooldown(a.id, 1000, "invalid_credential");
+    const row = store.rows.get(a.id)!;
+    expect(row.state).toBe("broken");
+    expect(row.brokenAt).toEqual(store.clock.now);
+    store.clock.now = new Date(T0.getTime() + 60_000);
+    expect(await svc.select("team-1", { stickyKey: "vm-1" })).toEqual({ kind: "exhausted", total: 1, retryAfterSeconds: 15 });
+    expect((await svc.list("team-1"))[0]).toMatchObject({ state: "broken", consecutiveFailures: 3 });
+    expect((await svc.listBrokenUnnotifiedRows()).map((r) => r.id)).toEqual([a.id]);
+    await svc.markNotified([a.id]);
+    expect(await svc.listBrokenUnnotifiedRows()).toEqual([]);
+  });
+
   test("binds the ciphertext to the team and the account", async () => {
     const { service: svc, store } = service();
     const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
@@ -329,8 +386,9 @@ describe("claude upstream routes", () => {
     response: Response.json({ error: "forbidden" }, { status: 403 }),
   };
 
-  function handlers(options: { manage?: boolean; failing?: boolean } = {}) {
-    const { service: svc } = service();
+  function handlers(options: { manage?: boolean; failing?: boolean; probe?: ProbeResult } = {}) {
+    const { service: svc, inner } = service();
+    const probeCalls: unknown[] = [];
     const resolveContext = mock(async () => (options.manage === false ? forbidden : context));
     const resolveUsageTeam = mock(async () => ({ ok: true as const, teamId: "team_1", stackUserId: "user_1" }));
     const failing = options.failing ?? false;
@@ -341,15 +399,19 @@ describe("claude upstream routes", () => {
       resolveUsageTeam: resolveUsageTeam as never,
       resolveContext: resolveContext as never,
       list: failing ? (fail as never) : svc.list,
-      add: failing ? (fail as never) : svc.add,
+      add: failing ? (fail as never) : inner.add,
       removeAll: failing ? (fail as never) : svc.removeAll,
+      probe: async (input) => {
+        probeCalls.push(input.kind);
+        return options.probe ?? { ok: true, email: null };
+      },
     });
     const single = makeClaudeAccountHandlers({
       resolveContext: resolveContext as never,
       update: failing ? (fail as never) : svc.update,
       remove: failing ? (fail as never) : svc.remove,
     });
-    return { collection, single, svc };
+    return { collection, single, svc, probeCalls };
   }
 
   const url = "https://cmux.com/api/coderouter/claude-upstream?teamId=team_1";
@@ -408,6 +470,41 @@ describe("claude upstream routes", () => {
     expect((await collection.DELETE(new Request(url, { method: "DELETE" }))).status).toBe(404);
     const empty = await (await collection.GET(new Request(url))).json();
     expect(empty).toEqual({ teamId: "team_1", accounts: [], upstream: null });
+  });
+
+  test("refuses a credential the upstream rejects and stores nothing", async () => {
+    const { collection, probeCalls, svc } = handlers({ probe: { ok: false, reason: "rejected", status: 401, message: "invalid x-api-key" } });
+    const response = await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ error: "credential_rejected", upstreamStatus: 401, retryable: false });
+    expect(probeCalls).toEqual(["anthropic_api_key"]);
+    expect(await svc.list("team_1")).toEqual([]);
+  });
+
+  test("stores when the upstream is unreachable, skips the probe on request, and labels from the profile", async () => {
+    const unreachable = handlers({ probe: { ok: false, reason: "unreachable", message: "fetch failed" } });
+    const stored = await unreachable.collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }));
+    expect(stored.status).toBe(201);
+    expect((await stored.json()).validation).toBe("unreachable");
+
+    const skipped = handlers();
+    const skippedResponse = await skipped.collection.POST(new Request(`${url}&validate=0`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "anthropic_api_key", apiKey: API_KEY }),
+    }));
+    expect((await skippedResponse.json()).validation).toBe("skipped");
+    expect(skipped.probeCalls).toEqual([]);
+
+    const labeled = handlers({ probe: { ok: true, email: "dev@example.com" } });
+    const first = await labeled.collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN }));
+    expect(first.status).toBe(201);
+    expect((await first.json()).account.label).toBe("dev@example.com");
+    const again = await labeled.collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "ignored" }));
+    expect(again.status).toBe(200);
+    const body = await again.json();
+    expect(body.alreadyExists).toBe(true);
+    expect(body.accountsTotal).toBe(1);
   });
 
   test("fails closed when storage is unavailable", async () => {

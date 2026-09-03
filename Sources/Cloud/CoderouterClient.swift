@@ -100,11 +100,13 @@ actor CoderouterClient {
         return try bridgedJSONObject(data)
     }
 
-    /// Adds an account. Returns `{ teamId, account, accountsTotal }`.
-    func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, teamID: String?) async throws -> JSONValue {
+    /// Adds an account. The backend probes the credential first unless
+    /// `validate` is false, refusing a rejected one with 422. Returns
+    /// `{ teamId, account, accountsTotal, alreadyExists, validation }`.
+    func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, validate: Bool, teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request(
             "POST",
-            path: "/api/coderouter/claude-upstream",
+            path: "/api/coderouter/claude-upstream\(validate ? "" : "?validate=0")",
             jsonBody: input.jsonBody(label: label),
             teamID: teamID
         )
@@ -264,6 +266,13 @@ actor CoderouterClient {
         return obj
     }
 
+    private static func redactedServerMessage(_ body: String) -> String {
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let message = object["message"] as? String else { return "" }
+        return AIAccountsClient.redactSecrets(message)
+    }
+
     static func formatHTTPError(status: Int, body: String) -> String {
         if status == 401 {
             return "Not signed in or session expired. Run `cmux auth login`, then retry."
@@ -272,7 +281,11 @@ actor CoderouterClient {
             return "This account cannot manage the team's coderouter settings."
         }
         if status == 404 {
-            return "No Claude upstream account with that id exists on this team. Run `cmux coderouter claude list`."
+            return "No account with that id exists on this team. Run `cmux coderouter accounts`."
+        }
+        if status == 422 {
+            let detail = redactedServerMessage(body)
+            return "The upstream rejected this credential; nothing was stored.\(detail.isEmpty ? "" : " \(detail)") Check that the key or token is current, or pass --no-validate to store it anyway."
         }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var serverError: String?

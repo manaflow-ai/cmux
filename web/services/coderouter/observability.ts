@@ -10,7 +10,8 @@ type CodeRouterFailure =
   | "analytics_delivery"
   | "analytics_query"
   | "usage_ledger"
-  | "upstream_transport";
+  | "upstream_transport"
+  | "account_health_email";
 
 const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
 

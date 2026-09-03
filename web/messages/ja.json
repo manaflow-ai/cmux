@@ -497,7 +497,7 @@
     },
     "claudeUpstream": {
       "title": "Claude アップストリームアカウント",
-      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、`claude setup-token` で発行した Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。追加時に各認証情報はプロバイダーで検証されます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。3 回連続で拒否されたアカウントは無効とマークされ、追加した人に修正方法を記したメールが 1 回だけ届きます。",
       "emptyTitle": "Claude アップストリームアカウントがありません",
       "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
       "accountsLabel": "{count} 件のアカウント",
@@ -519,7 +519,7 @@
       "optionalPlaceholder": "任意",
       "saveAction": "アカウントを追加",
       "savingAction": "追加中",
-      "saveSuccess": "アカウントを追加しました。",
+      "saveSuccess": "アカウントを追加し、プロバイダーで検証しました。",
       "saveError": "アカウントを追加できませんでした。",
       "validationError": "認証情報の形式を確認して再試行してください。",
       "teamAccessError": "このチームへのアクセス権がありません。",
@@ -537,7 +537,11 @@
       "neverUsed": "未使用",
       "enableAction": "有効にする",
       "disableAction": "無効にする",
-      "updateError": "アカウントを更新できませんでした。"
+      "updateError": "アカウントを更新できませんでした。",
+      "stateBroken": "無効 ({code}): この認証情報を置き換えてください",
+      "saveSuccessUnverified": "アカウントを追加しました。プロバイダーに到達できなかったため未検証です。",
+      "alreadyAdded": "この認証情報はすでにチームに登録されています。変更はありません。",
+      "credentialRejected": "プロバイダーがこの認証情報を拒否しました。キーまたはトークンが有効か確認してください。保存はされていません。"
     },
     "coderouterAccounts": {
       "title": "Codex と OpenCode のサブスクリプション",

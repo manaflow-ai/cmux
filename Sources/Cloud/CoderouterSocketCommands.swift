@@ -33,8 +33,9 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: message)
             }
             let label = Self.coderouterString(params["label"])
+            let validate = (params["validate"] as? Bool) ?? true
             return coderouterCall(id: id) {
-                let result = try await CoderouterClient.shared.addClaudeAccount(input, label: label, teamID: teamID)
+                let result = try await CoderouterClient.shared.addClaudeAccount(input, label: label, validate: validate, teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "coderouter.claude_upstream.update":

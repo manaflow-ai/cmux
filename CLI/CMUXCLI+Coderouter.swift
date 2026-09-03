@@ -19,13 +19,16 @@ extension CMUXCLI {
           cmux coderouter accounts [--team <id>] [--json]
               Every account with kind, label, masked identifier, state, usage.
 
-          cmux coderouter accounts add [claude|codex|opencode|anthropic-key|bedrock] [--label <s>] [--stdin] [--team <id>] [--json]
+          cmux coderouter accounts add [claude|codex|opencode|anthropic-key|bedrock] [--label <s>] [--stdin] [--no-validate] [--team <id>] [--json]
               Add one account. Without a kind, cmux infers it from
               CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, AWS_ACCESS_KEY_ID, or a
               pasted secret, and asks in a terminal otherwise. Secrets come from
               the environment, --stdin, or a hidden prompt, never from argv.
-              claude: run `claude setup-token` first. codex and opencode hand off
-              to the CodeRouter CLI sign-in (`cr add codex`).
+              The credential is checked against its provider before it is
+              stored (--no-validate skips that); the same secret twice is a no-op.
+              claude: in a terminal cmux runs `claude setup-token` for you and
+              keeps the token it prints; only setup-token tokens are accepted.
+              codex and opencode hand off to the CodeRouter CLI sign-in (`cr add codex`).
               bedrock: --region <r> (default AWS_REGION) and --model <claude-id>=<bedrock-id>.
 
           cmux coderouter accounts remove <account> [--team <id>] [--json]
@@ -229,22 +232,22 @@ extension CMUXCLI {
         }
         let rest = Array(commandArgs.dropFirst())
         let (teamOpt, rem0) = parseOption(rest, name: "--team")
-        let (labelOpt, rem1) = parseOption(rem0, name: "--label")
+        let (labelOpt, remLabel) = parseOption(rem0, name: "--label")
+        let skipValidation = remLabel.contains("--no-validate")
+        let rem1 = remLabel.filter { $0 != "--no-validate" }
         var params: [String: Any] = teamParams(teamOpt)
         if let label = Self.nonEmpty(labelOpt) {
             params["label"] = label
+        }
+        if skipValidation {
+            params["validate"] = false
         }
 
         switch kindArg.lowercased() {
         case "oauth-token", "oauth", "claude-code":
             let forceStdin = rem1.contains("--stdin")
             try rejectUnexpectedCoderouterArguments(rem1.filter { $0 != "--stdin" }, command: "coderouter claude add oauth-token")
-            let token = try readCoderouterSecret(
-                label: "Claude Code OAuth token",
-                envVar: "CLAUDE_CODE_OAUTH_TOKEN",
-                forceStdin: forceStdin,
-                hint: "Run `claude setup-token` to mint one."
-            )
+            let token = try readClaudeSetupToken(forceStdin: forceStdin)
             guard token.hasPrefix("sk-ant-oat01-") else {
                 throw CLIError(message: "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter claude add api-key`.")
             }
@@ -315,7 +318,15 @@ extension CMUXCLI {
         let kind = (account?["kind"] as? String).map(Self.sanitizeForTerminal) ?? (params["kind"] as? String) ?? "?"
         let identifier = (account?["identifier"] as? String).map(Self.sanitizeForTerminal) ?? ""
         let label = (account?["label"] as? String).map(Self.sanitizeForTerminal) ?? ""
-        print("OK added Claude upstream account: \(kind)\(identifier.isEmpty ? "" : " \(identifier)")\(label.isEmpty ? "" : " (\(label))")")
+        let summary = "\(kind)\(identifier.isEmpty ? "" : " \(identifier)")\(label.isEmpty ? "" : " (\(label))")"
+        if (response["alreadyExists"] as? Bool) == true {
+            print("Already added: \(summary) is on this team, nothing changed.")
+            if let id = (account?["id"] as? String).map(Self.sanitizeForTerminal), !id.isEmpty { print("  id: \(id)") }
+            return
+        }
+        let validation = (response["validation"] as? String) ?? ""
+        let verified = validation == "ok" ? " (verified with the provider)" : validation == "unreachable" ? " (provider unreachable, stored unverified)" : ""
+        print("OK added Claude upstream account: \(summary)\(verified)")
         if let id = (account?["id"] as? String).map(Self.sanitizeForTerminal), !id.isEmpty {
             print("  id: \(id)")
         }
@@ -328,6 +339,76 @@ extension CMUXCLI {
         if let total = Self.intValue(response["accountsTotal"]) {
             print("Cloud machines now route `claude` across \(total) account\(total == 1 ? "" : "s").")
         }
+    }
+
+    /// Claude Code tokens: environment, stdin, or, in a terminal, run
+    /// `claude setup-token` on the user's behalf and keep the token it prints
+    /// (the browser sign-in happens inside that command). Only setup-token
+    /// tokens are accepted; cmux never runs an OAuth flow of its own.
+    private func readClaudeSetupToken(forceStdin: Bool) throws -> String {
+        let env = ProcessInfo.processInfo.environment
+        if !forceStdin, let fromEnv = Self.nonEmpty(env["CLAUDE_CODE_OAUTH_TOKEN"]) {
+            return fromEnv
+        }
+        if forceStdin || isatty(STDIN_FILENO) == 0 {
+            return try readCoderouterSecret(
+                label: "Claude Code OAuth token",
+                envVar: "CLAUDE_CODE_OAUTH_TOKEN",
+                forceStdin: forceStdin,
+                hint: "Run `claude setup-token` to mint one."
+            )
+        }
+        if let claude = resolveExecutableInPath("claude") {
+            FileHandle.standardError.write(Data("Running `claude setup-token` to mint a long-lived token; finish the sign-in in your browser.\n".utf8))
+            if let token = runClaudeSetupToken(executable: claude) {
+                return token
+            }
+            FileHandle.standardError.write(Data("`claude setup-token` did not print a token; paste one instead.\n".utf8))
+        }
+        return try readHiddenTerminalLine(prompt: "Claude Code OAuth token (input hidden; run `claude setup-token` to mint one): ")
+    }
+
+    /// Runs `claude setup-token` with the terminal attached for its prompts and
+    /// browser hand-off, capturing stdout to pick the token out of it.
+    private func runClaudeSetupToken(executable: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["setup-token"]
+        var environment = ProcessInfo.processInfo.environment
+        for key in environment.keys where key.hasPrefix("CMUX_") || key.hasPrefix("CLAUDE_CODE_") {
+            environment.removeValue(forKey: key)
+        }
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardError = FileHandle.standardError
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        var captured = Data()
+        let reader = pipe.fileHandleForReading
+        reader.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            captured.append(chunk)
+            // Echo everything except the token line so the user still sees the instructions.
+            if let text = String(data: chunk, encoding: .utf8), text.range(of: "sk-ant-oat01-") == nil {
+                FileHandle.standardError.write(chunk)
+            }
+        }
+        do {
+            try process.run()
+        } catch {
+            reader.readabilityHandler = nil
+            return nil
+        }
+        process.waitUntilExit()
+        reader.readabilityHandler = nil
+        captured.append(reader.readDataToEndOfFile())
+        guard process.terminationStatus == 0, let output = String(data: captured, encoding: .utf8) else { return nil }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let regex = try? NSRegularExpression(pattern: "sk-ant-oat01-[A-Za-z0-9_-]{20,}"),
+              let match = regex.firstMatch(in: output, range: range),
+              let tokenRange = Range(match.range, in: output) else { return nil }
+        return String(output[tokenRange])
     }
 
     /// Secret intake order: `--stdin` (or a non-TTY stdin) reads one line from
@@ -401,7 +482,7 @@ extension CMUXCLI {
 
         var pickerLine: String {
             switch self {
-            case .claude: return "Claude Code OAuth token (run `claude setup-token` first)"
+            case .claude: return "Claude Code token (cmux runs `claude setup-token` for you)"
             case .codex: return "ChatGPT Codex subscription (signs in through the CodeRouter CLI)"
             case .opencode: return "OpenCode Go subscription (signs in through the CodeRouter CLI)"
             case .anthropicKey: return "Anthropic API key"
@@ -607,7 +688,7 @@ extension CMUXCLI {
             let id = (account["id"] as? String) ?? ""
             let rawKind = (account["kind"] as? String) ?? "?"
             let kind = rawKind == "anthropic_oauth" ? "claude" : rawKind == "anthropic_api_key" ? "anthropic-key" : rawKind
-            accounts.append(UnifiedAccount(source: .claude, id: id, kind: kind, label: (account["label"] as? String) ?? "", identifier: (account["identifier"] as? String) ?? "", health: Self.claudeAccountHealth(account), usage: (account["region"] as? String) ?? "", raw: account))
+            accounts.append(UnifiedAccount(source: .claude, id: id, kind: kind, label: (account["label"] as? String) ?? "", identifier: (account["identifier"] as? String) ?? "", health: Self.claudeAccountHealth(account), usage: (account["state"] as? String) == "broken" ? "replace it: cmux coderouter accounts add" : ((account["region"] as? String) ?? ""), raw: account))
             unified.append(["kind": kind, "source": "claude", "id": id, "label": account["label"] ?? "", "identifier": account["identifier"] ?? "", "state": account["state"] ?? "", "details": account])
         }
         let payload: [String: Any] = [
@@ -870,6 +951,10 @@ extension CMUXCLI {
     private static func claudeAccountHealth(_ account: [String: Any]) -> String {
         if (account["state"] as? String) == "disabled" {
             return "disabled"
+        }
+        if (account["state"] as? String) == "broken" {
+            let code = (account["lastFailureCode"] as? String).map(sanitizeForTerminal) ?? "rejected"
+            return "broken (\(code))"
         }
         var parts: [String] = []
         if let cooldown = (account["cooldownUntil"] as? String), !cooldown.isEmpty,

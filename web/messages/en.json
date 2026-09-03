@@ -497,7 +497,7 @@
     },
     "claudeUpstream": {
       "title": "Claude upstream accounts",
-      "description": "Claude Code inside this team's cmux Cloud VMs sends Anthropic Messages traffic through coderouter. Add any number of accounts: Anthropic API keys, Claude Code OAuth tokens, or Amazon Bedrock credentials. Each machine is pinned to one account so prompt caching keeps working; a rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one.",
+      "description": "Claude Code inside this team's cmux Cloud VMs sends Anthropic Messages traffic through coderouter. Add any number of accounts: Anthropic API keys, Claude Code OAuth tokens from `claude setup-token`, or Amazon Bedrock credentials. Each credential is verified with its provider when added. Each machine is pinned to one account so prompt caching keeps working; a rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one. Three rejections in a row mark an account broken, and the person who added it gets one email with the fix.",
       "emptyTitle": "No Claude upstream accounts",
       "emptyBody": "Claude requests from this team's Cloud VMs fail until an account is added.",
       "accountsLabel": "{count, plural, one {# account} other {# accounts}}",
@@ -519,7 +519,7 @@
       "optionalPlaceholder": "Optional",
       "saveAction": "Add account",
       "savingAction": "Adding",
-      "saveSuccess": "Account added.",
+      "saveSuccess": "Account added and verified with the provider.",
       "saveError": "Account could not be added.",
       "validationError": "Check the credential format and try again.",
       "teamAccessError": "You do not have access to this team.",
@@ -537,7 +537,11 @@
       "neverUsed": "never used",
       "enableAction": "Enable",
       "disableAction": "Disable",
-      "updateError": "Account could not be updated."
+      "updateError": "Account could not be updated.",
+      "stateBroken": "Broken ({code}): replace this credential",
+      "saveSuccessUnverified": "Account added. The provider could not be reached to verify it.",
+      "alreadyAdded": "This credential is already on the team. Nothing changed.",
+      "credentialRejected": "The provider rejected this credential. Check that the key or token is current; nothing was stored."
     },
     "coderouterAccounts": {
       "title": "Codex and OpenCode subscriptions",
