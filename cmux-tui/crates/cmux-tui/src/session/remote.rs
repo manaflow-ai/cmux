@@ -3714,6 +3714,18 @@ fn validate_dump_directory(directory: &fs::File, private: bool) -> io::Result<()
 }
 
 #[cfg(unix)]
+struct DirectoryStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for DirectoryStream {
+    fn drop(&mut self) {
+        unsafe {
+            libc::closedir(self.0);
+        }
+    }
+}
+
+#[cfg(unix)]
 fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
@@ -3728,8 +3740,9 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
         unsafe { libc::close(duplicate) };
         return Err(io::Error::last_os_error());
     }
+    let stream = DirectoryStream(stream);
     loop {
-        let entry = unsafe { libc::readdir(stream) };
+        let entry = unsafe { libc::readdir(stream.0) };
         if entry.is_null() {
             break;
         }
@@ -3778,9 +3791,6 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
                 return Err(error);
             }
         }
-    }
-    unsafe {
-        libc::closedir(stream);
     }
     Ok(())
 }
