@@ -27,6 +27,7 @@ final class CanvasPaneView: NSView {
 
     /// The container the panel content view is mounted into.
     let contentContainer = NSView()
+    private(set) var isContentSuppressedForDrag = false
 
     private let titleBarHost: NSHostingView<CanvasPaneTitleBarView>
     private var chrome = CanvasPaneChrome(
@@ -108,6 +109,12 @@ final class CanvasPaneView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    func setContentSuppressedForDrag(_ suppressed: Bool) {
+        guard isContentSuppressedForDrag != suppressed else { return }
+        isContentSuppressedForDrag = suppressed
+        contentContainer.isHidden = suppressed
+    }
 
     /// Updates the tab strip and focus ring. No-op when nothing changed.
     func updateChrome(_ chrome: CanvasPaneChrome) {

@@ -9,6 +9,16 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         model.layout.selectedPanelId(in: view.paneID)?.rawValue
     }
 
+    private func applyDragPresentation(to view: CanvasPaneView) {
+        view.setContentSuppressedForDrag(
+            scrollView.magnification < Self.dragContentSuppressionMagnificationThreshold
+        )
+    }
+
+    private func clearDragPresentation(for paneID: CanvasPaneID) {
+        paneViews[paneID]?.setContentSuppressedForDrag(false)
+    }
+
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion) {
         guard let frame = model.layout.frame(of: view.paneID)?.cgRect else { return }
         dragSession = DragSession(
@@ -18,6 +28,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             startPoint: documentPoint,
             lastFrame: frame
         )
+        applyDragPresentation(to: view)
         if let panelId = selectedPanelId(of: view) {
             model.bringToFront(panelId)
         }
@@ -68,7 +79,6 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         guidesView.setGuides(result.guides)
         updateJoinHighlight(for: session, at: documentPoint)
         updateMinimap(reveal: true)
-        callbacks.onViewportGeometryChanged(window)
     }
 
     /// Live drop indicator: when this drag would join the dragged single-tab
@@ -95,6 +105,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             return
         }
         dragSession = nil
+        clearDragPresentation(for: session.paneID)
         defer {
             releaseMinimapAfterInteraction()
         }
@@ -158,6 +169,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
                     lastFrame: frame,
                     lastPoint: point
                 )
+                applyDragPresentation(to: view)
                 holdMinimapVisible()
                 updateMinimap(reveal: true)
             }
@@ -183,6 +195,9 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             lastFrame: frame,
             lastPoint: point
         )
+        if let paneView = paneViews[paneID] {
+            applyDragPresentation(to: paneView)
+        }
         holdMinimapVisible()
         updateMinimap(reveal: true)
         callbacks.onFocusPanel(panelId)
