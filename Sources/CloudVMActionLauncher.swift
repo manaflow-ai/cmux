@@ -640,6 +640,13 @@ final class ProcessOutputCollector: @unchecked Sendable {
         readCondition.lock()
         acceptingReads = false
         let ownReadDepth = callbackDepthOnCurrentThread()
+        if ownReadDepth > 0 {
+            // The callback has already committed its bytes before re-entering.
+            // Waiting for another callback on this thread could deadlock if
+            // callbacks finish each other. Finalization is serialized below.
+            readCondition.unlock()
+            return
+        }
         while activeReads > ownReadDepth { readCondition.wait() }
         readCondition.unlock()
     }
