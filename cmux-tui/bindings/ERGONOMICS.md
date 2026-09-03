@@ -74,7 +74,9 @@ and secret redaction.
 The exact-binary live matrix adds one isolated create, run, exit, restart, and
 cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
 for eight live transport runs. The separate raw protocol-12 suite runs 266
-compatibility checks over its 104 commands and 47 events.
+compatibility checks across seven language adapters: 34 fake cases, one metadata
+audit, and three live cases per language. Those checks cover the 104 generated
+commands and 47 event shapes.
 
 Each package suite also opens a stream with a short request deadline, leaves it
 idle past that deadline, then delivers and cancels normally. This separates
