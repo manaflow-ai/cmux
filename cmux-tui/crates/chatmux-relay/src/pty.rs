@@ -4556,6 +4556,62 @@ mod tests {
         assert!(!h.manager.has_attachment("p1"));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn publication_timeout_retires_before_reporting_error() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let (generation, publication_gate) = {
+            let attachments = h.manager.inner.attachments.lock().expect("attach lock");
+            let attachment = attachments.get("p1").expect("opened attachment");
+            (attachment.generation, Arc::clone(&attachment.publication_gate))
+        };
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let gate_for_thread = Arc::clone(&publication_gate);
+        let gate_owner = thread::spawn(move || {
+            let _publication = gate_for_thread.lock();
+            entered_tx.send(()).expect("publication gate owner entered");
+            let _ = release_rx.blocking_recv();
+        });
+        entered_rx.await.expect("publication gate owner entered");
+
+        let error_seen = Arc::new(AtomicBool::new(false));
+        let attachment_visible_on_error = Arc::new(AtomicBool::new(false));
+        let error_seen_for_send = Arc::clone(&error_seen);
+        let attachment_visible_for_send = Arc::clone(&attachment_visible_on_error);
+        let manager_for_send = h.manager.clone();
+        let sent = Arc::clone(&h.sent);
+        let mut context = h.context("supervised", h.owner.clone());
+        context.send = Arc::new(move |frame| {
+            if frame["type"] == "pty_error" {
+                error_seen_for_send.store(true, Ordering::SeqCst);
+                attachment_visible_for_send
+                    .store(manager_for_send.has_attachment("p1"), Ordering::SeqCst);
+            }
+            sent.lock().expect("sent lock").push(frame);
+        });
+        h.manager
+            .inner
+            .emit_error_for_generation_async(
+                &context,
+                "p1",
+                generation,
+                &publication_gate,
+                "failed",
+                "publication gate timed out",
+            )
+            .await;
+        assert!(error_seen.load(Ordering::SeqCst), "publication timeout reports an error");
+        assert!(
+            !attachment_visible_on_error.load(Ordering::SeqCst),
+            "publication timeout must retire before publishing its error"
+        );
+        assert!(!h.manager.has_attachment("p1"));
+
+        release_tx.send(()).expect("release publication gate owner");
+        gate_owner.join().expect("publication gate owner");
+    }
+
     #[tokio::test]
     async fn close_detaches_without_killing_reattach_replays_scrollback() {
         let h = harness(None, None);
