@@ -671,7 +671,7 @@ cmux_hosted_retention_run_impl() (
   cmux_hosted_retention_cleanup_lock_acquired=1
 
   if [[ "$retention_dry_run" == 0 ]]; then
-    cmux_hosted_retention_recover_quarantines "$artifact_root" "$now" 86400 "$scratch_dir"
+    cmux_hosted_retention_recover_quarantines "$artifact_root" "$now" "$lock_stale_after_seconds" "$scratch_dir"
   fi
 
   preview_file="$artifact_root/.retention-preview"

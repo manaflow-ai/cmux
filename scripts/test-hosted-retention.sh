@@ -295,6 +295,7 @@ make_baseline() {
   test_dry_run=1
   test_confirm=0
   test_lsof_mode=inactive
+  test_mv_mode=normal
   test_active_commit=""
   test_stat_mode=gnu
   test_max_candidates=10000
