@@ -1491,6 +1491,18 @@ function preflightResumeIfSuspended(
           : Effect.succeed(null as VMStatus | null),
       ),
     );
+    if (status === "destroyed") {
+      // A live provider read is authoritative for an access operation. Do not
+      // mint an endpoint (or start a fork) against an id that Freestyle has
+      // already removed; mark the row so the next fleet refresh drops it and
+      // return the same not-found contract as ownership checks.
+      yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "destroyed",
+      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
     if (status === "creating") {
       // Another caller's resume is in flight; wait for it rather than
       // minting endpoints or running commands against a not-yet-ready VM.

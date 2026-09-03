@@ -541,19 +541,17 @@ enum CloudTreeNodeBuilder {
                 children: displays.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .display($0, openIn: nil)) }
             ))
         }
-        // Last, its own section: every terminal the machine owns, flat (the
-        // workspace rows above point into it, detached ones live only here);
-        // always present on a connected machine, so its "+" — New Terminal —
-        // is there on an empty machine too.
-        switch info.linkState {
-        case .connected, .notApplicable:
+        // Last, its own section: every known terminal the machine owns, flat
+        // (the workspace rows above point into it, detached ones live only
+        // here). Keep cached resources addressable while the link is asleep or
+        // unavailable; with no cached resources, only a connected machine can
+        // truthfully claim the list is empty and show the New Terminal group.
+        if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
             children.append(terminalsGroupNode(
                 machine: machine,
                 terminals: terminals,
                 projectionsByResource: projectionsByResource
             ))
-        case .asleep, .connecting, .error, .unavailable:
-            break
         }
         return children
     }

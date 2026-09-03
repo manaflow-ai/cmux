@@ -36,7 +36,6 @@ Row › **Open in New Pane** (a second pane) | `cmux surface open <resource> --n
 Drag a row onto a pane edge | `cmux surface open <resource> --pane <p> --left\|…` | `surface.project {pane_id, direction}` | ✅
 Terminal row › **Kill Terminal…**, hover × | `cmux vm terminal close <m> <term>` | `vm.terminal_close` | ✅ also closes every local pane showing it
 Terminals › detached row (greyed, "detached": still running, no tab on the machine shows it, so it is in no workspace folder); click re-attaches it in a pane, right-click › **Kill Terminal…** | `cmux vm tree` lists it in the final `terminals/` section, under its `(detached — …)` subgroup (`remote_views: []` in `--json`), `cmux surface open <m>/terminal/<term>` / `cmux vm terminal close <m> <term>` | `surface.project` / `vm.terminal_close` | ✅
-Display pointer row › Close (removes it from the workspace) | `cmux vm terminal close <m> display:1` | `vm.terminal_close` (tab close) | ⏳ needs daemon `display` tabs
 Row › **Copy Surface ID** / **Copy Port** | `cmux surface ls --json` (`id`, `port`) | `surface.ls` | ✅
 Port row (when shown) click | `cmux vm open <m>:port/<n>` / `cmux vm open <m> <n> [--print]` | `vm.port_open` | ✅
 

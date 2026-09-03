@@ -786,7 +786,9 @@ extension CMUXCLI {
     }
 
     static var vmTreeUsage: String {
-        """
+        CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.usage",
+            defaultValue: """
         Usage: cmux vm tree [<machine>|local] [--refresh] [--json]
                cmux surface ls [<machine>|local] [--refresh] [--json]
 
@@ -801,6 +803,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
+        )
     }
 
     static var surfaceUsage: String {
@@ -1192,8 +1195,15 @@ extension CMUXCLI {
         // Remote workspaces, in cmux-tui index order: the machine payload lists them all
         // (so an empty workspace still shows), terminals fill them in.
         var workspaces: [(id: String, name: String, index: Int, focused: Bool, terminals: [[String: Any]])] = []
+        // Terminal views can be numerous; keep membership assignment O(1)
+        // instead of scanning every workspace for every view.
+        var workspaceIndexByID: [String: Int] = [:]
         for raw in (machine["remote_workspaces"] as? [[String: Any]]) ?? [] {
             guard let workspaceId = raw["id"] as? String, !workspaceId.isEmpty else { continue }
+            let index = workspaces.count
+            if workspaceIndexByID[workspaceId] == nil {
+                workspaceIndexByID[workspaceId] = index
+            }
             workspaces.append((
                 id: workspaceId,
                 name: (raw["name"] as? String) ?? "",
@@ -1224,9 +1234,10 @@ extension CMUXCLI {
             }
             for workspace in workspacePayloads {
                 guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
-                if let index = workspaces.firstIndex(where: { $0.id == workspaceId }) {
+                if let index = workspaceIndexByID[workspaceId] {
                     workspaces[index].terminals.append(terminal)
                 } else {
+                    workspaceIndexByID[workspaceId] = workspaces.count
                     workspaces.append((
                         id: workspaceId,
                         name: (workspace?["name"] as? String) ?? "",
@@ -1300,32 +1311,30 @@ extension CMUXCLI {
             }
         }
 
-        // A connected machine always exposes its flat terminal index, including
-        // terminals that are not in any workspace. Keep the detached subgroup
-        // here rather than manufacturing an empty-id workspace above.
-        let sessionUnavailable = ["connecting", "asleep", "error", "unavailable"].contains(linkState)
-        if !sessionUnavailable {
-            lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
-            if terminals.isEmpty {
-                lines.append("    " + String(localized: "cli.vm.tree.noTerminals", defaultValue: "(no terminals)"))
-            } else {
-                var attached: [[String: Any]] = []
-                var detached: [[String: Any]] = []
-                for terminal in terminals {
-                    if vmTreeTerminalIsDetached(terminal) {
-                        detached.append(terminal)
-                    } else {
-                        attached.append(terminal)
-                    }
+        // Every machine-owned terminal stays in the flat index even while its
+        // link is connecting/asleep/failed. The link-status line above explains
+        // why workspace membership may be stale; hiding the terminals would
+        // make an otherwise addressable resource disappear from the catalog.
+        lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
+        if terminals.isEmpty {
+            lines.append("    " + String(localized: "cli.vm.tree.noTerminals", defaultValue: "(no terminals)"))
+        } else {
+            var attached: [[String: Any]] = []
+            var detached: [[String: Any]] = []
+            for terminal in terminals {
+                if vmTreeTerminalIsDetached(terminal) {
+                    detached.append(terminal)
+                } else {
+                    attached.append(terminal)
                 }
-                for terminal in attached {
-                    lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
-                }
-                if !detached.isEmpty {
-                    lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
-                    for terminal in detached {
-                        lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
-                    }
+            }
+            for terminal in attached {
+                lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+            }
+            if !detached.isEmpty {
+                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
+                for terminal in detached {
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
                 }
             }
         }
