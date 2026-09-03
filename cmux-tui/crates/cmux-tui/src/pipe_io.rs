@@ -65,6 +65,8 @@ const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 const STDERR_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const PIPE_IO_FINAL_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+const PIPE_IO_OUTPUT_CHUNK_BYTES: usize = 64 * 1024;
+const PIPE_IO_OUTPUT_QUEUE_CAPACITY: usize = 1;
 const CLAIM_GEOMETRY_ERROR_CODE: &str = "claim-terminal-geometry-failed";
 const STDIN_PUMP_ERROR_CODE: &str = "stdin-pump-failed";
 const RESIZE_ERROR_CODE: &str = "resize-failed";
@@ -213,6 +215,11 @@ fn write_fd_line_bounded(fd: RawFd, line: &str) -> bool {
 #[derive(Clone)]
 struct PipeIoOutputCancellation {
     state: Arc<Mutex<PipeIoCancellationState>>,
+    /// A bounded, one-shot wake path for portable output workers. The Unix
+    /// descriptor below remains necessary for `poll(2)`, while this channel
+    /// lets a non-Unix worker wait without a timeout loop.
+    cancel_sender: Sender<()>,
+    cancel_receiver: Receiver<()>,
     #[cfg(unix)]
     wake_reader: Arc<UnixStream>,
     #[cfg(unix)]
@@ -227,6 +234,7 @@ struct PipeIoCancellationState {
 
 impl PipeIoOutputCancellation {
     fn new() -> io::Result<Self> {
+        let (cancel_sender, cancel_receiver) = crossbeam_channel::bounded(1);
         #[cfg(unix)]
         {
             let (wake_reader, wake_writer) = UnixStream::pair()?;
@@ -237,13 +245,19 @@ impl PipeIoOutputCancellation {
             wake_writer.set_nonblocking(true)?;
             Ok(Self {
                 state: Arc::new(Mutex::new(PipeIoCancellationState::default())),
+                cancel_sender,
+                cancel_receiver,
                 wake_reader: Arc::new(wake_reader),
                 wake_writer: Arc::new(Mutex::new(wake_writer)),
             })
         }
 
         #[cfg(not(unix))]
-        Ok(Self { state: Arc::new(Mutex::new(PipeIoCancellationState::default())) })
+        Ok(Self {
+            state: Arc::new(Mutex::new(PipeIoCancellationState::default())),
+            cancel_sender,
+            cancel_receiver,
+        })
     }
 
     fn request(&self, reason: PipeIoExitReason) {
@@ -262,6 +276,11 @@ impl PipeIoOutputCancellation {
         if !first_reason {
             return;
         }
+
+        // The receiver is owned by the sole stdout pump. A full channel means
+        // the wake is already pending, so publishing lifecycle state never
+        // blocks the monitor.
+        let _ = self.cancel_sender.try_send(());
 
         #[cfg(unix)]
         if let Ok(mut wake_writer) = self.wake_writer.lock() {
@@ -312,6 +331,158 @@ impl<W: Write> PipeIoOutput for W {
 
     fn flush_output(&mut self) -> io::Result<()> {
         self.flush()
+    }
+}
+
+/// A bounded, single-owner output handoff used on platforms where stdio
+/// writes cannot be made nonblocking directly. The worker owns the sink and
+/// all commands are acknowledged in FIFO order. Cancellation is handled by
+/// the owner through `abort`, then the worker is always joined by `Drop`.
+trait PipeIoOutputSink: Send {
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
+    fn flush_output(&mut self) -> io::Result<()>;
+}
+
+impl<W: Write + Send> PipeIoOutputSink for W {
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.write_all(bytes)
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        self.flush()
+    }
+}
+
+enum PipeIoOutputCommand {
+    Write { bytes: Vec<u8>, completion: Sender<io::Result<()>> },
+    Flush { completion: Sender<io::Result<()>> },
+}
+
+struct PipeIoOutputWorker {
+    command_sender: Sender<PipeIoOutputCommand>,
+    stop_sender: Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+    cancellation: PipeIoOutputCancellation,
+    abort: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl PipeIoOutputWorker {
+    fn spawn<S, F>(
+        sink: S,
+        cancellation: PipeIoOutputCancellation,
+        abort: Arc<dyn Fn() + Send + Sync>,
+        on_started: F,
+    ) -> io::Result<Self>
+    where
+        S: PipeIoOutputSink + 'static,
+        F: FnOnce() -> io::Result<()> + Send + 'static,
+    {
+        let (command_sender, command_receiver) =
+            crossbeam_channel::bounded(PIPE_IO_OUTPUT_QUEUE_CAPACITY);
+        let (stop_sender, stop_receiver) = crossbeam_channel::bounded(1);
+        let (ready_sender, ready_receiver) = crossbeam_channel::bounded(1);
+        let worker_cancellation = cancellation.clone();
+        let join = std::thread::Builder::new()
+            .name("pipe-io-stdout".into())
+            .spawn(move || {
+                let startup = on_started();
+                let startup_failed = startup.is_err();
+                let _ = ready_sender.send(startup);
+                if startup_failed {
+                    return;
+                }
+
+                let mut sink = sink;
+                loop {
+                    crossbeam_channel::select_biased! {
+                        recv(stop_receiver) -> _ => break,
+                        recv(command_receiver) -> command => {
+                            let Ok(command) = command else { break };
+                            match command {
+                                PipeIoOutputCommand::Write { bytes, completion } => {
+                                    let result = if worker_cancellation.writes_cancelled() {
+                                        Err(io::Error::new(
+                                            io::ErrorKind::Interrupted,
+                                            "pipe-io stdout canceled",
+                                        ))
+                                    } else {
+                                        sink.write_bytes(&bytes)
+                                    };
+                                    let _ = completion.send(result);
+                                }
+                                PipeIoOutputCommand::Flush { completion } => {
+                                    let result = if worker_cancellation.writes_cancelled() {
+                                        Err(io::Error::new(
+                                            io::ErrorKind::Interrupted,
+                                            "pipe-io stdout canceled",
+                                        ))
+                                    } else {
+                                        sink.flush_output()
+                                    };
+                                    let _ = completion.send(result);
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .map_err(|error| io::Error::other(format!("spawn pipe-io stdout worker: {error}")))?;
+
+        match ready_receiver.recv() {
+            Ok(Ok(())) => {
+                Ok(Self { command_sender, stop_sender, join: Some(join), cancellation, abort })
+            }
+            Ok(Err(error)) => {
+                let _ = stop_sender.send(());
+                let _ = join.join();
+                Err(error)
+            }
+            Err(_) => {
+                let _ = stop_sender.send(());
+                let _ = join.join();
+                Err(io::Error::other("pipe-io stdout worker exited during startup"))
+            }
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        for chunk in bytes.chunks(PIPE_IO_OUTPUT_CHUNK_BYTES) {
+            let (completion, result_receiver) = crossbeam_channel::bounded(1);
+            self.command_sender
+                .send(PipeIoOutputCommand::Write { bytes: chunk.to_vec(), completion })
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
+                })?;
+            result_receiver.recv().map_err(|_| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
+            })??;
+        }
+        Ok(())
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        let (completion, result_receiver) = crossbeam_channel::bounded(1);
+        self.command_sender.send(PipeIoOutputCommand::Flush { completion }).map_err(|_| {
+            io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
+        })?;
+        result_receiver.recv().map_err(|_| {
+            io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
+        })??;
+        Ok(())
+    }
+}
+
+impl Drop for PipeIoOutputWorker {
+    fn drop(&mut self) {
+        // The pump has stopped issuing commands by the time this owner drops.
+        // Publish a reason so a sink blocked between acknowledgements can be
+        // interrupted, then stop and join the worker explicitly.
+        self.cancellation.request(PipeIoExitReason::ParentClosed);
+        (self.abort)();
+        let _ = self.stop_sender.try_send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
     }
 }
 
@@ -1447,6 +1618,68 @@ mod tests {
         .unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         assert_eq!(stdout, b"last");
+    }
+
+    #[test]
+    fn output_worker_interrupts_a_blocked_write_when_reader_closes() {
+        struct BlockingSink {
+            started: std::sync::mpsc::SyncSender<()>,
+            release: Arc<(Mutex<bool>, Condvar)>,
+        }
+
+        impl PipeIoOutputSink for BlockingSink {
+            fn write_bytes(&mut self, _bytes: &[u8]) -> io::Result<()> {
+                self.started.send(()).unwrap();
+                let (released, wake) = &*self.release;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = wake.wait(released).unwrap();
+                }
+                Ok(())
+            }
+
+            fn flush_output(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let cancellation = PipeIoOutputCancellation::new().unwrap();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = sync_channel(0);
+        let abort_release = release.clone();
+        let abort: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            let (released, wake) = &*abort_release;
+            *released.lock().unwrap() = true;
+            wake.notify_all();
+        });
+        let cleanup_abort = abort.clone();
+        let mut worker = PipeIoOutputWorker::spawn(
+            BlockingSink { started: started_sender, release },
+            cancellation.clone(),
+            abort,
+            || Ok(()),
+        )
+        .unwrap();
+        let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            finished_sender.send(worker.write_bytes(b"blocked")).unwrap();
+        });
+        started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        cancellation.request(PipeIoExitReason::DaemonLost);
+        let mut observed = finished_receiver.recv_timeout(Duration::from_millis(100)).ok();
+        let completed_before_cleanup = observed.is_some();
+        if observed.is_none() {
+            // Keep the red test bounded even before the worker learns about
+            // cancellation. The assertion below still records that it was
+            // not prompt; this release only prevents a wedged test process.
+            cleanup_abort();
+            observed = Some(finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+        }
+        assert!(completed_before_cleanup, "blocked output did not observe cancellation");
+        let result = observed.unwrap().unwrap_err();
+        assert_eq!(result.kind(), io::ErrorKind::Interrupted);
+        writer.join().unwrap();
     }
 
     #[cfg(unix)]
