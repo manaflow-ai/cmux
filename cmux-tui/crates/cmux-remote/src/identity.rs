@@ -3849,6 +3849,41 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn verified_route_history_is_bounded_and_keeps_newest_routes() {
+        const EXPECTED_MAX_ROUTE_HINTS: usize = 64;
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let key = StaticIdentity::generate().unwrap().public_key();
+        let known = store.pin_daemon("host".into(), key, Vec::new()).await.unwrap();
+
+        for index in 0..=EXPECTED_MAX_ROUTE_HINTS {
+            store
+                .remember_verified_route(
+                    &known.fingerprint,
+                    &format!("wss://route-{index}.example/"),
+                )
+                .await
+                .unwrap();
+        }
+
+        let refreshed = store.daemon_key(&known.fingerprint).await.unwrap();
+        assert_eq!(refreshed, Some(key));
+        let daemon = store
+            .known_daemons()
+            .await
+            .into_iter()
+            .find(|daemon| daemon.fingerprint == known.fingerprint)
+            .unwrap();
+        assert_eq!(daemon.route_hints.len(), EXPECTED_MAX_ROUTE_HINTS);
+        assert!(!daemon.route_hints.contains(&"wss://route-0.example/".to_string()));
+        assert!(
+            daemon
+                .route_hints
+                .contains(&format!("wss://route-{EXPECTED_MAX_ROUTE_HINTS}.example/"))
+        );
+    }
+
     #[test]
     fn identity_debug_output_redacts_keys_secrets_and_route_credentials() {
         let relay = EnrollmentRelayAccess {
