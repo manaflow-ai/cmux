@@ -149,34 +149,45 @@ export async function runCoderouterAlertChecks(
       checkedAt: new Date().toISOString(),
     };
   });
-  if (health.status !== "ok") {
-    const failing = health.checks.filter((check) => !check.ok);
-    await send({
+  const healthAlert: AlertInput | undefined = health.status !== "ok"
+    ? {
       key: "coderouter-health",
       title: health.status === "down" ? "coderouter is down" : "coderouter is degraded",
-      body: failing.map((check) => `${check.name}: ${check.reason ?? "failed"}`).join("; "),
+      body: health.checks
+        .filter((check) => !check.ok)
+        .map((check) => `${check.name}: ${check.reason ?? "failed"}`)
+        .join("; "),
       severity: health.status === "down" ? "critical" : "warning",
-    });
-  }
+    }
+    : undefined;
 
   const events = await (dependencies.routeEvents ?? ((minutes) => loadRouteEvents(minutes, dependencies.clickHouse)))(
     CODEROUTER_ALERT_WINDOW_MINUTES,
   );
   const checks: CoderouterAlertCheck[] = [];
   if (!events.ok) {
-    // The ledger is also the customer's usage source, so an unreachable
-    // ClickHouse is an incident even when routing still works. The health
-    // probe already alerted when the config is missing or the ping failed;
-    // this covers a reachable service that rejects the query.
-    if (health.checks.find((check) => check.name === "clickhouse")?.ok !== false) {
+    const clickhouseDown = health.checks.find((check) => check.name === "clickhouse")?.ok === false;
+    const ledgerAlert: AlertInput = {
+      key: "coderouter-ledger-unreachable",
+      title: "coderouter usage ledger query failed",
+      body: `ClickHouse route_events query failed: ${events.reason}. Usage and alerts are dark.`,
+      severity: "critical",
+    };
+    if (clickhouseDown && healthAlert) {
+      // The probe and query describe one ClickHouse outage. Send one alert,
+      // upgraded to critical, instead of a degraded warning plus a duplicate.
       await send({
-        key: "coderouter-ledger-unreachable",
-        title: "coderouter usage ledger query failed",
-        body: `ClickHouse route_events query failed: ${events.reason}. Usage and alerts are dark.`,
+        ...healthAlert,
+        title: `${healthAlert.title}; usage ledger unavailable`,
+        body: `${healthAlert.body}; ${ledgerAlert.body}`,
         severity: "critical",
       });
+    } else {
+      if (healthAlert) await send(healthAlert);
+      await send(ledgerAlert);
     }
   } else {
+    if (healthAlert) await send(healthAlert);
     const rows = events.rows;
     const counts = aggregateRouteEvents(rows);
     const evaluate = async (

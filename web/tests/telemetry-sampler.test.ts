@@ -52,7 +52,7 @@ describe("buildCmuxTraceSampler", () => {
     expect(isPriorityPath("/v1/models?x=1")).toBe(true);
     expect(isPriorityPath("/v10/models")).toBe(false);
     expect(isPriorityPath("/api/coderouterx")).toBe(false);
-    expect(isPrioritySpan("GET /api/coderouter/health", { "cmux.coderouter.priority": false })).toBe(false);
+    expect(isPrioritySpan("GET /api/coderouter/health", { "cmux.priority": false })).toBe(false);
   });
 
   test("a client-sent sampled traceparent cannot bypass the ratio", () => {

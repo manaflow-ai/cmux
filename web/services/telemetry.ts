@@ -21,6 +21,10 @@ export const SPAN_ID_RESPONSE_HEADER = "x-cmux-span-id";
 type AttributeValue = string | number | boolean;
 export type MaybeAttributes = Record<string, AttributeValue | null | undefined>;
 export type SpanCallback<T> = (span: Span) => T | Promise<T>;
+export type ApiRouteSpanOptions = {
+  /** Override the path-based priority decision for high-volume endpoints. */
+  readonly priority?: boolean;
+};
 
 export async function withSpan<T>(
   tracerName: string,
@@ -54,6 +58,7 @@ export async function withApiRouteSpan<T extends Response>(
   route: string,
   attributes: MaybeAttributes,
   fn: SpanCallback<T>,
+  options: ApiRouteSpanOptions = {},
 ): Promise<T> {
   const path = requestPath(request);
   // Cloud VM and coderouter API spans must survive head sampling even when
@@ -61,8 +66,9 @@ export async function withApiRouteSpan<T extends Response>(
   // their own trace (linked back to the dropped one) so the priority sampler
   // sees the subsystem attributes on a root span and keeps the whole subtree.
   const parent = trace.getSpanContext(otelContext.active());
+  const priority = options.priority ?? isPriorityPath(route);
   const reRoot =
-    isPriorityPath(route) &&
+    priority &&
     parent !== undefined &&
     (parent.traceFlags & TraceFlags.SAMPLED) === 0;
   const links = reRoot && trace.isSpanContextValid(parent) ? [{ context: parent }] : undefined;
@@ -76,6 +82,7 @@ export async function withApiRouteSpan<T extends Response>(
       "http.route": route,
       "url.path": path,
       ...attributes,
+      ...(options.priority === undefined ? {} : { "cmux.priority": options.priority }),
     },
     async (span) => {
       const response = await fn(span);

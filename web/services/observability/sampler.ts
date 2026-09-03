@@ -48,6 +48,9 @@ export function isVmPrioritySpan(spanName: string, attributes: Attributes): bool
 }
 
 export function isPrioritySpan(spanName: string, attributes: Attributes): boolean {
+  // A high-volume endpoint can opt out of the always-kept path set while
+  // retaining the same route wrapper and response headers.
+  if (attributes["cmux.priority"] === false) return false;
   const subsystem = attributes["cmux.subsystem"];
   if (typeof subsystem === "string" && PRIORITY_SUBSYSTEMS.has(subsystem)) return true;
   for (const key of PRIORITY_PATH_ATTRIBUTE_KEYS) {

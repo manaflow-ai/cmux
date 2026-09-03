@@ -400,6 +400,13 @@ function derivedOutcome(
 
 export type CoderouterRouteHandler<Context> = (request: Request, context: Context) => Promise<Response>;
 
+export type CoderouterRouteTelemetryOptions = {
+  /** Limit raw telemetry and priority sampling for high-volume routes. */
+  readonly sampleEveryMs?: number;
+  /** Override path-based priority sampling for this route. */
+  readonly priority?: boolean;
+};
+
 export type CoderouterRouteOptions = {
   readonly surface: CoderouterSurface;
   /** Route pattern for the span name and PostHog, e.g. `/v1/messages`. */
@@ -409,7 +416,10 @@ export type CoderouterRouteOptions = {
    * (Anthropic clients need `{type:"error",...}`). Always a 503.
    */
   readonly unavailable: (request: Request) => Response;
+  readonly telemetry?: CoderouterRouteTelemetryOptions;
 };
+
+const routeTelemetrySampledAt = new Map<string, number>();
 
 /** The generic 503 body every non-Anthropic coderouter surface uses. */
 export function coderouterUnavailable(): Response {
@@ -424,8 +434,9 @@ export function coderouterControlRoute<Context = unknown>(
   surface: CoderouterSurface,
   route: string,
   handler: CoderouterRouteHandler<Context>,
+  telemetry?: CoderouterRouteTelemetryOptions,
 ): (request: Request, context?: Context) => Promise<Response> {
-  return withCoderouterRoute({ surface, route, unavailable: coderouterUnavailable }, handler);
+  return withCoderouterRoute({ surface, route, unavailable: coderouterUnavailable, telemetry }, handler);
 }
 
 /**
@@ -478,9 +489,10 @@ export function withCoderouterRoute<Context = unknown>(
             }
           }
           response = withRequestIdHeader(response, context.requestId);
-          finalize(context, span, response, thrown);
+          finalize(context, span, response, thrown, options.telemetry);
           return response;
         },
+        { priority: options.telemetry?.priority },
       ));
   };
 }
@@ -502,7 +514,13 @@ function withRequestIdHeader(response: Response, requestId: string): Response {
   }
 }
 
-function finalize(context: CoderouterRequestContext, span: Span, response: Response, thrown: unknown): void {
+function finalize(
+  context: CoderouterRequestContext,
+  span: Span,
+  response: Response,
+  thrown: unknown,
+  telemetry?: CoderouterRouteTelemetryOptions,
+): void {
   const durationMs = Math.round((performance.now() - context.startedAt) * 100) / 100;
   const status = response.status;
   const outcome = thrown !== undefined || context.outcome === undefined
@@ -527,12 +545,28 @@ function finalize(context: CoderouterRequestContext, span: Span, response: Respo
     fault,
     duration_ms: durationMs,
   }, fault === "operator" ? "error" : fault === "none" || fault === "caller" ? "info" : "warning");
-  analytics.captureCoderouterRawBatch?.(traceEvents(context, { status, durationMs, error: thrown }));
+  if (shouldCaptureRouteTelemetry(context, telemetry)) {
+    analytics.captureCoderouterRawBatch?.(traceEvents(context, { status, durationMs, error: thrown }));
+  }
   if (fault !== "none" && fault !== "caller") {
     // An error-heavy instance can lose its deferred span export; flush now
     // so the Axiom trace behind the request id exists when someone looks.
     scheduleTraceFlush();
   }
+}
+
+function shouldCaptureRouteTelemetry(
+  context: CoderouterRequestContext,
+  telemetry?: CoderouterRouteTelemetryOptions,
+): boolean {
+  const interval = telemetry?.sampleEveryMs;
+  if (interval === undefined || !Number.isFinite(interval) || interval <= 0) return true;
+  const key = `${context.surface}:${context.route}`;
+  const now = Date.now();
+  const previous = routeTelemetrySampledAt.get(key);
+  if (previous !== undefined && now - previous < interval) return false;
+  routeTelemetrySampledAt.set(key, now);
+  return true;
 }
 
 /** Coalesces outage-time exporter flushes to one callback per runtime turn. */

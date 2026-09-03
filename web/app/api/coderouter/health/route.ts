@@ -31,6 +31,6 @@ export const GET = coderouterControlRoute("health", "/api/coderouter/health", as
     status,
     headers: { "cache-control": "no-store" },
   });
-});
+}, { sampleEveryMs: 5_000, priority: false });
 
 const cachedCoderouterHealth = createCachedCoderouterHealthProbe(coderouterHealth);
