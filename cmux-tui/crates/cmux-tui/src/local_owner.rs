@@ -92,6 +92,7 @@ pub(crate) struct EnsuredOwnerHandle {
     generation: String,
     state_root: Option<PathBuf>,
     owned: bool,
+    start_marker: Option<String>,
 }
 
 impl EnsuredOwnerHandle {
@@ -151,14 +152,16 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
-        if !exited && owner_process_is_bench(self.pid) {
+        if !exited && owner_process_matches(self.pid, self.start_marker.as_deref()) {
             let pid = self.pid.to_string();
             let _ = Command::new("kill").args(["-TERM", &pid]).status();
             let kill_deadline = Instant::now() + Duration::from_millis(250);
-            while Instant::now() < kill_deadline && owner_process_is_bench(self.pid) {
+            while Instant::now() < kill_deadline
+                && owner_process_matches(self.pid, self.start_marker.as_deref())
+            {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            if owner_process_is_bench(self.pid) {
+            if owner_process_matches(self.pid, self.start_marker.as_deref()) {
                 let _ = Command::new("kill").args(["-KILL", &pid]).status();
             }
             exited = !owner_process_is_alive(self.pid);
@@ -188,15 +191,28 @@ fn owner_process_is_alive(pid: u64) -> bool {
         .unwrap_or(true)
 }
 
-fn owner_process_is_bench(pid: u64) -> bool {
+fn owner_process_matches(pid: u64, start_marker: Option<&str>) -> bool {
     Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "command="])
+        .args(["-p", &pid.to_string(), "-o", "lstart=,command="])
         .output()
         .map(|output| {
-            let command = String::from_utf8_lossy(&output.stdout);
-            output.status.success() && command.contains("cmux-tui") && command.contains("--headless")
+            let output = String::from_utf8_lossy(&output.stdout);
+            let Some(marker) = start_marker else { return false };
+            output.contains(marker)
+                && output.contains("cmux-tui")
+                && output.contains("--headless")
         })
         .unwrap_or(false)
+}
+
+fn process_start_marker(pid: u64) -> Option<String> {
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|marker| !marker.is_empty())
 }
 
 /// Spawn (or adopt) a headless owner for a bench session and return a handle
@@ -232,6 +248,7 @@ pub(crate) fn ensure_owner_for_bench(
                 generation: ready.generation,
                 state_root: None,
                 owned: false,
+                start_marker: None,
             })
         }
         Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
@@ -239,6 +256,7 @@ pub(crate) fn ensure_owner_for_bench(
             generation: ready.generation,
             state_root: Some(state_root),
             owned: true,
+            start_marker: process_start_marker(ready.pid),
         }),
         Err(error) => {
             let _ = std::fs::remove_dir_all(&state_root);
