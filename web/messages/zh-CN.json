@@ -1876,8 +1876,6 @@
     "metaDescription": "下载 cmux NIGHTLY，从最新 main 提交自动构建的独立应用。与稳定版并行运行，拥有独立的自动更新。",
     "description": "cmux NIGHTLY 从 main 的最新提交自动构建。它拥有独立的 Bundle ID，因此可以与稳定版并行运行，互不冲突。用它来测试尚未发布的新功能。",
     "download": "下载 Mac 版 NIGHTLY",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "每夜构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
   },
   "languageSwitcher": {
