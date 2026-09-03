@@ -65,7 +65,7 @@ impl Drop for ProviderMachineConnectionLease {
         // into a short-lived worker, preserving ownership until the RPC ends.
         let client = Arc::clone(&self.open.client);
         let connection_id = self.open.connection_id.clone();
-        let _ = std::thread::Builder::new()
+        if let Err(error) = std::thread::Builder::new()
             .name("provider-close-machine".into())
             .spawn(move || {
                 if let Err(error) = client.close_machine(connection_id) {
@@ -74,7 +74,13 @@ impl Drop for ProviderMachineConnectionLease {
                         "cmux-tui: failed to close provider machine connection: {error}"
                     );
                 }
-            });
+            })
+        {
+            crate::client_log::stderr_log!(
+                "provider",
+                "cmux-tui: failed to schedule provider machine close: {error}"
+            );
+        }
     }
 }
 
