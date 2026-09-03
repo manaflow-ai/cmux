@@ -89,5 +89,27 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Nested topology (Herdr): provider-owned virtual descendants under a host
+    /// terminal surface (sidebar subtree, `nested.topology.list`, and
+    /// capability-gated `nested.node.focus`). Defaults off; while off, nested
+    /// UI and socket methods return disabled so existing workspace/surface
+    /// selection is unaffected.
+    public let nestedTopology = DefaultsKey<Bool>(
+        id: "nestedTopology.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "nestedTopology.beta.enabled"
+    )
+
+    /// Native Herdr ssh-tmux parity mirror over a local Unix socket (not the
+    /// nested sidebar attachment). Sessions appear as sidebar workspaces, Herdr
+    /// tabs as cmux tabs, and Herdr panes as Bonsplit splits with real
+    /// TerminalPanels. Defaults off; while off, every `remote.herdr.*` entry
+    /// point is gated (unless nested topology is enabled as a shared beta).
+    public let remoteHerdrMirror = DefaultsKey<Bool>(
+        id: "remoteHerdrMirror.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteHerdrMirror.beta.enabled"
+    )
+
     public init() {}
 }

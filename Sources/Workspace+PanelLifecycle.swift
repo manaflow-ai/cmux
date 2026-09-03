@@ -460,8 +460,21 @@ extension Workspace {
                 panelID: panelId
             )
         }
+        // Capture stable surface identity before panel teardown so nested
+        // attachment restore / live observers can cancel without Bonsplit ownership.
+        let nestedHostStableSurfaceID: UUID? = {
+            guard closePanel, let terminal = panel as? TerminalPanel else { return nil }
+            return terminal.stableSurfaceId
+        }()
+
         if closePanel {
             panel?.close()
+        }
+
+        if let nestedHostStableSurfaceID, NestedTopologyController.isEnabled {
+            AppDelegate.shared?.nestedTopologyController.enqueueHostSurfaceClosed(
+                hostStableSurfaceID: nestedHostStableSurfaceID
+            )
         }
 
         let shouldPreserveRemoteDisconnectOnClose =
