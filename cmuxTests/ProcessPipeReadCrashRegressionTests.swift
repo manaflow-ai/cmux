@@ -85,6 +85,21 @@ struct ProcessPipeReadCrashRegressionTests {
     }
 
     @Test
+    func testProcessOutputCollectorKeepsValidBytesAfterMalformedMultibyteSequence() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr)
+        collector.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data([0xE2, 0x82, 0x41]))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        let result = collector.finishResult()
+
+        #expect(result.stdout == "A")
+    }
+
+    @Test
     func testProcessOutputCollectorDeliversStderrProgressToLiveConsumer() {
         let stdout = Pipe()
         let stderr = Pipe()
