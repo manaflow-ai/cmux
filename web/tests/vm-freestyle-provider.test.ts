@@ -1,17 +1,21 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import type { Freestyle } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FreestyleProvider,
+  PORT_OPEN_LEASE_TTL_SECONDS,
   assertNoRouteTokenInGuestPayload,
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
+  freestyleRouteAddressesFromMetadata,
   freestyleDaemonHealthyCommand,
-  freestyleEdgeProbeCommand,
+  freestyleDesktopHealCommand,
   freestyleEdgeRules,
   freestyleFirewallRules,
+  freestylePortAddress,
+  freestylePortUrls,
   freestyleResizeRequest,
   freestyleStartDaemonCommand,
   freestyleTargetResources,
@@ -22,6 +26,7 @@ import {
 } from "../services/vms/drivers/freestyle";
 import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
+import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -288,14 +293,6 @@ describe("Freestyle platform contract", () => {
     expect(() => freestyleEdgeRules([{ ...EDGE_RULE, domain: "x; rm -rf /" }])).toThrow(ProviderError);
   });
 
-  test("edge probe is one bounded guest loop against the rule's host, with no token in it", () => {
-    const command = freestyleEdgeProbeCommand("coderouter.dev");
-    expect(command).toBe(
-      "for i in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 -H 'authorization: Bearer cmux-vm-edge-placeholder' https://coderouter.dev/api/coderouter/vm-usage/self && exit 0; sleep 2; done; exit 1",
-    );
-    expect(command).not.toContain("crt_");
-    expect(() => freestyleEdgeProbeCommand("bad host")).toThrow(ProviderError);
-  });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
     expect(normalizeFreestyleExecTimeout(undefined)).toBe(30_000);
@@ -314,7 +311,7 @@ describe("Freestyle platform contract", () => {
 });
 
 describe("FreestyleProvider create with edge rules", () => {
-  test("passes the rule inline, writes placeholder env only, probes, and returns the machine", async () => {
+  test("passes the rule inline, writes placeholder env only, runs no probe, and returns the machine", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
@@ -339,7 +336,7 @@ describe("FreestyleProvider create with edge rules", () => {
         content: renderFreestyleModelPlaneEnvFile(PLACEHOLDER_ENVS)!,
       },
     ]);
-    expect(fake.execs.some((command) => command.includes("https://coderouter.dev/api/coderouter/vm-usage/self"))).toBe(true);
+    expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.deletes).toEqual([]);
   });
 
@@ -368,16 +365,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toEqual([]);
   });
 
-  test("rolls the machine back when the edge probe never succeeds", async () => {
-    const fake = fakeFreestyle({ probeExit: 1 });
-    const failure = await providerWith(fake)
-      .create({ image: "sh-devbox", envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] })
-      .catch((err: unknown) => err);
-    expect(failure).toBeInstanceOf(ProviderError);
-    expect((failure as ProviderError).message).toContain("edge rule for coderouter.dev");
-    expect((failure as ProviderError).message).toContain("inactive");
-    expect(fake.deletes).toEqual([VM_ID]);
-  });
 
   test("refuses to create when an env value is a route token", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
@@ -392,7 +379,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.deletes).toEqual([VM_ID]);
   });
 
-  test("restore passes the rule inline, writes the new env, probes, and rolls back on failure", async () => {
+  test("restore passes the rule inline and writes the new env", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
@@ -400,12 +387,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(ok.writes.map((write) => write.path)).toEqual(["/root/.config/cmux/model-plane.env"]);
     expect(JSON.stringify(ok.writes)).not.toContain("crt_");
     expect(ok.deletes).toEqual([]);
-
-    const bad = fakeFreestyle({ probeExit: 1 });
-    await expect(
-      providerWith(bad).restore("snap-1", { envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] }),
-    ).rejects.toThrow("inactive");
-    expect(bad.deletes).toEqual([VM_ID]);
   });
 });
 
@@ -413,6 +394,15 @@ const driverSource = readFileSync(
   path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
   "utf8",
 );
+
+describe("Freestyle attach route source", () => {
+  test("attach builds the route from the persisted row addresses, falling back to the provider only without them", () => {
+    expect(freestyleRouteAddressesFromMetadata({ networkIpv4: "10.0.0.5", networkIpv6: "fd00::5" })).toEqual({ vpcs: [{ ipv4: "10.0.0.5", ipv6: "fd00::5" }] });
+    expect(freestyleCmuxRemoteRoute(freestyleRouteAddressesFromMetadata({ networkIpv4: " 10.0.0.5 " })!, VM_ID)).toBe("ws://10.0.0.5:1337/v1/link");
+    expect(freestyleRouteAddressesFromMetadata({ networkId: "vpc-1" })).toBeNull();
+    expect(freestyleRouteAddressesFromMetadata(undefined)).toBeNull();
+  });
+});
 
 describe("Freestyle client configuration", () => {
   test("every guest exec is pinned to root", () => {
@@ -476,5 +466,90 @@ describe("Freestyle machine sizing", () => {
       { cpu: 5, memory: 20480, storage: 16384 },
       { cpu: 5, memory: 20480, storage: 204800 },
     )).toEqual({ storage: 204800 });
+  });
+});
+
+// The desktop and forwarded ports travel the daemon's private path: the URL
+// is the machine's VPC address over the owner's tunnel, nothing is minted at
+// the platform and nothing public is opened. noVNC on 6901 has no auth of
+// its own, so a machine outside a private network gets no URL at all.
+describe("Freestyle port open: the private address, the desktop healed", () => {
+  const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
+
+  /** A fake SDK client for one machine: `data()` answers `input.data`, the desktop heal exec exits `input.healExit`. */
+  function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
+    const execs: string[] = [];
+    const vm = {
+      data: async () => input.data,
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        const exit = command.includes(`systemctl start`) ? (input.healExit ?? 0) : 0;
+        return { statusCode: exit, stdout: "", stderr: exit === 0 ? "" : "desktop down" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    return { provider: new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } }), execs };
+  }
+
+  test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
+    expect(freestylePortAddress(PRIVATE, VM_ID)).toBe("10.4.0.7");
+    expect(freestylePortAddress({ vpcs: [{ ipv6: "fd00:4::7" }] }, VM_ID)).toBe("fd00:4::7");
+    expect(() => freestylePortAddress({ publicIpv6: "2602:f75c:0:1::2a", vpcs: [] }, VM_ID)).toThrow(ProviderError);
+    expect(() => freestylePortAddress({ publicIpv6: "2602:f75c:0:1::2a", vpcs: [] }, VM_ID)).toThrow(/not on a private network/);
+    expect(() => freestylePortAddress({ vpcs: [{}] }, VM_ID)).toThrow(/holds no address/);
+    // The deprecated `networks` alias still counts.
+    expect(freestylePortAddress({ networks: [{ ipv4: "10.4.0.9" }] }, VM_ID)).toBe("10.4.0.9");
+  });
+
+  test("urls: the desktop port opens the noVNC page with a query to extend; other ports the bare origin", () => {
+    expect(freestylePortUrls(PRIVATE, VM_ID, DEVBOX_DESKTOP_NOVNC_PORT)).toEqual({
+      url: "http://10.4.0.7:6901/",
+      openUrl: "http://10.4.0.7:6901/vnc.html?path=websockify",
+    });
+    expect(freestylePortUrls(PRIVATE, VM_ID, 3000)).toEqual({ url: "http://10.4.0.7:3000/", openUrl: "http://10.4.0.7:3000/" });
+    expect(freestylePortUrls({ vpcs: [{ ipv6: "fd00:4::7" }] }, VM_ID, 3000).url).toBe("http://[fd00:4::7]:3000/");
+  });
+
+  test("the desktop heal blocks on the unit's readiness signal, never a sleep loop, and tells a base image apart", () => {
+    const command = freestyleDesktopHealCommand();
+    expect(command).toBe(
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':6901 '",
+    );
+    expect(command).not.toContain("sleep");
+    expect(command).not.toContain("seq ");
+  });
+
+  test("openPort(6901) heals the desktop, returns the private noVNC URL and a ledger-only token with the lease TTL", async () => {
+    const fake = portFake({ data: PRIVATE });
+    const now = new Date("2026-09-03T00:00:00.000Z");
+    setSystemTime(now);
+    try {
+      const endpoint = await fake.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT);
+      expect(endpoint.url).toBe("http://10.4.0.7:6901/");
+      expect(endpoint.openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+      expect(endpoint.token).toMatch(/^cmux-freestyle-port-[0-9a-f]{64}$/);
+      expect(endpoint.expiresAtMs).toBe(now.getTime() + PORT_OPEN_LEASE_TTL_SECONDS * 1000);
+      expect(fake.execs).toEqual([freestyleDesktopHealCommand()]);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("openPort for a dev server port runs no guest command at all", async () => {
+    const fake = portFake({ data: PRIVATE });
+    const endpoint = await fake.provider.openPort(VM_ID, 3000);
+    expect(endpoint.openUrl).toBe("http://10.4.0.7:3000/");
+    expect(fake.execs).toEqual([]);
+  });
+
+  test("openPort refuses a machine outside a private network, the daemon port, and a base image", async () => {
+    await expect(portFake({ data: { publicIpv6: "2602:f75c:0:1::2a", vpcs: [] } }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/not on a private network/);
+    await expect(portFake({ data: PRIVATE }).provider.openPort(VM_ID, 1337)).rejects.toThrow(/other than the daemon/);
+    await expect(portFake({ data: PRIVATE }).provider.openPort(VM_ID, 0)).rejects.toThrow(ProviderError);
+    await expect(portFake({ data: PRIVATE, healExit: 3 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/has no desktop/);
+    await expect(portFake({ data: PRIVATE, healExit: 1 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/did not come up on port 6901/);
   });
 });

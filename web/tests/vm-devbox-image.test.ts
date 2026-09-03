@@ -198,6 +198,23 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
+  test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
+    // freestyle/ubuntu is Ubuntu 24.04; the reference recipe builds on the
+    // same distro so its package names, the Ghostty .deb and the desktop
+    // stack are exactly what the bake installs (desktop pins are read from
+    // this file: vm-devbox-desktop.test.ts).
+    expect(dockerfile).toMatch(/^FROM ubuntu:24\.04$/m);
+    expect(dockerfile).toContain("ARG CMUX_IMAGE_DESKTOP_PACKAGES=");
+    expect(dockerfile).toContain("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=");
+    // The work user is the uid-1000 account (ubuntu on both), with the
+    // passwordless sudo Freestyle's base already grants it.
+    expect(dockerfile).toContain('work_user="$(getent passwd 1000 | cut -d: -f1)"');
+    expect(dockerfile).toContain('echo "$work_user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-work-user-nopasswd');
+    // ss for the desktop's port probes (start-vnc.sh) on both recipes.
+    expect(dockerfile).toContain("iproute2");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("iproute2");
+  });
+
   test("stays within the Dockerfile portability restrictions", () => {
     // These began as E2B Dockerfile-parser limits and are kept because the
     // Freestyle replay executes the same instructions over exec: backslash
@@ -244,6 +261,10 @@ describe("devbox image template", () => {
     // daemon that belongs to another machine (a clone of a live machine).
     expect(devboxBoot).toContain("daemon_pid=$!");
     expect(devboxBoot).toContain("stop_daemon");
+    // The desktop it may start (containers only) is a sibling, never wired
+    // into the daemon's command or lifecycle.
+    expect(devboxBoot).toContain("start_desktop");
+    expect(devboxBoot.split("start_desktop").length - 1).toBe(2);
     // The Freestyle bake installs the pin with the driver's own install
     // command, proves the daemon, and parks it before the snapshot; the size
     // derive parks before each of its snapshots too.

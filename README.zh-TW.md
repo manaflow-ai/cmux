@@ -242,7 +242,7 @@ cmux 是原語，而非解決方案。它提供終端機、瀏覽器、通知、
 
 ## 每夜建置
 
-[下載 cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[下載 cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY 是一個擁有獨立 Bundle ID 的單獨應用程式，因此可以與穩定版並行執行。它從最新的 `main` 提交自動建置，並透過獨立的 Sparkle 更新來源自動更新。
 

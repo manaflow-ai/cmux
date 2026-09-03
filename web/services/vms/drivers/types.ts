@@ -81,6 +81,13 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
+   */
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
    * Machine-level environment delivered at create time (the coderouter
    * model-plane env: OPENAI_BASE_URL plus placeholder keys). Treat values as
    * secrets anyway: drivers pass them to the provider's create call or write
@@ -346,7 +353,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */

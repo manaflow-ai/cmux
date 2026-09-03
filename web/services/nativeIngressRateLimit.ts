@@ -1,6 +1,13 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { jsonResponse } from "./vms/routeHelpers";
 
+/**
+ * How long a throttled native client is told to wait. Long enough that an
+ * unbounded retry loop stops costing us, short enough that a Mac whose routes
+ * really did change republishes them promptly.
+ */
+const NATIVE_INGRESS_RETRY_AFTER_SECONDS = 60;
+
 export type NativeIngressRateLimitCheck = (
   id: string,
   options: { request: Request; rateLimitKey?: string },
@@ -40,7 +47,15 @@ export async function enforceNativeIngressRateLimit(input: {
   }
 
   if (result.rateLimited || result.error === "blocked") {
-    return jsonResponse({ error: "rate_limited" }, 429);
+    // A 429 with no Retry-After tells a client nothing, and the shipped iroh
+    // broker client only backs off when we name a delay: it parses this header
+    // into an account-scoped cooldown that survives relaunch. Sending it is
+    // the one throttle signal that reaches builds we cannot update.
+    return jsonResponse(
+      { error: "rate_limited" },
+      429,
+      { "retry-after": String(NATIVE_INGRESS_RETRY_AFTER_SECONDS) },
+    );
   }
   if (result.error === "not-found") {
     console.warn("native ingress rate-limit rule not found; failing open", {
