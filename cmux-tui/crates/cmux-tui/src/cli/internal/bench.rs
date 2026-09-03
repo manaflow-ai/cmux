@@ -483,8 +483,8 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     // Subscriber connection: timestamp every tree delta.
     let mut subscriber = Conn::open(&socket)?;
-    subscriber.identify()?;
-    subscriber.request(json!({"cmd":"subscribe","tree_events":"deltas"}))?;
+    subscriber.request_until(json!({"cmd":"identify"}), bench_deadline)?;
+    subscriber.request_until(json!({"cmd":"subscribe","tree_events":"deltas"}), bench_deadline)?;
     let events: Arc<Mutex<VisibilityIndex>> = Arc::new(Mutex::new(VisibilityIndex::default()));
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subscriber_thread = spawn_subscriber(subscriber, Arc::clone(&events), Arc::clone(&stop));
@@ -493,10 +493,12 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     // A baseline terminal to type into. Snapshot the terminal catalog first so
     // teardown can close exactly what this run created.
     let mut control = Conn::open(&socket)?;
-    control.identify()?;
-    let initial_terminals =
-        list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
-    let baseline = control.request(json!({"cmd":"new-workspace"}))?;
+    control.request_until(json!({"cmd":"identify"}), bench_deadline)?;
+    let initial_terminals = list_terminal_ids(&mut control, bench_deadline)?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let baseline = control.request_until(json!({"cmd":"new-workspace"}), bench_deadline)?;
     let Some(baseline_surface) = baseline["surface"].as_u64() else {
         cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
         return Err("baseline surface missing".into());
@@ -702,8 +704,11 @@ fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -
 }
 
 /// `(terminal_id, lifecycle)` for every terminal the daemon knows about.
-fn list_terminal_ids(conn: &mut Conn) -> Result<Vec<(String, String)>, String> {
-    let data = conn.request(json!({"cmd":"list-terminals"}))?;
+fn list_terminal_ids(
+    conn: &mut Conn,
+    deadline: Instant,
+) -> Result<Vec<(String, String)>, String> {
+    let data = conn.request_until(json!({"cmd":"list-terminals"}), deadline)?;
     Ok(data["terminals"]
         .as_array()
         .map(|terminals| {
@@ -733,7 +738,7 @@ fn close_created_terminals(
     deadline: Instant,
     owned_session: bool,
 ) {
-    let current = match list_terminal_ids(conn) {
+    let current = match list_terminal_ids(conn, deadline) {
         Ok(current) => current,
         Err(error) => {
             report.lock().unwrap().errors.push(format!("teardown list-terminals: {error}"));

@@ -151,6 +151,18 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
+        if !exited && owner_process_is_alive(self.pid) {
+            let pid = self.pid.to_string();
+            let _ = Command::new("kill").args(["-TERM", &pid]).status();
+            let kill_deadline = Instant::now() + Duration::from_millis(250);
+            while Instant::now() < kill_deadline && owner_process_is_alive(self.pid) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if owner_process_is_alive(self.pid) {
+                let _ = Command::new("kill").args(["-KILL", &pid]).status();
+            }
+            exited = !owner_process_is_alive(self.pid);
+        }
         if (exited || !owner_process_is_alive(self.pid))
             && let Some(root) = self.state_root
         {
