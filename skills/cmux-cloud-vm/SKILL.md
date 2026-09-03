@@ -51,7 +51,7 @@ cmux vm run -- uname -a                                  # routed, executed, exi
 cmux vm run --sync -- bun test                           # push cwd to work/<dir> first, run there
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
-cmux vm tree                                             # the surface catalog: This Mac, then every machine → workspaces → terminals, desktop, ports
+cmux vm tree                                             # the surface catalog: This Mac, then every machine → workspaces → ports → VNC displays → terminals
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 cmux cloud domains publish vivid-newt 3000                # public HTTPS hostname, personal access by default

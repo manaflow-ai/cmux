@@ -5936,13 +5936,12 @@ struct CMUXCLI {
                 // away from (the New Machine sheet) does not yank them back when it lands.
                 let focus = try parseCloudVMFocusOption(focusOpt, command: "vm new")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                // No provider ships a desktop image right now, so a bare `vm new`
-                // asks for a shell-only machine; requesting `--desktop` anyway fails
-                // closed with a server-side image config error rather than silently
-                // handing back a screenless box. Flip this back to desktop-by-default
-                // once a desktop image lands in the manifest.
-                // `--base`/`--no-desktop` stay accepted for scripts written against
-                // the old desktop default.
+                // A bare `vm new` deliberately asks for a shell-only machine on this
+                // rollout. `--desktop` requests a screen and is resolved by the
+                // deployment's image manifest; deployments without a desktop image
+                // fail closed with a typed image-config error instead of silently
+                // handing back a screenless box. `--base`/`--no-desktop` remain
+                // accepted for scripts written against the older desktop default.
                 _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
                 let desktop = hasFlag(rem2, name: "--desktop")
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
@@ -5970,8 +5969,8 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop, the default)
-                          --desktop         machine with a screen (no image available yet)
+                          --base            shell-only machine (the default)
+                          --desktop         machine with a screen (when the deployment offers one)
                           --size <20g|MB>
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -18696,8 +18695,8 @@ struct CMUXCLI {
                                         recoverable.
               new [--desktop|--base] [--size <20g|MB>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Create a new machine by kind (shell-only by
-                                        default; --desktop needs a desktop image and
-                                        no provider ships one today). The server
+                                        default; --desktop requests a screen when the
+                                        deployment offers a desktop image). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
                                         --focus false opens the machine without

@@ -35,6 +35,29 @@ cmux vm ls [--json]                    # alias: cmux vm list
 Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the plan meter (`N of M machines on the <plan> plan` when `limits.maxActiveVms` is set, `N machines on the <plan> plan, no limit` when it is absent) and, on free plans, when free cloud access expires. Empty: `No cloud VMs. Try: cmux vm new`.
 `--json`: `{vms: [{id, displayName?, status, provider, image, kind?, capabilities?: {snapshot, fork}, createdAt?, freeAccessExpiresAt?}], limits: {maxActiveVms, planId, freeAccessWindowDays?, freeAccessExpiresAt?}, imageKinds?}`. Sidebar: the Machines panel list.
 
+### Lifecycle and safety
+
+Create a machine only after `vm ls` shows the available plan capacity. A bare
+`vm new` requests a shell-only (`base`) machine on this branch; add
+`--desktop` when the selected deployment advertises a desktop image. Use
+`--detach` for a headless create, then wait for readiness before the first
+command:
+
+```bash
+cmux vm ls --json
+cmux vm new --detach --name "build box" --size 20g --json
+cmux vm wait <machine> --wake
+cmux vm status <machine>
+```
+
+`20g` is the only named size preset (the plan machine, 5 vCPU / 20 GB / 200
+GB); a raw memory value in MB is also accepted when the deployment allows it.
+`--name` changes the display label, never the generated machine id. Prefer a
+workspace on an existing machine for another task; use `vm fork` for an
+isolated experiment. `vm rm` permanently deletes the machine and its volume,
+so only remove a machine created for the current task and ask before touching
+someone else's machine or Base.
+
 ### `cmux vm new`
 
 ```bash
@@ -42,7 +65,7 @@ cmux vm new [--desktop|--base] [--size <20g|MB>] [--name <label>] [--provider <p
 # alias: cmux vm create
 ```
 
-Socket `vm.create` with the machine **kind** — shell-only (`base`) for a bare `vm new` today; `--desktop` asks for a machine with a screen (TigerVNC + openbox + noVNC on 6901; `--base`/`--no-desktop` explicitly ask for shell-only). The backend picks the image for the kind — today one devbox snapshot serves both kinds — and `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is `20g` (the 5 vCPU / 20 GB / 200 GB plan machine every plan sells) or raw MB ≥ 512; the backend resolves sizes to the plan machine, so 20g is the only preset. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
+Socket `vm.create` with the machine **kind** — shell-only (`base`) for a bare `vm new` on this rollout; `--desktop` requests a machine with a screen (TigerVNC + openbox + noVNC on 6901) when the deployment advertises that image (`--base`/`--no-desktop` explicitly ask for shell-only). The backend selects a kind-specific image from its manifest; `--image <id>` is the explicit override and the only way an image id leaves the client. If the requested kind is not offered, the server fails closed with an image-config error rather than silently returning the wrong shape. `--size` is `20g` (the 5 vCPU / 20 GB / 200 GB plan machine every plan sells) or raw MB ≥ 512; the backend resolves sizes to the plan machine, so 20g is the only preset. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
 Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); `--focus false` opens it without switching to its workspace (what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
 
 ### `cmux vm status`
@@ -241,14 +264,24 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
     tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
-    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
-      ● term_c04…  sleep 1000
-  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
     3000  http  (cmux vm open vivid-newt:port/3000)
+  VNC Displays/
+    ● display:1  Desktop  noVNC  (cmux surface open vivid-newt/display/display:1)
+  terminals/                                  ← every terminal resource the machine owns
+    ● term_2f9…  bun test  ~/work/app             ← shown in a workspace
+    (detached — no tab on the machine shows these)
+      ● term_c04…  sleep 1000
 ```
 
-The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
+The sidebar shows the same tree in the same order: the machine's **Workspaces**
+group first (always its own row, with a ＋ that is `vm workspace new`), then
+**Ports**, **VNC Displays**, and the final **Terminals** index (attached rows
+plus a greyed detached subgroup). Every sidebar verb has a CLI verb — see
+[sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take
+the `ws_…` id, or the workspace name only when exactly one workspace has it
+(colliding names need the id); an empty workspace still resolves, and `vm open`
+starts a shell in it.
 
 ### `cmux vm workspace new`
 
@@ -571,7 +604,7 @@ Verbs that exist only in an open PR. They are **not** on this branch; do not run
   - The `vm handoff` attach line switches from the ssh verb to the shell verb.
   - A guest `cmux` shim is installed at `/usr/local/bin/cmux` inside every machine (a POSIX wrapper over the machine's cmux-tui): its `vm` namespace lists the peer verbs (`cmux vm help` there) and the links granted to that machine, and in-VM `cmux notify` reaches the user's Mac as data — shown on the pane displaying that terminal (128 B title / 1 KiB body caps, burst-limited; Mac selectors and `--reply` are ignored there).
   - The Mac dispatcher gains a `vm help` sub-verb (the shipped `vm domains --help` is separate), and the guest shim exposes the same help inside a machine.
-  - A bare `vm new` flips to **desktop-by-default** (matching `vm base open`, which already is) — `--base`/`--no-desktop` become the way to ask for shell-only. docs/cli-contract.md already describes the flipped default; this branch's `vm new` still defaults to shell-only until that lands.
+  - A bare `vm new` flips to **desktop-by-default** (matching `vm base open`, which already is) — `--base`/`--no-desktop` become the way to ask for shell-only. This branch intentionally keeps the shell-only default until that rollout lands.
   - **Headless staging lands as first-class flags**: `vm workspace new <m> --no-open` (socket `open: false`) stages a machine workspace without opening a local one, and `vm agent --remote-workspace <ws>` lands the agent's terminal in a staged workspace instead of the detached pool — replacing the close-the-local-workspace and `surface new-terminal … sh -lc` workarounds in [agent-workflows.md §6b](agent-workflows.md).
 - **#11324** adds a top-level `cmux fork [--surface <id|ref>] <kind> <checkpoint-id>` that forks a persisted local **agent session** (the `cmux restore` family). It is not a cloud verb: the machine clone, `vm fork <id>`, is already in the reference above.
 - **#11347** tracks the live sidebar ↔ CLI parity loop. Its port-row/tree work is shipped here; check the issue for any newer route/socket follow-ups before assuming a future flag is available. #11300 and #11301 were superseded by #11345, which is merged and reflected above (`vm terminal send|read|wait`, the single sidebar Close Workspace…).
