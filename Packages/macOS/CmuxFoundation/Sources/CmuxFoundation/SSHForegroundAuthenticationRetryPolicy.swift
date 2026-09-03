@@ -331,7 +331,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     # Linux exposes pidfd_open and pidfd_send_signal at these
                     # stable syscall numbers. Older or sandboxed kernels can
                     # reject those calls, so the signal helper below performs
-                    # one more identity read before using Perl's kill fallback.
+                    # one more identity read before using the Perl kill fallback.
                     my $pidfd_open_syscall = 434;
                     my $pidfd_send_signal_syscall = 424;
                     sub read_identity {
@@ -1050,7 +1050,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               # Linux exposes pidfd_open and pidfd_send_signal at these stable
               # syscall numbers. Older or sandboxed kernels can reject those
               # calls, so the signal closure below performs one more identity
-              # read before using Perl's compatibility kill path.
+              # read before using the Perl compatibility kill path.
               my $pidfd_open_syscall = 434;
               my $pidfd_send_signal_syscall = 424;
               exit 2 unless exists $signals{$signal_name};
