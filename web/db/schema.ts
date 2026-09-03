@@ -1354,32 +1354,57 @@ export const cloudVmNotificationDeliveries = pgTable(
  * `coderouter_credentials`. `config` holds the non-secret part only
  * (Bedrock region, optional model id overrides).
  */
-export const coderouterClaudeUpstreams = pgTable(
-  "coderouter_claude_upstreams",
+export const coderouterClaudeAccounts = pgTable(
+  "coderouter_claude_accounts",
   {
-    teamId: text("team_id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
+    teamId: text("team_id").notNull(),
     kind: text("kind")
       .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
       .notNull(),
+    /** User-chosen name shown next to the masked identifier; may be empty. */
+    label: text("label").notNull().default(""),
+    /** Masked credential (`sk-ant-...ab12`), non-secret, computed at insert. */
+    identifier: text("identifier").notNull().default(""),
+    state: text("state").$type<"active" | "disabled">().notNull().default("active"),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
     ciphertext: text("ciphertext").notNull(),
     nonce: text("nonce").notNull(),
     authTag: text("auth_tag").notNull(),
     encryptedDataKey: text("encrypted_data_key").notNull(),
     kmsKeyId: text("kms_key_id").notNull(),
+    /**
+     * Which AAD/encryption-context binding the ciphertext carries: 1 = the
+     * single-upstream era (team, kind), 2 = (team, account id). Rows migrated
+     * from `coderouter_claude_upstreams` stay at 1 until re-encrypted.
+     */
+    aadVersion: integer("aad_version").notNull().default(2),
     config: jsonb("config").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-    updatedBy: text("updated_by").notNull(),
+    createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    index("coderouter_claude_accounts_team_state_idx").on(table.teamId, table.state),
+    index("coderouter_claude_accounts_cooldown_idx").on(table.cooldownUntil),
     check(
-      "coderouter_claude_upstreams_kind_check",
+      "coderouter_claude_accounts_kind_check",
       sql`${table.kind} IN ('anthropic_api_key', 'anthropic_oauth', 'bedrock')`,
     ),
     check(
-      "coderouter_claude_upstreams_algorithm_check",
+      "coderouter_claude_accounts_state_check",
+      sql`${table.state} IN ('active', 'disabled')`,
+    ),
+    check(
+      "coderouter_claude_accounts_algorithm_check",
       sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    check(
+      "coderouter_claude_accounts_aad_version_check",
+      sql`${table.aadVersion} IN (1, 2)`,
     ),
   ],
 );

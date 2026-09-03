@@ -35,6 +35,7 @@ import {
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import { context as otelContext } from "@opentelemetry/api";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_BINARY_PATH,
@@ -445,6 +446,27 @@ export function freestylePinCheckCommand(source: CmuxTuiSource): string {
   );
 }
 
+/** How long the heal lets a baked supervisor bring the daemon up before restarting it. */
+const DAEMON_SETTLE_TIMEOUT_MS = 3_000;
+
+/**
+ * Healthy now, or healthy within the settle budget on an image whose
+ * supervisor binds the daemon to the instance id (it ships
+ * /etc/cmux/bake-instance-id) and is active. A machine attached right after
+ * create is inside the sub-second window before that supervisor has started
+ * the daemon; restarting the unit there costs a second and a half, waiting
+ * costs a few hundred milliseconds. Older images take the immediate check.
+ */
+export function freestyleDaemonSettledCommand(): string {
+  const healthy = freestyleDaemonHealthyCommand();
+  const ticks = Math.floor(DAEMON_SETTLE_TIMEOUT_MS / 100);
+  return (
+    "if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon >/dev/null 2>&1; then " +
+    `for i in $(seq 1 ${ticks}); do { ${healthy}; } && exit 0; sleep 0.1; done; exit 1; ` +
+    `else ${healthy}; fi`
+  );
+}
+
 export function freestyleDaemonHealthyCommand(): string {
   // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
   // On an image whose supervisor binds the daemon identity to the instance id
@@ -733,15 +755,26 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
-            // CreateVmOptions has no size: a VM boots at its snapshot's
-            // resources (the devbox snapshot is 2 vCPU / 4 GB / 16 GB) and
-            // only a grow-only resize raises them. Size first so the machine
-            // the daemon comes up on is the one that was sold.
-            await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+            if (options.imageSize) {
+              // One snapshot per size: the machine already boots at the shape
+              // that was sold, so nothing is read back and nothing is grown.
+              setSpanAttributes(span, {
+                "cmux.vm.image_size": options.imageSize.name,
+                "cmux.vm.resources.cpu": options.imageSize.cpu,
+                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
+                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
+                "cmux.vm.resize.requested": false,
+              });
+            } else {
+              // A size-less image boots at its snapshot's resources and only a
+              // grow-only resize raises them. Size first so the machine the
+              // daemon comes up on is the one that was sold.
+              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+            }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
             if (options.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            await this.probeEdgeRules(vm, vmId, options.edgeRules);
+            await this.verifyEdgeRules(vm, vmId, options.edgeRules, options.afterResponse);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -965,7 +998,7 @@ export class FreestyleProvider implements VMProvider {
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
           try {
             if (options?.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            await this.probeEdgeRules(vm, vmId, options?.edgeRules);
+            await this.verifyEdgeRules(vm, vmId, options?.edgeRules, options?.afterResponse);
           } catch (err) {
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
@@ -1113,6 +1146,55 @@ export class FreestyleProvider implements VMProvider {
    * inside the guest before handing the machine out; an inactive rule means
    * the machine can never reach a model, so the caller rolls it back.
    */
+  /**
+   * The edge rule is written inline by vms.create, but Freestyle activates it
+   * asynchronously (seconds; measured 3 to 11 s in production). Blocking the
+   * create on that activation made the whole request wait for the edge, so
+   * with a scheduler the probe runs after the response and reports on its own
+   * span (`cmux.vm.provider.edge_probe`): success as an attribute, failure as
+   * a recorded span error plus a log line. Without a scheduler the probe is
+   * awaited and a failure rolls the machine back, as before.
+   */
+  private async verifyEdgeRules(
+    vm: Vm,
+    vmId: string,
+    edgeRules: readonly VmEdgeRule[] | undefined,
+    afterResponse: CreateOptions["afterResponse"],
+  ): Promise<void> {
+    if (!edgeRules || edgeRules.length === 0) return;
+    if (!afterResponse) {
+      await this.probeEdgeRules(vm, vmId, edgeRules);
+      return;
+    }
+    // The callback runs after the response, outside the request's active
+    // span, where a fresh root span would fall under the 2% default sampling
+    // and lose its attributes. Carry the request context so the probe span is
+    // a child of the create trace (sampled with it), and log the outcome too.
+    const requestContext = otelContext.active();
+    afterResponse(() =>
+      otelContext.with(requestContext, () =>
+        withVmSpan(
+          "cmux.vm.provider.edge_probe",
+          { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "edge_probe", "cmux.vm.id": vmId, "cmux.vm.edge_rules": edgeRules.length },
+          async (span) => {
+            const startedAt = performance.now();
+            try {
+              await this.probeEdgeRules(vm, vmId, edgeRules);
+              const ms = Math.round(performance.now() - startedAt);
+              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": true, "cmux.vm.edge_probe.ms": ms });
+              console.info("cmux vm edge probe", JSON.stringify({ vmId, ok: true, ms }));
+            } catch (err) {
+              const ms = Math.round(performance.now() - startedAt);
+              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": false, "cmux.vm.edge_probe.ms": ms });
+              recordSpanError(span, err);
+              console.error("cmux vm edge probe", JSON.stringify({ vmId, ok: false, ms, error: errorMessage(err) }));
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   private async probeEdgeRules(vm: Vm, vmId: string, edgeRules: readonly VmEdgeRule[] | undefined): Promise<void> {
     if (!edgeRules || edgeRules.length === 0) return;
     for (const rule of edgeRules) {
@@ -1137,7 +1219,7 @@ export class FreestyleProvider implements VMProvider {
    * the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
-    const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
+    const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
     const pinned = await this.execResult(vm, freestylePinCheckCommand(source));

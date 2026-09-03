@@ -287,6 +287,7 @@ function eventProperties(
       ]);
       if (!provider || !agent || !outcome || !failureStage) return null;
       const vmId = analyticsVmId(input.vm_id);
+      const upstreamAccount = analyticsVmId(input.upstream_account_id);
       return {
         provider,
         agent,
@@ -298,6 +299,7 @@ function eventProperties(
         refresh_bucket: attemptBucket(input.refresh_retry_count),
         response_streamed: input.response_streamed === true,
         ...(vmId ? { vm_id: vmId } : {}),
+        ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
       };
     }
     case "coderouter_cli_command_started":
@@ -390,6 +392,7 @@ function aiUsageProperties(
   });
   const vmId = analyticsVmId(input.vm_id);
   const upstreamKind = claudeUpstreamKind(input.upstream_kind);
+  const upstreamAccount = analyticsVmId(input.upstream_account_id);
   return {
     $ai_model: model,
     $ai_provider: provider,
@@ -407,6 +410,7 @@ function aiUsageProperties(
     coderouter_team_scope: teamScope,
     ...(vmId ? { coderouter_vm_id: vmId } : {}),
     ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
+    ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
   };
 }
 
