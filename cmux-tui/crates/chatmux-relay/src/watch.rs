@@ -202,12 +202,18 @@ fn watch_error_frame(
     code: wire::WorkspaceErrorCode,
     message: Option<&str>,
 ) -> String {
+    let message = match code {
+        wire::WorkspaceErrorCode::PathForbidden => {
+            Some("path is forbidden by the workspace policy".to_owned())
+        }
+        _ => message.map(str::to_owned),
+    };
     serde_json::to_string(&wire::RelayFsWatchError {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchError::FsWatchError,
         watch_id: watch_id.to_owned(),
         code,
-        message: message.map(str::to_owned),
+        message,
     })
     .unwrap_or_else(|_| String::new())
 }
@@ -1407,6 +1413,14 @@ mod tests {
         let refusal = next_frame(&mut critical, &mut watch, "refusal").await;
         assert_eq!(refusal["type"], "fs_watch_error");
         assert_eq!(refusal["code"], "path_forbidden");
+        assert_eq!(
+            refusal["message"],
+            "path is forbidden by the workspace policy"
+        );
+        assert!(
+            !refusal.to_string().contains(&root.to_string_lossy().to_string()),
+            "watch refusal must not disclose the local workspace path"
+        );
         // Session cap: the 17th watch refuses watch_limit.
         for index in 0..WATCH_MAX_SESSIONS {
             registry.open(open_frame(&format!("w{index}"), &root), None);
