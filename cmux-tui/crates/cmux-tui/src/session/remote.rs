@@ -514,6 +514,48 @@ struct PipeIoColorState {
     presence: PipeIoColorPresence,
 }
 
+#[derive(Default)]
+struct PipeIoCachedColor {
+    known: bool,
+    value: Option<Rgb>,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct PipeIoCachedCursorVisual {
+    known: bool,
+    value: Option<(CursorShape, bool)>,
+}
+
+#[derive(Default)]
+struct PipeIoCachedPaletteSet {
+    color: Rgb,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct PipeIoColorCache {
+    fg: PipeIoCachedColor,
+    bg: PipeIoCachedColor,
+    cursor: PipeIoCachedColor,
+    cursor_visual: PipeIoCachedCursorVisual,
+    palette: [Option<Rgb>; 256],
+    palette_known: bool,
+    palette_set_bytes: [Option<PipeIoCachedPaletteSet>; 256],
+    palette_reset_bytes: [Option<Vec<u8>>; 256],
+}
+
+impl PipeIoColorCache {
+    fn reset_for_replay(&mut self) {
+        self.fg.known = false;
+        self.bg.known = false;
+        self.cursor.known = false;
+        self.cursor_visual.known = false;
+        self.palette = [None; 256];
+        self.palette_known = false;
+    }
+}
+
 impl RemoteSurface {
     #[cfg(test)]
     fn run_geometry_test_hook(&self, step: RemoteGeometryTestStep) {
@@ -1876,11 +1918,10 @@ struct PipeIoTap {
     lifecycle_sender: EventSender<PipeIoEvent>,
     byte_budget: Arc<PipeIoByteBudget>,
     token: Arc<u8>,
-    // A pipe receives color state as VT sidecars. Keep the last sparse
-    // authored palette so a live replacement can reset only entries that
-    // disappeared, while omitted entries retain the embedder's theme.
-    palette: [Option<Rgb>; 256],
-    palette_known: bool,
+    // A pipe receives color state as VT sidecars. Cache the encoded fields and
+    // last sparse authored palette so unchanged live events do not allocate or
+    // append duplicate escape sequences.
+    color_cache: PipeIoColorCache,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -3567,8 +3608,7 @@ impl RemoteSession {
             lifecycle_sender,
             byte_budget,
             token: token.clone(),
-            palette: [None; 256],
-            palette_known: false,
+            color_cache: PipeIoColorCache::default(),
         });
         token
     }
@@ -3712,28 +3752,18 @@ impl RemoteSession {
                         // after the first one. The reset clears authored
                         // palette state, so replay the complete sparse set
                         // rather than diffing against the prior live state.
-                        append_pipe_io_colors(bytes, colors, None, true);
+                        append_pipe_io_colors(bytes, colors, &mut tap.color_cache, true);
                     }
                     PipeIoEvent::Output(bytes) => {
-                        let previous = tap.palette_known.then_some(&tap.palette);
-                        append_pipe_io_colors(bytes, colors, previous, false);
+                        append_pipe_io_colors(bytes, colors, &mut tap.color_cache, false);
                     }
                     _ => {}
                 }
-            }
-            if matches!(&event, PipeIoEvent::Replay { .. }) {
-                // A replay replaces the terminal. Without a palette field the
-                // server gave us no authoritative authored set, so do not
-                // compare a later sparse update with stale state.
-                tap.palette_known = colors.is_some_and(|colors| colors.presence.palette);
-                if let Some(colors) = colors.filter(|colors| colors.presence.palette) {
-                    tap.palette = colors.colors.palette;
-                } else {
-                    tap.palette = [None; 256];
-                }
-            } else if let Some(colors) = colors.filter(|colors| colors.presence.palette) {
-                tap.palette = colors.colors.palette;
-                tap.palette_known = true;
+            } else if matches!(&event, PipeIoEvent::Replay { .. }) {
+                // A replay replaces the terminal. Without a colors field the
+                // server gave us no authoritative state, so do not compare a
+                // later sparse update with stale values.
+                tap.color_cache.reset_for_replay();
             }
             if !tap.byte_budget.try_reserve_event(&mut event) {
                 Some(tap.token.clone())
@@ -4736,84 +4766,238 @@ fn parse_pipe_io_colors(value: &Value) -> Option<PipeIoColorState> {
 
 /// Append the VT sidecar needed by a raw pipe to adopt one protocol color
 /// transition. The JSON attach stream carries this state beside replay/output
-/// bytes, but a pipe embedder only receives bytes. Dynamic colors are emitted
-/// only when their field is present, allowing legacy live palette events to
-/// preserve omitted defaults and cursor metadata. A present sparse palette is
-/// a complete authored-override snapshot. On a live transition, reset only
+/// bytes, but a pipe embedder only receives bytes. Dynamic fields are cached
+/// per tap and emitted only when present and changed. A present sparse palette
+/// is a complete authored-override snapshot. On a live transition, reset only
 /// entries removed from the previous snapshot so omitted entries retain the
 /// embedder's theme. A replay has already reset the terminal, so it emits all
 /// current authored entries without a broad palette reset.
 fn append_pipe_io_colors(
     bytes: &mut Vec<u8>,
     state: &PipeIoColorState,
-    previous_palette: Option<&[Option<Rgb>; 256]>,
+    cache: &mut PipeIoColorCache,
     replay_reset: bool,
 ) {
-    fn dynamic_color(
-        bytes: &mut Vec<u8>,
-        present: bool,
-        set_code: u16,
-        reset_code: u16,
-        color: Option<Rgb>,
-    ) {
-        if !present {
-            return;
-        }
-        match color {
-            Some(color) => bytes.extend_from_slice(
-                format!(
-                    "\x1b]{set_code};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                    color.r, color.g, color.b
-                )
-                .as_bytes(),
-            ),
-            None => bytes.extend_from_slice(format!("\x1b]{reset_code}\x1b\\").as_bytes()),
-        }
+    if replay_reset {
+        cache.reset_for_replay();
     }
 
     let colors = &state.colors;
     let presence = state.presence;
-    dynamic_color(bytes, presence.fg, 10, 110, colors.fg);
-    dynamic_color(bytes, presence.bg, 11, 111, colors.bg);
-    dynamic_color(bytes, presence.cursor, 12, 112, colors.cursor);
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.fg,
+        presence.fg,
+        10,
+        110,
+        colors.fg,
+        replay_reset,
+    );
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.bg,
+        presence.bg,
+        11,
+        111,
+        colors.bg,
+        replay_reset,
+    );
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.cursor,
+        presence.cursor,
+        12,
+        112,
+        colors.cursor,
+        replay_reset,
+    );
 
-    if presence.cursor_visual
-        && let (Some(style), Some(blink)) = (colors.cursor_style, colors.cursor_blink)
-    {
-        let value = match (style, blink) {
-            (CursorShape::Block | CursorShape::BlockHollow, true) => 1,
-            (CursorShape::Block | CursorShape::BlockHollow, false) => 2,
-            (CursorShape::Underline, true) => 3,
-            (CursorShape::Underline, false) => 4,
-            (CursorShape::Bar, true) => 5,
-            (CursorShape::Bar, false) => 6,
-        };
-        // Reset any application-authored DECSCUSR before applying the
-        // resolved pair, matching apply_terminal_colors on local mirrors.
-        bytes.extend_from_slice(format!("\x1b[0 q\x1b[{value} q").as_bytes());
-    }
+    let cursor_visual = presence
+        .cursor_visual
+        .then(|| colors.cursor_style.zip(colors.cursor_blink).map(|(style, blink)| (style, blink)));
+    append_cached_pipe_io_cursor_visual(
+        bytes,
+        &mut cache.cursor_visual,
+        cursor_visual.flatten(),
+        replay_reset,
+    );
 
     if presence.palette {
-        for (index, color) in colors.palette.iter().enumerate() {
-            let previous = previous_palette.map(|palette| palette[index]);
-            if !replay_reset && previous == Some(*color) {
+        let previous_known = cache.palette_known;
+        for index in 0..256 {
+            let current = colors.palette[index];
+            let previous = previous_known.then_some(cache.palette[index]);
+            if !replay_reset && previous == Some(current) {
                 continue;
             }
-            match color {
-                Some(color) => bytes.extend_from_slice(
-                    format!(
-                        "\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                        color.r, color.g, color.b
-                    )
-                    .as_bytes(),
-                ),
+            match current {
+                Some(color) => {
+                    append_cached_pipe_io_palette_set(
+                        bytes,
+                        &mut cache.palette_set_bytes[index],
+                        index,
+                        color,
+                    );
+                }
                 None if previous.is_some_and(|color| color.is_some()) => {
-                    bytes.extend_from_slice(format!("\x1b]104;{index}\x1b\\").as_bytes());
+                    append_cached_pipe_io_palette_reset(
+                        bytes,
+                        &mut cache.palette_reset_bytes[index],
+                        index,
+                    );
                 }
                 None => {}
             }
         }
+        cache.palette = colors.palette;
+        cache.palette_known = true;
     }
+}
+
+fn append_cached_pipe_io_color(
+    bytes: &mut Vec<u8>,
+    cache: &mut PipeIoCachedColor,
+    present: bool,
+    set_code: u16,
+    reset_code: u16,
+    value: Option<Rgb>,
+    replay_reset: bool,
+) {
+    if replay_reset {
+        cache.known = false;
+    }
+    if !present {
+        return;
+    }
+    if !replay_reset && cache.known && cache.value == value {
+        return;
+    }
+    if cache.value != value || cache.bytes.is_empty() {
+        cache.value = value;
+        cache.bytes = pipe_io_dynamic_color_bytes(set_code, reset_code, value);
+    }
+    bytes.extend_from_slice(&cache.bytes);
+    cache.known = true;
+}
+
+fn append_cached_pipe_io_cursor_visual(
+    bytes: &mut Vec<u8>,
+    cache: &mut PipeIoCachedCursorVisual,
+    value: Option<(CursorShape, bool)>,
+    replay_reset: bool,
+) {
+    if replay_reset {
+        cache.known = false;
+    }
+    let Some(value) = value else { return };
+    if !replay_reset && cache.known && cache.value == Some(value) {
+        return;
+    }
+    // Reset any application-authored DECSCUSR before applying the resolved
+    // pair, matching apply_terminal_colors on local mirrors.
+    bytes.extend_from_slice(pipe_io_cursor_visual_bytes(value));
+    cache.value = Some(value);
+    cache.known = true;
+}
+
+fn append_cached_pipe_io_palette_set(
+    bytes: &mut Vec<u8>,
+    cache: &mut Option<PipeIoCachedPaletteSet>,
+    index: usize,
+    color: Rgb,
+) {
+    let needs_build = !cache.as_ref().is_some_and(|cached| cached.color == color);
+    if needs_build {
+        *cache =
+            Some(PipeIoCachedPaletteSet { color, bytes: pipe_io_palette_set_bytes(index, color) });
+    }
+    if let Some(cached) = cache.as_ref() {
+        bytes.extend_from_slice(&cached.bytes);
+    }
+}
+
+fn append_cached_pipe_io_palette_reset(
+    bytes: &mut Vec<u8>,
+    cache: &mut Option<Vec<u8>>,
+    index: usize,
+) {
+    if cache.is_none() {
+        *cache = Some(pipe_io_palette_reset_bytes(index));
+    }
+    if let Some(cached) = cache.as_ref() {
+        bytes.extend_from_slice(cached);
+    }
+}
+
+fn pipe_io_dynamic_color_bytes(set_code: u16, reset_code: u16, color: Option<Rgb>) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(24);
+    bytes.extend_from_slice(b"\x1b]");
+    if let Some(color) = color {
+        push_pipe_io_decimal(&mut bytes, set_code as usize);
+        bytes.extend_from_slice(b";rgb:");
+        push_pipe_io_hex_byte(&mut bytes, color.r);
+        bytes.push(b'/');
+        push_pipe_io_hex_byte(&mut bytes, color.g);
+        bytes.push(b'/');
+        push_pipe_io_hex_byte(&mut bytes, color.b);
+    } else {
+        push_pipe_io_decimal(&mut bytes, reset_code as usize);
+    }
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_palette_set_bytes(index: usize, color: Rgb) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(30);
+    bytes.extend_from_slice(b"\x1b]4;");
+    push_pipe_io_decimal(&mut bytes, index);
+    bytes.extend_from_slice(b";rgb:");
+    push_pipe_io_hex_byte(&mut bytes, color.r);
+    bytes.push(b'/');
+    push_pipe_io_hex_byte(&mut bytes, color.g);
+    bytes.push(b'/');
+    push_pipe_io_hex_byte(&mut bytes, color.b);
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_palette_reset_bytes(index: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(12);
+    bytes.extend_from_slice(b"\x1b]104;");
+    push_pipe_io_decimal(&mut bytes, index);
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_cursor_visual_bytes(value: (CursorShape, bool)) -> &'static [u8] {
+    match value {
+        (CursorShape::Block | CursorShape::BlockHollow, true) => b"\x1b[0 q\x1b[1 q",
+        (CursorShape::Block | CursorShape::BlockHollow, false) => b"\x1b[0 q\x1b[2 q",
+        (CursorShape::Underline, true) => b"\x1b[0 q\x1b[3 q",
+        (CursorShape::Underline, false) => b"\x1b[0 q\x1b[4 q",
+        (CursorShape::Bar, true) => b"\x1b[0 q\x1b[5 q",
+        (CursorShape::Bar, false) => b"\x1b[0 q\x1b[6 q",
+    }
+}
+
+fn push_pipe_io_hex_byte(bytes: &mut Vec<u8>, value: u8) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    bytes.push(HEX[(value >> 4) as usize]);
+    bytes.push(HEX[(value & 0x0f) as usize]);
+}
+
+fn push_pipe_io_decimal(bytes: &mut Vec<u8>, mut value: usize) {
+    let mut digits = [0u8; 5];
+    let mut cursor = digits.len();
+    loop {
+        cursor -= 1;
+        digits[cursor] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    bytes.extend_from_slice(&digits[cursor..]);
 }
 
 fn apply_terminal_colors(terminal: &mut Terminal, colors: &RemoteTerminalColors) {
