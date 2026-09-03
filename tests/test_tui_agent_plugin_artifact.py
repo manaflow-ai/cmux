@@ -1,9 +1,25 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_tests(
+    loader: unittest.TestLoader,
+    standard_tests: unittest.TestSuite,
+    pattern: str | None,
+) -> unittest.TestSuite:
+    del loader, standard_tests, pattern
+    return unittest.TestSuite(
+        [
+            unittest.FunctionTestCase(
+                test_focused_hosted_build_publishes_the_userland_detector
+            )
+        ]
+    )
 
 
 def test_focused_hosted_build_publishes_the_userland_detector() -> None:
@@ -23,4 +39,3 @@ def test_focused_hosted_build_publishes_the_userland_detector() -> None:
 
     assert "cmux-agent-screen-detection-aarch64-apple-darwin" in downloader
     assert "Artifact: $artifact_dir/cmux-agent-screen-detection" in downloader
-
