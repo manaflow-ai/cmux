@@ -5,6 +5,7 @@
 //! the same generic journal envelope.
 
 pub mod detect;
+pub mod diagnostics;
 pub mod manifest;
 pub mod manifest_update;
 pub mod process;
