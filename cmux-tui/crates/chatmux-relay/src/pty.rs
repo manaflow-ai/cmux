@@ -1551,6 +1551,11 @@ impl Inner {
             );
             return;
         }
+        // Forced retirement can mark the generation pending while a callback
+        // is between its map check and this send boundary.
+        if attachment.close_pending.load(Ordering::SeqCst) {
+            return;
+        }
         (live_auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
@@ -1628,6 +1633,11 @@ impl Inner {
             current.closing.store(true, Ordering::SeqCst);
             current.clone()
         };
+        // Forced retirement can mark the generation pending while a callback
+        // is between its map check and this send boundary.
+        if attachment.close_pending.load(Ordering::SeqCst) {
+            return;
+        }
         (live_auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -1683,6 +1693,7 @@ impl Inner {
                 return;
             }
             let attachment = attachments.remove(pty_id).expect("attachment still present");
+            attachment.close_pending.store(true, Ordering::SeqCst);
             attachment.closing.store(true, Ordering::SeqCst);
             attachment
         };
@@ -2117,6 +2128,7 @@ impl Inner {
                 return;
             }
             let removed = attachments.remove(pty_id).expect("attachment still present");
+            removed.close_pending.store(true, Ordering::SeqCst);
             removed.closing.store(true, Ordering::SeqCst);
             removed
         };
