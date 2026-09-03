@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
       "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "machines": {
+        "title": "Makineler",
+        "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
+        "machineColumn": "Makine",
+        "tokensColumn": "Toplam token",
+        "apiEquivalentColumn": "API eşdeğer değeri",
+        "unnamed": "Adsız makine",
+        "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
+        "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
+        "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      }
     },
     "accountMenu": {
       "label": "Hesap menüsü",
@@ -1852,6 +1863,8 @@
     "metaDescription": "cmux NIGHTLY indirin. main deki en son commit ten otomatik olarak derlenen bağımsız bir uygulama. Kararlı sürümle yan yana çalışır ve kendi otomatik güncellemelerine sahiptir.",
     "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
     "download": "Mac için NIGHTLY indir",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
   "languageSwitcher": {

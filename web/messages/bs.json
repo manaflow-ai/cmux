@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
       "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji."
+      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "machines": {
+        "title": "Mašine",
+        "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
+        "machineColumn": "Mašina",
+        "tokensColumn": "Ukupno tokena",
+        "apiEquivalentColumn": "API ekvivalentna vrijednost",
+        "unnamed": "Mašina bez naziva",
+        "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
+        "unavailable": "Korištenje po mašini trenutno nije dostupno.",
+        "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      }
     },
     "accountMenu": {
       "label": "Meni računa",
@@ -1854,6 +1865,8 @@
     "metaDescription": "Preuzmite cmux NIGHTLY, zasebnu aplikaciju koja se automatski kompajlira iz posljednjeg commita na main. Radi uporedo sa stabilnom verzijom s vlastitim automatskim ažuriranjima.",
     "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
     "download": "Preuzmi NIGHTLY za Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
   "languageSwitcher": {

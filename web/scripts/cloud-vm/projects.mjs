@@ -97,6 +97,11 @@ export const legacyCloudVmEnvKeys = [
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
 ];
 
 export function normalizeTarget(value) {

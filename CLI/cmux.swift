@@ -4915,6 +4915,21 @@ struct CMUXCLI {
         return explicitValue == defaultValue ? catalogValue : explicitValue
     }
 
+    private func localizedCoderouterCommands() -> String {
+        let defaultValue = "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)"
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.commands",
+            defaultValue: "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.commands",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
     private func localizedCoderouterNotFound() -> String {
         let defaultValue = "Required CLI not found. Install the command and retry."
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
@@ -5075,7 +5090,11 @@ struct CMUXCLI {
             let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
             exit(status)
         }
-        if command == "coderouter" || command == "cr" {
+        // `cmux cr ...` is always the installed CodeRouter CLI. `cmux coderouter`
+        // keeps that passthrough except for the verbs cmux owns (`status`,
+        // `machines`, `claude`, help), which manage the team's model plane
+        // through the app socket (CMUXCLI+Coderouter.swift).
+        if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
             try runCoderouterAlias(commandArgs: rawCommandArgs)
             return
         }
@@ -6496,6 +6515,9 @@ struct CMUXCLI {
 
         case "ai-accounts":
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
+        case "coderouter":
+            try runCoderouterCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "mobile":
             let sub = commandArgs.first?.lowercased()
@@ -18426,6 +18448,8 @@ struct CMUXCLI {
             return Self.commentsUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
+        case "coderouter":
+            return Self.coderouterUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -40776,6 +40800,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
+          \(localizedCoderouterCommands())
           vm <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]

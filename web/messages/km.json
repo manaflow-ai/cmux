@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
       "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។"
+      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "machines": {
+        "title": "ម៉ាស៊ីន",
+        "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
+        "machineColumn": "ម៉ាស៊ីន",
+        "tokensColumn": "តូខិនសរុប",
+        "apiEquivalentColumn": "តម្លៃស្មើនឹង API",
+        "unnamed": "ម៉ាស៊ីនគ្មានឈ្មោះ",
+        "empty": "គ្មានម៉ាស៊ីនណាបានប្រើ coderouter ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយទេ។",
+        "unavailable": "ការប្រើប្រាស់តាមម៉ាស៊ីនមិនអាចប្រើបានជាបណ្ដោះអាសន្ន។",
+        "estimateNote": "តម្លៃស្មើនឹង API គឺជាការប៉ាន់ស្មានតាមតម្លៃសាធារណៈ មិនមែនជាការចំណាយពិតប្រាកដទេ។"
+      }
     },
     "accountMenu": {
       "label": "ម៉ឺនុយគណនី",
@@ -1848,6 +1859,8 @@
     "metaDescription": "ទាញយក cmux NIGHTLY កម្មវិធីដាច់ដោយឡែកដែលត្រូវបានបង្កើតដោយស្វ័យប្រវត្តិពី commit ចុងក្រោយនៅលើ main។ ដំណើរការស្របជាមួយកំណែស្ថិរភាពជាមួយការអាប់ដេតស្វ័យប្រវត្តិផ្ទាល់ខ្លួន។",
     "description": "cmux NIGHTLY ត្រូវបានបង្កើតដោយស្វ័យប្រវត្តិពី commit ចុងក្រោយនៅលើ main។ វាមាន bundle ID ផ្ទាល់ខ្លួន ដូច្នេះវាដំណើរការស្របជាមួយកំណែស្ថិរភាពដោយគ្មានជម្លោះ។ ប្រើវាដើម្បីសាកល្បងមុខងារថ្មីមុនពេលចេញផ្សាយ។",
     "download": "ទាញយក NIGHTLY សម្រាប់ Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "កំណែ nightly អាចមានកំហុស ឬមុខងារមិនទាន់ពេញលេញ។ ប្រសិនបើមានបញ្ហា សូមរាយការណ៍នៅលើ <githubLink>GitHub</githubLink> ឬក្នុង <discordLink>#nightly-bugs នៅលើ Discord</discordLink> ហើយប្តូរទៅកំណែស្ថិរភាពវិញ។"
   },
   "languageSwitcher": {

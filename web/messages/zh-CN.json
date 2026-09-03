@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
       "title": "coderouter",
-      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。"
+      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "machines": {
+        "title": "机器",
+        "description": "{team} 在过去 {days} 天内每台机器的 coderouter 使用情况。",
+        "machineColumn": "机器",
+        "tokensColumn": "总令牌数",
+        "apiEquivalentColumn": "API 等值金额",
+        "unnamed": "未命名机器",
+        "empty": "过去 {days} 天内没有机器使用 coderouter。",
+        "unavailable": "机器使用情况暂时不可用。",
+        "estimateNote": "API 等值金额是按公开标价估算的，并非实际支出。"
+      }
     },
     "accountMenu": {
       "label": "账户菜单",
@@ -1854,6 +1865,8 @@
     "metaDescription": "下载 cmux NIGHTLY，从最新 main 提交自动构建的独立应用。与稳定版并行运行，拥有独立的自动更新。",
     "description": "cmux NIGHTLY 从 main 的最新提交自动构建。它拥有独立的 Bundle ID，因此可以与稳定版并行运行，互不冲突。用它来测试尚未发布的新功能。",
     "download": "下载 Mac 版 NIGHTLY",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "每夜构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
   },
   "languageSwitcher": {

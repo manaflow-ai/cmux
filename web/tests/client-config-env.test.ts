@@ -10,9 +10,6 @@ const requiredEnv = {
   STACK_SECRET_SERVER_KEY: "stack-secret",
   NEXT_PUBLIC_STACK_PROJECT_ID: "stack-project",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
-  CODEROUTER_HOSTED_PRO_REQUIRED: "1",
-  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
-  SUBROUTER_ALLOWED_TEAM_IDS: "*",
 };
 
 const requiredIrohProductionEnv = {
@@ -37,8 +34,6 @@ const requiredRelayProductionEnv = {
 const requiredSubrouterDeploymentEnv = {
   SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
   SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
-  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
-  SUBROUTER_ALLOWED_TEAM_IDS: "test-team",
 };
 
 describe("client config env validation", () => {
@@ -53,24 +48,34 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
-  test("requires the hosted coderouter Pro gate in Vercel production", () => {
-    const {
-      CODEROUTER_HOSTED_PRO_REQUIRED: _hostedProRequired,
-      ...baseEnv
-    } = requiredEnv;
-    const result = importEnv({
-      ...baseEnv,
+  test("production needs no subrouter or coderouter access-gate variables", () => {
+    // Access is team membership only. A deploy that still carries the retired
+    // gate keys must also start, since the runtime ignores them.
+    const without = importEnv({
+      ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
+    expect(without.exitCode).toBe(0);
+    expect(without.stderr).not.toContain("CODEROUTER_HOSTED_PRO_REQUIRED");
+    expect(without.stderr).not.toContain("SUBROUTER_ENFORCE_STACK_PERMISSIONS");
+    expect(without.stderr).not.toContain("SUBROUTER_ALLOWED_TEAM_IDS");
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(
-      "CODEROUTER_HOSTED_PRO_REQUIRED is required for deployed production runtimes",
-    );
+    const withStale = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+      CODEROUTER_HOSTED_PRO_REQUIRED: "1",
+      SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
+      SUBROUTER_ALLOWED_TEAM_IDS: "team-a",
+    });
+    expect(withStale.exitCode).toBe(0);
   });
 
   test("rejects every retired Stripe price override at startup", () => {
