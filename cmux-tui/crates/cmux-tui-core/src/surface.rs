@@ -8368,6 +8368,7 @@ mod tests {
 
         assert!(mirror.plain_text().unwrap().contains(MARKER));
         assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+        assert!(surface.as_pty().unwrap().taps.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]
@@ -8378,9 +8379,9 @@ mod tests {
         let surface = exited_host_surface("render-attach", 93, &mux);
         surface.with_terminal(|term| term.vt_write(MARKER.as_bytes()));
 
-        let attach =
+        let first =
             surface.attach_render_stream().expect("exited terminal must serve final render frame");
-        let rendered = attach
+        let rendered = first
             .initial
             .frame
             .styled_rows()
@@ -8390,7 +8391,19 @@ mod tests {
             .collect::<String>();
 
         assert!(rendered.contains(MARKER), "final render frame omitted {MARKER}: {rendered:?}");
-        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+        assert!(matches!(first.stream.try_recv(), Err(TryRecvError::Disconnected)));
+
+        // Final snapshots are inert and must not consume the live attachment
+        // budget even when their callers retain them.
+        let mut attachments = vec![first];
+        for _ in 1..crate::mux::RENDER_ATTACHMENT_LIMIT * 2 {
+            let attach = surface
+                .attach_render_stream()
+                .expect("exited terminal final replay must not exhaust live render permits");
+            assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+            attachments.push(attach);
+        }
+        assert!(surface.as_pty().unwrap().render.lock().unwrap().taps.is_empty());
     }
 
     #[cfg(unix)]
