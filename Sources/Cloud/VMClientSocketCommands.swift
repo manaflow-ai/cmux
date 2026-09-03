@@ -25,6 +25,134 @@ extension TerminalController {
                 }
                 return payload
             }
+        case "vm.publication_list":
+            return v2VmCall(id: id) {
+                let publications = try await VMClient.shared.listPublications()
+                return ["publications": publications.map(\.foundationObject)]
+            }
+        case "vm.domain_list":
+            return v2VmCall(id: id) {
+                let domains = try await VMClient.shared.listPublicationDomains()
+                return ["domains": domains.map(\.foundationObject)]
+            }
+        case "vm.domain_verify":
+            guard let name = Self.socketWorkerString(
+                params["name"] ?? params["hostname"] ?? params["domain"] ?? params["id"]
+            ), !name.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.domain.nameRequired",
+                        defaultValue: "vm.domain_verify requires `name` (a domain)."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let domain = try await VMClient.shared.verifyPublicationDomain(name: name)
+                return ["domain": domain.foundationObject]
+            }
+        case "vm.publication_create":
+            guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
+                  !vmID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.missingVM",
+                        defaultValue: "vm.publication_create requires `vmId`."
+                    )
+                )
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65_535).contains(port) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.invalidPort",
+                        defaultValue: "vm.publication_create requires `port` between 1 and 65535."
+                    )
+                )
+            }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: params,
+                method: "vm.publication_create"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            let hostname = Self.socketWorkerString(params["hostname"] ?? params["domain"])
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.createPublication(
+                    vmID: vmID,
+                    port: port,
+                    hostname: hostname,
+                    accessMode: access.mode,
+                    teamID: access.teamID
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_verify":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.verifyPublication(id: publicationID)
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_update":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: params,
+                method: "vm.publication_update"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.updatePublicationAccess(
+                    id: publicationID,
+                    accessMode: access.mode,
+                    teamID: access.teamID
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_delete":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                try await VMClient.shared.deletePublication(id: publicationID)
+                return ["deleted": true, "id": publicationID]
+            }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
             let kind: VMMachineKind?
@@ -692,9 +820,50 @@ extension TerminalController {
         if let string = raw as? String { return Int(string) }
         return nil
     }
+
+    private nonisolated static func socketWorkerPublicationAccess(
+        params: [String: Any],
+        method: String
+    ) -> Result<SocketWorkerPublicationAccess, SocketWorkerPublicationAccessError> {
+        let rawAccess = socketWorkerString(params["accessMode"] ?? params["access_mode"])?
+            .lowercased()
+        guard let rawAccess,
+              let mode = VMPublicationAccessMode(rawValue: rawAccess) else {
+            let format = String(
+                localized: "socket.cloudVM.publication.invalidAccess",
+                defaultValue: "%@ requires `accessMode` to be personal, team, or public."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        let teamID = socketWorkerString(params["teamId"] ?? params["team_id"])
+        if mode == .team, teamID == nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamRequired",
+                defaultValue: "%@ requires `teamId` when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        if mode != .team, teamID != nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamOnly",
+                defaultValue: "%@ accepts `teamId` only when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        return .success(.init(mode: mode, teamID: teamID))
+    }
 }
 
 /// A rejected `kind` parameter on a machine-creating socket command.
 private struct SocketWorkerKindError: Error {
+    let message: String
+}
+
+private struct SocketWorkerPublicationAccess {
+    let mode: VMPublicationAccessMode
+    let teamID: String?
+}
+
+private struct SocketWorkerPublicationAccessError: Error {
     let message: String
 }
