@@ -1408,3 +1408,51 @@ export const coderouterClaudeAccounts = pgTable(
     ),
   ],
 );
+
+/**
+ * A local mirror of the Stack Auth identity fields our high-volume routes need
+ * (display name, primary email, selected team, team membership and the billing
+ * plan metadata derived from them).
+ *
+ * The device registry and the relay broker authenticate hundreds of requests
+ * per second, and each one used to cost a `GET /users/me` call to Stack. The
+ * access token itself is verified locally against Stack's published signing
+ * keys; this table supplies everything the token does not carry, so a Stack
+ * call is needed only when no fresh snapshot exists.
+ *
+ * The default lifetime of a snapshot is ten minutes. That is the window in
+ * which a user removed from a team keeps that team's registry access, since
+ * Stack sends no membership webhook to invalidate on. Sign-out deletes the row. Deletion is also enforced on read: the snapshot path checks
+ * the account-deletion tombstone directly, so a tombstone takes effect on the
+ * next request rather than waiting for the row to be cleared.
+ */
+export const stackIdentitySnapshots = pgTable(
+  "stack_identity_snapshots",
+  {
+    userId: text("user_id").primaryKey(),
+    displayName: text("display_name"),
+    primaryEmail: text("primary_email"),
+    selectedTeamId: text("selected_team_id"),
+    billingCustomerType: text("billing_customer_type")
+      .$type<"team" | "user">()
+      .notNull(),
+    billingTeamId: text("billing_team_id").notNull(),
+    userBillingPlanId: text("user_billing_plan_id"),
+    billingPlanId: text("billing_plan_id"),
+    billingSeats: integer("billing_seats"),
+    /** Every team the snapshot proves membership of, with its billing fields. */
+    teams: jsonb("teams")
+      .$type<{
+        id: string;
+        displayName: string | null;
+        billingPlanId: string | null;
+        billingSeats: number | null;
+      }[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stack_identity_snapshots_refreshed_idx").on(table.refreshedAt),
+  ],
+);
