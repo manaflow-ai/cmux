@@ -8,13 +8,6 @@ enum ControlSurfaceResumeTarget {
     case workspace(tabManager: TabManager, workspace: Workspace, surfaceID: UUID)
     case dock(tabManager: TabManager, dock: DockSplitStore, surfaceID: UUID)
 
-    /// Result of atomically checking a retry generation and applying its binding.
-    enum BindingSetResult: Equatable {
-        case applied
-        case rejected
-        case generationMismatch
-    }
-
     var tabManager: TabManager {
         switch self {
         case .workspace(let tabManager, _, _), .dock(let tabManager, _, _): tabManager

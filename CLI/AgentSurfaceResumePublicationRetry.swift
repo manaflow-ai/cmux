@@ -2,25 +2,6 @@ import Foundation
 
 /// Chooses a safe second publication attempt from app-owned binding generations.
 struct AgentSurfaceResumePublicationRetry {
-    enum BindingGeneration: Equatable {
-        case missing
-        /// A token minted by the app for the current surface owner generation.
-        case owner(UUID)
-        /// Compatibility fallback for apps that predate owner-generation payloads.
-        case updatedAt(Double)
-    }
-
-    struct Preflight {
-        let params: [String: Any]
-        let generation: BindingGeneration
-    }
-
-    enum Decision {
-        case alreadyApplied
-        case retry(params: [String: Any])
-        case superseded
-    }
-
     func preflight(
         desiredParams: [String: Any],
         currentPayload: [String: Any]
@@ -115,46 +96,6 @@ struct AgentSurfaceResumePublicationRetry {
         ["kind", "checkpoint_id", "source"].allSatisfy { key in
             normalized(binding[key] as? String) == normalized(desiredParams[key] as? String)
         }
-    }
-
-    private func normalized(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
-}
-
-/// Evaluates whether a surface binding still names the hook session whose
-/// launch evidence is being reconciled.
-struct AgentSurfaceResumeBindingOwnership {
-    enum Match: Equatable {
-        case matches
-        case doesNotMatch
-        case unavailable
-    }
-
-    private let kind: String
-    private let sessionId: String
-
-    init(kind: String, sessionId: String) {
-        self.kind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        self.sessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func evaluate(_ binding: [String: Any]) -> Match {
-        guard let source = normalized(binding["source"] as? String)?.lowercased(),
-              source == "agent-hook" else {
-            return .doesNotMatch
-        }
-        guard let currentKind = normalized(binding["kind"] as? String)?.lowercased(),
-              let currentSessionId = normalized(binding["checkpoint_id"] as? String) else {
-            return .unavailable
-        }
-        return currentKind == kind && currentSessionId == sessionId
-            ? .matches
-            : .doesNotMatch
     }
 
     private func normalized(_ value: String?) -> String? {

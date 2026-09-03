@@ -258,7 +258,7 @@ extension Workspace {
         unresolvedResumeBindingPanelIds.removeAll(keepingCapacity: false)
         unresolvedDockResumeBindingPanelIds.removeAll(keepingCapacity: false)
         unresolvedResumeBindingStatusUpdatedAt = Date.now
-        resumeBindingGapRevision &+= 1
+        sidebarMetadata.invalidateWorkspaceObservation()
         pendingPlainSSHRestorePanelIds.removeAll(keepingCapacity: false)
         observedPlainSSHPanelIds.removeAll(keepingCapacity: false)
         plainSSHDetectionMissesByPanelId.removeAll(keepingCapacity: false)
@@ -3149,7 +3149,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var unresolvedResumeBindingPanelIds: Set<UUID> = []
     var unresolvedDockResumeBindingPanelIds: Set<UUID> = []
     var unresolvedResumeBindingStatusUpdatedAt = Date.now
-    @Published private(set) var resumeBindingGapRevision: UInt64 = 0
+    // Gap changes pulse the existing sidebar-metadata observation stream; the
+    // sidebar snapshot carries the derived count, so no second publisher or
+    // revision side channel is needed.
     /// Plain SSH restore bindings survive the short interval in which a new
     /// local PTY exists but its `ssh` child has not become foreground yet.
     /// These indexes make that exception explicit and bounded: once a shell
@@ -6250,7 +6252,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if didChange {
             unresolvedResumeBindingStatusUpdatedAt = Date.now
-            resumeBindingGapRevision &+= 1
+            sidebarMetadata.invalidateWorkspaceObservation()
         }
     }
 
@@ -6258,7 +6260,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard unresolvedDockResumeBindingPanelIds != panelIds else { return }
         unresolvedDockResumeBindingPanelIds = panelIds
         unresolvedResumeBindingStatusUpdatedAt = Date.now
-        resumeBindingGapRevision &+= 1
+        sidebarMetadata.invalidateWorkspaceObservation()
     }
 
     var unresolvedResumeBindingGapCount: Int {
@@ -6533,7 +6535,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if unresolvedResumeBindingPanelIds != previousUnresolvedResumeBindingPanelIds {
             unresolvedResumeBindingStatusUpdatedAt = Date.now
-            resumeBindingGapRevision &+= 1
+            sidebarMetadata.invalidateWorkspaceObservation()
         }
         pendingPlainSSHRestorePanelIds = pendingPlainSSHRestorePanelIds.intersection(validSurfaceIds)
         observedPlainSSHPanelIds = observedPlainSSHPanelIds.intersection(validSurfaceIds)

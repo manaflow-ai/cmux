@@ -6,6 +6,9 @@ import Darwin
 @testable import cmux
 #endif
 
+// This existing process/socket integration harness stays in XCTest as one
+// lifecycle-owned suite; migrating only the added cases would split its shared
+// mock-server fixtures and change teardown/parallelism semantics.
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     override func tearDown() {
         // The mock servers park an accept loop on the test's listener FD, and

@@ -179,6 +179,16 @@
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */; };
+		A59151B1AC78C52400000013 /* AgentSurfaceResumeBindingOwnership+Match.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000012 /* AgentSurfaceResumeBindingOwnership+Match.swift */; };
+		A59151B1AC78C52400000014 /* AgentSurfaceResumeBindingOwnership+Match.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000012 /* AgentSurfaceResumeBindingOwnership+Match.swift */; };
+		A59151B1AC78C52400000006 /* AgentSurfaceResumeBindingOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000007 /* AgentSurfaceResumeBindingOwnership.swift */; };
+		A59151B1AC78C52400000008 /* AgentSurfaceResumeBindingOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000007 /* AgentSurfaceResumeBindingOwnership.swift */; };
+		A59151B1AC78C5240000000A /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000009 /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift */; };
+		A59151B1AC78C5240000000B /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000009 /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift */; };
+		A59151B1AC78C52400000010 /* AgentSurfaceResumePublicationRetry+Decision.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C5240000000F /* AgentSurfaceResumePublicationRetry+Decision.swift */; };
+		A59151B1AC78C52400000011 /* AgentSurfaceResumePublicationRetry+Decision.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C5240000000F /* AgentSurfaceResumePublicationRetry+Decision.swift */; };
+		A59151B1AC78C5240000000D /* AgentSurfaceResumePublicationRetry+Preflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C5240000000C /* AgentSurfaceResumePublicationRetry+Preflight.swift */; };
+		A59151B1AC78C5240000000E /* AgentSurfaceResumePublicationRetry+Preflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C5240000000C /* AgentSurfaceResumePublicationRetry+Preflight.swift */; };
 		A59151B1AC78C52400000002 /* AgentSurfaceResumePublicationRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000001 /* AgentSurfaceResumePublicationRetry.swift */; };
 		A59151B1AC78C52400000003 /* AgentSurfaceResumePublicationRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000001 /* AgentSurfaceResumePublicationRetry.swift */; };
 		A59151B1AC78C52400000005 /* AgentSurfaceResumePublicationRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59151B1AC78C52400000004 /* AgentSurfaceResumePublicationRetryTests.swift */; };
@@ -1099,6 +1109,7 @@
 		BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */; };
 		C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
+		D86840000000000000000017 /* ControlSurfaceResumeTarget+BindingSetResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000018 /* ControlSurfaceResumeTarget+BindingSetResult.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
@@ -3357,6 +3368,11 @@
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceResumeBindingClearOutcome.swift; sourceTree = "<group>"; };
+		A59151B1AC78C52400000012 /* AgentSurfaceResumeBindingOwnership+Match.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSurfaceResumeBindingOwnership+Match.swift"; sourceTree = "<group>"; };
+		A59151B1AC78C52400000007 /* AgentSurfaceResumeBindingOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceResumeBindingOwnership.swift; sourceTree = "<group>"; };
+		A59151B1AC78C52400000009 /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSurfaceResumePublicationRetry+BindingGeneration.swift"; sourceTree = "<group>"; };
+		A59151B1AC78C5240000000F /* AgentSurfaceResumePublicationRetry+Decision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSurfaceResumePublicationRetry+Decision.swift"; sourceTree = "<group>"; };
+		A59151B1AC78C5240000000C /* AgentSurfaceResumePublicationRetry+Preflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSurfaceResumePublicationRetry+Preflight.swift"; sourceTree = "<group>"; };
 		A59151B1AC78C52400000001 /* AgentSurfaceResumePublicationRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceResumePublicationRetry.swift; sourceTree = "<group>"; };
 		A59151B1AC78C52400000004 /* AgentSurfaceResumePublicationRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceResumePublicationRetryTests.swift; sourceTree = "<group>"; };
 		A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AggregateMemoryPressureResponder.swift; sourceTree = "<group>"; };
@@ -4192,6 +4208,7 @@
 		8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSidebarPanelOwner.swift; sourceTree = "<group>"; };
 		C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSimulatorPendingTextInput.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
+		D86840000000000000000018 /* ControlSurfaceResumeTarget+BindingSetResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlSurfaceResumeTarget+BindingSetResult.swift"; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
 		93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlTerminalSocketBindingState.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
@@ -8432,6 +8449,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */,
 				D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */,
 				D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */,
+				D86840000000000000000018 /* ControlSurfaceResumeTarget+BindingSetResult.swift */,
 				D86840000000000000000012 /* DockSplitStore+Reset.swift */,
 				8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
@@ -8547,6 +8565,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */,
 				CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */,
 				A59151B1AC78C52400000001 /* AgentSurfaceResumePublicationRetry.swift */,
+				A59151B1AC78C52400000007 /* AgentSurfaceResumeBindingOwnership.swift */,
+				A59151B1AC78C52400000009 /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift */,
+				A59151B1AC78C5240000000C /* AgentSurfaceResumePublicationRetry+Preflight.swift */,
+				A59151B1AC78C5240000000F /* AgentSurfaceResumePublicationRetry+Decision.swift */,
+				A59151B1AC78C52400000012 /* AgentSurfaceResumeBindingOwnership+Match.swift */,
 				B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */,
 				B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 				8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */,
@@ -10513,6 +10536,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				BFC914190FEF400683D6DEBC /* ControlSidebarAgentLifecycleRegistryScope.swift in Sources */,
 				BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */,
 				C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */,
+				D86840000000000000000017 /* ControlSurfaceResumeTarget+BindingSetResult.swift in Sources */,
 				D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */,
 				93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
@@ -11944,6 +11968,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
+				A59151B1AC78C52400000013 /* AgentSurfaceResumeBindingOwnership+Match.swift in Sources */,
+				A59151B1AC78C52400000006 /* AgentSurfaceResumeBindingOwnership.swift in Sources */,
+				A59151B1AC78C5240000000A /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift in Sources */,
+				A59151B1AC78C52400000010 /* AgentSurfaceResumePublicationRetry+Decision.swift in Sources */,
+				A59151B1AC78C5240000000D /* AgentSurfaceResumePublicationRetry+Preflight.swift in Sources */,
 				A59151B1AC78C52400000002 /* AgentSurfaceResumePublicationRetry.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
@@ -12214,6 +12243,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				A59151B1AC78C52400000014 /* AgentSurfaceResumeBindingOwnership+Match.swift in Sources */,
+				A59151B1AC78C52400000008 /* AgentSurfaceResumeBindingOwnership.swift in Sources */,
+				A59151B1AC78C5240000000B /* AgentSurfaceResumePublicationRetry+BindingGeneration.swift in Sources */,
+				A59151B1AC78C52400000011 /* AgentSurfaceResumePublicationRetry+Decision.swift in Sources */,
+				A59151B1AC78C5240000000E /* AgentSurfaceResumePublicationRetry+Preflight.swift in Sources */,
 				A59151B1AC78C52400000003 /* AgentSurfaceResumePublicationRetry.swift in Sources */,
 				A59151B1AC78C52400000005 /* AgentSurfaceResumePublicationRetryTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,

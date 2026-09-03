@@ -34131,12 +34131,6 @@ export default CMUXSessionRestore;
         }
     }
 
-    private enum ExistingAgentResumeBindingCheck {
-        case matches
-        case doesNotMatch
-        case unavailable
-    }
-
     /// Verifies that an unavailable launch capture still refers to the binding
     /// currently owned by this exact surface. A generic hook must never preserve
     /// an unrelated binding merely because its session-store record is old.
@@ -34146,7 +34140,7 @@ export default CMUXSessionRestore;
         surfaceId: String,
         kind: String,
         sessionId: String
-    ) -> ExistingAgentResumeBindingCheck {
+    ) -> AgentSurfaceResumeBindingOwnership.Match {
         do {
             let payload = try client.sendV2(
                 method: "surface.resume.get",
