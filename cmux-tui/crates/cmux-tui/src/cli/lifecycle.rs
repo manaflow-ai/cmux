@@ -391,7 +391,7 @@ fn valid_session_name(session: &str) -> bool {
         && session.chars().all(|character| !character.is_control() && !character.is_whitespace())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExchangeError {
     Transport,
     Timeout,
