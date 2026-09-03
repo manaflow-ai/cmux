@@ -182,11 +182,12 @@ append($ENV{"FAKE_CMUX_ENV_LOG"}, sprintf(
         # the terminal's project directory. The managed wrapper's launch
         # capture is the authoritative cwd that hooks must persist.
         check_env["CMUX_AGENT_LAUNCH_KIND"] = "amp"
-        check_env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/Users/example/.local/bin/amp"
+        check_env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = str(fake_amp)
         check_env["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64.b64encode(
-            b"/Users/example/.local/bin/amp\0--mode\0geppetto\0"
+            f"{fake_amp}\0--mode\0geppetto\0".encode("utf-8")
         ).decode("ascii")
-        check_env["CMUX_AGENT_LAUNCH_CWD"] = "/tmp/amp-project"
+        expected_launch_cwd = "/tmp/amp-project"
+        check_env["CMUX_AGENT_LAUNCH_CWD"] = expected_launch_cwd
         check_source = """
 import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_AMP_EXTENSION_PATH;
@@ -646,6 +647,12 @@ if (typeof resumableStateSubscriber !== "function" || resumableStateUnsubscribed
 }
 await resumableStateSubscriber("running");
 
+// The managed-launch capture above models a wrapped terminal launch.
+// Clear it before the custom-launcher case so normalizedLaunchArgv()
+// still proves its fallback behavior for an unrecognized argv.
+delete process.env.CMUX_AGENT_LAUNCH_ARGV_B64;
+delete process.env.CMUX_AGENT_LAUNCH_EXECUTABLE;
+delete process.env.CMUX_AGENT_LAUNCH_CWD;
 process.argv.splice(
   0,
   process.argv.length,
@@ -847,7 +854,7 @@ for (const sessionId of [
         if "hooks amp stop" in args_log:
             print(f"FAIL: extension bypassed lifecycle reconciliation with a direct stop, got {args_log!r}")
             return 1
-        if "kind=amp" not in env_log or f"cwd={root.resolve()}" not in env_log or "argv=" not in env_log:
+        if "kind=amp" not in env_log or f"cwd={expected_launch_cwd}" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
         if "amp_api_key=secret-should-not-propagate" in env_log:
