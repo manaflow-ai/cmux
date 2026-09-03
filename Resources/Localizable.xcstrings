@@ -59802,6 +59802,23 @@
         }
       }
     },
+    "cli.vpn.status.interface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェース: %@"
+          }
+        }
+      }
+    },
     "cli.vpn.status.notSetUp": {
       "extractionState": "manual",
       "localizations": {
@@ -59815,6 +59832,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トンネル: 未設定（`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中ですが別の登録のものです（`cmux vpn up` で切り替えてください）"
           }
         }
       }
@@ -59853,6 +59887,23 @@
         }
       }
     },
+    "cli.vpn.switching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のトンネルは別の登録（別のアカウント、または古い鍵）で立ち上げられたものです。このトンネルに置き換えます（sudo がパスワードを求めます）…"
+          }
+        }
+      }
+    },
     "cli.vpn.up": {
       "extractionState": "manual",
       "localizations": {
@@ -59866,6 +59917,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トンネルが接続されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切り替えられませんでした。上のコマンド出力を確認し、`cmux vpn down` を実行してから `cmux vpn up` を再試行してください。"
           }
         }
       }
@@ -60240,6 +60308,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート/"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります（%3$@）。ws_… ID を使ってください: cmux vm open %1$@/<ws-id>"
           }
         }
       }
@@ -61317,6 +61402,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel to your Cloud VM network is down — run `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac から Cloud VM ネットワークへのトンネルが切断されています — `cmux vpn up` を実行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel is up for a different enrollment — run `cmux vpn up` to switch it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネルは別の登録で接続されています — `cmux vpn up` で切り替えてください。"
           }
         }
       }
