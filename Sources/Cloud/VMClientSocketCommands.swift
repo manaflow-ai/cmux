@@ -1,6 +1,15 @@
 import CmuxControlSocket
 import Foundation
 
+/// `cmux vm stats` when this Mac holds no live reading for the machine. The
+/// reading only exists while the Mac has a link to the machine's daemon.
+struct VMStatsUnavailableError: Error, CustomStringConvertible {
+    let vmID: String
+    var description: String {
+        "No live reading for \(vmID): machines report CPU, memory, and disk over their cmux-tui link. Open the machine in the Machines panel or run `cmux vm shell \(vmID)`, then retry."
+    }
+}
+
 extension TerminalController {
     nonisolated func socketWorkerCloudVMResponse(
         method: String,
@@ -222,9 +231,7 @@ extension TerminalController {
                 // from the web tier, so it exists only while the Mac holds a link.
                 let info = await MainActor.run { SurfaceCatalog.shared.snapshot.machines.first { $0.id == .cloud(vmId) } }
                 guard let info, let stats = MachineSnapshotBuilder.linkStats(from: info) else {
-                    throw VMClientError.malformedResponse(
-                        "No live reading for \(vmId): machines report CPU, memory, and disk over their cmux-tui link. Open the machine in the Machines panel or run `cmux vm shell \(vmId)`, then retry."
-                    )
+                    throw VMStatsUnavailableError(vmID: vmId)
                 }
                 var payload: [String: Any] = [
                     "id": vmId,
