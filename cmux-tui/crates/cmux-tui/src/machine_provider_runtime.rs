@@ -2476,13 +2476,13 @@ fn connect_provider_machine(
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
     connections.insert(key, open.clone());
     Ok(MachineConnection {
-        session,
-        _lease: Some(Box::new(ProviderMachineConnectionLease {
-            open,
-            key,
-            registry,
-            closing: closing_connections,
-            close_worker,
+            session,
+            _lease: Some(Box::new(ProviderMachineConnectionLease {
+                open,
+                key,
+                registry: Arc::clone(&registry),
+                closing: closing_connections,
+                close_worker,
         })),
     })
 }
@@ -2797,7 +2797,9 @@ mod tests {
         let (finished, finished_rx) = mpsc::channel();
         for _ in 0..128 {
             let finished = finished.clone();
-            worker.schedule(Box::new(move || finished.send(()).unwrap())).unwrap();
+            worker
+                .schedule(Box::new(move || finished.send(()).unwrap()))
+                .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         }
         for _ in 0..128 {
             finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -2817,7 +2819,7 @@ mod tests {
                 release_rx.recv().unwrap();
                 finished.send(()).unwrap();
             }))
-            .unwrap();
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let drop_started = std::time::Instant::now();
