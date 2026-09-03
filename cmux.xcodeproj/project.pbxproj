@@ -1262,6 +1262,7 @@
 		C986A0130000000000000001 /* FilePreviewNativeDragPendingOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0120000000000000001 /* FilePreviewNativeDragPendingOwnership.swift */; };
 		C0DE86520000000000000117 /* FilePreviewNativeRefreshStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */; };
 		904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */; };
+		10200F1E000000000000000D /* FilePreviewObserverReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E000000000000000E /* FilePreviewObserverReloadTests.swift */; };
 		C0DE86520000000000000003 /* FilePreviewPanel+Reload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000004 /* FilePreviewPanel+Reload.swift */; };
 		A5001422 /* FilePreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001423 /* FilePreviewPanel.swift */; };
 		C0DE86520000000000000105 /* FilePreviewPDFLoadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */; };
@@ -4317,6 +4318,7 @@
 		C986A0120000000000000001 /* FilePreviewNativeDragPendingOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewNativeDragPendingOwnership.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewNativeRefreshStateTests.swift; sourceTree = "<group>"; };
 		81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewNativeViewSessions.swift; sourceTree = "<group>"; };
+		10200F1E000000000000000E /* FilePreviewObserverReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewObserverReloadTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000004 /* FilePreviewPanel+Reload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewPanel+Reload.swift"; sourceTree = "<group>"; };
 		A5001423 /* FilePreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPanel.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFLoadResult.swift; sourceTree = "<group>"; };
@@ -8958,6 +8960,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */,
 				C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */,
 				C0DE86520000000000000002 /* FilePreviewReloadTests.swift */,
+				10200F1E000000000000000E /* FilePreviewObserverReloadTests.swift */,
 				10200F1E0000000000000004 /* FileContentObserverTransferTests.swift */,
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
@@ -12331,6 +12334,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				828800010000000000000002 /* FileExplorerStyleContrastTests.swift in Sources */,
 				C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */,
 				C0DE86520000000000000117 /* FilePreviewNativeRefreshStateTests.swift in Sources */,
+				10200F1E000000000000000D /* FilePreviewObserverReloadTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
 				C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */,
 				C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */,
