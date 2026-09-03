@@ -64,6 +64,15 @@ extension TerminalController {
                 params: authorizedRequest.params
             ) {
                 if policy.runsOnSocketWorker {
+                    // Terminal rename performs an awaited cloud-link mutation. Keep the
+                    // actual socket connection task asynchronous instead of parking a
+                    // worker thread behind the legacy semaphore bridge.
+                    if authorizedRequest.method == "vm.terminal_rename" {
+                        return await self.socketWorkerVMTerminalRenameResponseAsync(authorizedRequest)
+                    }
+                    if authorizedRequest.method == "vm.tab_rename" {
+                        return await self.socketWorkerVMTabRenameResponseAsync(authorizedRequest)
+                    }
                     return await self.socketWorkerV2ResponseAsync(authorizedRequest)
                 }
                 return await self.processParsedV2CommandAsync(authorizedRequest)

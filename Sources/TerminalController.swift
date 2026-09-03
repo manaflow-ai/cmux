@@ -2888,6 +2888,8 @@ class TerminalController {
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.terminal_rename",
+            "vm.tab_rename",
             "vm.workspace_new",
             "vm.workspace_open",
             "vm.workspace_close",
@@ -3971,22 +3973,22 @@ class TerminalController {
         }
     }
 
-    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
-    /// can make idempotency decisions structurally instead of parsing the
-    /// formatted display text.
+    /// Backend error metadata passthrough so the CLI can make compatibility
+    /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
-        guard case let VMClientError.httpStatus(status, body) = error,
-              let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let code = object["error"] as? String,
-              !code.isEmpty else {
+        guard case let VMClientError.httpStatus(status, body) = error else {
             return nil
         }
-        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["http_status": status]
+        let object = body.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
+        if let code = object?["error"] as? String, !code.isEmpty {
+            payload["backend_code"] = code
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
-        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
-            payload["trace_id"] = traceId
+        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
+            payload["trace_id"] = traceID
         }
         return payload
     }

@@ -98,6 +98,1174 @@ struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     var source: String?
 }
 
+/// The daemon's monotonic position for one complete remote session state.
+///
+/// `revision` is encoded as a string because that is the cmux-tui wire form. The
+/// decoder accepts both strings and JSON numbers so a client can read snapshots
+/// from older daemon builds. A revision is meaningful only inside its generation.
+struct CloudVMCursor: Hashable, Codable, Sendable {
+    var generation: String
+    var revision: UInt64
+
+    init(generation: String, revision: UInt64) {
+        self.generation = generation
+        self.revision = revision
+    }
+
+    init?(snapshot: [String: Any]) {
+        guard let cursor = snapshot["cursor"] as? [String: Any],
+              let generation = (cursor["generation"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !generation.isEmpty,
+              let revision = Self.revision(cursor["revision"])
+        else { return nil }
+        self.init(generation: generation, revision: revision)
+    }
+
+    init?(wire: [String: Any]) {
+        guard let generation = (wire["generation"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !generation.isEmpty,
+              let revision = Self.revision(wire["revision"])
+        else { return nil }
+        self.init(generation: generation, revision: revision)
+    }
+
+    private static func revision(_ raw: Any?) -> UInt64? {
+        CloudWireNumber.unsigned(raw)
+    }
+
+    /// Returns true only when both cursors belong to the same daemon
+    /// generation. Generations are opaque identifiers, so callers must never
+    /// impose an ordering across them.
+    func isNewer(than other: CloudVMCursor?) -> Bool {
+        guard let other else { return true }
+        return generation == other.generation && revision > other.revision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case generation
+        case revision
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let generation = try container.decode(String.self, forKey: .generation)
+        if let revision = try? container.decode(UInt64.self, forKey: .revision) {
+            self.init(generation: generation, revision: revision)
+        } else {
+            let revision = try container.decode(String.self, forKey: .revision)
+            guard let value = UInt64(revision) else {
+                throw DecodingError.dataCorruptedError(forKey: .revision, in: container, debugDescription: "revision is not an unsigned integer")
+            }
+            self.init(generation: generation, revision: value)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(generation, forKey: .generation)
+        try container.encode(String(revision), forKey: .revision)
+    }
+}
+
+/// Strictly decodes the integer forms used by the cmux-tui wire protocol.
+/// JSONSerialization represents both booleans and numbers as NSNumber on some
+/// paths. Coercing that value with intValue would turn `true`, fractions, and
+/// overflowing values into a different cursor or index, which can make a delta
+/// look contiguous when it is not.
+enum CloudWireNumber {
+    static func unsigned(_ raw: Any?) -> UInt64? {
+        if raw is Bool { return nil }
+        if let number = raw as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard number.doubleValue.isFinite,
+                  number.doubleValue.rounded() == number.doubleValue,
+                  number.doubleValue >= 0 else { return nil }
+            if let value = raw as? UInt64 { return value }
+            return UInt64(number.stringValue)
+        }
+        if let value = raw as? UInt64 { return value }
+        if let value = raw as? Int, value >= 0 { return UInt64(value) }
+        if let value = raw as? String { return UInt64(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+
+    static func signed(_ raw: Any?) -> Int? {
+        if raw is Bool { return nil }
+        if let number = raw as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard number.doubleValue.isFinite,
+                  number.doubleValue.rounded() == number.doubleValue else { return nil }
+            return Int(number.stringValue)
+        }
+        if let value = raw as? Int { return value }
+        if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+}
+
+/// A daemon entity not yet modeled by the desktop. Its exact JSON is retained so
+/// an agent or a future renderer can inspect it without waiting for a schema bump.
+struct CloudVMEntity: Hashable, Codable, Sendable {
+    var kind: String
+    var id: String?
+    var payload: Data
+}
+
+/// A typed index of the cmux-tui session graph. The raw snapshot remains the
+/// authority; these values are immutable indexes used by the tree and agents.
+struct CloudVMWorkspaceState: Hashable, Codable, Sendable {
+    var id: String
+    var name: String
+    var index: Int
+    var focused: Bool
+}
+
+struct CloudVMScreenState: Hashable, Codable, Sendable {
+    var id: String
+    var workspaceID: String
+    var name: String?
+    var index: Int
+    var focused: Bool
+    /// The daemon layout document, kept opaque because its schema can evolve.
+    var layout: Data?
+}
+
+struct CloudVMPaneState: Hashable, Codable, Sendable {
+    var id: String
+    var screenID: String
+    var name: String?
+    var focused: Bool
+    var zoomed: Bool
+    var tabIDs: [String]
+}
+
+struct CloudVMTabState: Hashable, Codable, Sendable {
+    var id: String
+    var paneID: String
+    var name: String?
+    var index: Int
+    var focused: Bool
+    var contentKind: String
+    var contentID: String
+}
+
+struct CloudVMTerminalState: Hashable, Codable, Sendable {
+    var id: String
+    var tabIDs: [String]
+    var title: String
+    var cwd: String?
+    var lifecycle: String
+    var cols: Int?
+    var rows: Int?
+    var running: Bool?
+}
+
+struct CloudVMBrowserState: Hashable, Codable, Sendable {
+    var id: String
+    var tabID: String
+    var url: String
+    var title: String
+    var status: String
+}
+
+struct CloudVMAgentState: Hashable, Codable, Sendable {
+    var id: String?
+    var terminalID: String
+    var state: String
+    var source: String?
+}
+
+/// How a remote session can be synchronized.
+///
+/// Current cmux-tui daemons publish a generation and revision, so the desktop can
+/// apply contiguous deltas and fence mutations with compare-and-swap. Older
+/// daemons publish the same graph without a cursor. Their snapshot is still useful
+/// for display and inspection, but it cannot prove ordering or authorize a
+/// revision-fenced mutation.
+enum CloudVMStateSyncMode: String, Codable, Sendable {
+    case journaled
+    case snapshotOnly = "snapshot_only"
+}
+
+/// The join key for a tab's content. A terminal and a browser may use the same
+/// daemon-local id, so the content kind is part of the identity.
+struct CloudVMTabContentKey: Hashable, Sendable {
+    var kind: String
+    var id: String
+}
+
+/// Materialized joins for one accepted daemon graph. The arrays on
+/// `CloudVMState` remain the ordered, agent-facing representation. This value is
+/// a derived lookup layer, rebuilt once at a snapshot boundary and changed only
+/// for entities named by a delta. It is deliberately not encoded: a cache must
+/// never become a second persisted source of truth.
+struct CloudVMStateIndex: Sendable {
+    var workspacesByID: [String: CloudVMWorkspaceState] = [:]
+    var screensByID: [String: CloudVMScreenState] = [:]
+    var panesByID: [String: CloudVMPaneState] = [:]
+    var tabsByID: [String: CloudVMTabState] = [:]
+    var terminalsByID: [String: CloudVMTerminalState] = [:]
+    var browsersByID: [String: CloudVMBrowserState] = [:]
+    var agentsByID: [String: CloudVMAgentState] = [:]
+    var agentsByTerminalID: [String: CloudVMAgentState] = [:]
+    var screenIDsByWorkspaceID: [String: [String]] = [:]
+    var paneIDsByScreenID: [String: [String]] = [:]
+    var tabIDsByPaneID: [String: [String]] = [:]
+    var tabIDsByContent: [CloudVMTabContentKey: [String]] = [:]
+
+    init(
+        workspaces: [CloudVMWorkspaceState],
+        screens: [CloudVMScreenState],
+        panes: [CloudVMPaneState],
+        tabs: [CloudVMTabState],
+        terminals: [CloudVMTerminalState],
+        browsers: [CloudVMBrowserState],
+        agents: [CloudVMAgentState]
+    ) {
+        for workspace in workspaces {
+            workspacesByID[workspace.id] = workspace
+        }
+        for screen in screens {
+            screensByID[screen.id] = screen
+            append(screen.id, to: &screenIDsByWorkspaceID, keyedBy: screen.workspaceID)
+        }
+        for pane in panes {
+            panesByID[pane.id] = pane
+            append(pane.id, to: &paneIDsByScreenID, keyedBy: pane.screenID)
+        }
+        for tab in tabs {
+            insertTab(tab)
+        }
+        for terminal in terminals {
+            terminalsByID[terminal.id] = terminal
+        }
+        for browser in browsers {
+            browsersByID[browser.id] = browser
+        }
+        for agent in agents {
+            insertAgent(agent)
+        }
+    }
+
+    func workspace(id: String) -> CloudVMWorkspaceState? {
+        workspacesByID[id]
+    }
+
+    func screen(id: String) -> CloudVMScreenState? {
+        screensByID[id]
+    }
+
+    func pane(id: String) -> CloudVMPaneState? {
+        panesByID[id]
+    }
+
+    func tab(id: String) -> CloudVMTabState? {
+        tabsByID[id]
+    }
+
+    func terminal(id: String) -> CloudVMTerminalState? {
+        terminalsByID[id]
+    }
+
+    func browser(id: String) -> CloudVMBrowserState? {
+        browsersByID[id]
+    }
+
+    func agent(id: String) -> CloudVMAgentState? {
+        agentsByID[id]
+    }
+
+    func agent(terminalID: String) -> CloudVMAgentState? {
+        agentsByTerminalID[terminalID]
+    }
+
+    func screenIDs(workspaceID: String) -> [String] {
+        screenIDsByWorkspaceID[workspaceID] ?? []
+    }
+
+    func paneIDs(screenID: String) -> [String] {
+        paneIDsByScreenID[screenID] ?? []
+    }
+
+    func tabIDs(paneID: String) -> [String] {
+        orderedTabIDs(tabIDsByPaneID[paneID] ?? [])
+    }
+
+    func tabs(contentKind: String, contentID: String) -> [CloudVMTabState] {
+        let key = CloudVMTabContentKey(kind: contentKind, id: contentID)
+        return orderedTabIDs(tabIDsByContent[key] ?? []).compactMap { tabsByID[$0] }
+    }
+
+    private func orderedTabIDs(_ ids: [String]) -> [String] {
+        ids.enumerated().sorted { left, right in
+            let leftIndex = tabsByID[left.element]?.index ?? Int.max
+            let rightIndex = tabsByID[right.element]?.index ?? Int.max
+            if leftIndex != rightIndex { return leftIndex < rightIndex }
+            return left.offset < right.offset
+        }.map { $0.element }
+    }
+
+    mutating func upsertWorkspace(_ workspace: CloudVMWorkspaceState) {
+        workspacesByID[workspace.id] = workspace
+    }
+
+    mutating func removeWorkspace(id: String) {
+        workspacesByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertScreen(_ screen: CloudVMScreenState) {
+        if let old = screensByID[screen.id], old.workspaceID != screen.workspaceID {
+            remove(screen.id, from: &screenIDsByWorkspaceID, keyedBy: old.workspaceID)
+        }
+        screensByID[screen.id] = screen
+        appendUnique(screen.id, to: &screenIDsByWorkspaceID, keyedBy: screen.workspaceID)
+    }
+
+    mutating func removeScreen(id: String) {
+        guard let old = screensByID.removeValue(forKey: id) else { return }
+        remove(id, from: &screenIDsByWorkspaceID, keyedBy: old.workspaceID)
+    }
+
+    mutating func upsertPane(_ pane: CloudVMPaneState) {
+        if let old = panesByID[pane.id], old.screenID != pane.screenID {
+            remove(pane.id, from: &paneIDsByScreenID, keyedBy: old.screenID)
+        }
+        panesByID[pane.id] = pane
+        appendUnique(pane.id, to: &paneIDsByScreenID, keyedBy: pane.screenID)
+    }
+
+    mutating func setPaneTabIDs(_ tabIDs: [String], paneID: String) {
+        guard var pane = panesByID[paneID] else { return }
+        pane.tabIDs = tabIDs
+        panesByID[paneID] = pane
+    }
+
+    mutating func removePane(id: String) {
+        guard let old = panesByID.removeValue(forKey: id) else { return }
+        remove(id, from: &paneIDsByScreenID, keyedBy: old.screenID)
+    }
+
+    mutating func upsertTab(_ tab: CloudVMTabState) {
+        if let old = tabsByID[tab.id] {
+            removeTabReferences(old)
+        }
+        tabsByID[tab.id] = tab
+        insertTabReferences(tab)
+    }
+
+    mutating func removeTab(id: String) {
+        guard let old = tabsByID.removeValue(forKey: id) else { return }
+        removeTabReferences(old)
+    }
+
+    mutating func upsertTerminal(_ terminal: CloudVMTerminalState) {
+        terminalsByID[terminal.id] = terminal
+    }
+
+    mutating func removeTerminal(id: String) {
+        terminalsByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertBrowser(_ browser: CloudVMBrowserState) {
+        browsersByID[browser.id] = browser
+    }
+
+    mutating func removeBrowser(id: String) {
+        browsersByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertAgent(_ agent: CloudVMAgentState) {
+        if let old = agentsByTerminalID[agent.terminalID] {
+            removeAgent(old)
+        }
+        if let id = agent.id, let old = agentsByID[id] {
+            removeAgent(old)
+        }
+        insertAgent(agent)
+    }
+
+    mutating func removeAgent(_ agent: CloudVMAgentState) {
+        if agentsByTerminalID[agent.terminalID]?.id == agent.id {
+            agentsByTerminalID.removeValue(forKey: agent.terminalID)
+        }
+        if let id = agent.id, agentsByID[id]?.terminalID == agent.terminalID {
+            agentsByID.removeValue(forKey: id)
+        }
+    }
+
+    private mutating func insertAgent(_ agent: CloudVMAgentState) {
+        agentsByTerminalID[agent.terminalID] = agent
+        if let id = agent.id {
+            agentsByID[id] = agent
+        }
+    }
+
+    private mutating func insertTab(_ tab: CloudVMTabState) {
+        tabsByID[tab.id] = tab
+        insertTabReferences(tab)
+    }
+
+    private mutating func insertTabReferences(_ tab: CloudVMTabState) {
+        appendUnique(tab.id, to: &tabIDsByPaneID, keyedBy: tab.paneID)
+        appendUnique(
+            tab.id,
+            to: &tabIDsByContent,
+            keyedBy: CloudVMTabContentKey(kind: tab.contentKind, id: tab.contentID)
+        )
+    }
+
+    private mutating func removeTabReferences(_ tab: CloudVMTabState) {
+        remove(tab.id, from: &tabIDsByPaneID, keyedBy: tab.paneID)
+        remove(
+            tab.id,
+            from: &tabIDsByContent,
+            keyedBy: CloudVMTabContentKey(kind: tab.contentKind, id: tab.contentID)
+        )
+    }
+
+    private func append<Value: Hashable>(_ value: Value, to map: inout [String: [Value]], keyedBy key: String) {
+        map[key, default: []].append(value)
+    }
+
+    private func appendUnique<Value: Hashable>(_ value: Value, to map: inout [String: [Value]], keyedBy key: String) {
+        if !map[key, default: []].contains(value) {
+            map[key, default: []].append(value)
+        }
+    }
+
+    private func appendUnique<Value: Hashable, Key: Hashable>(
+        _ value: Value,
+        to map: inout [Key: [Value]],
+        keyedBy key: Key
+    ) {
+        if !map[key, default: []].contains(value) {
+            map[key, default: []].append(value)
+        }
+    }
+
+    private func remove<Value: Equatable>(_ value: Value, from map: inout [String: [Value]], keyedBy key: String) {
+        guard var values = map[key] else { return }
+        values.removeAll { $0 == value }
+        if values.isEmpty {
+            map.removeValue(forKey: key)
+        } else {
+            map[key] = values
+        }
+    }
+
+    private func remove<Value: Equatable, Key: Hashable>(
+        _ value: Value,
+        from map: inout [Key: [Value]],
+        keyedBy key: Key
+    ) {
+        guard var values = map[key] else { return }
+        values.removeAll { $0 == value }
+        if values.isEmpty {
+            map.removeValue(forKey: key)
+        } else {
+            map[key] = values
+        }
+    }
+}
+
+/// One top-level JSON array kept as individually addressable canonical row bytes.
+/// The order array preserves daemon order. Rows without an id use a private
+/// positional key so unknown future fields remain lossless.
+struct CloudVMRawCollection: Hashable, Codable, Sendable {
+    var order: [String] = []
+    var rows: [String: Data] = [:]
+}
+
+/// Fragmented canonical representation of one daemon snapshot. Known and
+/// unknown top-level values share this document. Updating one row never parses
+/// or re-encodes unrelated rows; `object()` and `data()` are deliberate export
+/// boundaries that materialize the complete JSON document.
+struct CloudVMStateDocument: Hashable, Codable, Sendable {
+    private(set) var values: [String: Data] = [:]
+    private(set) var collections: [String: CloudVMRawCollection] = [:]
+    private var canonicalDataCache: Data?
+
+    init(snapshot: [String: Any]) {
+        for (key, value) in snapshot {
+            if let rows = value as? [[String: Any]] {
+                var collection = CloudVMRawCollection()
+                var valid = true
+                for (offset, row) in rows.enumerated() {
+                    guard let data = Self.canonicalData(row) else {
+                        valid = false
+                        break
+                    }
+                    let baseID = Self.nonEmptyString(row["id"])
+                    let rowID = Self.uniqueRowKey(baseID ?? "__row_\(offset)", in: collection.rows)
+                    collection.order.append(rowID)
+                    collection.rows[rowID] = data
+                }
+                if valid {
+                    collections[key] = collection
+                } else if let data = Self.canonicalData(value) {
+                    // Retain an unexpected mixed array as one opaque value. A
+                    // partial collection would silently discard daemon state.
+                    values[key] = data
+                }
+            } else if let data = Self.canonicalData(value) {
+                values[key] = data
+            }
+        }
+        canonicalDataCache = Self.canonicalData(snapshot)
+    }
+
+    init?(data: Data) {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        self.init(snapshot: object)
+        // The input may be valid JSON with a different key order or whitespace.
+        // Store only the canonical form so equality, export, and delta updates
+        // have one stable byte representation.
+        guard let canonical = Self.canonicalData(object) else { return nil }
+        canonicalDataCache = canonical
+    }
+
+    /// Materializes the complete document for export or recovery only.
+    func data() -> Data? {
+        if let canonicalDataCache { return canonicalDataCache }
+        return Self.canonicalData(object())
+    }
+
+    /// Materializes Foundation values for legacy parser and agent export paths.
+    func object() -> [String: Any]? {
+        var result: [String: Any] = [:]
+        for (key, data) in values {
+            guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+            result[key] = value
+        }
+        for (key, collection) in collections {
+            var rows: [Any] = []
+            rows.reserveCapacity(collection.order.count)
+            for rowID in collection.order {
+                guard let data = collection.rows[rowID],
+                      let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+                rows.append(value)
+            }
+            result[key] = rows
+        }
+        return result
+    }
+
+    /// Decodes one top-level value without materializing unrelated collections.
+    func value(forKey key: String) -> Any? {
+        guard let data = values[key] else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
+    /// Decodes one collection's rows without materializing the complete graph.
+    /// The order is the daemon order recorded in `CloudVMRawCollection.order`.
+    func objects(forCollectionKey key: String) -> [[String: Any]]? {
+        guard let collection = collections[key] else { return nil }
+        var result: [[String: Any]] = []
+        result.reserveCapacity(collection.order.count)
+        for rowID in collection.order {
+            guard let data = collection.rows[rowID],
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            result.append(object)
+        }
+        return result
+    }
+
+    /// Returns opaque entities directly from the canonical fragments. This is
+    /// an export projection, not another mutable copy of the remote graph.
+    /// Scalar values are retained too, so a future daemon field is never lost
+    /// only because this client does not know its shape yet.
+    func opaqueEntities(excluding excludedKeys: Set<String>) -> [CloudVMEntity] {
+        var result: [CloudVMEntity] = []
+        for (key, data) in values where !excludedKeys.contains(key) {
+            result.append(CloudVMEntity(kind: key, id: Self.entityID(from: data), payload: data))
+        }
+        for (key, collection) in collections where !excludedKeys.contains(key) {
+            for rowID in collection.order {
+                guard let data = collection.rows[rowID] else { continue }
+                result.append(CloudVMEntity(kind: key, id: Self.entityID(from: data), payload: data))
+            }
+        }
+        return result.sorted {
+            if $0.kind != $1.kind { return $0.kind < $1.kind }
+            let leftID = $0.id ?? ""
+            let rightID = $1.id ?? ""
+            if leftID != rightID { return leftID < rightID }
+            return $0.payload.lexicographicallyPrecedes($1.payload)
+        }
+    }
+
+    @discardableResult
+    mutating func setCursor(_ cursor: CloudVMCursor) -> Bool {
+        // Keep cursor extensions emitted by a newer daemon. The generation and
+        // revision are the fields this client owns; every other field remains
+        // lossless across a local delta.
+        var cursorObject: [String: Any] = [:]
+        if let existing = values["cursor"],
+           let decoded = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] {
+            cursorObject = decoded
+        }
+        cursorObject["generation"] = cursor.generation
+        cursorObject["revision"] = String(cursor.revision)
+        guard let data = Self.canonicalData(cursorObject) else { return false }
+        values["cursor"] = data
+        collections.removeValue(forKey: "cursor")
+        canonicalDataCache = nil
+        return true
+    }
+
+    /// Replaces one collection row. `alternateField` supports legacy rows whose
+    /// stable identity is a relationship (currently agents use terminal_id).
+    /// An existing explicit id is preserved when a legacy update omits it.
+    mutating func upsert(
+        collectionKey: String,
+        id: String,
+        value: [String: Any],
+        alternateField: (name: String, value: String)? = nil
+    ) -> Bool {
+        guard let rowData = Self.canonicalData(value) else { return false }
+        var collection = collections[collectionKey] ?? CloudVMRawCollection()
+        let explicitID = Self.nonEmptyString(value["id"])
+        guard explicitID == nil || explicitID == id else { return false }
+        var matchingRowIDs = collection.order.filter { candidate in
+            guard candidate == id else { return false }
+            return collection.rows[candidate] != nil
+        }
+        // A row may have a positional/suffixed storage key, so also compare its
+        // payload identity. This avoids appending a second copy after a legacy
+        // row acquires an explicit id.
+        matchingRowIDs.append(contentsOf: collection.order.filter { candidate in
+            guard let data = collection.rows[candidate],
+                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+            else { return false }
+            return Self.nonEmptyString(object["id"]) == id
+        })
+        if let alternateField {
+            matchingRowIDs.append(contentsOf: collection.order.filter { candidate in
+                guard let data = collection.rows[candidate],
+                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+                else { return false }
+                return Self.nonEmptyString(object[alternateField.name]) == alternateField.value
+            })
+        }
+        var uniqueMatches: [String] = []
+        for candidate in matchingRowIDs where !uniqueMatches.contains(candidate) {
+            uniqueMatches.append(candidate)
+        }
+        guard uniqueMatches.count <= 1 else { return false }
+        let rowID = uniqueMatches.first
+        if let rowID,
+           let existingData = collection.rows[rowID],
+           let existingObject = try? JSONSerialization.jsonObject(with: existingData, options: [.fragmentsAllowed]) as? [String: Any],
+           let existingID = Self.nonEmptyString(existingObject["id"]),
+           let explicitID,
+           existingID != explicitID {
+            // An explicit identity cannot silently claim a different row found
+            // through a compatibility relationship. Force a fresh snapshot so
+            // the daemon can state whether this is a replacement or a new row.
+            return false
+        }
+        var storedData = rowData
+        if let rowID,
+           let existingData = collection.rows[rowID],
+           explicitID == nil,
+           let existingObject = try? JSONSerialization.jsonObject(with: existingData, options: [.fragmentsAllowed]) as? [String: Any],
+           let existingID = Self.nonEmptyString(existingObject["id"]) {
+            var merged = value
+            merged["id"] = existingID
+            guard let mergedData = Self.canonicalData(merged) else { return false }
+            storedData = mergedData
+        }
+        if let rowID {
+            collection.rows[rowID] = storedData
+        } else {
+            let newID = Self.uniqueRowKey(id, in: collection.rows)
+            collection.order.append(newID)
+            collection.rows[newID] = storedData
+        }
+        // Commit the collection replacement only after every identity and
+        // serialization guard has passed. A failed delta must leave the
+        // document byte-for-byte unchanged so callers can safely retry from a
+        // fresh snapshot.
+        values.removeValue(forKey: collectionKey)
+        collections[collectionKey] = collection
+        canonicalDataCache = nil
+        return true
+    }
+
+    mutating func delete(
+        collectionKey: String,
+        id: String,
+        alternateField: (name: String, value: String)? = nil
+    ) -> Bool {
+        guard var collection = collections[collectionKey] else { return false }
+        var matchingRowIDs: [String] = []
+        for candidate in collection.order {
+            guard let data = collection.rows[candidate],
+                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+            else { continue }
+            let payloadID = Self.nonEmptyString(object["id"])
+            let matchesID = candidate == id || payloadID == id
+            let matchesAlternate = alternateField.map {
+                Self.nonEmptyString(object[$0.name]) == $0.value
+            } ?? false
+            if matchesID || matchesAlternate {
+                matchingRowIDs.append(candidate)
+            }
+        }
+        var uniqueMatches: [String] = []
+        for candidate in matchingRowIDs where !uniqueMatches.contains(candidate) {
+            uniqueMatches.append(candidate)
+        }
+        guard uniqueMatches.count == 1,
+              let rowID = uniqueMatches.first,
+              let rowData = collection.rows[rowID],
+              let rowObject = try? JSONSerialization.jsonObject(with: rowData, options: [.fragmentsAllowed]) as? [String: Any]
+        else { return false }
+        // A relationship fallback is valid only for an id-less legacy row or
+        // the exact requested identity. If a stale relationship points at a
+        // different explicit row, force snapshot recovery instead of deleting
+        // the wrong terminal or tab.
+        if let existingID = Self.nonEmptyString(rowObject["id"]), existingID != id {
+            return false
+        }
+        if let alternateField,
+           Self.nonEmptyString(rowObject[alternateField.name]) != alternateField.value {
+            // An explicit id and a relationship are a compound identity
+            // contract for compatibility deletes. A missing or stale
+            // relationship must not authorize removal of an otherwise matching
+            // row.
+            return false
+        }
+        guard let index = collection.order.firstIndex(of: rowID) else { return false }
+        collection.order.remove(at: index)
+        collection.rows.removeValue(forKey: rowID)
+        collections[collectionKey] = collection
+        canonicalDataCache = nil
+        return true
+    }
+
+    mutating func replaceSingleton(key: String, value: [String: Any]) -> Bool {
+        guard let data = Self.canonicalData(value) else { return false }
+        values[key] = data
+        collections.removeValue(forKey: key)
+        canonicalDataCache = nil
+        return true
+    }
+
+    mutating func removeSingleton(key: String, id: String) -> Bool {
+        guard let data = values[key],
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Self.nonEmptyString(object["id"]) == id else { return false }
+        values.removeValue(forKey: key)
+        collections.removeValue(forKey: key)
+        canonicalDataCache = nil
+        return true
+    }
+
+    private static func uniqueRowKey(_ base: String, in rows: [String: Data]) -> String {
+        guard rows[base] != nil else { return base }
+        var suffix = 1
+        while rows["\(base)#\(suffix)"] != nil { suffix += 1 }
+        return "\(base)#\(suffix)"
+    }
+
+    private static func nonEmptyString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func entityID(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+        else { return nil }
+        return nonEmptyString(object["id"])
+    }
+
+    private static func canonicalData(_ object: Any?) -> Data? {
+        guard let object else { return nil }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed])
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case values, collections
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        values = try container.decodeIfPresent([String: Data].self, forKey: .values) ?? [:]
+        collections = try container.decodeIfPresent([String: CloudVMRawCollection].self, forKey: .collections) ?? [:]
+        canonicalDataCache = nil
+        guard values.keys.allSatisfy({ !collections.keys.contains($0) }),
+              collections.values.allSatisfy(Self.isValidCollection),
+              values.values.allSatisfy(Self.isValidJSONData)
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .collections,
+                in: container,
+                debugDescription: "CloudVMStateDocument contains an invalid or colliding fragment"
+            )
+        }
+    }
+
+    private static func isValidCollection(_ collection: CloudVMRawCollection) -> Bool {
+        let order = Set(collection.order)
+        guard order.count == collection.order.count,
+              order.count == collection.rows.count,
+              order.allSatisfy({ collection.rows[$0] != nil })
+        else { return false }
+        return collection.rows.values.allSatisfy(Self.isValidJSONData)
+    }
+
+    private static func isValidJSONData(_ data: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(values, forKey: .values)
+        try container.encode(collections, forKey: .collections)
+    }
+
+    static func == (lhs: CloudVMStateDocument, rhs: CloudVMStateDocument) -> Bool {
+        lhs.values == rhs.values && lhs.collections == rhs.collections
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(values)
+        hasher.combine(collections)
+    }
+}
+
+/// Complete state for one remote cmux-tui session.
+///
+/// `document` preserves fields that this app does not understand yet. The typed
+/// graph and lookup index are derived from that same document and are never
+/// independent write sources. This gives the agent a stable graph today and an
+/// accretive escape hatch for new daemon resources tomorrow. A nil cursor is an
+/// explicit legacy snapshot-only mode, not an invalid or partially parsed graph.
+struct CloudVMState: Hashable, Codable, Sendable {
+    private static let modeledSnapshotKeys: Set<String> = [
+        "machine", "session", "cursor",
+        "workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents",
+    ]
+
+    var machine: SurfaceMachineID
+    var cursor: CloudVMCursor?
+    /// The canonical document owns both known and unknown remote fields. The
+    /// byte form is materialized only when a caller crosses an export boundary.
+    var document: CloudVMStateDocument
+    var workspaces: [CloudVMWorkspaceState]
+    var screens: [CloudVMScreenState]
+    var panes: [CloudVMPaneState]
+    var tabs: [CloudVMTabState]
+    var terminals: [CloudVMTerminalState]
+    var browsers: [CloudVMBrowserState]
+    var agents: [CloudVMAgentState]
+    /// Derived joins are rebuilt at snapshot boundaries and updated transactionally
+    /// with accepted deltas. They are excluded from Codable below.
+    var lookupIndex: CloudVMStateIndex
+
+    /// Future daemon resources are always projected from `document` on read.
+    /// Keeping this computed prevents an opaque delta from creating a second,
+    /// stale copy of state beside the canonical fragments.
+    var otherEntities: [CloudVMEntity] {
+        document.opaqueEntities(excluding: Self.modeledSnapshotKeys)
+    }
+
+    init(
+        machine: SurfaceMachineID,
+        cursor: CloudVMCursor?,
+        rawSnapshot: Data,
+        workspaces: [CloudVMWorkspaceState],
+        screens: [CloudVMScreenState],
+        panes: [CloudVMPaneState],
+        tabs: [CloudVMTabState],
+        terminals: [CloudVMTerminalState],
+        browsers: [CloudVMBrowserState],
+        agents: [CloudVMAgentState],
+        lookupIndex: CloudVMStateIndex? = nil,
+        document: CloudVMStateDocument? = nil
+    ) {
+        self.machine = machine
+        self.cursor = cursor
+        guard let document = document ?? CloudVMStateDocument(data: rawSnapshot) else {
+            preconditionFailure("CloudVMState requires a valid canonical snapshot document")
+        }
+        self.document = document
+        self.workspaces = workspaces
+        self.screens = screens
+        self.panes = panes
+        self.tabs = tabs
+        self.terminals = terminals
+        self.browsers = browsers
+        self.agents = agents
+        self.lookupIndex = lookupIndex ?? CloudVMStateIndex(
+            workspaces: workspaces,
+            screens: screens,
+            panes: panes,
+            tabs: tabs,
+            terminals: terminals,
+            browsers: browsers,
+            agents: agents
+        )
+    }
+
+    /// Compatibility accessor for callers that need the canonical bytes. This
+    /// can be expensive after deltas, so hot paths must use the typed index.
+    var rawSnapshot: Data {
+        document.data() ?? Data()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case machine, cursor, document, rawSnapshot
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let machine = try container.decode(SurfaceMachineID.self, forKey: .machine)
+        let encodedCursor = try container.decodeIfPresent(CloudVMCursor.self, forKey: .cursor)
+        let document: CloudVMStateDocument
+        if container.contains(.document) {
+            document = try container.decode(CloudVMStateDocument.self, forKey: .document)
+        } else if let rawSnapshot = try container.decodeIfPresent(Data.self, forKey: .rawSnapshot),
+                  let legacyDocument = CloudVMStateDocument(data: rawSnapshot) {
+            // Read archives written before the fragment document existed. New
+            // archives always write the document key below.
+            document = legacyDocument
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .document,
+                in: container,
+                debugDescription: "CloudVMState has no valid canonical document"
+            )
+        }
+        guard let object = document.object(),
+              let parsed = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
+              parsed.document == document,
+              encodedCursor == nil || encodedCursor == parsed.cursor
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .document,
+                in: container,
+                debugDescription: "CloudVMState document is invalid or its cursor disagrees with the state"
+            )
+        }
+        self = parsed
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(machine, forKey: .machine)
+        try container.encodeIfPresent(cursor, forKey: .cursor)
+        try container.encode(document, forKey: .document)
+    }
+
+    // New archives contain one canonical document. The decoder keeps a
+    // one-way rawSnapshot fallback for archives written before this model.
+
+    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
+        lhs.machine == rhs.machine
+            && lhs.cursor == rhs.cursor
+            && lhs.document == rhs.document
+            && lhs.workspaces == rhs.workspaces
+            && lhs.screens == rhs.screens
+            && lhs.panes == rhs.panes
+            && lhs.tabs == rhs.tabs
+            && lhs.terminals == rhs.terminals
+            && lhs.browsers == rhs.browsers
+            && lhs.agents == rhs.agents
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(machine)
+        hasher.combine(cursor)
+        hasher.combine(document)
+        hasher.combine(workspaces)
+        hasher.combine(screens)
+        hasher.combine(panes)
+        hasher.combine(tabs)
+        hasher.combine(terminals)
+        hasher.combine(browsers)
+        hasher.combine(agents)
+    }
+
+    var syncMode: CloudVMStateSyncMode {
+        cursor == nil ? .snapshotOnly : .journaled
+    }
+
+    var workspaceIDs: Set<String> { Set(workspaces.map(\.id)) }
+
+    func entity(kind: String, id: String) -> CloudVMEntity? {
+        entities(kind: kind).first { $0.id == id }
+    }
+
+    /// Unified read access for agents and future features. Known typed kinds
+    /// and opaque kinds use the same plural snapshot-key vocabulary; singular
+    /// daemon resource names are accepted as aliases.
+    func entities(kind: String) -> [CloudVMEntity] {
+        let key = Self.snapshotKey(for: kind)
+        guard key != "cursor" else { return [] }
+        let objects: [[String: Any]]
+        if let collection = document.objects(forCollectionKey: key) {
+            objects = collection
+        } else if let object = document.value(forKey: key) as? [String: Any] {
+            objects = [object]
+        } else {
+            return otherEntities.filter { $0.kind == key || $0.kind == kind }
+        }
+        return objects.compactMap { object in
+            guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+                return nil
+            }
+            return CloudVMEntity(kind: key, id: object["id"] as? String, payload: payload)
+        }
+    }
+
+    func snapshotObject() -> [String: Any]? {
+        document.object()
+    }
+
+    private static func snapshotKey(for kind: String) -> String {
+        switch kind {
+        case "machine", "machines": return "machine"
+        case "session", "sessions": return "session"
+        case "workspace", "workspaces": return "workspaces"
+        case "screen", "screens": return "screens"
+        case "pane", "panes": return "panes"
+        case "tab", "tabs": return "tabs"
+        case "terminal", "terminals": return "terminals"
+        case "browser", "browsers": return "browsers"
+        case "client", "clients": return "clients"
+        case "notification", "notifications": return "notifications"
+        case "agent", "agents": return "agents"
+        case "pairing_request", "pairing_requests": return "pairing_requests"
+        case "frontend_projection", "frontend_projections": return "frontend_projections"
+        case "sidebar_view", "sidebar_views": return "sidebar_views"
+        default: return kind
+        }
+    }
+
+    /// Returns the complete document for an agent read, with credential-like
+    /// fields redacted. Synchronization uses the unredacted document; this
+    /// boundary only protects the local control socket from leaking pairing or
+    /// renderer secrets.
+    func agentSnapshotObject() -> [String: Any]? {
+        guard let snapshot = snapshotObject() else { return nil }
+        return Self.redact(snapshot, context: []) as? [String: Any]
+    }
+
+    func agentEntityObject(_ entity: CloudVMEntity) -> Any {
+        guard let object = try? JSONSerialization.jsonObject(with: entity.payload) else {
+            return NSNull()
+        }
+        return Self.redact(object, context: [entity.kind])
+    }
+
+    private static func redact(_ value: Any, context: [String]) -> Any {
+        if let dictionary = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (childKey, childValue) in dictionary {
+                if isSensitiveKey(childKey, context: context) {
+                    result[childKey] = "[REDACTED]"
+                } else {
+                    result[childKey] = redact(childValue, context: context + [childKey])
+                }
+            }
+            return result
+        }
+        if let array = value as? [Any] {
+            return array.map { redact($0, context: context) }
+        }
+        return value
+    }
+
+    private static func isSensitiveKey(_ key: String, context: [String]) -> Bool {
+        let normalized = key
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        if normalized == "code", context.contains("pairing_requests") {
+            return true
+        }
+        let exact = Set([
+            "token", "secret", "password", "credential", "private_key",
+            "authorization", "access_key", "client_secret"
+        ])
+        return exact.contains(normalized)
+            || normalized.hasSuffix("_token")
+            || normalized.hasSuffix("_secret")
+            || normalized.hasSuffix("_password")
+            || normalized.hasSuffix("_credential")
+            || normalized.hasSuffix("_private_key")
+    }
+}
+
+/// Freshness of an accepted document is separate from the document itself.
+/// A sleeping or disconnected VM can still have useful last-known state, but
+/// that state must never be mistaken for a permission to mutate the VM.
+enum CloudVMStateFreshness: String, Codable, Sendable {
+    case current
+    case stale
+}
+
+struct CloudVMStateObservation: Hashable, Codable, Sendable {
+    var freshness: CloudVMStateFreshness
+    var reason: String?
+
+    static let current = CloudVMStateObservation(freshness: .current, reason: nil)
+
+    static func stale(reason: String? = nil) -> Self {
+        Self(freshness: .stale, reason: reason)
+    }
+}
+
+/// The stream can carry a delta that the desktop does not understand, or it can
+/// end because its journal window overflowed. Both cases require a new snapshot.
+enum CloudVMStateSyncDecision: Equatable, Sendable {
+    case ignoreStale
+    case installSnapshot
+    case fetchSnapshot
+
+    /// Decide whether one stream item can advance the installed graph.
+    ///
+    /// A revision has meaning only inside its generation. A new generation is a
+    /// new daemon session and therefore accepts a snapshot even when its numeric
+    /// revision is lower. A delta must join the exact cursor already installed;
+    /// accepting a non-contiguous delta would silently lose an entity update.
+    static func forSnapshot(
+        incoming: CloudVMCursor?,
+        current: CloudVMCursor?
+    ) -> Self {
+        // A snapshot without a cursor is a legacy, snapshot-only document. It has
+        // no ordering information, so it may initialize an empty slot but must
+        // never replace an already journaled graph.
+        guard let incoming else {
+            return current == nil ? .installSnapshot : .ignoreStale
+        }
+        guard let current else { return .installSnapshot }
+        guard incoming.generation == current.generation else { return .installSnapshot }
+        return incoming.revision > current.revision ? .installSnapshot : .ignoreStale
+    }
+
+    static func forDelta(
+        generation: String,
+        previousRevision: UInt64,
+        revision: UInt64,
+        current: CloudVMCursor?
+    ) -> Self {
+        guard let current,
+              generation == current.generation else { return .fetchSnapshot }
+        guard revision > current.revision else { return .ignoreStale }
+        guard previousRevision == current.revision else { return .fetchSnapshot }
+        // The daemon commits exactly one resource revision per session.delta.
+        // A larger jump means at least one committed transaction is missing,
+        // even when the advertised previous_revision happens to match.
+        guard previousRevision < UInt64.max,
+              revision == previousRevision + 1 else { return .fetchSnapshot }
+        return .installSnapshot
+    }
+}
+
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
@@ -111,6 +1279,13 @@ struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
 struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var tabID: String
     var workspace: SurfaceRemoteWorkspace
+    /// Exact graph coordinates. They make a local pane's rename target stable even
+    /// when the same terminal is present in several workspaces.
+    var screenID: String? = nil
+    var paneID: String? = nil
+    var name: String? = nil
+    var index: Int? = nil
+    var focused: Bool? = nil
 }
 
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
@@ -157,6 +1332,11 @@ struct SurfaceProjection: Hashable, Codable, Sendable {
     var resource: SurfaceResourceID
     var workspaceID: UUID
     var panelID: UUID
+    /// The remote placement represented by this local pane, if it came from a
+    /// cloud graph. A terminal id alone is not enough because tab names are
+    /// placement-local.
+    var remoteWorkspaceID: String? = nil
+    var remoteTabID: String? = nil
 }
 
 enum SurfaceSplitDirection: String, Codable, Sendable {
@@ -239,6 +1419,20 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
     func isOpen(_ resource: SurfaceResourceID) -> Bool {
         projections.contains { $0.resource == resource }
     }
+
+}
+
+/// One atomic export for agent and socket readers. The sidebar consumes only
+/// `catalog`; the complete daemon graphs stay out of its high-frequency value.
+/// Both halves are captured in the same main-actor turn, so their cursors and
+/// derived resource rows always describe one accepted state.
+struct SurfaceCatalogExport: Sendable {
+    var catalog: SurfaceCatalogSnapshot
+    var cloudStates: [CloudVMState]
+    /// Observation metadata is kept beside, not inside, the daemon document.
+    /// This preserves cursor/raw-snapshot equality while making offline state
+    /// explicit to agents.
+    var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane
@@ -246,22 +1440,32 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 struct SurfaceProjectionRecord: Hashable, Codable, Sendable {
     var panelID: UUID
     var resource: SurfaceResourceID
+    var remoteWorkspaceID: String? = nil
+    var remoteTabID: String? = nil
 }
 
 enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case unknownResource(SurfaceResourceID)
     case noProvider(SurfaceMachineID)
     case unavailable(SurfaceResourceID, reason: String)
+    case ambiguousRemotePlacement(SurfaceResourceID, workspaceID: String)
     case destinationNotFound(String)
     case unsupported(String)
+    /// A multi-step remote operation stopped after at least one committed step.
+    /// The caller must not hide this behind a generic transport error: the
+    /// remote graph may now contain a deliberate partial result.
+    case partialOperation(SurfaceResourceID, reason: String)
 
     var errorDescription: String? {
         switch self {
         case .unknownResource(let id): return "Unknown surface \(id)."
         case .noProvider(let machine): return "No provider for machine \(machine)."
         case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
+        case .ambiguousRemotePlacement(let id, let workspaceID):
+            return "\(id) has more than one tab in remote workspace \(workspaceID); provide the tab id."
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
+        case .partialOperation(_, let reason): return reason
         }
     }
 }

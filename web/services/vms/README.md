@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every managed machine session uses the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
 
 ## Layout
 
@@ -52,17 +52,46 @@ The backend validates membership before create or team-filtered list. If Stack r
 the backend treats it as the personal team created on sign-up. If Stack returns no team, or multiple
 teams without a selected/requested team, create fails before providers or billing are called.
 
-The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, SSH endpoint, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
+The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
 
 ## State model
 
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
+- The Freestyle cmux-tui daemon owns the complete remote graph. The macOS
+  catalog stores one lossless canonical fragment document plus typed projections
+  and a materialized ID / relationship index, never a second provider-specific
+  graph. The document owns every known and unknown field. The index is rebuilt at
+  snapshot boundaries, updated transactionally by deltas, and omitted from
+  encoded state because it is a cache. `rawSnapshot` is an export compatibility
+  view, not a second store. A cursor `(generation, revision)` marks `journaled`
+  state. A missing or null cursor marks `snapshot_only` legacy state.
+- Snapshot-only state stays readable and agent-visible, but the client pauses
+  event consumption and rejects revision-fenced workspace and tab renames until
+  the daemon is upgraded. This preserves old VM visibility without claiming
+  ordering that the old protocol cannot provide.
+- Event-feed recovery is an explicit phase machine with a capped backoff. One
+  accepted event starts a ten-second stability window; the retry budget resets
+  only after that window or a new authenticated link. The first exhausted run
+  gets one snapshot-recovery restart without erasing the spent budget. Later
+  snapshot refreshes do not restart an exhausted feed.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
+- `cmux-remote` lease rows are account-scoped and are marked revoked on sign-out.
+  Freestyle daemon enrollment records are device-scoped and are not revoked yet,
+  because the lease row does not store the claimed device id. The follow-up must
+  persist that id and issue one exact `remote enroll revoke` command per device;
+  revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
 - `cloud_vm_networks` records the one provider private network per (user, provider).
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
   fingerprint, the client's **public** key, and its address inside the network. No private
   key is ever sent to or stored by the backend.
+- `cloud_vm_tunnel_enrollment_locks` is the cross-instance mutation lease for one
+  `(user_id, device_fingerprint)`. Despite the historical table name, it covers
+  enrollment, read-with-attachment-heal, revoke, and account cleanup. The owner
+  token fences release and renewal; a ten-minute expiry recovers crashed requests.
+  Live contention returns `409 vm_tunnel_enrollment_busy`; a deployment missing
+  the migration fails closed with `503 vm_tunnel_enrollment_unavailable`. Apply
+  the migration before deploying code that calls `/api/vm/tunnel`.
 
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 
@@ -139,9 +168,9 @@ bootstrap. See the devbox README for the bake + verify + manifest flow. The lega
 (`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
 manifest for reference but cannot serve the cmux-remote transport.
 
-## Browser automation from Cloud VM SSH
+## Browser automation from a Cloud VM remote session
 
-`cmux browser ...` inside a `cmux ssh` or Cloud VM SSH session controls the local cmux browser
+`cmux browser ...` inside a `cmux ssh` or `cmux vm ssh` session controls the local cmux browser
 through the authenticated relay. It does not start Chrome inside the VM. This keeps browser UI,
 cookies, profiles, and screenshots on the local Mac while agent computation runs remotely.
 
@@ -150,20 +179,18 @@ The Linux relay CLI supports the common browser automation subcommands: `open`, 
 `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`. Existing-browser commands
 default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID`.
 
-## SSH session lifecycle
+## Cloud VM session lifecycle
 
-`cmux vm ssh <id>` and `cmux vm attach <id>` open a cmux-managed remote workspace. For providers
-that return SSH attach info, the CLI resolves the VM endpoint and then uses the same workspace,
-relay, startup, and session-state path as `cmux ssh`. `cmux vm ssh-info <id>` is the print-only
-debugging command.
+`cmux vm ssh <id>` and `cmux vm attach <id>` open a cmux-managed remote workspace. On Freestyle,
+`vm ssh` is a compatibility alias for the `cmux-remote` daemon path. Freestyle's scoped SSH proxy
+(`beta-ssh.freestyle.sh`) is intentionally not used for managed sessions, because raw SSH cannot
+carry the daemon graph or revision fence. `cmux vm ssh-info <id>` remains a legacy print-only
+command and is unsupported by the managed API.
 
-Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. If the foreground
-SSH process exits after sleep or a network transition, the startup wrapper retries the same command
-before reporting the session ended. `cmux ssh` and `cmux vm ssh` share this wrapper, so both paths
-surface reconnect progress in the terminal and keep workspace remote state visible while the daemon
-or proxy controller reconnects. Cloud VM provider sessions that expose only short-lived gateway
-credentials may still require a fresh attach lease; after the retry limit is exhausted, the terminal
-prints the existing disconnect banner instead of falling back silently to a local shell.
+Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. Cloud VM Freestyle
+sessions use the cmux-tui daemon and its reconnecting Noise link, not OpenSSH. If a legacy provider
+returns SSH attach info, the shared wrapper still retries after sleep or a network transition;
+Freestyle never enters that branch and never falls back silently to a local shell.
 
 Manual sleep/network smoke:
 
@@ -222,7 +249,8 @@ Set these Vercel environment variables per production/staging environment:
   attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
   creates revert to the public-IPv6 posture (inbound 1337 open). Machines keep working
   across a flip either way, because reachability is resolved from the addresses each
-  machine actually holds.
+  machine actually holds. Existing tunnel reads and revokes also remain available during
+  the rollback; they use the recorded VPC identity and never create a replacement network.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `CMUX_VM_DEFAULT_PROVIDER`, only `freestyle` (and its default).
@@ -335,7 +363,11 @@ Use `CMUX_PORT` to run multiple isolated web and database environments on one ma
 CMUX_PORT=10180 bun dev
 ```
 
-`bun dev` sources `~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files), derives the local database URL from `CMUX_PORT`, starts this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js. When it exits or is interrupted, it stops the matching Docker container and network while preserving the Postgres volume.
+`bun dev` sources provider values from `~/.secrets/cmux.env`, then sources
+`~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files). It derives the local
+database URL from `CMUX_PORT`, starts this worktree's Docker Postgres, applies Drizzle migrations,
+then starts Next.js. When it exits or is interrupted, it stops the matching Docker container and
+network while preserving the Postgres volume.
 
 The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `localhost:20180`. `bun db:test` starts a separate test DB on `CMUX_PORT + 30000`, applies migrations twice, and runs behavior tests against a real Postgres container.
 
@@ -347,15 +379,17 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --workspace` | yes |
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
-| `cmux vm ssh <id>` | yes |
-| `cmux vm ssh-info <id>` | no (cmux-remote only) |
+| `cmux vm ssh <id>` | yes (cmux-remote alias) |
+| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
-as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
-has nothing to print and `POST /api/vm/:id/ssh-endpoint` is gone.
+as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
+session protocol, but the managed API does not mint or expose its scoped identities. This keeps
+workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
+`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
 
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
@@ -382,13 +416,16 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
 computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
-route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
-state outbound-only firewall rules: no public inbound port at all. The VPC's single
-members-reach-each-other rule is what admits the owner's other machines and tunnels to the
-daemon port. Machines created before private networking (or while
-`CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture: inbound 1337 open and the
-route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-asserted on
-every attach-time heal, which is also what makes the VPC address reachable.
+route is then the VM's private address. The client prefers the VPC IPv4 address and uses the
+VPC IPv6 address when IPv4 is absent, for example `ws://10.40.0.7:1337/v1/link` or
+`ws://[fd00:40::7]:1337/v1/link`. This matches the tunnel's stable IPv4 subnet route and
+avoids a stale IPv6 member route after a VM is added. Creates state outbound-only firewall
+rules: no public inbound port at all. The VPC's single members-reach-each-other rule is what
+admits the owner's other machines and tunnels to the daemon port. Machines created before
+private networking (or while `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture:
+inbound 1337 open and the route at the stable public IPv6. The daemon binds dual-stack
+(`[::]:1337`), re-asserted on every attach-time heal, which is also what makes the VPC address
+reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
@@ -414,13 +451,16 @@ transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupp
 See docs/cloud-cmux-tui-daemon.md for the design.
 
 Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
-transport. The route is the VM's stable public IPv6 straight to the daemon
-(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
-arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
-enrollment is what gates sessions. The backend writes only a hash of attach
-tokens to Postgres; raw tokens are returned once to the Mac client. Machines
-created by the old cmuxd-remote drivers cannot serve this transport and need
-recreation.
+transport. For machines on the owner's private VPC, the route is the VPC IPv4
+address when present, otherwise the VPC IPv6 address. A legacy machine without a
+VPC, or a machine created while `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`, uses its
+stable public IPv6 instead. The platform has no HTTP ingress proxy to arbitrary
+VM ports, so the carrier is plain ws and the daemon's Noise enrollment gates
+sessions. The backend writes only a hash of attach tokens to Postgres; raw
+tokens are returned once to the Mac client. Machines created by the old
+cmuxd-remote drivers cannot serve this transport and need recreation. Freestyle's
+provider SSH proxy is a separate unmanaged diagnostic path and is never a silent
+fallback for a managed attach.
 
 Operational note: before rollout, verify the deployed
 `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,

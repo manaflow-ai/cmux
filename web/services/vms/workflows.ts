@@ -178,8 +178,9 @@ export async function runVmWorkflow<A>(
  * Drivers leave with a code deploy while the rows they wrote survive until an
  * operator runs the matching migration, so every read path must treat such a
  * row as unaddressable instead of asking the registry for a driver it no
- * longer has. The registry throws for an unknown id, and one surviving row was
- * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ * longer has. The registry throws for an unknown id, and one surviving retired
+ * row was enough to turn the whole machine list into a 500 during a provider
+ * migration.
  */
 export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
   return !isProviderId(row.provider);
@@ -1398,7 +1399,7 @@ function recordResumeUsageEvent(
 // Active-limit note: the control-plane-owned paused-row resume path is
 // limit-gated for billing teams by reservePausedResume before the provider
 // resume starts. Freestyle can still resume a VM outside the control plane
-// (for example through its SSH gateway); those already-running observations
+// (for example from the provider console); those already-running observations
 // are reconciled durably here, and beginCreate re-counts provider-running VMs
 // before allocating another active slot.
 function preflightResumeIfSuspended(
@@ -1461,7 +1462,7 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status === "running") {
-      // Freestyle's SSH gateway can resume a VM entirely outside the control
+      // A provider-side action can resume a VM entirely outside the control
       // plane; if the durable row still says paused, record the observed
       // running state so active-limit reconciliation can see the VM.
       if (vm.status === "paused") {

@@ -8,8 +8,24 @@ import Foundation
 /// Snapshot keys (cmux-tui `crates/cmux-tui-core/src/resource_api.rs`,
 /// `public_session_snapshot_with_journal_head` / `public_terminal_snapshot`):
 /// `workspaces[{id,name,focused}]`, `screens[{id,workspace_id}]`, `panes[{id,screen_id}]`,
-/// `tabs[{id,pane_id,content_kind,content_id}]`,
-/// `terminals[{id,tab_id,title,cwd?,lifecycle}]`, `agents[{terminal_id,state,source}]`.
+/// `tabs[{id,pane_id,name,content_kind,content_id}]`,
+/// `terminals[{id,tab_id,title,cwd?,lifecycle}]`,
+/// `agents[{id?,terminal_id,state,source}]`.
+/// A tab's `name` is the user-set label (`tab.rename`, persisted in the daemon's
+/// registry); the terminal's `title` is PTY-derived. A named view wins over the title.
+struct CloudVMStateDeltaImpact: Hashable, Sendable {
+    /// Resource identities whose derived rows can be rebuilt without touching unrelated rows.
+    var resourceIDs: Set<SurfaceResourceID> = []
+    /// Relationship changes can move many resources at once. These use the authoritative full
+    /// rebuild path instead of risking a partial placement update.
+    var requiresFullResourceRebuild = false
+}
+
+struct CloudVMStateDeltaApplication: Sendable {
+    let state: CloudVMState
+    let impact: CloudVMStateDeltaImpact
+}
+
 struct CmuxTuiSnapshotParser: Sendable {
     /// Chooses a stable destination for projecting a terminal that currently has no remote
     /// tab view. The session snapshot lists structural records separately, so selection walks
@@ -92,6 +108,1114 @@ struct CmuxTuiSnapshotParser: Sendable {
         return nil
     }
 
+    /// Builds the one lossless state value consumed by every cloud projection.
+    /// A missing or explicit-null cursor is a legacy snapshot-only state. A
+    /// present cursor must be valid, because accepting a malformed ordering token
+    /// would make later deltas target the wrong graph.
+    static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
+        let cursor: CloudVMCursor?
+        if let rawCursor = snapshot["cursor"], !(rawCursor is NSNull) {
+            guard let parsed = CloudVMCursor(snapshot: snapshot) else { return nil }
+            cursor = parsed
+        } else {
+            cursor = nil
+        }
+        guard identityCollectionsAreUnique(in: snapshot),
+              snapshotRelationshipsAreConsistent(in: snapshot)
+        else { return nil }
+        let document = CloudVMStateDocument(snapshot: snapshot)
+        guard let rawSnapshot = document.data() else { return nil }
+
+        let workspaces = ((snapshot["workspaces"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMWorkspaceState? in
+            guard let id = nonEmptyString(raw["id"]) else { return nil }
+            return CloudVMWorkspaceState(
+                id: id,
+                name: nonEmptyString(raw["name"]) ?? id,
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false
+            )
+        }
+        let screens = ((snapshot["screens"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMScreenState? in
+            guard let id = nonEmptyString(raw["id"]), let workspaceID = nonEmptyString(raw["workspace_id"]) else { return nil }
+            return CloudVMScreenState(
+                id: id,
+                workspaceID: workspaceID,
+                name: nonEmptyString(raw["name"]),
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false,
+                layout: raw["layout"].flatMap(canonicalJSONData)
+            )
+        }
+        let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
+            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
+            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
+            let name = nonEmptyString(raw["name"])
+            return CloudVMTabState(
+                id: id,
+                paneID: paneID,
+                name: name,
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false,
+                contentKind: contentKind,
+                contentID: contentID
+            )
+        }
+        // The public daemon schema puts the relationship on `tabs[].pane_id`.
+        // `panes[].tab_ids` is not part of that schema, so reading it would make
+        // every typed pane appear empty and would create a false second source of
+        // placement truth. Derive the index from the already parsed tabs instead.
+        var tabIDsByPane: [String: [String]] = [:]
+        var tabIDsByTerminal: [String: [String]] = [:]
+        for tab in tabs {
+            tabIDsByPane[tab.paneID, default: []].append(tab.id)
+            if tab.contentKind == "terminal" {
+                tabIDsByTerminal[tab.contentID, default: []].append(tab.id)
+            }
+        }
+        let panes = ((snapshot["panes"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMPaneState? in
+            guard let id = nonEmptyString(raw["id"]), let screenID = nonEmptyString(raw["screen_id"]) else { return nil }
+            return CloudVMPaneState(
+                id: id,
+                screenID: screenID,
+                name: nonEmptyString(raw["name"]),
+                focused: raw["focused"] as? Bool ?? false,
+                zoomed: raw["zoomed"] as? Bool ?? false,
+                tabIDs: tabIDsByPane[id] ?? []
+            )
+        }
+        let terminals = ((snapshot["terminals"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMTerminalState? in
+            guard let id = nonEmptyString(raw["id"]) else { return nil }
+            let declaredTabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
+                + (nonEmptyString(raw["tab_id"]).map { [$0] } ?? [])
+            // The reverse tab edge is authoritative for current placement. Keep
+            // declared ids after it for old daemons that omit a tab row while a
+            // terminal is detached or exiting.
+            let tabIDs = uniquePreservingOrder((tabIDsByTerminal[id] ?? []) + declaredTabIDs)
+            return CloudVMTerminalState(
+                id: id,
+                tabIDs: tabIDs,
+                title: (raw["title"] as? String) ?? "",
+                cwd: nonEmptyString(raw["cwd"]),
+                lifecycle: (raw["lifecycle"] as? String) ?? ((raw["running"] as? Bool) == true ? "running" : "exited"),
+                cols: integer(raw["cols"]),
+                rows: integer(raw["rows"]),
+                running: raw["running"] as? Bool
+            )
+        }
+        let browsers = ((snapshot["browsers"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMBrowserState? in
+            guard let id = nonEmptyString(raw["id"]), let tabID = nonEmptyString(raw["tab_id"]) else { return nil }
+            return CloudVMBrowserState(
+                id: id,
+                tabID: tabID,
+                url: (raw["url"] as? String) ?? "",
+                title: (raw["title"] as? String) ?? "",
+                status: (raw["status"] as? String) ?? ""
+            )
+        }
+        let agents = ((snapshot["agents"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMAgentState? in
+            guard let terminalID = nonEmptyString(raw["terminal_id"]), let state = nonEmptyString(raw["state"]) else { return nil }
+            return CloudVMAgentState(id: nonEmptyString(raw["id"]), terminalID: terminalID, state: state, source: nonEmptyString(raw["source"]))
+        }
+
+        return CloudVMState(
+            machine: machine,
+            cursor: cursor,
+            rawSnapshot: rawSnapshot,
+            workspaces: workspaces,
+            screens: screens,
+            panes: panes,
+            tabs: tabs,
+            terminals: terminals,
+            browsers: browsers,
+            agents: agents,
+            document: document
+        )
+    }
+
+    /// A synchronizable remote graph is keyed by daemon IDs. Silently choosing
+    /// the first or last malformed row would make a rename or projection target
+    /// depend on wire order, or make an entity disappear while the snapshot is
+    /// still marked current. Reject the whole document at this boundary so the
+    /// provider takes its bounded full-snapshot recovery path instead.
+    private static func identityCollectionsAreUnique(in snapshot: [String: Any]) -> Bool {
+        var agentTerminalIDs = Set<String>()
+        for key in ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"] {
+            guard let raw = snapshot[key] else { continue }
+            guard let rows = raw as? [[String: Any]] else { return false }
+            var ids = Set<String>()
+            for row in rows {
+                // Agent ids were added after the first public snapshot schema. Their stable
+                // relationship key is terminal_id, so an older daemon may omit id while the
+                // rest of the graph remains fully usable. Every other known row still needs a
+                // non-empty unique id because it is the identity used by deltas and projections.
+                if key == "agents" {
+                    if let rawID = row["id"], !(rawID is NSNull) {
+                        guard let id = nonEmptyString(rawID), ids.insert(id).inserted else { return false }
+                    }
+                } else {
+                    guard let id = nonEmptyString(row["id"]), ids.insert(id).inserted else {
+                        return false
+                    }
+                }
+                switch key {
+                case "screens":
+                    guard nonEmptyString(row["workspace_id"]) != nil else { return false }
+                case "panes":
+                    guard nonEmptyString(row["screen_id"]) != nil else { return false }
+                case "tabs":
+                    guard nonEmptyString(row["pane_id"]) != nil,
+                          nonEmptyString(row["content_kind"]) != nil,
+                          nonEmptyString(row["content_id"]) != nil
+                    else { return false }
+                case "terminals":
+                    if let rawTabIDs = row["tab_ids"], !(rawTabIDs is NSNull) {
+                        guard let tabIDs = rawTabIDs as? [String],
+                              tabIDs.allSatisfy({ nonEmptyString($0) != nil })
+                        else { return false }
+                    }
+                    if let rawTabID = row["tab_id"], !(rawTabID is NSNull) {
+                        guard nonEmptyString(rawTabID) != nil else { return false }
+                    }
+                case "browsers":
+                    guard nonEmptyString(row["tab_id"]) != nil else { return false }
+                case "agents":
+                    guard let terminalID = nonEmptyString(row["terminal_id"]),
+                          nonEmptyString(row["state"]) != nil,
+                          agentTerminalIDs.insert(terminalID).inserted
+                    else { return false }
+                default:
+                    break
+                }
+            }
+        }
+        return true
+    }
+
+    /// Verifies the foreign-key edges that determine a remote placement. A
+    /// terminal id alone is not enough: the tab must explicitly identify that
+    /// same terminal. Otherwise a stale or malformed tab reference can make a
+    /// rename or open operation target another terminal. Missing terminal tabs
+    /// remain allowed for exited or detached daemon records, which preserves
+    /// the documented pool representation.
+    private static func snapshotRelationshipsAreConsistent(in snapshot: [String: Any]) -> Bool {
+        let workspaces = (snapshot["workspaces"] as? [[String: Any]]) ?? []
+        let screens = (snapshot["screens"] as? [[String: Any]]) ?? []
+        let panes = (snapshot["panes"] as? [[String: Any]]) ?? []
+        let tabs = (snapshot["tabs"] as? [[String: Any]]) ?? []
+        let terminals = (snapshot["terminals"] as? [[String: Any]]) ?? []
+        let browsers = (snapshot["browsers"] as? [[String: Any]]) ?? []
+
+        let workspaceIDs = Set(workspaces.compactMap { nonEmptyString($0["id"]) })
+        let screenIDs = Set(screens.compactMap { nonEmptyString($0["id"]) })
+        let paneIDs = Set(panes.compactMap { nonEmptyString($0["id"]) })
+        var tabByID: [String: [String: Any]] = [:]
+        for tab in tabs {
+            guard let tabID = nonEmptyString(tab["id"]) else { return false }
+            tabByID[tabID] = tab
+            guard let paneID = nonEmptyString(tab["pane_id"]), paneIDs.contains(paneID) else { return false }
+        }
+        for screen in screens {
+            guard let workspaceID = nonEmptyString(screen["workspace_id"]), workspaceIDs.contains(workspaceID) else {
+                return false
+            }
+        }
+        for pane in panes {
+            guard let screenID = nonEmptyString(pane["screen_id"]), screenIDs.contains(screenID) else { return false }
+        }
+
+        func referencedTabIDs(in terminal: [String: Any]) -> [String] {
+            var ids = (terminal["tab_ids"] as? [String]) ?? []
+            if let tabID = nonEmptyString(terminal["tab_id"]), !ids.contains(tabID) {
+                ids.append(tabID)
+            }
+            return ids
+        }
+
+        for terminal in terminals {
+            guard let terminalID = nonEmptyString(terminal["id"]) else { return false }
+            for tabID in referencedTabIDs(in: terminal) {
+                // A missing tab is a valid detached/exited state. An existing
+                // tab with a different content identity is never safe to use.
+                guard let tab = tabByID[tabID] else { continue }
+                guard nonEmptyString(tab["content_kind"]) == "terminal",
+                      nonEmptyString(tab["content_id"]) == terminalID
+                else { return false }
+            }
+        }
+
+        for browser in browsers {
+            guard let browserID = nonEmptyString(browser["id"]),
+                  let tabID = nonEmptyString(browser["tab_id"])
+            else { return false }
+            guard let tab = tabByID[tabID] else { continue }
+            guard nonEmptyString(tab["content_kind"]) == "browser",
+                  nonEmptyString(tab["content_id"]) == browserID
+            else { return false }
+        }
+        return true
+    }
+
+    private static func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Returns every valid placement of a terminal. The tab content edge is
+    /// authoritative; terminal-row references are a compatibility fallback
+    /// for older snapshots that omit one or more tab rows.
+    private static func terminalTabs(
+        _ terminal: CloudVMTerminalState,
+        index: CloudVMStateIndex
+    ) -> [CloudVMTabState] {
+        var result = index.tabs(contentKind: "terminal", contentID: terminal.id)
+        var seen = Set(result.map(\.id))
+        for tabID in terminal.tabIDs where !seen.contains(tabID) {
+            guard let tab = index.tab(id: tabID),
+                  tab.contentKind == "terminal",
+                  tab.contentID == terminal.id else { continue }
+            result.append(tab)
+            seen.insert(tabID)
+        }
+        return result
+    }
+
+    /// Re-derives the compatibility resources from the exact state bytes. No
+    /// resource mutation path is allowed to maintain a second remote graph.
+    static func resources(from state: CloudVMState) -> [SurfaceResource] {
+        guard let snapshot = state.snapshotObject() else { return [] }
+        return resources(fromSnapshot: snapshot, machine: state.machine)
+    }
+
+    /// Re-derives only selected resource rows from the materialized state index. A tab rename
+    /// joins through pane and screen with constant-time lookups; unrelated graph rows are not
+    /// allocated, sorted, or compared. The provider uses this for row-local deltas and reserves
+    /// the complete path for topology changes.
+    static func resources(
+        from state: CloudVMState,
+        matching resourceIDs: Set<SurfaceResourceID>
+    ) -> [SurfaceResource] {
+        guard !resourceIDs.isEmpty else { return [] }
+
+        // Row-local deltas use the typed graph index directly. The graph was accepted
+        // at a full snapshot boundary, and applyingTypedDelta checked the changed
+        // relationship neighborhood, so materializing the document here would repeat
+        // the full-document validation on every title or agent update.
+        func workspace(for tab: CloudVMTabState) -> SurfaceRemoteWorkspace? {
+            guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID),
+                  let workspace = state.lookupIndex.workspace(id: screen.workspaceID)
+            else { return nil }
+            return SurfaceRemoteWorkspace(
+                id: workspace.id,
+                name: workspace.name,
+                index: workspace.index,
+                focused: workspace.focused
+            )
+        }
+
+        func view(for tab: CloudVMTabState) -> SurfaceRemoteView? {
+            guard let workspace = workspace(for: tab) else { return nil }
+            return SurfaceRemoteView(
+                tabID: tab.id,
+                workspace: workspace,
+                screenID: state.lookupIndex.pane(id: tab.paneID).flatMap {
+                    state.lookupIndex.screen(id: $0.screenID)?.id
+                },
+                paneID: tab.paneID,
+                name: tab.name,
+                index: tab.index,
+                focused: tab.focused
+            )
+        }
+
+        var resources: [SurfaceResource] = []
+        for resourceID in resourceIDs where resourceID.machine == state.machine {
+            switch resourceID.kind {
+            case .terminal:
+                guard let terminal = state.lookupIndex.terminal(id: resourceID.key) else { continue }
+                // `tabs[].content_id` is the authoritative reverse edge. The
+                // terminal row may expose only one legacy `tab_id`, so use it
+                // only as a fallback when a matching tab row is present.
+                let viewTabs = terminalTabs(terminal, index: state.lookupIndex)
+                let declaredTabIDs = uniquePreservingOrder(terminal.tabIDs)
+                if terminal.lifecycle == SurfaceLifecycle.exited.rawValue,
+                   viewTabs.isEmpty,
+                   declaredTabIDs.isEmpty { continue }
+                var resource = SurfaceResource(
+                    id: resourceID,
+                    title: terminal.title,
+                    detail: terminal.cwd,
+                    lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
+                        ?? (terminal.running == true ? .running : .exited),
+                    agent: state.lookupIndex.agent(terminalID: terminal.id).map {
+                        SurfaceAgentBadge(state: $0.state, source: $0.source)
+                    },
+                    remoteWorkspace: nil,
+                    port: nil,
+                    url: nil
+                )
+                resource.remoteViews = viewTabs.compactMap(view)
+                resource.remoteWorkspace = resource.remoteViews?.first?.workspace
+                resources.append(resource)
+            case .browser:
+                guard let browser = state.lookupIndex.browser(id: resourceID.key) else { continue }
+                let remoteView: SurfaceRemoteView? = state.lookupIndex.tab(id: browser.tabID).flatMap { tab in
+                    guard tab.contentKind == "browser", tab.contentID == browser.id else { return nil }
+                    return view(for: tab)
+                }
+                var resource = SurfaceResource(
+                    id: resourceID,
+                    title: browser.title.isEmpty ? browser.url : browser.title,
+                    detail: browser.url.isEmpty ? nil : browser.url,
+                    lifecycle: browser.status == "failed" ? .exited : .running,
+                    agent: nil,
+                    remoteWorkspace: remoteView?.workspace,
+                    port: localhostPort(fromURL: browser.url),
+                    url: browser.url.isEmpty ? nil : browser.url
+                )
+                resource.remoteViews = remoteView.map { [$0] } ?? []
+                resources.append(resource)
+            case .display:
+                var views: [SurfaceRemoteView] = []
+                for tab in state.lookupIndex.tabs(contentKind: "display", contentID: resourceID.key)
+                    + state.lookupIndex.tabs(contentKind: "screen", contentID: resourceID.key) {
+                    if let remoteView = view(for: tab) { views.append(remoteView) }
+                }
+                guard !views.isEmpty else { continue }
+                var resource = display(machine: state.machine, key: resourceID.key)
+                resource.remoteViews = views
+                resource.remoteWorkspace = views.first?.workspace
+                resources.append(resource)
+            default:
+                continue
+            }
+        }
+        return resources.sorted(by: resourceComesBefore)
+    }
+
+    /// Applies one contiguous `session.delta` batch to the complete canonical graph,
+    /// then updates the materialized typed index for the changed entities. The impact tells the
+    /// provider whether it can update selected resource rows or must rebuild all
+    /// relationships. Upserts replace an entity in place, deletes remove it, and
+    /// unknown resource kinds refuse the batch so the caller can fetch a snapshot.
+    static func applying(
+        deltaPayload: Data,
+        cursor: CloudVMCursor,
+        to state: CloudVMState
+    ) -> CloudVMState? {
+        applyingWithImpact(deltaPayload: deltaPayload, cursor: cursor, to: state)?.state
+    }
+
+    static func applyingWithImpact(
+        deltaPayload: Data,
+        cursor: CloudVMCursor,
+        to state: CloudVMState
+    ) -> CloudVMStateDeltaApplication? {
+        guard let currentCursor = state.cursor,
+              let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any],
+              let changes = delta["changes"] as? [[String: Any]],
+              currentCursor.generation == cursor.generation,
+              currentCursor.revision < UInt64.max,
+              cursor.revision == currentCursor.revision + 1,
+              deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: currentCursor.revision),
+              deltaSequencesAreValid(changes)
+        else { return nil }
+
+        var document = state.document
+        for change in changes {
+            guard let kind = nonEmptyString(change["kind"]),
+                  let resource = nonEmptyString(change["resource"]),
+                  let storage = deltaStorage(for: resource)
+            else { return nil }
+
+            // Agent ids were not present in the first public snapshot schema. Use the
+            // terminal relationship as the compatibility identity when an old daemon omits
+            // `id`; all other resources still require their explicit daemon id.
+            let value = change["value"] as? [String: Any]
+            let explicitID = nonEmptyString(change["id"])
+            let valueTerminalID = value.flatMap { nonEmptyString($0["terminal_id"]) }
+            if resource == "agent",
+               let explicitID,
+               let valueID = value.flatMap({ nonEmptyString($0["id"]) }),
+               valueID != explicitID {
+                return nil
+            }
+            if resource == "agent",
+               let changeTerminalID = nonEmptyString(change["terminal_id"]),
+               let valueTerminalID,
+               changeTerminalID != valueTerminalID {
+                return nil
+            }
+            let compatibilityID: String? = if resource == "agent" {
+                explicitID
+                    ?? nonEmptyString(change["terminal_id"])
+                    ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+            } else {
+                explicitID
+            }
+            guard let id = compatibilityID else { return nil }
+
+            switch kind {
+            case "upsert":
+                guard let value,
+                      resource == "agent" || nonEmptyString(value["id"]) == id
+                else { return nil }
+                switch storage {
+                case .single(let key):
+                    guard document.replaceSingleton(key: key, value: value) else { return nil }
+                case .collection(let key):
+                    let alternate = resource == "agent"
+                        ? valueTerminalID.map { (name: "terminal_id", value: $0) }
+                        : nil
+                    guard document.upsert(
+                        collectionKey: key,
+                        id: id,
+                        value: value,
+                        alternateField: alternate
+                    ) else { return nil }
+                }
+            case "delete":
+                switch storage {
+                case .single(let key):
+                    // machine and session are required roots of a resource
+                    // snapshot. Their deletion ends the document, so applying
+                    // an NSNull tombstone would create a fake, partially valid
+                    // graph. Force a full snapshot instead.
+                    guard key != "machine", key != "session" else { return nil }
+                    guard document.removeSingleton(key: key, id: id) else { return nil }
+                case .collection(let key):
+                    let terminalID = resource == "agent"
+                        ? (nonEmptyString(change["terminal_id"]) ?? valueTerminalID)
+                        : nil
+                    let alternate = terminalID.map { (name: "terminal_id", value: $0) }
+                    guard document.delete(
+                        collectionKey: key,
+                        id: id,
+                        alternateField: alternate
+                    ) else { return nil }
+                }
+            default:
+                return nil
+            }
+        }
+        guard document.setCursor(cursor) else { return nil }
+        guard let next = Self.applyingTypedDelta(
+                  changes,
+                  to: state,
+                  cursor: cursor,
+                  document: document
+              )
+        else { return nil }
+        return CloudVMStateDeltaApplication(
+            state: next,
+            impact: deltaImpact(changes, previous: state, next: next)
+        )
+    }
+
+    /// Applies the typed part of a delta without reparsing or re-encoding the
+    /// complete remote document. The fragmented document was patched above and
+    /// remains the authority. Typed rows are changed only for entities named by
+    /// this batch; relationship checks then cover those rows and their immediate
+    /// edges.
+    private static func applyingTypedDelta(
+        _ changes: [[String: Any]],
+        to state: CloudVMState,
+        cursor: CloudVMCursor,
+        document: CloudVMStateDocument
+    ) -> CloudVMState? {
+        var next = state
+        next.cursor = cursor
+        next.document = document
+        var changedPaneIDs = Set<String>()
+        var detachedTabIDsByTerminal: [String: Set<String>] = [:]
+        var changedTerminalIDs = Set<String>()
+
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]),
+                  let operation = nonEmptyString(change["kind"]),
+                  let id = deltaIdentity(change, resource: resource)
+            else { return nil }
+            let value = change["value"] as? [String: Any]
+
+            switch (resource, operation) {
+            case ("workspace", "upsert"):
+                let existingIndex = next.workspaces.firstIndex(where: { $0.id == id })
+                let fallbackIndex = existingIndex.map { next.workspaces[$0].index } ?? next.workspaces.count
+                guard let value,
+                      let decoded = workspaceState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let existingIndex {
+                    next.workspaces[existingIndex] = decoded
+                } else {
+                    next.workspaces.append(decoded)
+                }
+                next.lookupIndex.upsertWorkspace(decoded)
+            case ("screen", "upsert"):
+                let existingIndex = next.screens.firstIndex(where: { $0.id == id })
+                let fallbackIndex = existingIndex.map { next.screens[$0].index } ?? next.screens.count
+                guard let value,
+                      let decoded = screenState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let existingIndex {
+                    next.screens[existingIndex] = decoded
+                } else {
+                    next.screens.append(decoded)
+                }
+                next.lookupIndex.upsertScreen(decoded)
+            case ("pane", "upsert"):
+                guard let value,
+                      let decoded = paneState(
+                          from: value,
+                          fallbackTabIDs: next.panes.first(where: { $0.id == id })?.tabIDs ?? []
+                      )
+                else { return nil }
+                if let index = next.panes.firstIndex(where: { $0.id == id }) {
+                    next.panes[index] = decoded
+                } else {
+                    next.panes.append(decoded)
+                }
+                next.lookupIndex.upsertPane(decoded)
+                changedPaneIDs.insert(id)
+            case ("tab", "upsert"):
+                let old = next.tabs.first { $0.id == id }
+                let fallbackIndex = old?.index ?? next.tabs.count
+                guard let value,
+                      let decoded = tabState(from: value, fallbackIndex: fallbackIndex)
+                else { return nil }
+                if let old {
+                    if old.paneID != decoded.paneID {
+                        changedPaneIDs.insert(old.paneID)
+                        changedPaneIDs.insert(decoded.paneID)
+                    }
+                    if old.contentKind == "terminal", old.contentID != decoded.contentID || decoded.contentKind != "terminal" {
+                        detachedTabIDsByTerminal[old.contentID, default: []].insert(id)
+                        changedTerminalIDs.insert(old.contentID)
+                    }
+                } else {
+                    changedPaneIDs.insert(decoded.paneID)
+                }
+                if decoded.contentKind == "terminal" {
+                    changedTerminalIDs.insert(decoded.contentID)
+                }
+                if let index = next.tabs.firstIndex(where: { $0.id == id }) {
+                    next.tabs[index] = decoded
+                } else {
+                    next.tabs.append(decoded)
+                }
+                next.lookupIndex.upsertTab(decoded)
+            case ("terminal", "upsert"):
+                guard let value,
+                      let decoded = terminalState(from: value)
+                else { return nil }
+                changedTerminalIDs.insert(id)
+                if let index = next.terminals.firstIndex(where: { $0.id == id }) {
+                    next.terminals[index] = decoded
+                } else {
+                    next.terminals.append(decoded)
+                }
+                next.lookupIndex.upsertTerminal(decoded)
+            case ("browser", "upsert"):
+                guard let value,
+                      let decoded = browserState(from: value)
+                else { return nil }
+                if let index = next.browsers.firstIndex(where: { $0.id == id }) {
+                    next.browsers[index] = decoded
+                } else {
+                    next.browsers.append(decoded)
+                }
+                next.lookupIndex.upsertBrowser(decoded)
+            case ("agent", "upsert"):
+                guard let value else { return nil }
+                guard applyAgentUpsert(value: value, change: change, to: &next) else { return nil }
+            case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+                // The canonical document was already updated above. Opaque
+                // entities are a read projection of that document, so no
+                // second mutable cache is maintained here.
+                break
+            case ("workspace", "delete"):
+                next.workspaces.removeAll { $0.id == id }
+                next.lookupIndex.removeWorkspace(id: id)
+            case ("screen", "delete"):
+                next.screens.removeAll { $0.id == id }
+                next.lookupIndex.removeScreen(id: id)
+            case ("pane", "delete"):
+                if let pane = next.panes.first(where: { $0.id == id }) {
+                    changedPaneIDs.insert(pane.id)
+                }
+                next.panes.removeAll { $0.id == id }
+                next.lookupIndex.removePane(id: id)
+            case ("tab", "delete"):
+                if let tab = next.tabs.first(where: { $0.id == id }) {
+                    changedPaneIDs.insert(tab.paneID)
+                    if tab.contentKind == "terminal" {
+                        detachedTabIDsByTerminal[tab.contentID, default: []].insert(id)
+                        changedTerminalIDs.insert(tab.contentID)
+                    }
+                }
+                next.tabs.removeAll { $0.id == id }
+                next.lookupIndex.removeTab(id: id)
+            case ("terminal", "delete"):
+                next.terminals.removeAll { $0.id == id }
+                next.lookupIndex.removeTerminal(id: id)
+            case ("browser", "delete"):
+                next.browsers.removeAll { $0.id == id }
+                next.lookupIndex.removeBrowser(id: id)
+            case ("agent", "delete"):
+                guard applyAgentDelete(change: change, to: &next) else { return nil }
+            case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+                break
+            default:
+                return nil
+            }
+        }
+
+        // Keep the typed terminal projection aligned with the same reverse
+        // edges used for resource views. Explicit legacy references survive
+        // when their tab row is absent, but a moved or deleted tab is removed.
+        for terminalID in changedTerminalIDs {
+            guard var terminal = next.lookupIndex.terminal(id: terminalID) else { continue }
+            let detached = detachedTabIDsByTerminal[terminalID] ?? []
+            terminal.tabIDs.removeAll { detached.contains($0) }
+            let graphTabIDs = next.lookupIndex.tabs(contentKind: "terminal", contentID: terminalID).map(\.id)
+            terminal.tabIDs = uniquePreservingOrder(graphTabIDs + terminal.tabIDs)
+            if let index = next.terminals.firstIndex(where: { $0.id == terminalID }) {
+                next.terminals[index] = terminal
+            }
+            next.lookupIndex.upsertTerminal(terminal)
+        }
+
+        // A tab move/create/delete changes the derived pane child list. This is
+        // a topology path, so the affected panes are the only rows rescanned.
+        for paneID in changedPaneIDs {
+            guard let index = next.panes.firstIndex(where: { $0.id == paneID }) else { continue }
+            let tabIDs = next.lookupIndex.tabIDs(paneID: paneID)
+            next.panes[index].tabIDs = tabIDs
+            next.lookupIndex.setPaneTabIDs(tabIDs, paneID: paneID)
+        }
+        guard deltaRelationshipsAreConsistent(changes, previous: state, next: next) else { return nil }
+        return next
+    }
+
+    private static func deltaIdentity(_ change: [String: Any], resource: String) -> String? {
+        let value = change["value"] as? [String: Any]
+        if resource == "agent" {
+            return nonEmptyString(change["id"])
+                ?? nonEmptyString(change["terminal_id"])
+                ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+        }
+        return nonEmptyString(change["id"])
+    }
+
+    private static func workspaceState(from value: [String: Any], fallbackIndex: Int) -> CloudVMWorkspaceState? {
+        guard let id = nonEmptyString(value["id"]) else { return nil }
+        return CloudVMWorkspaceState(
+            id: id,
+            name: nonEmptyString(value["name"]) ?? id,
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false
+        )
+    }
+
+    private static func screenState(from value: [String: Any], fallbackIndex: Int) -> CloudVMScreenState? {
+        guard let id = nonEmptyString(value["id"]),
+              let workspaceID = nonEmptyString(value["workspace_id"])
+        else { return nil }
+        return CloudVMScreenState(
+            id: id,
+            workspaceID: workspaceID,
+            name: nonEmptyString(value["name"]),
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false,
+            layout: value["layout"].flatMap(canonicalJSONData)
+        )
+    }
+
+    private static func paneState(from value: [String: Any], fallbackTabIDs: [String]) -> CloudVMPaneState? {
+        guard let id = nonEmptyString(value["id"]),
+              let screenID = nonEmptyString(value["screen_id"])
+        else { return nil }
+        return CloudVMPaneState(
+            id: id,
+            screenID: screenID,
+            name: nonEmptyString(value["name"]),
+            focused: value["focused"] as? Bool ?? false,
+            zoomed: value["zoomed"] as? Bool ?? false,
+            tabIDs: fallbackTabIDs
+        )
+    }
+
+    private static func tabState(from value: [String: Any], fallbackIndex: Int) -> CloudVMTabState? {
+        guard let id = nonEmptyString(value["id"]),
+              let paneID = nonEmptyString(value["pane_id"]),
+              let contentKind = nonEmptyString(value["content_kind"]),
+              let contentID = nonEmptyString(value["content_id"])
+        else { return nil }
+        return CloudVMTabState(
+            id: id,
+            paneID: paneID,
+            name: nonEmptyString(value["name"]),
+            index: integer(value["index"]) ?? fallbackIndex,
+            focused: value["focused"] as? Bool ?? false,
+            contentKind: contentKind,
+            contentID: contentID
+        )
+    }
+
+    private static func terminalState(from value: [String: Any]) -> CloudVMTerminalState? {
+        guard let id = nonEmptyString(value["id"]) else { return nil }
+        var tabIDs: [String] = []
+        if let rawTabIDs = value["tab_ids"], !(rawTabIDs is NSNull) {
+            guard let decodedTabIDs = rawTabIDs as? [String],
+                  decodedTabIDs.allSatisfy({ nonEmptyString($0) != nil })
+            else { return nil }
+            tabIDs = uniquePreservingOrder(decodedTabIDs)
+        }
+        if let rawTabID = value["tab_id"], !(rawTabID is NSNull) {
+            guard let tabID = nonEmptyString(rawTabID) else { return nil }
+            if tabIDs.isEmpty { tabIDs = [tabID] }
+        }
+        return CloudVMTerminalState(
+            id: id,
+            tabIDs: tabIDs,
+            title: (value["title"] as? String) ?? "",
+            cwd: nonEmptyString(value["cwd"]),
+            lifecycle: (value["lifecycle"] as? String) ?? ((value["running"] as? Bool) == true ? "running" : "exited"),
+            cols: integer(value["cols"]),
+            rows: integer(value["rows"]),
+            running: value["running"] as? Bool
+        )
+    }
+
+    private static func browserState(from value: [String: Any]) -> CloudVMBrowserState? {
+        guard let id = nonEmptyString(value["id"]),
+              let tabID = nonEmptyString(value["tab_id"])
+        else { return nil }
+        return CloudVMBrowserState(
+            id: id,
+            tabID: tabID,
+            url: (value["url"] as? String) ?? "",
+            title: (value["title"] as? String) ?? "",
+            status: (value["status"] as? String) ?? ""
+        )
+    }
+
+    private static func agentState(from value: [String: Any]) -> CloudVMAgentState? {
+        guard let terminalID = nonEmptyString(value["terminal_id"]),
+              let state = nonEmptyString(value["state"])
+        else { return nil }
+        return CloudVMAgentState(
+            id: nonEmptyString(value["id"]),
+            terminalID: terminalID,
+            state: state,
+            source: nonEmptyString(value["source"])
+        )
+    }
+
+    private static func applyAgentUpsert(
+        value: [String: Any],
+        change: [String: Any],
+        to state: inout CloudVMState
+    ) -> Bool {
+        guard var decoded = agentState(from: value),
+              let terminalID = nonEmptyString(value["terminal_id"])
+        else { return false }
+        let explicitID = nonEmptyString(change["id"])
+        let targetIndex = explicitID.flatMap { id in state.agents.firstIndex { $0.id == id } }
+            ?? state.agents.firstIndex { $0.terminalID == terminalID }
+        if targetIndex == nil, explicitID != nil,
+           state.agents.contains(where: { $0.id == nil }) {
+            // An explicit id cannot safely claim an unrelated legacy id-less row.
+            return false
+        }
+        if let targetIndex {
+            let old = state.agents[targetIndex]
+            if explicitID == nil, decoded.id == nil, let existingID = state.agents[targetIndex].id {
+                decoded.id = existingID
+            }
+            state.agents[targetIndex] = decoded
+            state.lookupIndex.removeAgent(old)
+        } else {
+            state.agents.append(decoded)
+        }
+        state.lookupIndex.upsertAgent(decoded)
+        return true
+    }
+
+    private static func applyAgentDelete(change: [String: Any], to state: inout CloudVMState) -> Bool {
+        let explicitID = nonEmptyString(change["id"])
+        let terminalID = nonEmptyString(change["terminal_id"])
+            ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+        if let explicitID,
+           let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
+            if let terminalID, state.agents[index].terminalID != terminalID { return false }
+            let old = state.agents[index]
+            state.agents.remove(at: index)
+            state.lookupIndex.removeAgent(old)
+            return true
+        }
+        guard let terminalID,
+              let index = state.agents.firstIndex(where: { $0.id == nil && $0.terminalID == terminalID })
+        else { return false }
+        let old = state.agents[index]
+        state.agents.remove(at: index)
+        state.lookupIndex.removeAgent(old)
+        return true
+    }
+
+    private static func snapshotKey(for resource: String) -> String {
+        switch resource {
+        case "machine", "machines": return "machine"
+        case "session", "sessions": return "session"
+        case "workspace", "workspaces": return "workspaces"
+        case "screen", "screens": return "screens"
+        case "pane", "panes": return "panes"
+        case "tab", "tabs": return "tabs"
+        case "terminal", "terminals": return "terminals"
+        case "browser", "browsers": return "browsers"
+        case "client", "clients": return "clients"
+        case "notification", "notifications": return "notifications"
+        case "agent", "agents": return "agents"
+        case "pairing_request", "pairing_requests": return "pairing_requests"
+        case "frontend_projection", "frontend_projections": return "frontend_projections"
+        case "sidebar_view", "sidebar_views": return "sidebar_views"
+        default: return resource
+        }
+    }
+
+    /// Checks only the foreign-key neighborhood touched by a delta. The prior
+    /// state was accepted at a full snapshot boundary, so unrelated rows cannot
+    /// become invalid without being named by this batch.
+    private static func deltaRelationshipsAreConsistent(
+        _ changes: [[String: Any]],
+        previous: CloudVMState,
+        next: CloudVMState
+    ) -> Bool {
+        var affectedTerminalIDs = Set<String>()
+        var affectedBrowserIDs = Set<String>()
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]),
+                  let operation = nonEmptyString(change["kind"]),
+                  let id = deltaIdentity(change, resource: resource)
+            else { return false }
+            switch resource {
+            case "workspace":
+                if operation == "delete" {
+                    guard next.lookupIndex.screenIDs(workspaceID: id).isEmpty else { return false }
+                } else {
+                    guard next.lookupIndex.workspace(id: id) != nil else { return false }
+                }
+            case "screen":
+                if operation == "delete" {
+                    guard next.lookupIndex.paneIDs(screenID: id).isEmpty else { return false }
+                } else if let screen = next.lookupIndex.screen(id: id) {
+                    guard next.lookupIndex.workspace(id: screen.workspaceID) != nil else { return false }
+                } else { return false }
+            case "pane":
+                if operation == "delete" {
+                    guard next.lookupIndex.tabIDs(paneID: id).isEmpty else { return false }
+                } else if let pane = next.lookupIndex.pane(id: id) {
+                    guard next.lookupIndex.screen(id: pane.screenID) != nil else { return false }
+                } else { return false }
+            case "tab":
+                let old = previous.lookupIndex.tab(id: id)
+                let current = next.lookupIndex.tab(id: id)
+                for tab in [old, current].compactMap({ $0 }) {
+                    if let terminalID = tab.contentKind == "terminal" ? tab.contentID : nil {
+                        affectedTerminalIDs.insert(terminalID)
+                    }
+                    if let browserID = tab.contentKind == "browser" ? tab.contentID : nil {
+                        affectedBrowserIDs.insert(browserID)
+                    }
+                }
+                if operation != "delete" {
+                    guard let tab = current,
+                          next.lookupIndex.pane(id: tab.paneID) != nil
+                    else { return false }
+                }
+            case "terminal":
+                affectedTerminalIDs.insert(id)
+            case "browser":
+                affectedBrowserIDs.insert(id)
+            case "agent":
+                let terminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+                    ?? nonEmptyString(change["terminal_id"])
+                guard terminalID != nil else { return false }
+            default:
+                break
+            }
+        }
+        for terminalID in affectedTerminalIDs {
+            guard let terminal = next.lookupIndex.terminal(id: terminalID) else { continue }
+            for tabID in terminal.tabIDs {
+                guard let tab = next.lookupIndex.tab(id: tabID) else { continue }
+                guard tab.contentKind == "terminal", tab.contentID == terminalID else { return false }
+            }
+        }
+        for browserID in affectedBrowserIDs {
+            guard let browser = next.lookupIndex.browser(id: browserID) else { continue }
+            if let tab = next.lookupIndex.tab(id: browser.tabID) {
+                guard tab.contentKind == "browser", tab.contentID == browserID else { return false }
+            }
+        }
+        // Agent terminal relationships are unique in the public schema. Check
+        // the materialized relationship map once only when a batch touches an agent row.
+        if changes.contains(where: { nonEmptyString($0["resource"]) == "agent" }) {
+            let explicitAgentCount = next.agents.lazy.filter { $0.id != nil }.count
+            guard next.lookupIndex.agentsByTerminalID.count == next.agents.count,
+                  next.lookupIndex.agentsByID.count == explicitAgentCount
+            else { return false }
+        }
+        return true
+    }
+
+    private static func deltaImpact(
+        _ changes: [[String: Any]],
+        previous: CloudVMState,
+        next: CloudVMState
+    ) -> CloudVMStateDeltaImpact {
+        var impact = CloudVMStateDeltaImpact()
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]) else {
+                impact.requiresFullResourceRebuild = true
+                continue
+            }
+            let value = change["value"] as? [String: Any]
+            guard let id = nonEmptyString(change["id"])
+                ?? (resource == "agent"
+                    ? nonEmptyString(change["terminal_id"])
+                        ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+                    : nil)
+            else {
+                impact.requiresFullResourceRebuild = true
+                continue
+            }
+            switch resource {
+            case "terminal":
+                let old = previous.lookupIndex.terminal(id: id)
+                let current = next.lookupIndex.terminal(id: id)
+                // A terminal's tab list is a relationship change. Its title, lifecycle, and
+                // dimensions are row-local and can use the targeted path.
+                if old?.tabIDs != current?.tabIDs {
+                    impact.requiresFullResourceRebuild = true
+                }
+                impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: id))
+            case "browser":
+                let old = previous.lookupIndex.browser(id: id)
+                let current = next.lookupIndex.browser(id: id)
+                if old?.tabID != current?.tabID {
+                    impact.requiresFullResourceRebuild = true
+                }
+                impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .browser, key: id))
+            case "agent":
+                let explicitID = nonEmptyString(change["id"])
+                let valueTerminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+                let oldAgent = explicitID.flatMap { previous.lookupIndex.agent(id: $0) }
+                    ?? (explicitID == nil ? previous.lookupIndex.agent(terminalID: id) : nil)
+                let oldTerminalID = oldAgent?.terminalID
+                // A reassigned agent changes two terminal rows: remove the old badge and
+                // publish the new one. Deletes only have the old relationship.
+                for terminalID in [oldTerminalID, valueTerminalID].compactMap({ $0 }) {
+                    impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: terminalID))
+                }
+            case "tab":
+                let old = previous.lookupIndex.tab(id: id)
+                let current = next.lookupIndex.tab(id: id)
+                guard current != nil || old != nil else {
+                    impact.requiresFullResourceRebuild = true
+                    continue
+                }
+                // A rename, focus, or index update stays on the same pane and content. A move
+                // or content replacement changes placement joins and needs the full path.
+                if let old,
+                   let current,
+                   old.paneID == current.paneID,
+                   old.contentKind == current.contentKind,
+                   old.contentID == current.contentID {
+                    if let resourceID = resourceID(for: current.contentKind, contentID: current.contentID, machine: next.machine) {
+                        impact.resourceIDs.insert(resourceID)
+                    }
+                } else {
+                    // Creation and deletion change the terminal/browser/display placement
+                    // graph even when the content id is known. A complete publication is the
+                    // only way to update the affected content's tab list and ordering.
+                    impact.requiresFullResourceRebuild = true
+                }
+            case "workspace", "screen", "pane", "machine", "session":
+                // These entities are join roots. Their change can alter the placement or
+                // ordering of many resources, so a complete rebuild is the safe boundary.
+                impact.requiresFullResourceRebuild = true
+            default:
+                // Opaque entities are retained in CloudVMState but do not produce surface rows.
+                break
+            }
+        }
+        return impact
+    }
+
+    /// Checks duplicated envelope metadata when the daemon included it in the
+    /// canonical payload. Older clients passed only `changes`, so absent
+    /// optional metadata remains compatible; a present mismatch is a recovery
+    /// barrier rather than a partially applied event.
+    private static func deltaEnvelopeMatches(
+        _ delta: [String: Any],
+        cursor: CloudVMCursor,
+        previousRevision: UInt64
+    ) -> Bool {
+        if let kind = delta["kind"] as? String, kind != "delta" { return false }
+        if delta["kind"] != nil, delta["kind"] as? String == nil { return false }
+        if let rawCursor = delta["cursor"] {
+            guard let object = rawCursor as? [String: Any],
+                  CloudVMCursor(wire: object) == cursor else { return false }
+        }
+        if let rawPrevious = delta["previous_revision"],
+           CloudWireNumber.unsigned(rawPrevious) != previousRevision {
+            return false
+        }
+        if let rawRevision = delta["revision"],
+           CloudWireNumber.unsigned(rawRevision) != cursor.revision {
+            return false
+        }
+        return true
+    }
+
+    /// Current daemons emit a zero-based sequence for every change. A legacy
+    /// delta may omit the field entirely, but mixing present and absent values,
+    /// repeating a sequence, or reordering it can hide a lost mutation.
+    private static func deltaSequencesAreValid(_ changes: [[String: Any]]) -> Bool {
+        var sawSequence = false
+        var sawMissing = false
+        for (index, change) in changes.enumerated() {
+            guard let raw = change["sequence"] else {
+                sawMissing = true
+                continue
+            }
+            guard let sequence = CloudWireNumber.unsigned(raw), sequence == UInt64(index) else {
+                return false
+            }
+            sawSequence = true
+        }
+        return !(sawSequence && sawMissing)
+    }
+
+    private static func resourceID(
+        for contentKind: String,
+        contentID: String,
+        machine: SurfaceMachineID
+    ) -> SurfaceResourceID? {
+        guard !contentID.isEmpty else { return nil }
+        switch contentKind {
+        case "terminal": return SurfaceResourceID(machine: machine, kind: .terminal, key: contentID)
+        case "browser": return SurfaceResourceID(machine: machine, kind: .browser, key: contentID)
+        case "display", "screen": return SurfaceResourceID(machine: machine, kind: .display, key: contentID)
+        default: return nil
+        }
+    }
+
+    /// Legacy entry point retained for callers that only have a one-shot snapshot.
+    static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+        resources(fromSnapshot: snapshot, machine: machine)
+    }
+
     /// Decodes the snapshot used by a detached-terminal projection away from
     /// the UI actor. The returned revision is the same cursor that guards the
     /// subsequent topology mutation.
@@ -114,7 +1238,18 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
     /// resolvable view keeps an empty view list: it is alive in the machine's pool, not
     /// attributed to a workspace it is not in.
-    static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+    private static func resources(
+        fromSnapshot snapshot: [String: Any],
+        machine: SurfaceMachineID,
+        only resourceIDs: Set<SurfaceResourceID>? = nil
+    ) -> [SurfaceResource] {
+        // Raw one-shot callers do not pass through `state(fromSnapshot:)`.
+        // Apply the same graph boundary here so they cannot construct a
+        // resource with a placement borrowed from another tab.
+        guard identityCollectionsAreUnique(in: snapshot),
+              snapshotRelationshipsAreConsistent(in: snapshot)
+        else { return [] }
+
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
@@ -134,10 +1269,27 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
         }
         var paneOfTab: [String: String] = [:]
+        var contentKindOfTab: [String: String] = [:]
+        var contentIDOfTab: [String: String] = [:]
+        var nameOfTab: [String: String] = [:]
+        var indexOfTab: [String: Int] = [:]
+        var focusedOfTab: [String: Bool] = [:]
         for tab in tabsRaw {
-            if let id = tab["id"] as? String, let paneID = tab["pane_id"] as? String {
+            guard let id = tab["id"] as? String else { continue }
+            if let paneID = tab["pane_id"] as? String {
                 paneOfTab[id] = paneID
             }
+            if let contentKind = nonEmptyString(tab["content_kind"]) {
+                contentKindOfTab[id] = contentKind
+            }
+            if let contentID = nonEmptyString(tab["content_id"]) {
+                contentIDOfTab[id] = contentID
+            }
+            if let name = (tab["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                nameOfTab[id] = name
+            }
+            indexOfTab[id] = integer(tab["index"])
+            focusedOfTab[id] = tab["focused"] as? Bool
         }
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
         for agent in agentsRaw {
@@ -151,22 +1303,42 @@ struct CmuxTuiSnapshotParser: Sendable {
 
         var resources: [SurfaceResource] = []
         for raw in terminalsRaw {
+            guard let terminalID = nonEmptyString(raw["id"]) else { continue }
+            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
-            var tabIDs = (raw["tab_ids"] as? [String]) ?? []
-            if tabIDs.isEmpty, let single = raw["tab_id"] as? String, !single.isEmpty {
-                tabIDs = [single]
+            let declaredTabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
+                + ((raw["tab_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }.map { [$0] } ?? [])
+            let graphTabIDs: [String] = tabsRaw.compactMap { tab in
+                guard nonEmptyString(tab["content_kind"]) == "terminal",
+                      nonEmptyString(tab["content_id"]) == terminalID,
+                      let tabID = nonEmptyString(tab["id"]) else { return nil }
+                return tabID
             }
+            let tabIDs = uniquePreservingOrder(graphTabIDs + declaredTabIDs)
             // cmux-tui keeps a record of a terminal whose process exited after its tab is
             // gone; nothing can open or close it any more (its selector no longer resolves),
             // so it is not a surface. An exited terminal that still has a tab stays listed —
             // that one can be closed.
             if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
+            // Keep the PTY-derived title on the shared resource. User names belong to
+            // each SurfaceRemoteView, because one terminal can have different tab labels.
             terminal.remoteViews = tabIDs.compactMap { tabID in
                 guard let paneID = paneOfTab[tabID],
+                      contentKindOfTab[tabID] == "terminal",
+                      contentIDOfTab[tabID] == terminalID,
                       let screenID = screenOfPane[paneID],
                       let workspaceID = workspaceOfScreen[screenID],
                       let workspace = workspaceByID[workspaceID] else { return nil }
-                return SurfaceRemoteView(tabID: tabID, workspace: workspace)
+                return SurfaceRemoteView(
+                    tabID: tabID,
+                    workspace: workspace,
+                    screenID: screenID,
+                    paneID: paneID,
+                    name: nameOfTab[tabID],
+                    index: indexOfTab[tabID],
+                    focused: focusedOfTab[tabID]
+                )
             }
             terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
             resources.append(terminal)
@@ -175,7 +1347,9 @@ struct CmuxTuiSnapshotParser: Sendable {
         // (`browsers[{id,tab_id,url,title,status}]`) — a workspace holds more than
         // terminals, and the tree shows a browser inside the workspace that views it.
         for raw in (snapshot["browsers"] as? [[String: Any]]) ?? [] {
-            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            guard let id = nonEmptyString(raw["id"]) else { continue }
+            let resourceID = SurfaceResourceID(machine: machine, kind: .browser, key: id)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             let urlString = (raw["url"] as? String) ?? ""
             let title = (raw["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? urlString
             var views: [SurfaceRemoteView] = []
@@ -184,7 +1358,15 @@ struct CmuxTuiSnapshotParser: Sendable {
                let screenID = screenOfPane[paneID],
                let workspaceID = workspaceOfScreen[screenID],
                let workspace = workspaceByID[workspaceID] {
-                views = [SurfaceRemoteView(tabID: tabID, workspace: workspace)]
+                views = [SurfaceRemoteView(
+                    tabID: tabID,
+                    workspace: workspace,
+                    screenID: screenID,
+                    paneID: paneID,
+                    name: nameOfTab[tabID],
+                    index: indexOfTab[tabID],
+                    focused: focusedOfTab[tabID]
+                )]
             }
             var browser = SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .browser, key: id),
@@ -206,7 +1388,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         var displayViews: [String: [SurfaceRemoteView]] = [:]
         var displayOrder: [String] = []
         for tab in tabsRaw {
-            guard (tab["content_kind"] as? String) == "display",
+            guard ["display", "screen"].contains(tab["content_kind"] as? String),
                   let contentID = tab["content_id"] as? String, !contentID.isEmpty,
                   let tabID = tab["id"] as? String,
                   let paneID = paneOfTab[tabID],
@@ -214,19 +1396,28 @@ struct CmuxTuiSnapshotParser: Sendable {
                   let workspaceID = workspaceOfScreen[screenID],
                   let workspace = workspaceByID[workspaceID] else { continue }
             if displayViews[contentID] == nil { displayOrder.append(contentID) }
-            displayViews[contentID, default: []].append(SurfaceRemoteView(tabID: tabID, workspace: workspace))
+            displayViews[contentID, default: []].append(SurfaceRemoteView(
+                tabID: tabID,
+                workspace: workspace,
+                screenID: screenID,
+                paneID: paneID,
+                name: nameOfTab[tabID],
+                index: indexOfTab[tabID],
+                focused: focusedOfTab[tabID]
+            ))
         }
         for contentID in displayOrder {
+            let resourceID = SurfaceResourceID(machine: machine, kind: .display, key: contentID)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             var display = Self.display(machine: machine, key: contentID)
             display.remoteViews = displayViews[contentID]
             display.remoteWorkspace = displayViews[contentID]?.first?.workspace
             resources.append(display)
         }
-        // Workspace order first; zero-view terminals (the pool) trail.
-        return resources.sorted { lhs, rhs in
-            let li = lhs.remoteWorkspace?.index ?? Int.max, ri = rhs.remoteWorkspace?.index ?? Int.max
-            return li != ri ? li < ri : false
-        }
+        // Workspace order first; zero-view resources (the pool) trail. Every
+        // tie has an explicit key. Returning false for equal workspace indexes
+        // would make sorting depend on dictionary/JSON arrival order.
+        return resources.sorted(by: resourceComesBefore)
     }
 
     /// The machine-local port a daemon browser's URL points at, when it does —
@@ -243,21 +1434,42 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
     }
 
-    /// The tab each terminal currently sits in (`terminals[].tab_ids`/`tab_id`), so an
-    /// exited terminal can be closed through its tab when its own selector is gone.
+    /// The tab each terminal currently sits in. The reverse tab content edge is
+    /// authoritative; terminal-row references are retained as a legacy fallback
+    /// so an exited terminal can still be closed when its own selector is gone.
     static func tabByTerminal(fromSnapshot snapshot: [String: Any]) -> [String: String] {
         var result: [String: String] = [:]
+        for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
+            guard nonEmptyString(tab["content_kind"]) == "terminal",
+                  let terminalID = nonEmptyString(tab["content_id"]),
+                  let tabID = nonEmptyString(tab["id"]) else { continue }
+            result[terminalID] = result[terminalID] ?? tabID
+        }
         for raw in (snapshot["terminals"] as? [[String: Any]]) ?? [] {
             guard let id = raw["id"] as? String, !id.isEmpty else { continue }
             let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
-            if let tab = tabIDs.first(where: { !$0.isEmpty }) { result[id] = tab }
+            if let tab = tabIDs.first(where: { !$0.isEmpty }) { result[id] = result[id] ?? tab }
         }
         // A display pointer has no process to end: closing it means closing its tab.
         for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
-            guard (tab["content_kind"] as? String) == "display",
+            guard ["display", "screen"].contains(tab["content_kind"] as? String),
                   let contentID = tab["content_id"] as? String, !contentID.isEmpty,
                   let tabID = tab["id"] as? String, !tabID.isEmpty, result[contentID] == nil else { continue }
             result[contentID] = tabID
+        }
+        return result
+    }
+
+    /// User labels for tabs in the snapshot. An absent entry means the tab has no
+    /// user label (or only whitespace), which lets rename compensation restore the
+    /// daemon's unnamed state with an empty value.
+    static func tabNames(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
+            guard let id = tab["id"] as? String, !id.isEmpty,
+                  let name = tab["name"] as? String else { continue }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { result[id] = trimmed }
         }
         return result
     }
@@ -303,13 +1515,30 @@ struct CmuxTuiSnapshotParser: Sendable {
         )
     }
 
-    /// The terminal a `workspace <ws> run` / `tab create terminal` mutation created:
-    /// `MutationResult<CreatedTerminalPath>` prints as `{value: {terminal_id, workspace_id, …}}`
-    /// under `--json`; a bare `CreatedTerminalPath` is accepted too.
-    static func createdTerminal(fromRunResult result: [String: Any]) -> (terminalID: String, workspaceID: String?)? {
+    struct CreatedTerminalPath: Equatable, Sendable {
+        let terminalID: String
+        let workspaceID: String?
+        let screenID: String?
+        let paneID: String?
+        let tabID: String?
+    }
+
+    /// The exact path a `workspace <ws> run` / `tab create terminal` mutation
+    /// created. The committed result is a read-your-write placement receipt, so
+    /// callers do not need to guess a tab while the next snapshot is in flight.
+    static func createdTerminal(fromRunResult result: [String: Any]) -> CreatedTerminalPath? {
         let path = (result["value"] as? [String: Any]) ?? result
         guard let terminalID = path["terminal_id"] as? String, !terminalID.isEmpty else { return nil }
-        return (terminalID, path["workspace_id"] as? String)
+        func optionalID(_ key: String) -> String? {
+            (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return CreatedTerminalPath(
+            terminalID: terminalID,
+            workspaceID: optionalID("workspace_id"),
+            screenID: optionalID("screen_id"),
+            paneID: optionalID("pane_id"),
+            tabID: optionalID("tab_id")
+        )
     }
 
     /// The workspace a `workspace create` mutation created.
@@ -407,5 +1636,68 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// reconnect after a sleep.
     static func desktopURL(openURL: String) -> String {
         openURL + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+    }
+
+    // MARK: - Lossless state helpers
+
+    private static func nonEmptyString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func integer(_ raw: Any?) -> Int? {
+        CloudWireNumber.signed(raw)
+    }
+
+    private static func canonicalJSONData(_ object: Any) -> Data? {
+        guard JSONSerialization.isValidJSONObject(object) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private static func resourceComesBefore(_ lhs: SurfaceResource, _ rhs: SurfaceResource) -> Bool {
+        let leftView = lhs.remoteViews?.first
+        let rightView = rhs.remoteViews?.first
+        let leftWorkspace = leftView?.workspace ?? lhs.remoteWorkspace
+        let rightWorkspace = rightView?.workspace ?? rhs.remoteWorkspace
+        let leftWorkspaceIndex = leftWorkspace?.index ?? Int.max
+        let rightWorkspaceIndex = rightWorkspace?.index ?? Int.max
+        if leftWorkspaceIndex != rightWorkspaceIndex { return leftWorkspaceIndex < rightWorkspaceIndex }
+        let leftWorkspaceID = leftWorkspace?.id ?? "~"
+        let rightWorkspaceID = rightWorkspace?.id ?? "~"
+        if leftWorkspaceID != rightWorkspaceID { return leftWorkspaceID < rightWorkspaceID }
+        let leftTabIndex = leftView?.index ?? Int.max
+        let rightTabIndex = rightView?.index ?? Int.max
+        if leftTabIndex != rightTabIndex { return leftTabIndex < rightTabIndex }
+        let leftTabID = leftView?.tabID ?? "~"
+        let rightTabID = rightView?.tabID ?? "~"
+        if leftTabID != rightTabID { return leftTabID < rightTabID }
+        if lhs.kind.rawValue != rhs.kind.rawValue { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.id.key < rhs.id.key
+    }
+
+    private enum DeltaStorage {
+        case single(String)
+        case collection(String)
+    }
+
+    private static func deltaStorage(for resource: String) -> DeltaStorage? {
+        switch resource {
+        case "machine": return .single("machine")
+        case "session": return .single("session")
+        case "workspace": return .collection("workspaces")
+        case "screen": return .collection("screens")
+        case "pane": return .collection("panes")
+        case "tab": return .collection("tabs")
+        case "terminal": return .collection("terminals")
+        case "browser": return .collection("browsers")
+        case "client": return .collection("clients")
+        case "notification": return .collection("notifications")
+        case "agent": return .collection("agents")
+        case "pairing_request": return .collection("pairing_requests")
+        case "frontend_projection": return .collection("frontend_projections")
+        case "sidebar_view": return .collection("sidebar_views")
+        default: return nil
+        }
     }
 }

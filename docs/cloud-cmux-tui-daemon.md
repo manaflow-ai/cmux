@@ -89,29 +89,24 @@ which is exactly the drop the spike (and any cloud client) must survive.
 Cloud-owned terminals live in the daemon's cmux-tui session (or detached),
 never on a connection-scoped lease.
 
-## Per-provider replacement
+## Freestyle delivery and state ownership
 
-One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
-`cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
-systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
-the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
-a memory image, so the supervisor binds the daemon identity to the platform
-instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
-clone; the bake parks the daemon before snapshotting so no live identity is
-ever shared. Create therefore runs no guest bootstrap. (Other providers had
-their own rows here — a template-baked binary and a snapshot entrypoint —
-until they were removed.)
+Freestyle is the only active provider. One pinned
+`cmux-tui-x86_64-unknown-linux-musl` artifact is installed by the Freestyle
+driver at create or restore time, then started by the snapshot's systemd unit.
+The active snapshot and its provenance are recorded in
+`web/services/vms/images/manifest.json`. There is no provider-specific daemon
+protocol or alternate image selector.
 
 The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the
 HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
 non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
-but no driver selects it today.)
-so daemon identity and enrolled devices survive sandbox resurrection. Session
-state (`--state`) lives there too, so workspace layout restores from the
-journal checkpoint after a daemon restart; running processes do not survive a
-restart, and clients see the generation change instead of a silent new shell.
+but no driver selects it today. This is what lets daemon identity and enrolled
+devices survive sandbox resurrection. Session state (`--state`) lives there
+too, so workspace layout restores from the journal checkpoint after a daemon
+restart. Running processes do not survive a restart, and clients see the
+generation change instead of a silent new shell.
 
 On a layout machine, the daemon watches the bindfs home view for mount events.
 If the view disappears, the supervisor stops the user daemon and exits with a
@@ -122,35 +117,171 @@ and runs the daemon there as root. Active terminals therefore do not continue
 writing into the disposable rootfs directory. No provider selects this layout
 today; it is kept for a future non-root cloud home.
 
+## State model and synchronization invariants
+
+`CloudVMState.document` is the one canonical local document for the daemon graph.
+It stores top-level values and each array row as canonical JSON fragments, with a
+stable order list for every collection. This preserves fields that the app does
+not know yet and lets a delta replace one row without parsing or re-encoding
+unrelated rows. `rawSnapshot` remains a compatibility export, materialized only
+when a caller crosses a snapshot or agent-export boundary. The typed workspace,
+screen, pane, tab, terminal, browser, agent, and opaque-entity values are
+projections of the document. A materialized ID and relationship index is built
+with each accepted snapshot and updated only for entities named by an accepted
+delta. The index is a cache, excluded from encoded state, and is never an
+independent write source. `SurfaceCatalog` stores that state with the derived
+surface rows in one main-actor transaction. No sidebar, CLI, or pane keeps a
+second remote graph.
+
+The state has an explicit synchronization mode. Current daemons use `journaled`
+mode and publish a `(generation, revision)` cursor. A generation change means a
+daemon restart or replacement, so revision numbers are never compared across
+generations. A delta is accepted only when its generation matches, its
+`previous_revision` is the installed revision, its revision is exactly one
+higher, and its changes have a complete sequence. Any unknown, malformed, or
+out-of-order event triggers one coalesced snapshot repair. Recovery has a finite
+budget and exposes an error state when the feed remains incompatible. The link
+models recovery as one phase, `healthy`, `recovering`, `exhausted`, or
+`snapshot_only`. A valid event does not immediately forgive a failed stream. It
+starts a ten-second stability window; only a stream that remains healthy for the
+whole window resets the consecutive-failure count. The first exhausted run has
+one snapshot-recovery allowance, which starts one final stream without erasing
+the spent budget. A later failed run stays exhausted, so routine snapshot
+refreshes cannot cause an unbounded spawn loop. A new authenticated connection
+is an explicit reset boundary.
+
+The client applies deltas only for resource kinds whose snapshot storage shape
+is known. A newly added daemon kind is therefore a synchronization barrier, not
+an event the client guesses how to pluralize or identify. The next complete
+snapshot still retains that kind losslessly in the document. This fail-closed
+choice protects identity and ordering at the cost of one bounded snapshot read
+when the daemon grows its schema.
+
+Older daemons may return the same complete graph without a cursor. The app
+keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the
+event reader. It does not apply deltas or send revision-fenced workspace or tab
+renames because their ordering cannot be proven. The machine reports the
+upgrade requirement instead of silently losing rows or sending an unsafe write.
+An explicit `null` cursor has the same meaning as an omitted cursor. A malformed
+non-null cursor rejects the document.
+
+Derived-row work follows an explicit boundary. A title, lifecycle, agent badge,
+focus, index, or same-placement tab-name change rebuilds only the affected
+resource rows through the materialized joins. A workspace, screen, pane,
+relationship, create, delete, move, or content change rebuilds all rows. The raw
+graph is committed first in both cases, so a small update and a full update have
+the same source of truth. A malformed relationship still rejects the complete
+delta and enters bounded snapshot recovery.
+
+Identity is always an ID, never a display name. A persisted
+`WorkspaceCloudVMBinding.remoteWorkspaceID` identifies the daemon workspace
+behind a local workspace. A persisted surface projection keeps its exact
+`remoteTabID`. When old state lacks either value, the app writes only if one
+unambiguous placement can be proved. Otherwise it leaves the local edit intact
+and reports the remote action as unavailable.
+
+Binding is reconciled by the projection lifecycle, not by one UI entry point.
+After a pane is recorded, restored, or moved, the catalog can fill a missing
+binding only when all identity-bearing cloud panes point to one
+`(machine, remote_workspace_id)` and the local workspace has no local pane.
+Cloud displays, port browsers, and pool terminals with no workspace placement
+are neutral. A local pane, an ambiguous placement, or two remote workspaces
+leaves the workspace unbound. An explicit `workspace.cloud_vm_bind` value stays
+authoritative through disconnects and temporary absence of rows. This prevents
+an existing-target open, a restore, or a pane move from losing the rename target.
+
+The process-wide `CloudRenameCoordinator` serializes pending writes by
+`(machine, scope, remote ID)` across windows. Workspace renames use a daemon
+revision compare-and-set. `tab rename` changes one tab placement. The explicit
+`terminal rename` compatibility operation fans out to every tab placement of a
+terminal, fences each write, and compensates only when a fresh revision proves
+that no other client changed the completed tabs. A transport failure can still
+leave a partial fan-out, so the operation returns an explicit partial-operation
+error instead of silently claiming success.
+
+The local coordinator is not a distributed lock. The backend serializes every
+Freestyle tunnel mutation with `cloud_vm_tunnel_enrollment_locks`, keyed by
+`(user_id, device_fingerprint)`: enrollment, read-with-attachment-heal, revoke,
+and account-cleanup deletion all acquire the same owner-token lease. The lease
+expires after ten minutes, renews before and after provider calls, and releases
+only when the owner token still matches. A live lease returns a retryable `409`;
+missing lease support returns `503`, so a deployment cannot silently run the
+old race after code rollout. Apply the migration before deploying the route.
+Freestyle tunnel requests use a 60-second provider client timeout, well below
+the lease duration. A process paused during an already-running provider request
+can still finish that external request after expiry because Freestyle has no
+conditional mutation token; the post-call renewal fences all later local writes,
+and deterministic tunnel slugs plus idempotent delete/create recovery bound the
+remaining drift.
+
+Freestyle is the active provider. A private-network VM is reached through its
+VPC address and requires the owner's WireGuard tunnel. The client prefers the VPC
+IPv4 address and uses VPC IPv6 when IPv4 is absent. A legacy or public-network VM
+is reached through its public IPv6 address. All managed sessions use the direct
+`cmux-remote` Noise session on `/v1/link`; Freestyle's scoped SSH proxy is an
+unmanaged provider diagnostic path, not a fallback transport. The backend and the
+app treat the route as opaque, and the daemon's enrolled device key is the session
+authority.
+
+This model keeps all daemon fields available to agents through the redacted
+`surface.catalog` export while keeping credentials out of the export. It costs
+one immutable graph decode per accepted snapshot and a full rebuild at topology
+boundaries. Row-local deltas pay only for the changed fragments and affected
+typed rows. Swift copy-on-write still copies collection metadata when a fragment
+map changes, but it does not parse or re-encode unrelated row payloads. These
+costs are intentional: an unbounded event log would make recovery and export
+grow with VM lifetime, while a row cache without one canonical document would
+create divergent IDs, stale placement decisions, and unsafe rename targets.
+
+### Design decision record
+
+The canonical fragment document is the authority, the typed graph is a
+projection, and the ID/relationship index is a cache. Every accepted mutation
+updates these three layers in one local transaction. This is the smallest model
+that lets an agent inspect unknown future fields, address exact IDs, and apply a
+row-local rename without rebuilding the whole VM graph.
+
+The rejected alternatives are explicit:
+
+- A full JSON blob per delta is simpler, but it parses and encodes every remote
+  row for a one-tab rename. That cost grows with unrelated VM state and makes a
+  busy VM compete with the UI for CPU.
+- An unbounded event log is useful for audit, but it makes recovery and agent
+  export depend on VM lifetime. The daemon journal remains the bounded ordering
+  source; the client document is the current state, not a second history.
+- Separate provider, UI, and agent caches make individual reads look cheap, but
+  they allow identity and placement to diverge. Freestyle-specific transport
+  code therefore ends at the daemon link, and all consumers read the same
+  catalog transaction.
+
 ## Lease/auth integration with the attach-endpoint flow
 
-`POST /api/vm/[id]/attach-endpoint` today returns
-`{transport:"websocket", url, headers, token, session_id, ...}` where `token`
-is a single-use lease the web tier wrote into the VM. With the cmux-tui
-daemon the endpoint returns `{transport:"cmux-remote", route, invitation?}`:
+`POST /api/vm/[id]/attach-endpoint` returns
+`{transport:"cmux-remote", route, token, expiresAtUnix, session, invitation?}`.
+The route is a direct Freestyle private IPv4 address on port 1337 when available,
+then private IPv6 for machines with a VPC, or the machine's public IPv6 for legacy
+public-network machines.
+The provider route token is recorded as a hash in the lease ledger and is not
+used as daemon session authentication. The cmux-tui Noise handshake and the
+enrolled device key authenticate the session. Private-network machines are
+reachable only when the owner's WireGuard tunnel is active.
 
-- `route` is the tokenized preview URL
-  (`wss://<preview-host>/v1/link?bl_preview_token=<token>`). The preview
-  token keeps its current minting and TTLs (12 h attach, 7 d open-port) and
-  its current role: it gates who can reach the listener at all. It is not the
-  session auth. Invitation route hints must be credential-free
-  (`credential_free_route_hints` rejects them), so the tokenized URL travels
-  only in the endpoint response, never inside an invitation.
+- `route` is a `ws://[address]:1337/v1/link` endpoint. It must never be copied
+  into a durable invitation or log. The route posture is read from the VM, so
+  changing the private-network feature flag cannot strand an existing VM.
 - `invitation` is present only when this client device is not yet enrolled
   with this VM's daemon. The endpoint execs `remote enroll create --ttl 300`
-  in the VM (exactly where it writes lease files today) and returns the
-  single-use `cmux://enroll/...` URI. The control plane then approves the
-  pending enrollment it just invited: poll `remote enroll pending` and
-  approve the matching `invitation_id`, which is what the spike script does.
-  A follow-up in cmux-remote makes this a non-racy single step: an
-  owner-created invitation with approval pre-granted (`approval_required` is
-  currently hardcoded `true` in `identity.rs`; the cloud control plane is the
-  owner, so pre-approval is the honest encoding of "the web tier already
-  authenticated this user").
+  in the VM and returns the single-use `cmux://enroll/...` URI. The Mac claims
+  it through `remote connect --invite-file`; the control plane approves the
+  matching invitation through `/cmux-remote/approve`. Approval and device
+  enrollment are separate from the short-lived provider lease.
 - After first enrollment the device key lives in the Mac's client state and
-  reattach needs only the fresh route. Revocation maps to the existing
-  ledger: revoking an attach revokes the device (`remote enroll revoke`) and
-  the preview token.
+  reattach needs only a fresh route and a valid device key. Revocation removes
+  the control-plane lease row. Freestyle does not yet revoke the daemon device
+  record because the lease ledger does not persist the claimed device id. This
+  is an explicit security follow-up: persist the returned fingerprint/device id
+  per lease, then call `remote enroll revoke <device-id>` for exactly those rows.
+  Never revoke every device on a team VM when one member signs out.
 
 Per-VM daemon identity plus per-user device keys give cloud attach the same
 model as every other cmux-tui remote (ssh, iroh, relay), which is what makes
@@ -197,24 +328,28 @@ shared catalog rather than a cloud-specific feature. Multi-attach is safe:
 daemon-side terminals accept multiple attachments and size to the minimum
 grid, matching current cmuxd-remote semantics.
 
-## Rollout
+## Rollout status
 
-Phase 1: ship the cmux-tui daemon alongside cmuxd-remote (second port),
-attach-endpoint returns both
-transports, macOS opts in behind a feature flag. Phase 2: default new
-attaches to `cmux-remote`, keep `websocket` as fallback for one release.
-Phase 3: delete the Go daemon path per provider, then the `daemon/remote`
-tree. Each phase is revertible by flipping the transport default; the two
-daemons share nothing in the VM but the process supervisor.
+The migration is complete for the active Freestyle path. New and restored
+machines install the pinned cmux-tui daemon, expose only `cmux-remote`, and
+use the manual-IO surface path. The old WebSocket PTY gateway and provider
+drivers are removed. Rollback means selecting the previous validated Freestyle
+snapshot in the image manifest, not switching to a second provider or daemon.
 
-Open items, in order: pre-approved invitations in `cmux-remote`; wire the
-attach endpoint (`web/services/vms/drivers/*.ts`) to inject and start the new
-daemon; land `feat-tui-manual-io`'s pump against a `remote connect
---headless` socket; the right-pane catalog. The spike deliberately excludes
-all four.
+Remaining rollout work is operational: run authenticated preview and staging
+create/attach/browser-proxy smoke after each deployment, measure Vercel create
+duration, rotate provider credentials, and finish browser-proxy and cleanup
+hardening. These checks must use the Mock provider in ordinary CI and the real
+Freestyle provider only in the explicit staging smoke job.
+
+The live provider smoke does not replace the client route check. A tagged Mac
+must have its owner's WireGuard tunnel up before a private VM can be opened. If
+the route is down, the catalog keeps the VM visible with an explicit link error
+and does not issue rename writes. The rollout record must keep this client check
+separate from API create/attach success.
 
 
-## Cloud tree and agent routing (2026-08-26)
+## Cloud tree and agent routing (2026-09-02)
 
 The right sidebar's Cloud tab and the CLI share one view of a machine, built
 from the daemon's own session model rather than a cloud-specific catalog:
@@ -231,27 +366,38 @@ from the daemon's own session model rather than a cloud-specific catalog:
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the
-`session current events --jsonl` stream over that link's local socket; the
-tree is push-updated, never polled. Desktop and ports are not cmux-tui
-resources — they are the Mac's own nodes backed by `vm.desktop_open` /
-`vm.port_open` (the same `open-port` + browser-pane path as before).
+`session current events --jsonl` stream over that link's local socket. The
+tree is push-updated, with a bounded full-snapshot repair for a cursor gap or
+unknown event. Desktop and ports are Mac-owned nodes backed by
+`vm.desktop_open` and `vm.port_open`.
+
+The remote graph is keyed by stable daemon IDs. A resource may have several
+`remote_views`, so a terminal shown in two tabs is represented twice with
+`workspace_id` and `tab_id`, while the terminal identity stays one resource.
+The catalog exports its cursor, `sync_mode`, and freshness state. A stale graph
+can be rendered for diagnosis but cannot authorize a new open or rename. A
+`snapshot_only` graph can be opened for inspection, but rename commands return
+an upgrade error until a journaled daemon snapshot is available.
 
 Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, desktop, memory_mb?, disk_mb?, link: {state, error?}, workspaces: [{id, name, focused, terminals: [{id, title, cwd?, lifecycle, agent?: {state, source}, open_surface_id?}]}], ports: [{port, label?}]}]}` |
-| `vm.terminal_open` | `{id, terminal_id, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — `workspace_id` is the local target; an existing pane showing the terminal is focused instead of duplicated |
+| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states`, `sync_mode` (`journaled` or `snapshot_only`), nullable freshness cursors, and observations. Each terminal carries exact `remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}]`; workspaces remain present when empty. |
+| `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
 | `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
+| `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event |
+| `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
 `cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
-`cmux vm open <machine>:port/<n>`. A terminal opens locally as a pane running
-`cmux-tui attach --terminal <term_…>` against the link socket, so one remote
-terminal renders in one pane with no session chrome.
+`cmux vm open <machine>:port/<n>`. A workspace name is accepted only when it
+is unique; IDs always win. A terminal opens locally as a pane running
+`cmux-tui attach --terminal <term_…>` against the link socket, with the exact
+remote workspace and tab IDs retained in the projection.
 
 Agents route work with the same primitives: `cmux vm route` prints the machine
 `vm run` would choose (sticky per directory → idle pool machine → sleeper →

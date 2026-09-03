@@ -13,6 +13,7 @@ import {
   cloudVmNetworks,
   cloudVmSessions,
   cloudVmTunnels,
+  cloudVmTunnelEnrollmentLocks,
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
@@ -50,6 +51,7 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
+export type CloudVmTunnelEnrollmentLockRow = typeof cloudVmTunnelEnrollmentLocks.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
@@ -135,6 +137,29 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmTunnelRow, VmDatabaseError>;
   /** Mark a tunnel revoked, keeping the row for audit. Returns false when already revoked. */
   readonly revokeTunnel?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Cross-instance lease around provider-side tunnel enrollment. The lease is
+   * keyed by account and device, and the owner token fences release so an
+   * expired request cannot release a newer request's lease.
+   */
+  readonly acquireTunnelEnrollmentLock?: (input: {
+    readonly userId: string;
+    readonly deviceFingerprint: string;
+    readonly ownerToken: string;
+    readonly expiresAt: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly releaseTunnelEnrollmentLock?: (input: {
+    readonly userId: string;
+    readonly deviceFingerprint: string;
+    readonly ownerToken: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /** Extend an owned lease. False means a successor already owns it. */
+  readonly renewTunnelEnrollmentLock?: (input: {
+    readonly userId: string;
+    readonly deviceFingerprint: string;
+    readonly ownerToken: string;
+    readonly expiresAt: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /**
    * Merge fields into a VM row's providerMetadata (existing keys win only when
    * the patch omits them). Used to backfill data learned after create, e.g.
@@ -625,6 +650,67 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .where(and(eq(cloudVmTunnels.id, id), isNull(cloudVmTunnels.revokedAt)))
         .returning({ id: cloudVmTunnels.id });
       return rows.length > 0;
+    }),
+
+  acquireTunnelEnrollmentLock: (input) =>
+    dbEffect("acquireTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .insert(cloudVmTunnelEnrollmentLocks)
+        .values({
+          userId: input.userId,
+          deviceFingerprint: input.deviceFingerprint,
+          ownerToken: input.ownerToken,
+          expiresAt: input.expiresAt,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            cloudVmTunnelEnrollmentLocks.userId,
+            cloudVmTunnelEnrollmentLocks.deviceFingerprint,
+          ],
+          // A crashed request leaves an expired lease. Only that lease may be
+          // replaced; a live owner remains authoritative on every instance.
+          setWhere: sql`${cloudVmTunnelEnrollmentLocks.expiresAt} <= ${now}`,
+          set: {
+            ownerToken: input.ownerToken,
+            expiresAt: input.expiresAt,
+            updatedAt: now,
+          },
+        })
+        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
+      return row?.ownerToken === input.ownerToken;
+    }),
+
+  releaseTunnelEnrollmentLock: (input) =>
+    dbEffect("releaseTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      await db
+        .delete(cloudVmTunnelEnrollmentLocks)
+        .where(and(
+          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
+          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
+          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
+        ));
+    }),
+
+  renewTunnelEnrollmentLock: (input) =>
+    dbEffect("renewTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .update(cloudVmTunnelEnrollmentLocks)
+        .set({ expiresAt: input.expiresAt, updatedAt: now })
+        .where(and(
+          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
+          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
+          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
+          gt(cloudVmTunnelEnrollmentLocks.expiresAt, now),
+        ))
+        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
+      return row?.ownerToken === input.ownerToken;
     }),
 
   mergeProviderMetadata: (input) =>

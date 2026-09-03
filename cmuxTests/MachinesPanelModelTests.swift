@@ -61,6 +61,39 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertFalse(devbox.isDesktop)
     }
 
+    func testCloudTerminalRenameRequiresAStableTabPlacement() {
+        let machine = SurfaceMachineID.cloud("freestyle-vm")
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1")
+        let workspace = SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true)
+        let placement = SurfaceRemoteView(tabID: "tab-1", workspace: workspace)
+        let detached = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        let pooled = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [placement],
+            port: nil,
+            url: nil
+        )
+
+        XCTAssertFalse(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: nil))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: placement))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: pooled, remoteView: nil))
+    }
+
     func testLabelDrivesDisplayName() {
         var summary = VMSummary(
             id: "noble-wren",
@@ -418,46 +451,72 @@ final class MachinesPanelModelTests: XCTestCase {
             "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
+            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1/tab:tab_1",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
-            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
+            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
+        let remoteSideLocalWorkspace = UUID()
         let openSnapshot = SurfaceCatalogSnapshot(
             machines: snapshot.machines,
             resources: snapshot.resources,
-            projections: snapshot.projections + [SurfaceProjection(resource: remoteA.id, workspaceID: local, panelID: UUID())]
+            projections: snapshot.projections + [
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: local,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws0.id,
+                    remoteTabID: "tab_1"
+                ),
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: remoteSideLocalWorkspace,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws1.id,
+                    remoteTabID: "tab_9"
+                ),
+            ]
         )
         let openNodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "vivid-newt")],
             snapshot: openSnapshot,
-            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)],
+            localWorkspaces: [
+                CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true),
+                CloudTreeLocalWorkspace(id: remoteSideLocalWorkspace, title: "remote side", isSelected: false),
+            ],
             includeLocalMachine: true
         )
         let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
             XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
         } else { XCTFail("expected ws_main row") }
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
+        } else { XCTFail("expected ws_side row") }
         if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
-        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
+        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
         } else { XCTFail("expected ws_main display row") }
-        if case .display(_, let openIn) = openByID["resource:vivid-newt/display/display:1"]!.kind {
+        if case .display(_, let openIn, _) = openByID["resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
         } else { XCTFail("expected pool display row") }
-        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
+        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "ws_empty shows nowhere locally")
         } else { XCTFail("expected ws_empty display row") }
-        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing([], snapshot: openSnapshot))
+        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
+            remoteWorkspaceID: wsEmpty.id,
+            placements: [],
+            snapshot: openSnapshot
+        ))
         // The workspace's open/drag group carries its display pointer with its terminals.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
@@ -484,9 +543,10 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.viewBadge, 0, "zero views = alive in the pool, in no workspace")
         } else { XCTFail("expected term_2 pool row") }
         // Pointer rows have workspace-scoped identity and no badge.
-        if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {
+        if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9"]!.kind {
             XCTAssertNil(row.viewBadge)
             XCTAssertEqual(row.resource.id.key, "term_1")
+            XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
         if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
@@ -521,6 +581,96 @@ final class MachinesPanelModelTests: XCTestCase {
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
             }
         }
+    }
+
+    func testCloudTreeKeepsDistinctTerminalTabPlacementsInOneWorkspace() {
+        let machine = SurfaceMachineID.cloud("placement-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var resource = terminal(machine, "term_1", title: "pty title")
+        resource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_build", workspace: workspace, name: "build"),
+            SurfaceRemoteView(tabID: "tab_shell", workspace: workspace, name: "shell"),
+        ]
+        let localWorkspaceID = UUID()
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [machineInfo(machine, remoteWorkspaces: [workspace])],
+            resources: [resource],
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: localWorkspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: workspace.id,
+                remoteTabID: "tab_build"
+            )]
+        )
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let workspaceNode = CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:placement-test/ws/ws_main" }
+        let terminalRows = workspaceNode?.children.compactMap { child -> CloudTreeTerminalRow? in
+            guard case .terminal(let row) = child.kind else { return nil }
+            return row
+        } ?? []
+
+        XCTAssertEqual(terminalRows.map { $0.remoteView?.tabID }, ["tab_build", "tab_shell"])
+        XCTAssertEqual(terminalRows.map(\.displayTitle), ["build", "shell"])
+        XCTAssertEqual(terminalRows.map(\.isOpen), [true, false], "open state must stay scoped to the exact remote tab")
+        XCTAssertEqual(
+            workspaceNode?.children.map(\.id),
+            [
+                "machine:placement-test/ws/ws_main/resource:placement-test/terminal/term_1/tab:tab_build",
+                "machine:placement-test/ws/ws_main/resource:placement-test/terminal/term_1/tab:tab_shell",
+            ]
+        )
+        XCTAssertEqual(workspaceNode?.dragGroup?.placements.map(\.remoteTabID), ["tab_build", "tab_shell"])
+        XCTAssertEqual(workspaceNode?.dragGroup?.resources, [resource.id, resource.id])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupKeepsEveryPlacementOfOneTerminal() throws {
+        let machine = SurfaceMachineID.cloud("group-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var terminalResource = terminal(machine, "term_1", title: "shell")
+        terminalResource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_a", workspace: workspace, index: 0),
+            SurfaceRemoteView(tabID: "tab_b", workspace: workspace, index: 1),
+        ]
+        let catalog = SurfaceCatalog()
+        catalog.replaceResources(
+            [terminalResource],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.title, "main")
+        XCTAssertEqual(group.resources, [terminalResource.id, terminalResource.id])
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreEmpty() throws {
+        let machine = SurfaceMachineID.cloud("legacy-group-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
+        var resource = terminal(machine, "term_legacy", title: "shell")
+        // Older snapshots can include the explicit zero-view marker and still
+        // retain the single-workspace compatibility field.
+        resource.remoteWorkspace = workspace
+        resource.remoteViews = []
+        let catalog = SurfaceCatalog()
+        catalog.replaceResources(
+            [resource],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.resources, [resource.id])
+        XCTAssertEqual(group.placements.first?.remoteWorkspaceID, workspace.id)
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
@@ -578,6 +728,8 @@ final class MachinesPanelModelTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: data)
         XCTAssertEqual(decoded, record)
         XCTAssertEqual(decoded.resourceIDs, [term, port], "open order is preserved")
+        XCTAssertEqual(decoded.placementValues.map(\.resource), [term, port])
+        XCTAssertNil(decoded.placements, "the legacy three-field record remains backward-compatible")
         XCTAssertEqual(decoded.title, "main")
         XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/root/app"), "~/app")
         // A cloud machine's user home reads as `~` too (`/home/cua` on the devbox image).

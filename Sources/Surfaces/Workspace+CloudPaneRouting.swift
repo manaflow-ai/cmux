@@ -94,7 +94,13 @@ extension Workspace {
                 let created = try await provider.createTerminal(
                     command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
                 )
-                _ = try await catalog.project(created.id, into: destination, focus: focus, reuseExisting: true)
+                _ = try await catalog.project(
+                    created.id,
+                    into: destination,
+                    focus: focus,
+                    reuseExisting: true,
+                    remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil
+                )
             } catch {
                 Self.presentCloudPaneCreationFailure(machine: machine, error: error)
             }
@@ -119,5 +125,386 @@ extension Workspace {
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
         alert.runModal()
+    }
+}
+
+
+/// Writes local rename intents through to the cloud machine a local workspace or pane
+/// stands for, so the name persists on that daemon and reaches every attached client.
+/// The pane leg lives in `Workspace.setPanelCustomTitle`; this type carries the
+/// workspace leg plus the pure target/name rules both legs and the tests share.
+struct CloudWorkspaceRemoteIdentity: Hashable, Sendable {
+    let machine: SurfaceMachineID
+    let workspaceID: String
+}
+
+enum CloudWorkspaceRenameWriteThrough {
+    /// A local workspace can be automatically associated with a remote workspace only
+    /// when all identity-bearing panes prove the same cloud identity and no local pane
+    /// is present. A mixed local/cloud workspace is intentionally left unbound: there
+    /// is no honest remote owner for its title, and guessing would rename the wrong VM.
+    static func inferredRemoteWorkspaceTarget(
+        projections: [SurfaceProjection],
+        resources: [SurfaceResource]
+    ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
+        guard !projections.isEmpty else { return nil }
+        let resourcesByID = Dictionary(
+            resources.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var targets = Set<CloudWorkspaceRemoteIdentity>()
+        for projection in projections {
+            guard !projection.resource.machine.isLocal,
+                  let resource = resourcesByID[projection.resource] else { return nil }
+            let remoteID: String?
+            if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !explicit.isEmpty {
+                remoteID = explicit
+            } else if resource.remoteWorkspaces.isEmpty {
+                // A cloud display, port browser, or pool terminal may be projected
+                // without a daemon-workspace placement. It cannot establish a target,
+                // but it also cannot contradict an exact terminal/workspace anchor.
+                continue
+            } else {
+                let candidates = Set(resource.remoteWorkspaces.map(\.id))
+                guard candidates.count == 1 else { return nil }
+                remoteID = candidates.first
+            }
+            guard let remoteID, !remoteID.isEmpty else { return nil }
+            targets.insert(CloudWorkspaceRemoteIdentity(
+                machine: projection.resource.machine,
+                workspaceID: remoteID
+            ))
+        }
+        guard targets.count == 1, let target = targets.first else { return nil }
+        return (target.machine, target.workspaceID)
+    }
+
+    /// Fills a missing remote workspace id after any projection lifecycle operation.
+    /// An existing non-empty binding remains authoritative because it may be an explicit
+    /// `workspace.cloud_vm_bind` choice. This helper only adds information; it never
+    /// replaces a deliberate binding or clears state during a temporary disconnect.
+    @MainActor
+    static func reconcileBinding(
+        localWorkspaceID: UUID,
+        catalog: SurfaceCatalog = .shared
+    ) {
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: localWorkspaceID) else { return }
+        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+           !remoteWorkspaceID.isEmpty {
+            return
+        }
+        let snapshot = catalog.snapshot
+        let projections = snapshot.projections.filter { $0.workspaceID == localWorkspaceID }
+        guard let target = inferredRemoteWorkspaceTarget(
+            projections: projections,
+            resources: snapshot.resources
+        ) else { return }
+        if let binding = workspace.cloudVMBinding,
+           binding.vmID != target.machine.cloudMachineID {
+            return
+        }
+        bind(
+            localWorkspaceID: localWorkspaceID,
+            machine: target.machine,
+            remoteWorkspaceID: target.remoteWorkspaceID
+        )
+    }
+
+    /// The one remote cmux-tui workspace a local workspace stands for. The persisted
+    /// binding wins; otherwise the projected cloud resources decide, but only when
+    /// every view agrees on a single remote workspace — a local workspace composing
+    /// panes from several remote workspaces (or pool terminals) has no one name to
+    /// write, so nothing propagates.
+    static func remoteTarget(
+        binding: WorkspaceCloudVMBinding?,
+        projectedResources: [SurfaceResource]
+    ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
+        if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
+            return (.cloud(binding.vmID), remote)
+        }
+        var seen = Set<CloudRenameCoordinator.Key>()
+        var found: (SurfaceMachineID, String)?
+        for resource in projectedResources where !resource.machine.isLocal {
+            for workspace in resource.remoteWorkspaces {
+                seen.insert(.workspace(machine: resource.machine, id: workspace.id))
+                found = (resource.machine, workspace.id)
+            }
+        }
+        guard seen.count == 1, let found else { return nil }
+        return (found.0, found.1)
+    }
+
+    /// The daemon-side name for a local title. Legacy projection fallback titles carry
+    /// a generated "<machine>: " prefix; a bound workspace preserves the exact user text.
+    static func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
+    }
+
+    /// Resolves the daemon tab represented by one local projection. An explicit
+    /// tab id is authoritative. A legacy projection may infer a tab only when
+    /// its workspace id agrees with the resource's sole current view. A stale
+    /// workspace id must fail closed, because choosing the sole view anyway can
+    /// rename a different remote placement.
+    static func remoteTabID(for projection: SurfaceProjection?, resource: SurfaceResource) -> String? {
+        if let explicit = projection?.remoteTabID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        guard let views = resource.remoteViews, views.count == 1,
+              let view = views.first,
+              !view.tabID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if let projectedWorkspace = projection?.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !projectedWorkspace.isEmpty,
+           projectedWorkspace != view.workspace.id {
+            return nil
+        }
+        return view.tabID
+    }
+
+    /// Enqueues a local workspace rename. Requests for one workspace run in order; a
+    /// failed request rolls the local title back only when no newer edit replaced it.
+    @MainActor
+    static func propagate(workspace: Workspace, localTitle: String?, previousCustomTitle: String?) {
+        guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let catalog = SurfaceCatalog.shared
+        // A persisted binding is authoritative. Avoid scanning and sorting every
+        // projection on the common bound path; the projection fallback is only for
+        // legacy workspaces that predate the binding id.
+        let snapshot = catalog.snapshot
+        let projected = snapshot.projections.filter { $0.workspaceID == workspace.id }
+        let target: (machine: SurfaceMachineID, remoteWorkspaceID: String)?
+        if let bindingTarget = remoteTarget(binding: workspace.cloudVMBinding, projectedResources: []) {
+            target = bindingTarget
+        } else if let inferred = inferredRemoteWorkspaceTarget(
+            projections: projected,
+            resources: snapshot.resources
+        ) {
+            target = inferred
+        } else if projected.isEmpty {
+            // A pre-catalog session may still have no projection records. Keep the
+            // historical resource-only fallback for that narrow legacy case.
+            target = remoteTarget(
+                binding: workspace.cloudVMBinding,
+                projectedResources: catalog.resourcesProjected(inWorkspace: workspace.id)
+            )
+        } else {
+            target = nil
+        }
+        guard let target,
+              let name = remoteName(
+                  fromLocalTitle: localTitle,
+                  machine: target.machine,
+                  stripGeneratedPrefix: workspace.cloudVMBinding?.remoteWorkspaceID == nil
+              ),
+              let provider = catalog.provider(for: target.machine) else { return }
+        let expectedTitle = workspace.customTitle
+        let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+        let key = CloudRenameCoordinator.Key.workspace(machine: target.machine, id: target.remoteWorkspaceID)
+        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace, weak manager] in
+            do { try await provider.renameRemoteWorkspace(id: target.remoteWorkspaceID, name: name) }
+            catch {
+                guard let workspace,
+                      workspace.customTitle == expectedTitle,
+                      let manager else { return }
+                _ = manager.setCustomTitle(
+                    tabId: workspace.id,
+                    title: previousCustomTitle,
+                    source: .user,
+                    propagateToRemoteTmux: false,
+                    propagateToCloud: false
+                )
+                #if DEBUG
+                cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
+                #endif
+            }
+        })
+    }
+
+    /// Enqueues a local pane rename to the daemon tab behind it. A failed request
+    /// restores the prior local override when the user has not edited the pane again.
+    @MainActor
+    static func propagateTerminalRename(
+        workspace: Workspace,
+        panelID: UUID,
+        resource: SurfaceResource,
+        name: String,
+        previousCustomTitle: String?
+    ) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let expectedTitle = workspace.panelCustomTitles[panelID]
+        let catalog = SurfaceCatalog.shared
+        let projection = catalog.projection(forPanel: panelID)
+        // A daemon name belongs to one tab placement. A persisted projection id is
+        // authoritative. Legacy sessions may infer a target only when there is one
+        // view, because choosing among several views would rename the wrong tab.
+        let tabID = remoteTabID(for: projection, resource: resource)
+        guard let tabID, !tabID.isEmpty else {
+            #if DEBUG
+            cmuxDebugLog("cloud.rename.terminal.ambiguous panel=\(panelID) resource=\(resource.id.rawValue)")
+            #endif
+            return
+        }
+        guard let provider = catalog.provider(for: resource.machine) else { return }
+        let key = CloudRenameCoordinator.Key.tab(machine: resource.machine, id: tabID)
+        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace] in
+            do { try await provider.renameRemoteTab(id: tabID, name: name) }
+            catch {
+                guard let workspace,
+                      workspace.panelCustomTitles[panelID] == expectedTitle else { return }
+                _ = workspace.setPanelCustomTitle(
+                    panelId: panelID,
+                    title: previousCustomTitle,
+                    source: .user,
+                    propagateToRemoteTmux: false,
+                    propagateToCloud: false
+                )
+                #if DEBUG
+                cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
+                #endif
+            }
+        })
+    }
+
+    /// Applies daemon-owned names to every local projection that carries an
+    /// exact remote identity. A remote observation uses `.remote` and disables
+    /// both local transport propagations.
+    ///
+    /// While a local intent is in flight, a different remote value stays visible
+    /// until the command succeeds or rolls back. This avoids a polling race
+    /// without creating a second durable source of truth.
+    @MainActor
+    static func reconcileRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+        guard case .cloud = machine else { return }
+        let catalog = SurfaceCatalog.shared
+        let snapshot = catalog.snapshot
+        // Synchronizable snapshots reject duplicate identity rows at the parser
+        // boundary. Keep these defensive maps total for legacy callers that may
+        // construct a value directly; missing relationships still fail closed
+        // below instead of selecting a placement by array order.
+        let workspacesByID = state.workspaces.reduce(into: [String: CloudVMWorkspaceState]()) {
+            $0[$1.id] = $1
+        }
+        let tabsByID = state.tabs.reduce(into: [String: CloudVMTabState]()) {
+            $0[$1.id] = $1
+        }
+        let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
+            $0[$1.id] = $1
+        }
+        let localWorkspaces = AppDelegate.shared?.surfaceCatalogWorkspaces() ?? []
+        let localWorkspacesByID = Dictionary(
+            localWorkspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        for workspace in localWorkspaces {
+            guard let binding = workspace.cloudVMBinding,
+                  binding.vmID == machine.cloudMachineID,
+                  let remoteID = binding.remoteWorkspaceID,
+                  let remote = workspacesByID[remoteID]
+            else { continue }
+
+            let intentKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteID)
+            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
+                continue
+            }
+            let displayName = workspaceDisplayName(
+                machine: machine,
+                remoteName: remote.name,
+                currentTitleSource: workspace.effectiveCustomTitleSource,
+                currentCustomTitle: workspace.customTitle
+            )
+            let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+            _ = manager?.setCustomTitle(
+                tabId: workspace.id,
+                title: displayName,
+                source: .remote,
+                propagateToRemoteTmux: false,
+                propagateToCloud: false
+            )
+        }
+
+        for projection in snapshot.projections where projection.resource.machine == machine {
+            guard let workspace = localWorkspacesByID[projection.workspaceID],
+                  workspace.panels[projection.panelID] != nil,
+                  let resource = resourcesByID[projection.resource],
+                  resource.kind == .terminal
+            else { continue }
+
+            let tabID = remoteTabID(for: projection, resource: resource)
+            guard let tabID, let tab = tabsByID[tabID] else { continue }
+            let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
+                continue
+            }
+            _ = workspace.setPanelCustomTitle(
+                panelId: projection.panelID,
+                title: tab.name,
+                source: .remote,
+                propagateToRemoteTmux: false,
+                propagateToCloud: false
+            )
+        }
+    }
+
+    private static func workspaceDisplayName(
+        machine: SurfaceMachineID,
+        remoteName: String,
+        currentTitleSource: Workspace.CustomTitleSource?,
+        currentCustomTitle: String?
+    ) -> String {
+        // Preserve the machine prefix only for a title this feature created.
+        // A user-entered title remains exact after the daemon echoes it.
+        let prefix = "\(machine.rawValue): "
+        if currentTitleSource == .remote,
+           currentCustomTitle?.hasPrefix(prefix) == true {
+            return prefix + remoteName
+        }
+        return remoteName
+    }
+
+    /// Records which machine + remote workspace a just-opened local workspace stands
+    /// for, so later local renames write through without guessing from its panes.
+    @MainActor
+    static func bind(
+        localWorkspaceID: UUID,
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String?,
+        generatedTitle: String? = nil
+    ) {
+        guard let vmID = machine.cloudMachineID,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: localWorkspaceID),
+              let workspace = manager.workspacesById[localWorkspaceID] else { return }
+        let previousBinding = workspace.cloudVMBinding
+        let sameMachine = previousBinding?.vmID == vmID
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: vmID,
+            isBase: sameMachine ? (previousBinding?.isBase ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
+        )
+        // Local workspace creation historically records its creation title as
+        // `.user`. Mark only an exact generated title as remote, and never erase
+        // a real user edit that raced the bind operation.
+        if let generatedTitle,
+           workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+               == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
+            _ = manager.setCustomTitle(
+                tabId: localWorkspaceID,
+                title: generatedTitle,
+                source: .remote,
+                propagateToRemoteTmux: false,
+                propagateToCloud: false
+            )
+        }
     }
 }

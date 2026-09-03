@@ -59744,6 +59744,91 @@
         }
       }
     },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has multiple workspaces named '%2$@'. Use a workspace ID from cmux vm tree %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります。cmux vm tree %1$@ のワークスペース ID を使用してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace state for %1$@ is unavailable. Reconnect and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のワークスペース状態を取得できません。再接続してから再試行してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.terminalNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のワークスペース '%3$@' にターミナル '%2$@' はありません。cmux vm tree %1$@ を確認してください"
+          }
+        }
+      }
+    },
+    "cli.vm.open.terminalAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のターミナル '%2$@' はワークスペース '%3$@' に一意なタブがありません。cmux vm tree %1$@ で正確な配置を選んでください。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.terminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal placement for %1$@ is unavailable. Reconnect and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のターミナル配置を取得できません。再接続してから再試行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.route.wouldProvision": {
       "extractionState": "manual",
       "localizations": {
@@ -61178,6 +61263,40 @@
         }
       }
     },
+    "cloudTree.menu.renameTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更…"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.renameTerminalAllViews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename all views…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのビューを名称変更…"
+          }
+        }
+      }
+    },
     "cloudTree.menu.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -61191,6 +61310,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称変更…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.deleteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.renameTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の名称を変更しています…"
           }
         }
       }
@@ -61212,6 +61365,159 @@
         }
       }
     },
+    "cloudTree.error.renameTerminalNoView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is not open in a remote workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルはリモートワークスペースで開かれていません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalEmptyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal name cannot be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル名を空にすることはできません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalPartial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal rename changed %1$d of %2$d remote tabs. Another change prevented a safe rollback. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル名はリモートタブ %1$d/%2$d 件で変更されました。別の変更があったため安全にロールバックできません。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote rename response was invalid. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名称変更の応答が無効です。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalRevision": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote rename returned revision %2$llu after revision %1$llu. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名称変更がリビジョン %1$llu の後に %2$llu を返しました。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameWorkspaceEmptyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace name cannot be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を空にすることはできません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameWorkspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This remote workspace is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリモートワークスペースは利用できません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal state could not be refreshed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの状態を更新できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.snapshotOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は古い cmux-tui プロトコルを使用しています。更新してライブ同期と名前変更を有効にしてください。"
+          }
+        }
+      }
+    },
     "cloudTree.rename.confirm": {
       "extractionState": "manual",
       "localizations": {
@@ -61225,6 +61531,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称変更"
+          }
+        }
+      }
+    },
+    "cloudTree.renameTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の名称変更"
           }
         }
       }
@@ -244172,6 +244495,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.vm.renameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote name could not be changed. Refresh and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名を変更できませんでした。更新して再試行してください。"
           }
         }
       }

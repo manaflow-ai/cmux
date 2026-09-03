@@ -7,13 +7,14 @@ import Foundation
 extension Workspace {
     // MARK: - Title Management
 
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
+    /// Who set a custom title. Auto-naming (AI-generated titles) and a remote
+    /// daemon observation must never overwrite a user intent. Remote is kept
+    /// separate from user so the next authoritative snapshot can converge a
+    /// projection without starting another write-through request.
     enum CustomTitleSource: String, Codable, Sendable {
         case user
         case auto
+        case remote
     }
 
     var hasCustomTitle: Bool {
@@ -161,14 +162,14 @@ extension Workspace {
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
     ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
+    /// `.auto` writes are rejected when a user or remote title exists, and
+    /// `.auto` never clears. Returns whether the write landed.
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) != .auto { return false }
         }
         if trimmed.isEmpty {
             if customTitle != nil {

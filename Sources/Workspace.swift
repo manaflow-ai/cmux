@@ -189,7 +189,7 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
+            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID) },
             surfaceProjections: surfaceProjectionRecordsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
@@ -2452,15 +2452,22 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// Workspace represents a sidebar tab.
-/// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-@MainActor
 /// A cloud machine bound to a workspace through the cmux-tui remote daemon
 /// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
-struct WorkspaceCloudVMBinding: Equatable, Sendable {
+nonisolated struct WorkspaceCloudVMBinding: Equatable, Sendable {
     let vmID: String
     /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
     let isBase: Bool
+    /// The cmux-tui workspace on the machine this local workspace stands for (`ws_…`),
+    /// recorded when a remote workspace is opened locally. Local workspace renames
+    /// write through to it (`CloudWorkspaceRenameWriteThrough`).
+    let remoteWorkspaceID: String?
+
+    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
+        self.vmID = vmID
+        self.isBase = isBase
+        self.remoteWorkspaceID = remoteWorkspaceID
+    }
 
     /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
     static func normalizedVMID(_ raw: String?) -> String? {
@@ -2473,6 +2480,8 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     }
 }
 
+/// Workspace represents a sidebar tab.
+/// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     enum BrowserPanelCreationPolicy {
         case userInitiated
@@ -2948,9 +2957,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.
-    static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
+    nonisolated static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
         guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
-        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase)
+        let remote = snapshot.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase, remoteWorkspaceID: remote?.isEmpty == false ? remote : nil)
     }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
@@ -5283,10 +5293,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
     ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
+    /// `.auto` writes are rejected when a user or remote title exists, and
+    /// `.auto` never clears. Returns whether the write landed.
     @discardableResult
-    func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
+    func setPanelCustomTitle(
+        panelId: UUID,
+        title: String?,
+        source: CustomTitleSource = .user,
+        propagateToRemoteTmux: Bool = true,
+        propagateToCloud: Bool = true
+    ) -> Bool {
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
         defer {
@@ -5298,25 +5314,32 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previous = panelCustomTitles[panelId]
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
-            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
+            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
+        var sameText = false
         if trimmed.isEmpty {
             guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
-                if source == .user { panelCustomTitleSources[panelId] = .user }
-                applyFocusedPanelTitle(panelId: panelId)
-                return true
+            if previous == trimmed {
+                // Same text still updates provenance. A remote observation must
+                // be able to turn a just-confirmed local intent into settled
+                // daemon-owned state without changing the visible tab twice.
+                panelCustomTitleSources[panelId] = source
+                sameText = true
+            } else {
+                panelCustomTitles[panelId] = trimmed
+                panelCustomTitleSources[panelId] = source
             }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
         }
 
         applyFocusedPanelTitle(panelId: panelId)
+
+        // A repeated remote or automatic observation only changes provenance.
+        // A repeated USER edit remains an idempotent intent and must still reach
+        // the daemon, because the earlier request may have failed or been lost.
+        if sameText, source != .user { return true }
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
@@ -5326,9 +5349,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        if propagateToRemoteTmux, isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
+            )
+        }
+        // A pane projecting a cloud terminal writes a USER rename through to the
+        // machine's daemon tab name (`tab rename`): persisted there, broadcast, and
+        // shown by every attached client (tree rows, other Macs, TUI tab bars).
+        // Clearing only reverts the local override; the daemon name stays.
+        if propagateToCloud, source == .user, !trimmed.isEmpty,
+           let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal {
+            CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
+                workspace: self,
+                panelID: panelId,
+                resource: resource,
+                name: trimmed,
+                previousCustomTitle: previous
             )
         }
         return true

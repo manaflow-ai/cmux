@@ -326,6 +326,12 @@ extension TerminalController {
                         "expires_at_unix": invitation.expiresAtUnix,
                     ]
                 }
+                if let addresses = endpoint.networkAddresses {
+                    payload["network_addresses"] = [
+                        "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                        "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+                    ]
+                }
                 return payload
             }
         case "vm.cmux_remote_approve":
@@ -402,6 +408,10 @@ extension TerminalController {
             return socketWorkerVMTerminalReadResponse(id: id, params: params)
         case "vm.terminal_wait":
             return socketWorkerVMTerminalWaitResponse(id: id, params: params)
+        case "vm.terminal_rename":
+            return socketWorkerVMTerminalRenameResponse(id: id, params: params)
+        case "vm.tab_rename":
+            return socketWorkerVMTabRenameResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

@@ -36,8 +36,9 @@
 #
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
-# because those machines are reached directly at their public IPv6; a
-# dual-stack bind still accepts IPv4.
+# because those machines are reached at a private VPC address by default, or
+# directly at their public IPv6 on the legacy path; a dual-stack bind still
+# accepts IPv4.
 BIN=/root/.cmux/bin/cmux-tui
 # cmux-remote's default state dir for root on Linux; identity.json lives under sessions/<session>/auth.
 REMOTE_STATE_DIR=/root/.local/state/cmux/remote
