@@ -187,7 +187,7 @@ export async function handleForwardAuthRequest(
     );
     return new Response(null, { status: 302, headers });
   } catch (error) {
-    console.error("Cloud VM publication forward auth failed", error);
+    console.error("Cloud VM publication forward auth failed", describeAuthError(error));
     return response(null, isAuthArtifactError(error) ? 400 : 503);
   }
 }
@@ -232,7 +232,7 @@ async function callbackResponse(
     );
     return new Response(null, { status: 302, headers });
   } catch (error) {
-    console.error("Cloud VM publication auth callback failed", error);
+    console.error("Cloud VM publication auth callback failed", describeAuthError(error));
     return isAuthArtifactError(error)
       ? clearTransactionResponse(400)
       : response(null, 503);
@@ -276,6 +276,15 @@ function response(body: BodyInit | null, status: number): Response {
     status,
     headers: { "cache-control": "no-store" },
   });
+}
+
+/** Tagged workflow errors carry their reason in a field the default formatter hides. */
+function describeAuthError(error: unknown): unknown {
+  if (error && typeof error === "object" && "_tag" in error) {
+    const tagged = error as { readonly _tag: unknown; readonly reason?: unknown; readonly cause?: unknown };
+    return { tag: tagged._tag, reason: tagged.reason, cause: tagged.cause };
+  }
+  return error;
 }
 
 function isAuthArtifactError(error: unknown): boolean {

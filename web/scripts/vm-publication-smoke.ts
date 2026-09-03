@@ -132,15 +132,15 @@ try {
   log("provider.reconcileTlsRule (repeat is idempotent)", await run(provider.reconcileTlsRule(reconciled.rule.tlsRuleId, { hostname, providerVmId: vmId, port: 3000 })));
   log("provider.getCertificateStatus(hostname)", await run(provider.getCertificateStatus(hostname)));
 
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
-      const response = await fetch(`https://${hostname}/`, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+      const response = await fetch(`https://${hostname}/`, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
       const body = (await response.text()).slice(0, 80);
       log(`https fetch attempt ${attempt}`, { status: response.status, server: response.headers.get("server"), body });
       break;
     } catch (error) {
       log(`https fetch attempt ${attempt} failed`, { message: String((error as Error).cause ?? error).slice(0, 200) });
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
   }
 } finally {

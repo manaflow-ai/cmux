@@ -7,6 +7,8 @@
 //   ... add the records, then run `verify` again until the zone is verified ...
 //   SMOKE_ZONE=... SMOKE_HOSTNAME=cmux.example.com bun ... publish     # throwaway VM + listener, public
 //   SMOKE_ZONE=... SMOKE_HOSTNAME=... bun ... protect                  # personal -> fetch -> public
+//   SMOKE_ZONE=... SMOKE_HOSTNAME=... SMOKE_FORWARD_AUTH_URL=https://... bun ... lock   # personal, stay locked
+//   SMOKE_ZONE=... SMOKE_HOSTNAME=... bun ... unlock                   # back to public
 //   SMOKE_ZONE=... bun ... list
 //   SMOKE_ZONE=... bun ... cleanup                                     # publications, forward-auth, VM
 //
@@ -35,7 +37,7 @@ if (!zone) throw new Error("SMOKE_ZONE is required");
 const hostname = process.env.SMOKE_HOSTNAME?.trim() || zone;
 const principal: PublicationPrincipal = { userId: process.env.SMOKE_OWNER?.trim() || "smoke-owner", teamIds: [] };
 const forwardAuth = {
-  url: "https://cmux.com/api/freestyle/forward-auth",
+  url: process.env.SMOKE_FORWARD_AUTH_URL?.trim() || "https://cmux.com/api/freestyle/forward-auth",
   serviceToken: process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET?.trim() || `smoke-forward-auth-${"x".repeat(40)}`,
 };
 const stateFile = process.env.SMOKE_STATE?.trim() || `/tmp/cmux-custom-domain-smoke-${zone}.json`;
@@ -57,16 +59,21 @@ function printDns(records: readonly { purpose: string; recordTypes: readonly str
   }
 }
 
-async function fetchStatus(url: string, attempts = 4): Promise<{ status: number | null; detail: string }> {
+// Short and impatient on purpose: a healthy edge answers in well under a
+// second, so anything slower is a finding, not something to wait out.
+const HTTP_TIMEOUT_MS = 5_000;
+const RETRY_DELAY_MS = 2_000;
+
+async function fetchStatus(url: string, attempts = 3): Promise<{ status: number | null; detail: string }> {
   let detail = "";
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
       const body = (await response.text()).replace(/\s+/g, " ").slice(0, 60);
       return { status: response.status, detail: `${response.headers.get("server") ?? ""} ${body}`.trim() };
     } catch (error) {
       detail = String((error as Error).cause ?? error).slice(0, 160);
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     }
   }
   return { status: null, detail };
@@ -104,8 +111,10 @@ try {
       const vmId = await ensureVm();
       let publication = await run(createPublication({ principal, providerVmId: vmId, port: 3000, hostname, accessMode: "public", forwardAuth }));
       log("createPublication", { id: publication.id, hostname: publication.hostname, state: publication.state, verification: publication.verification?.state ?? null });
-      for (let attempt = 0; attempt < 6 && publication.state !== "active"; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 10_000));
+      // Certificate issuance for a new exact hostname takes Freestyle ~10-30s;
+      // poll briskly rather than sleeping through it.
+      for (let attempt = 0; attempt < 20 && publication.state !== "active"; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
         publication = await run(verifyPublication({ principal, publicationId: hostname, forwardAuth }));
         log("verifyPublication", { state: publication.state });
       }
@@ -115,7 +124,18 @@ try {
     case "protect": {
       const protectedPublication = await run(updatePublicationAccess({ principal, publicationId: hostname, accessMode: "personal", forwardAuth }));
       log("updatePublicationAccess(personal)", { state: protectedPublication.state, accessMode: protectedPublication.accessMode, routingRevision: protectedPublication.routingRevision });
-      log("fetch while protected (authorizer not deployed, expect fail-closed)", await fetchStatus(`https://${hostname}/`, 2));
+      log("fetch while protected (authorizer not deployed, expect fail-closed)", await fetchStatus(`https://${hostname}/`, 1));
+      const reopened = await run(updatePublicationAccess({ principal, publicationId: hostname, accessMode: "public", forwardAuth }));
+      log("updatePublicationAccess(public)", { state: reopened.state, accessMode: reopened.accessMode, routingRevision: reopened.routingRevision });
+      log("fetch after reopening", await fetchStatus(`https://${hostname}/`));
+      break;
+    }
+    case "lock": {
+      const locked = await run(updatePublicationAccess({ principal, publicationId: hostname, accessMode: "personal", forwardAuth }));
+      log("updatePublicationAccess(personal)", { state: locked.state, accessMode: locked.accessMode, routingRevision: locked.routingRevision, forwardAuthUrl: forwardAuth.url });
+      break;
+    }
+    case "unlock": {
       const reopened = await run(updatePublicationAccess({ principal, publicationId: hostname, accessMode: "public", forwardAuth }));
       log("updatePublicationAccess(public)", { state: reopened.state, accessMode: reopened.accessMode, routingRevision: reopened.routingRevision });
       log("fetch after reopening", await fetchStatus(`https://${hostname}/`));

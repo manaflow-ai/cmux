@@ -595,8 +595,10 @@ function accountDeletionError(
 /**
  * Every unauthenticated navigation to a protected hostname mints a
  * transaction, so hygiene runs on that hot path instead of a cron: retire a
- * bounded batch of this publication's expired or consumed transactions (codes
- * cascade) and cap the pending ones so one hostname cannot fill the table.
+ * bounded batch of this publication's expired transactions (codes cascade)
+ * and cap the pending ones so one hostname cannot fill the table. A consumed
+ * transaction is deliberately kept until it expires: consumption means a code
+ * was issued, and the browser still has to present that code at the callback.
  * At the cap, sign-ins that have sat untouched longer than a browser needs to
  * finish the handoff are retired first; if the cap is still reached, the new
  * transaction is refused rather than evicting someone mid sign-in.
@@ -623,10 +625,7 @@ async function sweepAuthTransactions(
           .where(
             and(
               eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
-              or(
-                lte(cloudVmPublicationAuthTransactions.expiresAt, now),
-                isNotNull(cloudVmPublicationAuthTransactions.consumedAt),
-              ),
+              lte(cloudVmPublicationAuthTransactions.expiresAt, now),
             ),
           )
           .orderBy(asc(cloudVmPublicationAuthTransactions.expiresAt))
