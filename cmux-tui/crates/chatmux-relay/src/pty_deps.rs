@@ -584,8 +584,11 @@ fn run_pty_wait_owner(
                             continue;
                         }
                         // A broken non-blocking wait implementation cannot
-                        // establish whether the child exited. Fall through
-                        // to the definitive wait so ownership still ends.
+                        // establish whether the child exited. Terminate it
+                        // through the owned wait path before the definitive
+                        // wait, so a later Drop/Kill command is not stranded.
+                        force_kill_process_group(pid, process_group);
+                        let _ = child.kill();
                         break;
                     }
                 },
