@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileCloudUI
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -60,6 +61,12 @@ struct DeviceTreeView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Cloud machines sit beside the paired Macs: same "your
+                // computers" mental model, reachable with no Mac paired.
+                // The row renders only when cloud is composed.
+                Section {
+                    CloudEntryRow()
+                }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
@@ -123,6 +130,8 @@ struct DeviceTreeView: View {
             }
             .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
+            // The Cloud flow presents from this stable container, not the row.
+            .cloudFlowPresenter()
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
