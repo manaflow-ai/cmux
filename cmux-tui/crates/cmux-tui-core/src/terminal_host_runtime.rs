@@ -3457,7 +3457,10 @@ mod unix {
         // belongs to this host. Use only the authenticated spawn fallback.
         let _ = term;
         let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
-        if protocol_version < PROTOCOL_VERSION {
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
             return Some(path.to_string_lossy().into_owned());
         }
         Some(format!(
@@ -9278,6 +9281,19 @@ mod unix {
             term.vt_write(b"\x1b]7;\x1b\\");
             assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker));
             assert_eq!(snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION), None);
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                assert_eq!(
+                    snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version),
+                    Some("/spawn".into())
+                );
+            }
         }
 
         #[test]
