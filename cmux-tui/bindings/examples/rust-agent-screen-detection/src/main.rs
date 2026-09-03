@@ -355,11 +355,14 @@ mod tests {
 
     #[test]
     fn live_terminal_selector_is_not_silently_ignored_in_file_mode() {
-        assert_eq!(run_explain(vec![
-            "--terminal".into(),
-            "term_11111111111111111111111111111111".into(),
-            "codex".into(),
-            "/tmp/screen".into(),
-        ]), std::process::ExitCode::FAILURE);
+        assert_eq!(
+            run_explain(vec![
+                "--terminal".into(),
+                "term_11111111111111111111111111111111".into(),
+                "codex".into(),
+                "/tmp/screen".into(),
+            ]),
+            std::process::ExitCode::FAILURE
+        );
     }
 }
