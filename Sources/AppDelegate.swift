@@ -1132,6 +1132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
+    /// Composition-root-owned preference dependency. The effective value is
+    /// captured into `startupSessionRestorePolicy` before any restore window is
+    /// created, so later settings changes cannot split one restore transaction.
+    private var terminalSessionRestoreSettings = TerminalSessionRestoreSettings()
+    private var startupSessionRestorePolicy: SessionTerminalRestorePolicy?
     private var didPrepareStartupSessionSnapshot = false
     /// Classification of the process that preceded this launch. Captured before
     /// the current run arms its sentinel so a crash can recover a missing primary
@@ -2400,9 +2405,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        terminalSessionRestoreSettings: TerminalSessionRestoreSettings? = nil
     ) {
         captureSessionLaunchStateIfNeeded()
+        if let terminalSessionRestoreSettings {
+            self.terminalSessionRestoreSettings = terminalSessionRestoreSettings
+        }
         self.tabManager = tabManager
         if let tabDragTransferRegistryStorage {
             precondition(
@@ -3673,7 +3682,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        // Capture the preference exactly once for the whole startup restore.
+        // Additional windows are created on a later run-loop turn, so reading
+        // UserDefaults at each boundary could otherwise produce a mixed restore
+        // if the user changes the toggle while that turn is pending.
+        let restorePolicy = SessionTerminalRestorePolicy(
+            settings: terminalSessionRestoreSettings
+        )
+        guard let sanitizedStartupSnapshot,
+              let filteredStartupSnapshot = restorePolicy.appSnapshotForRestore(
+                  sanitizedStartupSnapshot
+              ) else {
+            startupSessionRestorePolicy = nil
+            startupSessionSnapshot = nil
+            return
+        }
+        startupSessionRestorePolicy = restorePolicy
+        startupSessionSnapshot = filteredStartupSnapshot
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3849,6 +3874,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
+        let restorePolicy = startupSessionRestorePolicy
+            ?? SessionTerminalRestorePolicy(settings: terminalSessionRestoreSettings)
         primaryContext.tabManager.prepareLegacyWorkspaceCustomizationMigration(
             afterRestoring: startupSnapshot?.windows.flatMap(\.tabManager.workspaces) ?? []
         )
@@ -3868,7 +3895,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             applySessionWindowSnapshot(
                 primaryWindowSnapshot,
                 to: primaryContext,
-                window: primaryWindow
+                window: primaryWindow,
+                terminalRestorePolicy: restorePolicy
             )
         } else {
             let displays = currentDisplayGeometries()
@@ -3907,6 +3935,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for windowSnapshot in additionalWindows {
                     let windowId = self.createMainWindow(
                         sessionWindowSnapshot: windowSnapshot,
+                        terminalRestorePolicy: restorePolicy,
+                        applyTerminalSessionRestorePolicy: false,
                         excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
                         excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
                     )
@@ -3928,6 +3958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
         startupSessionSnapshot = nil
+        startupSessionRestorePolicy = nil
         let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
         if wasApplyingSessionRestore {
@@ -3961,7 +3992,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+        let restorePolicy = SessionTerminalRestorePolicy(settings: terminalSessionRestoreSettings)
+        guard let prunedSnapshot = SessionPersistencePolicy
+            .pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot,
+              let snapshot = restorePolicy.appSnapshotForRestore(prunedSnapshot) else {
             return false
         }
         let snapshotWindows = Array(
@@ -3978,6 +4012,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
+        startupSessionRestorePolicy = restorePolicy
         didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
         var excludedWorkspaceIds = liveWorkspaceIdSet()
@@ -3985,6 +4020,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
+                terminalRestorePolicy: restorePolicy,
+                applyTerminalSessionRestorePolicy: false,
                 shouldActivate: false,
                 excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
                 excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
@@ -4013,7 +4050,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func applySessionWindowSnapshot(
         _ snapshot: SessionWindowSnapshot,
         to context: MainWindowContext,
-        window: NSWindow?
+        window: NSWindow?,
+        terminalRestorePolicy: SessionTerminalRestorePolicy
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -4026,7 +4064,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.tabManager.restoreSessionSnapshot(
             snapshot.tabManager,
             deferBrowserPanels: true,
-            workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
+            workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache,
+            terminalRestorePolicy: terminalRestorePolicy,
+            applyTerminalSessionRestorePolicy: false
         )
         context.restoreWindowDockSessionSnapshot(
             snapshot,
@@ -9306,6 +9346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didHandleExplicitOpenIntentAtStartup = true
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
+            startupSessionRestorePolicy = nil
             didAttemptStartupSessionRestore = true
             // Explicit open intent cancels restore; deferred links cannot gain targets.
             flushPendingStartupNavigationURLRequests()
@@ -9886,9 +9927,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
         excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
+        terminalRestorePolicy: SessionTerminalRestorePolicy? = nil,
+        applyTerminalSessionRestorePolicy: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
-        let isRestoringSessionWindowSnapshot = sessionWindowSnapshot != nil
+        // Resolve the policy once per window creation. Startup and manual
+        // reopen callers pass their captured value and an already-filtered
+        // snapshot; ordinary callers can still use the default owner.
+        let resolvedTerminalRestorePolicy = terminalRestorePolicy
+            ?? SessionTerminalRestorePolicy(settings: terminalSessionRestoreSettings)
+        let resolvedSessionWindowSnapshot: SessionWindowSnapshot? = {
+            guard applyTerminalSessionRestorePolicy else { return sessionWindowSnapshot }
+            return sessionWindowSnapshot.flatMap {
+                resolvedTerminalRestorePolicy.windowSnapshotForRestore($0)
+            }
+        }()
+        let isRestoringSessionWindowSnapshot = resolvedSessionWindowSnapshot != nil
         if isRestoringSessionWindowSnapshot {
             SurfaceResumeRunPromptBatch.shared.beginRestorePass()
         }
@@ -9899,7 +9953,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         reserveInitialSocketPathIfNeeded()
-        let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
+        let requestedWindowId = preferredWindowId ?? resolvedSessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
@@ -9913,14 +9967,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
-        if let sessionWindowSnapshot {
+        if let sessionWindowSnapshot = resolvedSessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
                 excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
                 excludingWorkspaceIds: excludingWorkspaceIdsFromSessionSnapshot,
                 deferBrowserPanels: true,
-                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
+                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache,
+                terminalRestorePolicy: resolvedTerminalRestorePolicy,
+                applyTerminalSessionRestorePolicy: false
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -9933,7 +9989,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
-        let sidebarWidth = sessionWindowSnapshot?.sidebar.width
+        let sidebarWidth = resolvedSessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
 #if DEBUG
@@ -9945,11 +10001,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarState = SidebarState(
             isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
                 ? false
-                : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
+                : (resolvedSessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(
-            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
+            selection: resolvedSessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
 
         // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
@@ -10019,8 +10075,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return sourceWindow?.styleMask.contains(.fullScreen) == true
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
-            sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+            resolvedSessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+        let restoredFrame = resolvedWindowFrame(from: resolvedSessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
             : nil
@@ -10120,7 +10176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         restoreWindowDockSessionSnapshot(
             forWindowId: windowId,
-            from: sessionWindowSnapshot,
+            from: resolvedSessionWindowSnapshot,
             excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
             deferBrowserPanels: isRestoringSessionWindowSnapshot
         )

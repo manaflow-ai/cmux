@@ -19,6 +19,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
+    private let terminalSessionRestoreSettings: TerminalSessionRestoreSettings
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
@@ -51,12 +52,15 @@ final class HostSettingsActions: SettingsHostActions {
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
 
+    /// Creates host callbacks with the app's shared settings dependencies.
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        terminalSessionRestoreSettings: TerminalSessionRestoreSettings = TerminalSessionRestoreSettings()
     ) {
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.terminalSessionRestoreSettings = terminalSessionRestoreSettings
         startObservingAppIconMode()
     }
 
@@ -98,16 +102,23 @@ final class HostSettingsActions: SettingsHostActions {
         SleepyModeController.shared.store
     }
 
+    /// Applies host-owned live refreshes after the settings catalog resets.
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+        terminalSessionRestoreDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
     }
 
     func terminalAdaptiveDefaultThemeDidChange() {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    /// Publishes the committed terminal-restore preference change.
+    func terminalSessionRestoreDidChange() {
+        terminalSessionRestoreSettings.notifyDidChange()
     }
 
     func notifyShortcutSettingsDidChange() {

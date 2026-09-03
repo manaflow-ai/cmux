@@ -68,6 +68,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
+    /// Notifies the host after the terminal-session restore preference commits.
+    /// The host owns the notification center and any runtime restore observers.
+    func terminalSessionRestoreDidChange()
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -306,6 +310,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
+
+    /// Default no-op for previews and tests without a restore observer.
+    func terminalSessionRestoreDidChange() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}

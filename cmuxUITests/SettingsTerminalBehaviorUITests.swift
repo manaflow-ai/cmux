@@ -2,8 +2,9 @@ import XCTest
 
 /// Behavioral UI tests for the Settings **Terminal** and **TextBox** sections.
 ///
-/// The Terminal section exposes six controls:
-/// Show Terminal Scroll Bar, Copy on Selection, Resume Agent Sessions on Reopen,
+/// The Terminal section exposes seven controls:
+/// Show Terminal Scroll Bar, Copy on Selection, Restore Terminal Sessions on Reopen,
+/// Resume Agent Sessions on Reopen,
 /// Agent Hibernation (enable), Hibernate After Idle Seconds, and Max Live Agent
 /// Terminals. The TextBox section exposes three controls:
 /// Show TextBox on New Terminals, Focus TextBox on New Terminals, and TextBox
@@ -14,7 +15,7 @@ import XCTest
 /// app relaunch — none of which a single in-process XCUITest can drive
 /// deterministically without adding a runtime seam (which this task
 /// forbids). What *is* observable through XCUITest is the Settings row
-/// itself: six of the rows render a description (`subtitle`) whose text
+/// itself: seven of the rows render a description (`subtitle`) whose text
 /// is bound to the live setting value and flips between an "on" and
 /// "off" sentence when the control changes, and the three numeric rows
 /// render a value label that updates when the stepper is driven.
@@ -31,6 +32,7 @@ import XCTest
 /// migrated `CmuxSettingsUI.TerminalSection`:
 ///   SettingsTerminalScrollBarToggle,
 ///   SettingsTerminalCopyOnSelectToggle,
+///   SettingsTerminalRestoreSessionsToggle,
 ///   SettingsTerminalAgentAutoResumeToggle,
 ///   SettingsTerminalAgentHibernationToggle,
 ///   SettingsTerminalAgentHibernationIdleSecondsStepper,
@@ -103,6 +105,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     private static let terminalKeys = [
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
+        "terminal.restoreTerminalSessions",
         "terminal.autoResumeAgentSessions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
@@ -158,6 +161,8 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         static let scrollBarOff = "Hides the right-edge terminal scroll bar"
         static let copyOn = "Selected terminal text is also copied to the system clipboard"
         static let copyOff = "cmux does not add system-clipboard copy on selection"
+        static let restoreOn = "terminal-containing workspaces and their surfaces are restored"
+        static let restoreOff = "Terminal-containing workspaces are skipped on reopen"
         static let resumeOn = "automatically run their resume command"
         static let resumeOff = "stay idle until you resume them manually"
         static let hibernateOn = "Idle background agent terminals can be suspended"
@@ -223,6 +228,34 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
             waitForStaticText(window, Subtitle.copyOff),
             "Disabling copy-on-select should restore the off sentence"
         )
+
+        closeSettings(app, window)
+    }
+
+    /// Restore Terminal Sessions defaults ON. The hidden-label switch must
+    /// expose the same localized title as its row to VoiceOver, and its
+    /// subtitle must continue to track the committed setting value.
+    func testRestoreTerminalSessionsToggleHasAccessibleLabelAndFlipsBoundDescription() {
+        let app = makeLaunchedApp()
+        let window = openTerminalSettings(app)
+        let control = toggle(window, id: "SettingsTerminalRestoreSessionsToggle")
+        let title = staticTextContaining(window, "Restore Terminal Sessions on Reopen")
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { title.exists && !control.label.isEmpty },
+            "Restore Terminal Sessions switch should expose an accessible label"
+        )
+        XCTAssertEqual(
+            control.label,
+            title.label,
+            "VoiceOver should hear the same localized title shown by the settings row"
+        )
+        XCTAssertTrue(waitForStaticText(window, Subtitle.restoreOn))
+
+        control.click()
+        XCTAssertTrue(waitForStaticText(window, Subtitle.restoreOff))
+        control.click()
+        XCTAssertTrue(waitForStaticText(window, Subtitle.restoreOn))
 
         closeSettings(app, window)
     }

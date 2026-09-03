@@ -58,6 +58,13 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// Whether persisted terminal-containing workspaces are restored on reopen.
+    public let restoreTerminalSessions = DefaultsKey<Bool>(
+        id: "terminal.restoreTerminalSessions",
+        defaultValue: true,
+        userDefaultsKey: "terminal.restoreTerminalSessions"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

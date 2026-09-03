@@ -6540,6 +6540,11 @@ extension TabManager {
     ///
     /// - Parameter deferBrowserPanels: Keeps restored browser tabs lightweight until
     ///   their panes are visible, avoiding a launch-time WebKit construction burst.
+    /// - Parameter terminalRestorePolicy: Captured terminal-session policy to
+    ///   apply when this call owns filtering. Pass the same value through every
+    ///   window in one restore transaction.
+    /// - Parameter applyTerminalSessionRestorePolicy: Set to `false` when the
+    ///   caller already filtered the snapshot with the captured policy.
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
@@ -6547,7 +6552,9 @@ extension TabManager {
         excludingStableIdentities: Set<UUID> = [],
         excludingWorkspaceIds: Set<UUID> = [],
         deferBrowserPanels: Bool = false,
-        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
+        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil,
+        terminalRestorePolicy: SessionTerminalRestorePolicy? = nil,
+        applyTerminalSessionRestorePolicy: Bool = true
     ) -> [[UUID: UUID]] {
         guard !isFinalizedForWindowClose else { return [] }
         let promptBatch = SurfaceResumeRunPromptBatch.shared
@@ -6581,9 +6588,14 @@ extension TabManager {
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+        let resolvedTerminalRestorePolicy = terminalRestorePolicy
+            ?? SessionTerminalRestorePolicy()
+        let restoreSnapshot = applyTerminalSessionRestorePolicy
+            ? resolvedTerminalRestorePolicy.tabManagerSnapshotForRestore(snapshot)
+            : snapshot
         let (normalizedWorkspaceSnapshots, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
-            snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
-            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
+            restoreSnapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
+            selectedWorkspaceIndex: restoreSnapshot.selectedWorkspaceIndex
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
@@ -6672,12 +6684,12 @@ extension TabManager {
             workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }
         restoreWorkspaceDockSessionSnapshots(
-            from: snapshot,
+            from: restoreSnapshot,
             excludingStableIdentities: excludingStableIdentities,
             deferBrowserPanels: deferBrowserPanels
         )
         let restoredGroups: [WorkspaceGroup] = {
-            guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
+            guard let groupSnapshots = restoreSnapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {
                 var map: [UUID: [UUID]] = [:]
                 for workspace in newTabs {

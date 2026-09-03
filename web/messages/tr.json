@@ -1128,6 +1128,7 @@
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
+          "restoreTerminalSessions": "cmux kapatıldıktan sonra yeniden açıldığında terminal içeren çalışma alanlarını ve yüzeyleri geri yükle. Bu çalışma alanlarını atlamak, yalnızca tarayıcı içeren çalışma alanlarını ve pencere düzenini korumak için false ayarla.",
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",

@@ -205314,6 +205314,132 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.restore-terminal-sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions restore terminal sessions workspaces tabs reopen relaunch fresh state browser-only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions ターミナル セッション 復元 ワークスペース タブ 再起動 ブラウザのみ 初期状態"
+          }
+        },
+
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions استعادة جلسات الطرفية مساحات العمل علامات التبويب إعادة الفتح إعادة التشغيل حالة جديدة متصفح فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions vrati terminalske sesije radni prostori kartice ponovno otvaranje ponovno pokretanje samo preglednik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions genopret terminalsessioner arbejdsområder faner genåbn genstart kun browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions Terminalsitzungen wiederherstellen Arbeitsbereiche Tabs erneut öffnen Neustart nur Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions restaurar sesiones de terminal espacios de trabajo pestañas volver a abrir reiniciar solo navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions restaurer sessions terminal espaces de travail onglets réouverture relancer navigateur uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions ripristina sessioni terminale spazi di lavoro schede riapri riavvia solo browser"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions ស្ដារសម័យស្ថានីយ ស្ថានីយការងារ ផ្ទាំង បើកឡើងវិញ ចាប់ផ្ដើមឡើងវិញ កម្មវិធីរុករកតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions 터미널 세션 복원 작업 공간 탭 다시 열기 재실행 브라우저 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions gjenopprett terminaløkter arbeidsområder faner åpne på nytt start på nytt bare nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions przywróć sesje terminala obszary robocze karty ponowne otwarcie uruchom ponownie tylko przeglądarka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions restaurar sessões do terminal espaços de trabalho abas reabrir reiniciar somente navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions восстановить терминальные сеансы рабочие пространства вкладки повторное открытие перезапуск только браузер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions กู้คืนเซสชันเทอร์มินัล พื้นที่ทำงาน แท็บ เปิดอีกครั้ง เริ่มใหม่ เบราว์เซอร์เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions terminal oturumlarını geri yükle çalışma alanları sekmeler yeniden aç başlat yalnızca tarayıcı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions відновити термінальні сеанси робочі простори вкладки повторне відкриття перезапуск лише браузер"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions 恢复终端会话 工作区 标签页 重新打开 重新启动 仅浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.restoreTerminalSessions 還原終端機工作階段 工作區 分頁 重新開啟 重新啟動 僅瀏覽器"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -211080,6 +211206,384 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Terminal Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にターミナルセッションを復元"
+          }
+        },
+
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة جلسات الطرفية عند إعادة الفتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati terminalske sesije pri ponovnom otvaranju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genopret terminalsessioner ved genåbning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalsitzungen beim erneuten Öffnen wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sesiones de terminal al volver a abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions de terminal à la réouverture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina le sessioni del terminale alla riapertura"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ដារសម័យស្ថានីយពេលបើកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 열 때 터미널 세션 복원"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprett terminaløkter ved ny åpning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracaj sesje terminala przy ponownym otwarciu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sessões do terminal ao reabrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстанавливать терминальные сеансы при повторном открытии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กู้คืนเซสชันเทอร์มินัลเมื่อเปิดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden açılışta terminal oturumlarını geri yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновлювати термінальні сеанси під час повторного відкриття"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新打开时恢复终端会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新開啟時還原終端機工作階段"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic restoration skips terminal-containing workspaces and terminal surfaces, including dock panels, while preserving browser-only workspaces and window layout."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動復元では、ターミナルを含むワークスペースと、ドックパネルを含むターミナルサーフェスをスキップし、ブラウザのみのワークスペースとウインドウのレイアウトは保持します。"
+          }
+        },
+
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتخطى الاسترداد التلقائي مساحات العمل التي تحتوي على طرفية والأسطح الطرفية، بما في ذلك لوحات الإرساء، مع الحفاظ على مساحات العمل الخاصة بالمتصفح فقط وتخطيط النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatsko vraćanje preskače radne prostore koji sadrže terminal i terminalske površine, uključujući Dock panele, uz očuvanje radnih prostora samo s preglednikom i rasporeda prozora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk gendannelse springer arbejdsområder med terminaler og terminaloverflader, herunder Dock-paneler, over, mens browserområder og vindueslayout bevares."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die automatische Wiederherstellung überspringt Arbeitsbereiche mit Terminal und Terminaloberflächen einschließlich Dock-Panels, während browserbasierte Arbeitsbereiche und das Fensterlayout erhalten bleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La restauración automática omite los espacios de trabajo que contienen terminales y las superficies de terminal, incluidos los paneles del Dock, mientras conserva los espacios solo de navegador y el diseño de la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La restauration automatique ignore les espaces de travail contenant un terminal et les surfaces de terminal, y compris les panneaux du Dock, tout en conservant les espaces réservés au navigateur et la disposition de la fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ripristino automatico ignora gli spazi di lavoro che contengono terminali e le superfici terminali, inclusi i pannelli del Dock, preservando gli spazi solo browser e il layout della finestra."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្ដារដោយស្វ័យប្រវត្តិនឹងរំលងស្ថានីយការងារដែលមានស្ថានីយ និងផ្ទៃស្ថានីយ រួមទាំងផ្ទាំង Dock ខណៈរក្សាស្ថានីយការងារដែលមានតែកម្មវិធីរុករក និងប្លង់បង្អួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 복원은 터미널이 포함된 작업 공간과 Dock 패널을 포함한 터미널 표면을 건너뛰고, 브라우저 전용 작업 공간과 창 레이아웃은 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk gjenoppretting hopper over arbeidsområder med terminal og terminalflater, inkludert Dock-paneler, mens arbeidsområder med bare nettleser og vindusoppsettet bevares."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne przywracanie pomija obszary robocze zawierające terminal oraz powierzchnie terminala, w tym panele Dock, zachowując obszary tylko z przeglądarką i układ okna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A restauração automática ignora espaços de trabalho que contêm terminais e superfícies de terminal, incluindo painéis do Dock, preservando os espaços somente com navegador e o layout da janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматическое восстановление пропускает рабочие пространства с терминалами и терминальные поверхности, включая панели Dock, сохраняя пространства только с браузером и расположение окон."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การกู้คืนอัตโนมัติจะข้ามพื้นที่ทำงานที่มีเทอร์มินัลและพื้นผิวเทอร์มินัล รวมถึงแผง Dock โดยยังคงรักษาพื้นที่ทำงานที่มีเฉพาะเบราว์เซอร์และเค้าโครงหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik geri yükleme, Dock panelleri dahil terminal içeren çalışma alanlarını ve terminal yüzeylerini atlar; yalnızca tarayıcı içeren çalışma alanlarını ve pencere düzenini korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичне відновлення пропускає робочі простори, що містять термінали, і термінальні поверхні, зокрема панелі Dock, зберігаючи робочі простори лише з браузером і макет вікна."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动恢复会跳过包含终端的工作区和终端界面（包括 Dock 面板），同时保留仅浏览器工作区和窗口布局。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動還原會略過包含終端機的工作區與終端機介面（包括 Dock 面板），同時保留只有瀏覽器的工作區與視窗配置。"
+          }
+        }
+      }
+    },
+    "settings.terminal.restoreTerminalSessions.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, terminal-containing workspaces and their surfaces are restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、ターミナルを含むワークスペースとそのサーフェスを復元します。"
+          }
+        },
+
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند إعادة فتح cmux بعد الإنهاء، تتم استعادة مساحات العمل والأسطح التي تحتوي على طرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada se cmux ponovo otvori nakon zatvaranja, vraćaju se radni prostori i površine koji sadrže terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux åbnes igen efter afslutning, gendannes arbejdsområder og overflader med terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim erneuten Öffnen von cmux nach dem Beenden werden Arbeitsbereiche und Oberflächen mit Terminal wiederhergestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al volver a abrir cmux después de cerrarlo, se restauran los espacios de trabajo y las superficies que contienen un terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque cmux est rouvert après avoir été quitté, les espaces de travail et surfaces contenant un terminal sont restaurés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando cmux viene riaperto dopo la chiusura, vengono ripristinati gli spazi di lavoro e le superfici che contengono un terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបើក cmux ឡើងវិញបន្ទាប់ពីបិទ ស្ថានីយការងារ និងផ្ទៃដែលមានស្ថានីយនឹងត្រូវបានស្ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 종료한 후 다시 열면 터미널이 포함된 작업 공간과 표면이 복원됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux åpnes igjen etter avslutning, gjenopprettes arbeidsområder og flater som inneholder en terminal."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po ponownym otwarciu cmux po zamknięciu przywracane są obszary robocze i powierzchnie zawierające terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao reabrir o cmux depois de encerrá-lo, os espaços de trabalho e superfícies que contêm um terminal são restaurados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При повторном открытии cmux после выхода восстанавливаются рабочие пространства и поверхности с терминалом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด cmux อีกครั้งหลังออกจากโปรแกรม ระบบจะกู้คืนพื้นที่ทำงานและพื้นผิวที่มีเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapatıldıktan sonra yeniden açıldığında terminal içeren çalışma alanları ve yüzeyler geri yüklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після повторного відкриття cmux відновлюються робочі простори й поверхні, що містять термінал."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出后重新打开 cmux 时，会恢复包含终端的工作区及其界面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 cmux 後再次開啟時，會還原包含終端機的工作區與介面。"
           }
         }
       }

@@ -58,6 +58,9 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Shared owner for the terminal-session restore preference. The settings
+    /// UI and AppDelegate receive this same dependency at composition time.
+    private let terminalSessionRestoreSettings: TerminalSessionRestoreSettings
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -130,6 +133,8 @@ struct cmuxApp: App {
         let sidebarState = SidebarState()
         let focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
         self.authComposition = authComposition
+        let terminalSessionRestoreSettings = TerminalSessionRestoreSettings()
+        self.terminalSessionRestoreSettings = terminalSessionRestoreSettings
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -223,7 +228,8 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                terminalSessionRestoreSettings: terminalSessionRestoreSettings
             )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -285,7 +291,8 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
-            computerUseRuntimeService: computerUseRuntimeService
+            computerUseRuntimeService: computerUseRuntimeService,
+            terminalSessionRestoreSettings: terminalSessionRestoreSettings
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
