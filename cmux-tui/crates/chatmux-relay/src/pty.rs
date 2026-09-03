@@ -1296,7 +1296,7 @@ impl Inner {
         drop(attachments);
         let live_auth = Self::auth_snapshot(context);
         attachments = self.attachments.lock().expect("attach lock");
-        if !self.auth_allows_claim(&live_auth, actor, &cwd, 0) {
+        if !self.auth_allows_claim(&live_auth, actor, &cwd.path, 0) {
             drop(opening);
             drop(attachments);
             opened.closing.store(true, Ordering::SeqCst);
@@ -1311,7 +1311,7 @@ impl Inner {
                 close_pending: Arc::new(AtomicBool::new(false)),
                 control: Arc::clone(&opened.control),
                 actor_id: actor.to_owned(),
-                cwd: cwd.clone(),
+                cwd: cwd.path.clone(),
                 auth_version: live_auth.version,
                 transport_id: context.transport_id.clone(),
                 generation: opened.generation,
@@ -1617,7 +1617,7 @@ impl Inner {
             return;
         }
         let attachment = {
-            let mut attachments = self.attachments.lock().expect("attach lock");
+            let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
@@ -1739,7 +1739,7 @@ impl Inner {
                 }
             };
         let attachment = {
-            let mut attachments = self.attachments.lock().expect("attach lock");
+            let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
@@ -1817,12 +1817,15 @@ impl Inner {
         generation: Option<u64>,
     ) {
         let mut opening = self.opening_state.lock().expect("opening state lock");
-        if let Some(entry) = opening.ids.get(pty_id) {
-            let owns_opening =
-                transport_id.is_none() || entry.transport_id.as_deref() == transport_id;
-            if generation.is_none_or(|expected| entry.generation == expected) && owns_opening {
-                opening.cancelled.insert(pty_id.to_owned(), entry.generation);
-            }
+        if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
+            (
+                entry.generation,
+                transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
+            )
+        }) && generation.is_none_or(|expected| entry_generation == expected)
+            && owns_opening
+        {
+            opening.cancelled.insert(pty_id.to_owned(), entry_generation);
         }
         drop(opening);
         let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
@@ -2140,12 +2143,15 @@ impl Inner {
         generation: Option<u64>,
     ) {
         let mut opening = self.opening_state.lock().expect("opening state lock");
-        if let Some(entry) = opening.ids.get(pty_id) {
-            let owns_opening =
-                transport_id.is_none() || entry.transport_id.as_deref() == transport_id;
-            if generation.is_none_or(|expected| entry.generation == expected) && owns_opening {
-                opening.cancelled.insert(pty_id.to_owned(), entry.generation);
-            }
+        if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
+            (
+                entry.generation,
+                transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
+            )
+        }) && generation.is_none_or(|expected| entry_generation == expected)
+            && owns_opening
+        {
+            opening.cancelled.insert(pty_id.to_owned(), entry_generation);
         }
         drop(opening);
         let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
@@ -2886,7 +2892,7 @@ impl Inner {
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
-        let proxy = Arc::new(ShellViewerControl {
+        let proxy: Arc<dyn PtyControl> = Arc::new(ShellViewerControl {
             session: Arc::clone(&shell_session),
             viewer_id,
             released: Arc::clone(&released),
@@ -3513,7 +3519,7 @@ impl Inner {
             ));
         }
 
-        let proxy =
+        let proxy: Arc<dyn PtyControl> =
             Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
         let publication_gate = Arc::new(RouteGate::new());
         let (on_data, _) = self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
