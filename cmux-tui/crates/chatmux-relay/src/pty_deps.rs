@@ -516,20 +516,25 @@ impl ChildLifecycle {
     }
 }
 
-fn force_kill_process_group(pid: libc::pid_t) {
-    if pid > 0 {
-        // `kill(2)` only queues the signal. It does not touch the blocking
-        // ChildKiller handle or wait for the child to exit.
-        let group_result = unsafe { libc::kill(-pid, libc::SIGKILL) };
-        if group_result != 0 {
-            // Keep the primary child from being stranded if the process
-            // group has already changed or disappeared. Descendants are
-            // best-effort in this error path; the wait owner still reaps the
-            // primary child through its owned handle.
+fn force_kill_process_group(pid: libc::pid_t, process_group: libc::pid_t) {
+    if pid <= 0 {
+        return;
+    }
+    // The child remains waitable, and therefore its PID remains reserved,
+    // until the wait owner reaps it. Validate group membership before the
+    // negative-PID signal so a stale group ID cannot target an unrelated group.
+    if process_group > 0 {
+        let current_group = unsafe { libc::getpgid(pid) };
+        if current_group == process_group {
             unsafe {
-                let _ = libc::kill(pid, libc::SIGKILL);
+                let _ = libc::kill(-process_group, libc::SIGKILL);
             }
         }
+    }
+    // Always signal the primary child independently. It may have moved out of
+    // the original group while descendants remain in that group.
+    unsafe {
+        let _ = libc::kill(pid, libc::SIGKILL);
     }
 }
 
@@ -538,13 +543,14 @@ struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     lifecycle: Arc<ChildLifecycle>,
+    process_id: libc::pid_t,
     process_group: libc::pid_t,
 }
 
 impl Drop for MasterControl {
     fn drop(&mut self) {
         if self.lifecycle.begin_termination() {
-            force_kill_process_group(self.process_group);
+            force_kill_process_group(self.process_id, self.process_group);
         }
     }
 }
@@ -565,7 +571,7 @@ impl PtyControl for MasterControl {
     fn resume(&self) {}
     fn kill(&self) {
         if self.lifecycle.begin_termination() {
-            force_kill_process_group(self.process_group);
+            force_kill_process_group(self.process_id, self.process_group);
         }
     }
 }
@@ -676,6 +682,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         lifecycle: Arc::clone(&lifecycle),
+        process_id: pid,
         process_group,
     });
     output.set_overflow_control(&control);
@@ -1424,6 +1431,7 @@ mod tests {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
+            process_id: child.id() as libc::pid_t,
             process_group: child.id() as libc::pid_t,
         });
         let (done_tx, done_rx) = mpsc::channel();
@@ -1464,6 +1472,7 @@ mod tests {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
+            process_id: child.id() as libc::pid_t,
             process_group: child.id() as libc::pid_t,
         };
         drop(control);
