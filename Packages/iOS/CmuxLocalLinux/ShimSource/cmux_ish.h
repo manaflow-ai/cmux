@@ -60,28 +60,21 @@ int cmux_ish_boot(const char *_Nonnull fakefs_data_path,
 // the slave, and returns an opaque session handle >= 0, or a negative Linux
 // errno. The handle is not a slot index and must not be persisted across
 // process launches. Output bytes stream to `cb` until the terminal event
-// described above.
+// described above. `input_ready_cb` may be NULL; when set it is installed
+// before the child starts, so no tty consumption edge is lost, and it is
+// cleared by the terminal event or by hangup, whichever happens first.
 int cmux_ish_session_open(const char *_Nullable const *_Nonnull argv,
                           const char *_Nullable const *_Nullable envp,
                           int cols, int rows,
                           cmux_ish_output_cb _Nonnull cb,
-                          void *_Nullable context);
+                          void *_Nullable context,
+                          cmux_ish_input_ready_cb _Nullable input_ready_cb,
+                          void *_Nullable input_ready_context);
 
 // Writes input bytes to the session's tty (keyboard/paste). Non-blocking;
 // returns bytes accepted (may be < length if the 4KB line buffer is full)
 // or a negative errno.
 long cmux_ish_session_input(int session, const char *_Nonnull bytes, size_t length);
-
-// Installs or clears the input-readiness callback for an active session. A
-// replacement or clear waits for an older readiness callback to return, and
-// hangup also quiesces callbacks before it returns. Do not call this function
-// from an output or readiness callback. Passing NULL clears the callback and
-// its context. Returns 0 on success or a negative Linux errno when the handle
-// is stale or no longer active.
-int cmux_ish_session_set_input_ready_cb(
-    int session,
-    cmux_ish_input_ready_cb _Nullable cb,
-    void *_Nullable context);
 
 // Updates the tty window size and signals SIGWINCH to the foreground group.
 void cmux_ish_session_resize(int session, int cols, int rows);
@@ -93,9 +86,6 @@ void cmux_ish_session_resize(int session, int cols, int rows);
 // function more than once for the same handle is safe; callbacks must not call
 // it synchronously.
 void cmux_ish_session_hangup(int session);
-
-// Emulated pid of the session leader, or -1.
-int cmux_ish_session_pid(int session);
 
 #ifdef __cplusplus
 }

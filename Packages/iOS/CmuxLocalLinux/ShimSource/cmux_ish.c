@@ -11,6 +11,7 @@
 
 #include <limits.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -60,10 +61,6 @@ struct cmux_session;
 struct cmux_session_binding {
     struct cmux_session *session;
     pthread_mutex_t callback_lock;
-    // Serializes readiness callback replacement while old callbacks drain.
-    // It is separate from callback_lock so a callback waiting to enter that
-    // lock cannot deadlock a setter that is quiescing it.
-    pthread_mutex_t input_ready_registration_lock;
     pthread_cond_t callback_idle;
     unsigned callbacks_in_flight;
     bool accepting;
@@ -100,9 +97,6 @@ static pthread_mutex_t cmux_boot_lock = PTHREAD_MUTEX_INITIALIZER;
 // once. Serialize become_new_init_child through exec/task_start while still
 // allowing input, output, resize, and exit callbacks to run concurrently.
 static pthread_mutex_t cmux_spawn_lock = PTHREAD_MUTEX_INITIALIZER;
-// pty_open_fake mutates the supplied driver's ttys/major fields. It invokes
-// cmux_tty_init synchronously, so this lock makes pending_session unambiguous.
-static pthread_mutex_t cmux_pending_lock = PTHREAD_MUTEX_INITIALIZER;
 
 enum cmux_boot_state {
     CMUX_BOOT_UNINITIALIZED = 0,
@@ -118,13 +112,6 @@ static int cmux_boot_error = _EIO;
 // layer may have installed one before this shim boots.
 static void (*cmux_previous_exit_hook)(struct task *task, int code);
 static bool cmux_exit_hook_installed;
-
-// Session being wired during pty_open_fake -> ops->init. Only read while
-// cmux_pending_lock is held (cmux_tty_init runs synchronously on that path).
-// The init callback no longer stores this in tty->data, for the union reason
-// documented above. The value is kept only to make accidental foreign calls
-// easy to diagnose and to preserve the serialized hand-off contract.
-static struct cmux_session *pending_session;
 
 // The binding is kept outside struct tty because iSH overlays pty inode
 // metadata and the old `data` field in one union. Entries are allocated for a
@@ -142,7 +129,9 @@ static struct cmux_tty_binding_entry *cmux_tty_bindings;
 
 static struct cmux_session_binding *cmux_binding_create(struct cmux_session *session,
                                                          cmux_ish_output_cb cb,
-                                                         void *context) {
+                                                         void *context,
+                                                         cmux_ish_input_ready_cb input_ready_cb,
+                                                         void *input_ready_context) {
     struct cmux_session_binding *binding = calloc(1, sizeof(*binding));
     if (binding == NULL)
         return NULL;
@@ -150,13 +139,7 @@ static struct cmux_session_binding *cmux_binding_create(struct cmux_session *ses
         free(binding);
         return NULL;
     }
-    if (pthread_mutex_init(&binding->input_ready_registration_lock, NULL) != 0) {
-        pthread_mutex_destroy(&binding->callback_lock);
-        free(binding);
-        return NULL;
-    }
     if (pthread_cond_init(&binding->callback_idle, NULL) != 0) {
-        pthread_mutex_destroy(&binding->input_ready_registration_lock);
         pthread_mutex_destroy(&binding->callback_lock);
         free(binding);
         return NULL;
@@ -165,6 +148,8 @@ static struct cmux_session_binding *cmux_binding_create(struct cmux_session *ses
     binding->accepting = true;
     binding->cb = cb;
     binding->context = context;
+    binding->input_ready_cb = input_ready_cb;
+    binding->input_ready_context = input_ready_cb != NULL ? input_ready_context : NULL;
     return binding;
 }
 
@@ -256,7 +241,6 @@ static void cmux_binding_destroy(struct cmux_session_binding *binding, bool noti
     else
         cmux_binding_abort(binding);
     pthread_cond_destroy(&binding->callback_idle);
-    pthread_mutex_destroy(&binding->input_ready_registration_lock);
     pthread_mutex_destroy(&binding->callback_lock);
     free(binding);
 }
@@ -298,13 +282,43 @@ static int cmux_tty_binding_insert(struct tty *tty,
     return 0;
 }
 
-// Remove and return an entry while the write lock is held. The caller owns
-// the returned node and must destroy its binding before releasing the lock.
-static struct cmux_tty_binding_entry *cmux_tty_binding_remove_locked(
-    struct tty *tty) {
+// Which field of a side-table entry a detach operation matches on.
+enum cmux_binding_key {
+    CMUX_BINDING_KEY_TTY,
+    CMUX_BINDING_KEY_BINDING,
+    CMUX_BINDING_KEY_SESSION,
+};
+
+static bool cmux_tty_binding_entry_matches(const struct cmux_tty_binding_entry *entry,
+                                           enum cmux_binding_key key,
+                                           const void *value) {
+    switch (key) {
+    case CMUX_BINDING_KEY_TTY:
+        return entry->tty == value;
+    case CMUX_BINDING_KEY_BINDING:
+        // Pointer equality is sufficient here because the binding remains
+        // allocated as long as its side-table entry exists, so malloc cannot
+        // recycle its address.
+        return entry->binding == value;
+    case CMUX_BINDING_KEY_SESSION:
+        // Defensive fallback for a cleanup path that clears session->binding
+        // before removing the side-table node. Matching by session makes a
+        // stale node recoverable without dereferencing a freed binding.
+        return entry->binding != NULL && entry->binding->session == value;
+    }
+    return false;
+}
+
+// Unlink and return the first entry matching `key`/`value` while the write
+// lock is held. The caller owns the returned node and must destroy its binding
+// before releasing the lock. Returns NULL when nothing matches.
+static struct cmux_tty_binding_entry *cmux_tty_binding_detach_locked(
+    enum cmux_binding_key key, const void *value) {
+    if (value == NULL)
+        return NULL;
     struct cmux_tty_binding_entry **cursor = &cmux_tty_bindings;
     while (*cursor != NULL) {
-        if ((*cursor)->tty == tty) {
+        if (cmux_tty_binding_entry_matches(*cursor, key, value)) {
             struct cmux_tty_binding_entry *entry = *cursor;
             *cursor = entry->next;
             entry->next = NULL;
@@ -315,37 +329,16 @@ static struct cmux_tty_binding_entry *cmux_tty_binding_remove_locked(
     return NULL;
 }
 
-// Remove an entry for a binding while the write lock is held. Pointer
-// equality is sufficient here because the binding remains allocated as long
-// as its side-table entry exists, so malloc cannot recycle its address.
-static struct cmux_tty_binding_entry *cmux_tty_binding_remove_binding_locked(
-    struct cmux_session_binding *binding) {
-    struct cmux_tty_binding_entry **cursor = &cmux_tty_bindings;
-    while (*cursor != NULL) {
-        if ((*cursor)->binding == binding) {
-            struct cmux_tty_binding_entry *entry = *cursor;
-            *cursor = entry->next;
-            entry->next = NULL;
-            return entry;
-        }
-        cursor = &(*cursor)->next;
-    }
-    return NULL;
-}
-
-// Find an entry by its session while the write lock is held. This is a
-// defensive fallback for an iSH cleanup path that clears session->binding
-// before removing the side-table node. The normal path removes by binding
-// identity, but keeping a session lookup makes a stale node recoverable
-// without dereferencing a freed binding.
-static struct cmux_tty_binding_entry *cmux_tty_binding_find_session_locked(
-    struct cmux_session *session) {
-    for (struct cmux_tty_binding_entry *entry = cmux_tty_bindings;
-         entry != NULL; entry = entry->next) {
-        if (entry->binding != NULL && entry->binding->session == session)
-            return entry;
-    }
-    return NULL;
+// Detach the entry owned by `session`, preferring its published binding and
+// falling back to a session scan for a node left behind by an unusual kernel
+// error path. Both branches unlink the node, so the caller may free it.
+static struct cmux_tty_binding_entry *cmux_tty_binding_detach_session_locked(
+    struct cmux_session *session, struct cmux_session_binding *published) {
+    struct cmux_tty_binding_entry *entry =
+        cmux_tty_binding_detach_locked(CMUX_BINDING_KEY_BINDING, published);
+    if (entry == NULL)
+        entry = cmux_tty_binding_detach_locked(CMUX_BINDING_KEY_SESSION, session);
+    return entry;
 }
 
 // Roll back a binding after session construction fails. The side-table write
@@ -364,9 +357,8 @@ static void cmux_abort_session_binding(struct cmux_session *session) {
 
     struct cmux_session_binding *published = atomic_load_explicit(
         &session->binding, memory_order_acquire);
-    struct cmux_tty_binding_entry *entry = published != NULL
-        ? cmux_tty_binding_remove_binding_locked(published)
-        : cmux_tty_binding_find_session_locked(session);
+    struct cmux_tty_binding_entry *entry =
+        cmux_tty_binding_detach_session_locked(session, published);
     if (entry != NULL) {
         binding_to_destroy = entry->binding;
         struct tty *entry_tty = entry->tty;
@@ -408,14 +400,6 @@ static int cmux_tty_init(struct tty *tty);
 static int cmux_tty_write(struct tty *tty, const void *buf, size_t len, bool blocking);
 static void cmux_tty_cleanup(struct tty *tty);
 static void cmux_tty_input_consumed(struct tty *tty);
-// Host-facing tty operations are defined below the driver callbacks, but the
-// readiness registration path also needs their prototypes before its callback
-// trampoline. Keep these declarations here so strict C builds do not rely on
-// implicit function declarations.
-static struct tty *cmux_retain_tty(int handle, bool include_closing,
-                                   struct cmux_session **session_out);
-static void cmux_release_tty(struct tty *tty);
-static struct cmux_session *cmux_session_lookup_locked(int handle, int *slot_out);
 
 static struct tty_driver_ops cmux_tty_ops = {
     .init = cmux_tty_init,
@@ -469,7 +453,6 @@ static int cmux_tty_init(struct tty *tty) {
     // garbage `pty.other` pointer.
     if (tty != NULL)
         memset(&tty->pty, 0, sizeof(tty->pty));
-    (void) pending_session;
     return 0;
 }
 
@@ -551,75 +534,6 @@ static void cmux_tty_input_consumed(struct tty *tty) {
     pthread_mutex_unlock(&binding->callback_lock);
 }
 
-int cmux_ish_session_set_input_ready_cb(
-    int handle,
-    cmux_ish_input_ready_cb cb,
-    void *context) {
-    // Callers must not invoke this API from an input-readiness callback. The
-    // setter deliberately waits for callbacks that captured the old context.
-    // Pin the tty while looking up its side-table entry. This keeps both the
-    // session slot and tty allocation alive while the callback pointer changes.
-    struct cmux_session *session = NULL;
-    struct tty *tty = cmux_retain_tty(handle, false, &session);
-    if (tty == NULL)
-        return _EBADF;
-
-    int err = 0;
-    // `cmux_retain_tty` pins the allocation, but the opaque slot can still be
-    // retired and reused after it returns. Revalidate the exact generation and
-    // tty association before changing callback state.
-    pthread_mutex_lock(&cmux_lock);
-    bool valid = session != NULL &&
-        cmux_session_lookup_locked(handle, NULL) == session &&
-        atomic_load_explicit(&session->state, memory_order_acquire) == CMUX_SESSION_ACTIVE &&
-        atomic_load_explicit(&session->tty, memory_order_acquire) == tty;
-    pthread_mutex_unlock(&cmux_lock);
-    if (!valid) {
-        err = _EBADF;
-    } else {
-        pthread_rwlock_rdlock(&cmux_binding_rwlock);
-        struct cmux_tty_binding_entry *entry = cmux_tty_binding_find_locked(tty);
-        struct cmux_session_binding *binding = entry != NULL ? entry->binding : NULL;
-        if (binding == NULL) {
-            err = _EBADF;
-        } else {
-            pthread_mutex_lock(&binding->input_ready_registration_lock);
-            pthread_mutex_lock(&binding->callback_lock);
-            if (!binding->accepting || binding->ended) {
-                err = _EBADF;
-            } else {
-                // Clear first while holding callback_lock. A callback that is
-                // already in flight has incremented callbacks_in_flight and
-                // will be drained below; a new callback sees NULL and cannot
-                // capture the old context.
-                binding->input_ready_cb = NULL;
-                binding->input_ready_context = NULL;
-            }
-            pthread_mutex_unlock(&binding->callback_lock);
-
-            if (err == 0) {
-                // Do not hold callback_lock while waiting. A callback that
-                // entered the shim just before the clear may need that lock to
-                // decrement its in-flight count.
-                pthread_mutex_lock(&binding->callback_lock);
-                while (binding->callbacks_in_flight != 0)
-                    pthread_cond_wait(&binding->callback_idle, &binding->callback_lock);
-                if (!binding->accepting || binding->ended) {
-                    err = _EBADF;
-                } else {
-                    binding->input_ready_cb = cb;
-                    binding->input_ready_context = cb != NULL ? context : NULL;
-                }
-                pthread_mutex_unlock(&binding->callback_lock);
-            }
-            pthread_mutex_unlock(&binding->input_ready_registration_lock);
-        }
-        pthread_rwlock_unlock(&cmux_binding_rwlock);
-    }
-    cmux_release_tty(tty);
-    return err;
-}
-
 static void cmux_tty_cleanup(struct tty *tty) {
     // tty_release invokes cleanup while holding ttys_lock and tty->lock. No
     // cmux_lock is taken until after the side-table entry is detached and all
@@ -633,7 +547,8 @@ static void cmux_tty_cleanup(struct tty *tty) {
     // so no concurrent tty_read can be inside tty_read_into_buf.
     tty->input_consumed_callback = NULL;
     pthread_rwlock_wrlock(&cmux_binding_rwlock);
-    struct cmux_tty_binding_entry *entry = cmux_tty_binding_remove_locked(tty);
+    struct cmux_tty_binding_entry *entry =
+        cmux_tty_binding_detach_locked(CMUX_BINDING_KEY_TTY, tty);
     if (entry == NULL) {
         pthread_rwlock_unlock(&cmux_binding_rwlock);
         return;
@@ -708,10 +623,7 @@ static void cmux_exit_hook(struct task *task, int code) {
                     atomic_store_explicit(&session->state, CMUX_SESSION_CLOSING,
                                           memory_order_release);
                 binding = atomic_load_explicit(&session->binding, memory_order_acquire);
-                if (binding != NULL)
-                    entry = cmux_tty_binding_remove_binding_locked(binding);
-                if (entry == NULL)
-                    entry = cmux_tty_binding_find_session_locked(session);
+                entry = cmux_tty_binding_detach_session_locked(session, binding);
                 break;
             }
         }
@@ -1092,12 +1004,16 @@ static void cmux_remove_mount(const char *point) {
 
 // ---- rootfs import ----------------------------------------------------
 
-static void cmux_set_error(char *err_out, size_t err_len, const char *format,
-                           int type, int code, int line, const char *message) {
+// Formats a NUL-terminated diagnostic into the caller's buffer. A NULL or
+// empty buffer is accepted so every failure site can call this unconditionally.
+__attribute__((format(printf, 3, 4)))
+static void cmux_write_error(char *err_out, size_t err_len, const char *format, ...) {
     if (err_out == NULL || err_len == 0)
         return;
-    (void) snprintf(err_out, err_len, format, type, code, line,
-                    message != NULL ? message : "");
+    va_list args;
+    va_start(args, format);
+    (void) vsnprintf(err_out, err_len, format, args);
+    va_end(args);
     err_out[err_len - 1] = '\0';
 }
 
@@ -1112,15 +1028,11 @@ static bool cmux_path_fits_ish(const char *path) {
 
 bool cmux_ish_import_rootfs(const char *tar_gz_path, const char *dest_dir,
                             char *err_out, size_t err_len) {
-    if (err_out != NULL && err_len > 0)
-        err_out[0] = '\0';
+    cmux_write_error(err_out, err_len, "%s", "");
     if (tar_gz_path == NULL || dest_dir == NULL || tar_gz_path[0] == '\0' ||
         dest_dir[0] == '\0' || !cmux_path_fits_ish(tar_gz_path) ||
         !cmux_path_fits_ish(dest_dir)) {
-        if (err_out != NULL && err_len > 0) {
-            (void) snprintf(err_out, err_len, "invalid rootfs path (errno=%d)", -_EINVAL);
-            err_out[err_len - 1] = '\0';
-        }
+        cmux_write_error(err_out, err_len, "invalid rootfs path (errno=%d)", -_EINVAL);
         return false;
     }
 
@@ -1129,11 +1041,8 @@ bool cmux_ish_import_rootfs(const char *tar_gz_path, const char *dest_dir,
     enum cmux_boot_state state = cmux_boot_state;
     pthread_mutex_unlock(&cmux_lock);
     if (state != CMUX_BOOT_UNINITIALIZED) {
-        if (err_out != NULL && err_len > 0) {
-            (void) snprintf(err_out, err_len, "kernel is already initialized (state=%d)",
-                            (int) state);
-            err_out[err_len - 1] = '\0';
-        }
+        cmux_write_error(err_out, err_len, "kernel is already initialized (state=%d)",
+                         (int) state);
         pthread_mutex_unlock(&cmux_boot_lock);
         return false;
     }
@@ -1142,9 +1051,10 @@ bool cmux_ish_import_rootfs(const char *tar_gz_path, const char *dest_dir,
     struct progress progress = {0};
     bool imported = fakefs_import(tar_gz_path, dest_dir, &fs_err, progress);
     if (!imported) {
-        cmux_set_error(err_out, err_len,
-                       "fakefs_import failed: type=%d code=%d line=%d %s",
-                       (int) fs_err.type, fs_err.code, fs_err.line, fs_err.message);
+        cmux_write_error(err_out, err_len,
+                         "fakefs_import failed: type=%d code=%d line=%d %s",
+                         (int) fs_err.type, fs_err.code, fs_err.line,
+                         fs_err.message != NULL ? fs_err.message : "");
         free(fs_err.message);
     }
     pthread_mutex_unlock(&cmux_boot_lock);
@@ -1326,7 +1236,9 @@ fail:
 
 int cmux_ish_session_open(const char *const *argv, const char *const *envp,
                           int cols, int rows,
-                          cmux_ish_output_cb cb, void *context) {
+                          cmux_ish_output_cb cb, void *context,
+                          cmux_ish_input_ready_cb input_ready_cb,
+                          void *input_ready_context) {
     if (cb == NULL)
         return _EINVAL;
     if (cols <= 0 || rows <= 0 || cols > UINT16_MAX || rows > UINT16_MAX)
@@ -1387,7 +1299,7 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     session->pid = -1;
     atomic_store_explicit(&session->tty, NULL, memory_order_release);
     atomic_store_explicit(&session->binding, NULL, memory_order_release);
-    binding = cmux_binding_create(session, cb, context);
+    binding = cmux_binding_create(session, cb, context, input_ready_cb, input_ready_context);
     if (binding == NULL) {
         pthread_mutex_unlock(&cmux_lock);
         free(envp_blob);
@@ -1431,11 +1343,10 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     if (err < 0)
         goto fail;
 
-    pthread_mutex_lock(&cmux_pending_lock);
-    pending_session = session;
+    // pty_open_fake mutates the supplied driver's ttys/major fields and calls
+    // cmux_tty_init synchronously. cmux_spawn_lock, held here, keeps that
+    // driver mutation single-threaded.
     tty = pty_open_fake(&cmux_pty_driver);
-    pending_session = NULL;
-    pthread_mutex_unlock(&cmux_pending_lock);
     if (IS_ERR(tty)) {
         err = (int) PTR_ERR(tty);
         tty = NULL;
@@ -1449,9 +1360,8 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     if (err < 0)
         goto fail;
     // Install the vendor hook before publishing the tty or starting the task.
-    // Registration of the host callback may happen after this function returns,
-    // so the hook must remain present while the binding's callback fields are
-    // initially empty.
+    // The binding already carries the host readiness callback, so the first
+    // consumption edge after task start is delivered.
     lock(&tty->lock);
     tty->input_consumed_callback = cmux_tty_input_consumed;
     unlock(&tty->lock);
@@ -1487,9 +1397,9 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     // fork.c task_start path.
     pid_t session_pid = task->pid;
 
-    // Publish the pid and ACTIVE state under cmux_lock. Readers of
-    // cmux_ish_session_pid and cmux_exit_hook use that lock, so writing pid
-    // outside it would be a C memory-model data race. Publish ACTIVE before
+    // Publish the pid and ACTIVE state under cmux_lock. cmux_exit_hook reads
+    // pid under that lock, so writing it outside would be a C memory-model
+    // data race. Publish ACTIVE before
     // starting the thread. This closes the tiny window in which a
     // short-lived command could clean up an OPENING binding; all rollback
     // paths above still remain OPENING and are owned by this function.
@@ -1652,14 +1562,11 @@ void cmux_ish_session_hangup(int handle) {
     if (session->generation == generation &&
         atomic_load_explicit(&session->state, memory_order_acquire) == CMUX_SESSION_CLOSING) {
         binding = atomic_load_explicit(&session->binding, memory_order_acquire);
-        // Remove by binding rather than by the pinned tty. A tty pointer can
+        // Detach by binding rather than by the pinned tty. A tty pointer can
         // be absent when cleanup already dropped the session's reference, but
         // the side-table entry still has the binding identity.
-        struct cmux_tty_binding_entry *entry = binding != NULL
-            ? cmux_tty_binding_remove_binding_locked(binding)
-            : NULL;
-        if (entry == NULL)
-            entry = cmux_tty_binding_find_session_locked(session);
+        struct cmux_tty_binding_entry *entry =
+            cmux_tty_binding_detach_session_locked(session, binding);
         if (entry != NULL) {
             binding = entry->binding;
             struct tty *entry_tty = entry->tty;
@@ -1711,12 +1618,4 @@ void cmux_ish_session_hangup(int handle) {
             cmux_hangup_tty(tty);
         cmux_release_tty(tty);
     }
-}
-
-int cmux_ish_session_pid(int handle) {
-    pthread_mutex_lock(&cmux_lock);
-    struct cmux_session *session = cmux_session_lookup_locked(handle, NULL);
-    int pid = session != NULL ? session->pid : -1;
-    pthread_mutex_unlock(&cmux_lock);
-    return pid;
 }
