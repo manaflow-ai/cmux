@@ -8454,7 +8454,7 @@ mod tests {
                 .expect("exited terminal final replay must not exhaust live render permits");
             assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
             assert!(
-                Arc::ptr_eq(&first.initial, &attach.initial),
+                Arc::ptr_eq(&attachments[0].initial, &attach.initial),
                 "exited render attaches must share one cached final snapshot"
             );
             attachments.push(attach);
