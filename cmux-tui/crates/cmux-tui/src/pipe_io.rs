@@ -1383,6 +1383,23 @@ mod tests {
         assert_eq!(stdout, b"FINAL");
     }
 
+    #[test]
+    fn retired_attach_drain_forwards_committed_bytes_before_exit() {
+        let (sender, receiver) = crossbeam_channel::bounded(8);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let budget = PipeIoByteBudget::new(1024);
+        let mut event = PipeIoEvent::Output(b"last".to_vec());
+        assert!(budget.try_reserve_event(&mut event));
+        sender.send(event).unwrap();
+        lifecycle_sender.send(PipeIoEvent::SurfaceExited).unwrap();
+
+        let mut stdout = Vec::new();
+        let reason =
+            drain_retired_pipe_io(&receiver, lifecycle_receiver, &budget, &mut stdout).unwrap();
+        assert_eq!(reason, PipeIoExitReason::TerminalEnded);
+        assert_eq!(stdout, b"last");
+    }
+
     #[cfg(unix)]
     #[test]
     fn stdout_writer_stops_when_lifecycle_arrives_with_reader_open() {

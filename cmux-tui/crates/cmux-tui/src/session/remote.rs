@@ -5292,6 +5292,32 @@ mod tests {
         assert!(with.supports_pipe_io_initial_size());
     }
 
+    #[test]
+    fn pipe_io_attach_reports_retirement_after_stream_open() {
+        let (session, attach_started_rx, release_attach_tx) =
+            super::test_session_with_deferred_attach();
+        let (sender, receiver) = crossbeam_channel::bounded(8);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || attaching.try_attach_pipe_io(7, Some((80, 24))));
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        session.pipe_io_forward_owned(7, PipeIoEvent::Output(b"last".to_vec())).unwrap();
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        release_attach_tx.send(()).unwrap();
+
+        let result = worker.join().unwrap().unwrap();
+        assert!(matches!(result, PipeIoSurfaceAttach::RetiredAfterAttach));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"last".to_vec()));
+        assert_eq!(lifecycle_receiver.try_recv().unwrap(), PipeIoEvent::SurfaceExited);
+    }
+
     #[cfg(unix)]
     #[test]
     fn legacy_pipe_io_sizes_before_attach() {
