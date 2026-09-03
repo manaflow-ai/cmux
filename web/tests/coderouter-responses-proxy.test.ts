@@ -7,6 +7,7 @@ type SelectInput = {
   provider: string;
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
+  signal?: AbortSignal;
 };
 
 let selectInputs: SelectInput[] = [];
@@ -185,6 +186,66 @@ describe("codex responses proxy session routing", () => {
 
     expect(response.status).toBe(429);
     expect(selected).toEqual(["acct-1", "acct-2"]);
+  });
+
+  test("bounds account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async (input) => {
+        selectionSignal = (input as SelectInput).signal;
+        return await new Promise<null>(() => undefined);
+      },
+      credential: async () => {
+        throw new Error("credential should not run");
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("bounds credential loading to the request failover deadline and aborts it", async () => {
+    let credentialSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => ({ id: "acct-1", vaultRevision: 1, credentialExpiresAt: null, sticky: false }),
+      credential: async (input) => {
+        credentialSignal = (input as typeof input & { signal?: AbortSignal }).signal;
+        return await new Promise<never>(() => undefined);
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(credentialSignal).toBeDefined();
+    expect(credentialSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("does not fail over after the caller cancels the request", async () => {
