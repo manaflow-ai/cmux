@@ -68,6 +68,7 @@ actor CloudMachineLink {
     private var eventsProcess: Process?
     private var statsProcess: Process?
     private var statsGeneration = 0
+    private var statsUnsupported = false
     private var statsReaderTask: Task<Void, Never>?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
@@ -170,6 +171,8 @@ actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
+        // A new link lifecycle may support a command that an earlier daemon did not.
+        statsUnsupported = false
         // A prior link lifecycle may have finished the continuation during a
         // route drop. The stream belongs to the lifecycle, not the actor, so a
         // reconnect gets a new continuation for its watcher.
@@ -294,10 +297,15 @@ actor CloudMachineLink {
         let continuation = statsContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         statsReaderTask = Task.detached { [weak self] in
+            var sawResponse = false
             for await line in lines where !line.isEmpty {
                 switch CmuxTuiSnapshotParser.machineStats(fromLine: line) {
-                case .sample(let sample): continuation.yield(sample)
-                case .unavailable: continuation.yield(nil)
+                case .sample(let sample):
+                    sawResponse = true
+                    continuation.yield(sample)
+                case .unavailable:
+                    sawResponse = true
+                    continuation.yield(nil)
                 case .unrelated: continue
                 }
             }
@@ -305,7 +313,7 @@ actor CloudMachineLink {
             // alive (for example when it predates machine-stats). Clear the
             // last sample so the UI fails closed instead of showing stale data.
             continuation.yield(nil)
-            await self?.statsFollowDidEnd(generation: generation)
+            await self?.statsFollowDidEnd(generation: generation, sawResponse: sawResponse)
         }
     }
 
@@ -316,16 +324,17 @@ actor CloudMachineLink {
     /// Returns the active stats stream and retries its child when the previous
     /// stream ended while the link itself stayed connected.
     func currentStatsStream() -> (stream: AsyncStream<VMStats?>, generation: Int) {
-        if statsProcess == nil, let socketPath = connected?.socketPath {
+        if statsProcess == nil, !statsUnsupported, let socketPath = connected?.socketPath {
             makeStatsStream()
             startStatsFollow(socketPath: socketPath)
         }
         return (stats, statsGeneration)
     }
 
-    private func statsFollowDidEnd(generation: Int) {
+    private func statsFollowDidEnd(generation: Int, sawResponse: Bool) {
         guard statsProcess != nil, statsGeneration == generation else { return }
         statsProcess = nil
+        statsUnsupported = !sawResponse
         statsContinuation.finish()
     }
 

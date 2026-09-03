@@ -956,7 +956,7 @@ __all__ = [
             "from __future__ import annotations",
             "",
             "import base64",
-            "from typing import TYPE_CHECKING, Any, Dict, List, Literal, Union",
+            "from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union",
             "",
             "if TYPE_CHECKING:",
             "    from ..client import EventStream",
@@ -1059,9 +1059,9 @@ __all__ = [
                 lines.extend(
                     [
                         "",
-                        f"    def {method_name}_follow({', '.join(parameters)}) -> EventStream:",
+                        f"    def {method_name}_follow({', '.join(parameters)}) -> Tuple[{result}, EventStream]:",
                         f"        \"\"\"Open the {wire_name} follow stream with typed events.\"\"\"",
-                        f"        return self._open_command_stream({_quote(wire_name)}, {follow_constructed})",
+                        f"        return self._open_command_stream_with_result({_quote(wire_name)}, {follow_constructed})",
                     ]
                 )
 

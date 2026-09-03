@@ -430,6 +430,16 @@ class CmuxClient(GeneratedClientMixin):
         stream_type = AttachStream if metadata.stream_kind == "attach" else EventStream
         return stream_type(self, command, payload)
 
+    def _open_command_stream_with_result(self, command: str, request: Any) -> tuple[Any, _Stream]:
+        stream = self._open_command_stream(command, request)
+        response = stream.response or {}
+        try:
+            result = decode_command_result(command, response.get("data", {}))
+        except (ProtocolDecodeError, TypeError, ValueError) as error:
+            stream.close()
+            raise ProtocolError(f"invalid {command} result: {error}") from error
+        return result, stream
+
     def subscribe_deltas(
         self, *, surface: Any = MISSING
     ) -> EventStream:
