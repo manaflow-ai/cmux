@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, Semaphore, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
@@ -692,6 +692,7 @@ struct Inner {
     opening_state: Mutex<OpeningState>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
+    start_slots: Arc<Semaphore>,
     next_generation: AtomicU64,
 }
 
@@ -761,6 +762,7 @@ impl PtyManager {
                 opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                start_slots: Arc::new(Semaphore::new(MAX_PTYS)),
                 next_generation: AtomicU64::new(1),
             }),
         }
@@ -786,6 +788,7 @@ impl PtyManager {
                 opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                start_slots: Arc::new(Semaphore::new(max_ptys.max(1))),
                 next_generation: AtomicU64::new(1),
             }),
         }
@@ -1349,10 +1352,26 @@ impl Inner {
             state: AtomicUsize::new(0),
         });
         let _start_owner = StartOwner(Arc::clone(&start_cleanup));
+        let start_permit = tokio::select! {
+            _ = context.cancellation.cancelled() => {
+                self.send_start_error_if_current(
+                    context,
+                    &pty_id,
+                    generation,
+                    &publication_gate,
+                    "PTY output start cancelled",
+                );
+                return;
+            }
+            permit = self.start_slots.clone().acquire_owned() => {
+                permit.expect("PTY start semaphore remains open")
+            }
+        };
         // Use Tokio's bounded blocking executor. A PTY source may block while
         // installing callbacks, but repeated cancellations cannot create one
         // untracked OS thread per opening.
         let _start_task = tokio::task::spawn_blocking(move || {
+            let _start_permit = start_permit;
             start(Box::new(move || {
                 let _ = started_tx.send(());
             }));
