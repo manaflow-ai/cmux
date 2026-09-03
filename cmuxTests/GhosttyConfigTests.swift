@@ -896,8 +896,8 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testLegacyConfigFallbackDoesNotReloadLegacyFileWhenConfigGhosttyIsMissing() {
-        XCTAssertFalse(
+    func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsMissing() {
+        XCTAssertTrue(
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42

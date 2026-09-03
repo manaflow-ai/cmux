@@ -117,11 +117,11 @@ private struct NoFontProbe: GhosttyFontProbing {
 @Suite struct GhosttyConfigDiscoveryLegacyTests {
     private let discovery = GhosttyConfigDiscovery(fontProbe: NoFontProbe())
 
-    @Test func loadLegacyOnlyWhenNewIsEmptyAndLegacyNonEmpty() {
+    @Test func loadLegacyWhenNewIsMissingOrEmptyAndLegacyNonEmpty() {
         #expect(discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 10))
+        #expect(discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: nil, legacyConfigFileSize: 10))
         #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 5, legacyConfigFileSize: 10))
         #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 0))
-        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: nil, legacyConfigFileSize: 10))
     }
 
     @Test func includeLegacyInScanPathsWhenNewMissingOrEmpty() {
