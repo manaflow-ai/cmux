@@ -8225,6 +8225,33 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn geometry_claim_waits_for_daemon_acknowledgement() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let (finished_tx, finished_rx) = channel();
+        let sender_session = session.clone();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(sender_session.notify_claim_terminal_geometry(9)).unwrap();
+        });
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "set-client-sizing");
+        assert_eq!(command["surface"], 9);
+        assert_eq!(command["enabled"], true);
+        assert_eq!(command["exclusive"], true);
+        assert!(command.get("no_reply").is_none());
+        assert!(finished_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+        session.handle_line(json!({"id": command["id"], "ok": true, "data": null}));
+        assert!(finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
+        sender.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn accepted_interactive_writes_remain_fifo() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
