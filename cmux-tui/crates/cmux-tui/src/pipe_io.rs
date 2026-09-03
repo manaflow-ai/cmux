@@ -17,9 +17,9 @@
 //!   ignored (forward compat); stdin EOF means the embedder is gone and
 //!   ends the relay cleanly.
 //! - stderr: one final JSON line `{"exit":{"reason":...}}`.
-//! - exit code: 0 when the terminal ended or the embedder closed stdin (do
-//!   not respawn), 2 when the daemon connection was lost (respawning
-//!   reattaches and resyncs from a fresh replay).
+//! - exit code: 0 when the terminal ended, the embedder closed stdin, or
+//!   setup failed (do not respawn); 2 when the daemon connection was lost
+//!   (respawning reattaches and resyncs from a fresh replay).
 
 use std::borrow::Cow;
 use std::io::{BufRead, Write};
@@ -54,6 +54,28 @@ const MAX_PIPE_IO_LINE_BYTES: usize = MAX_PIPE_IO_BASE64_BYTES + 128;
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+const CLAIM_GEOMETRY_ERROR_CODE: &str = "claim-terminal-geometry-failed";
+const STDIN_PUMP_ERROR_CODE: &str = "stdin-pump-failed";
+const RESIZE_ERROR_CODE: &str = "resize-failed";
+const CLAIM_ERROR_CODE: &str = "claim-failed";
+
+fn log_pipe_io_error(operation: &str, error: &anyhow::Error) {
+    crate::client_log::error("pipe-io", &format!("{operation}: {error}"));
+}
+
+#[cfg(unix)]
+fn pipe_io_stdout() -> std::io::Result<std::io::BufWriter<std::fs::File>> {
+    use std::os::fd::AsFd;
+
+    let stdout = std::io::stdout();
+    let stdout_fd = stdout.as_fd().try_clone_to_owned()?;
+    Ok(std::io::BufWriter::new(std::fs::File::from(stdout_fd)))
+}
+
+#[cfg(not(unix))]
+fn pipe_io_stdout() -> std::io::Result<std::io::BufWriter<std::io::Stdout>> {
+    Ok(std::io::BufWriter::new(std::io::stdout()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeIoExitReason {
@@ -105,8 +127,8 @@ struct PipeIoWireRequest<'a> {
     #[serde(borrow)]
     input: Option<Cow<'a, str>>,
     resize: Option<PipeIoWireResize>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    claim: bool,
+    #[serde(default)]
+    claim: PipeIoClaimField,
 }
 
 #[derive(Deserialize)]
@@ -115,11 +137,31 @@ struct PipeIoWireResize {
     rows: Option<u64>,
 }
 
-fn deserialize_present<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde::de::IgnoredAny::deserialize(deserializer).map(|_| true)
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PipeIoWireClaim {
+    geometry: bool,
+}
+
+#[derive(Default)]
+enum PipeIoClaimField {
+    #[default]
+    Absent,
+    Enabled,
+}
+
+impl<'de> Deserialize<'de> for PipeIoClaimField {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let claim = PipeIoWireClaim::deserialize(deserializer)?;
+        if claim.geometry {
+            Ok(Self::Enabled)
+        } else {
+            Err(serde::de::Error::custom("claim geometry must be true"))
+        }
+    }
 }
 
 pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
@@ -161,7 +203,7 @@ pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
         let (cols, rows) = (u16::try_from(cols)?, u16::try_from(rows)?);
         return Ok(PipeIoRequest::Resize { cols: cols.max(1), rows: rows.max(1) });
     }
-    if request.claim {
+    if matches!(request.claim, PipeIoClaimField::Enabled) {
         return Ok(PipeIoRequest::ClaimGeometry);
     }
     Ok(PipeIoRequest::Unknown)
@@ -204,9 +246,10 @@ pub fn run(
     // relay is the embedder's only viewer of this terminal, so claim the
     // authority or every embedder resize is recorded but never applied.
     if let Err(error) = remote.claim_terminal_geometry(surface) {
+        log_pipe_io_error("claim terminal geometry", &error);
         eprintln!(
             "{}",
-            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
+            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": CLAIM_GEOMETRY_ERROR_CODE}}})
         );
         // Continuing without geometry authority would make later resize
         // requests look accepted while the daemon keeps the wrong PTY size.
@@ -225,20 +268,20 @@ pub fn run(
     let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
         Ok(pump) => pump,
         Err(error) => {
+            let error = anyhow::Error::new(error);
+            log_pipe_io_error("spawn stdin pump", &error);
             eprintln!(
                 "{}",
-                serde_json::json!({"diag": {"stdin-pump": {"error": error.to_string()}}})
+                serde_json::json!({"diag": {"stdin-pump": {"error": STDIN_PUMP_ERROR_CODE}}})
             );
             drop(tap_guard);
             return Ok(PipeIoExitReason::SetupFailed);
         }
     };
-    let reason = pump_events_to_stdout(
-        &receiver,
-        &lifecycle_receiver,
-        &byte_budget,
-        &mut std::io::stdout().lock(),
-    )?;
+    // On Unix, duplicate the raw stdout descriptor so VT bytes bypass the
+    // standard library's line writer. The protocol flushes each event.
+    let mut stdout = pipe_io_stdout()?;
+    let reason = pump_events_to_stdout(&receiver, &lifecycle_receiver, &byte_budget, &mut stdout)?;
     // Stop forwarding while the daemon probe runs. The probe has its own
     // request path, and events for the finished relay must not fill the data
     // queue or tear down a replacement transport.
@@ -506,7 +549,8 @@ fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) ->
             "error": "remote session unavailable"
         }),
         PipeIoControlResult::Failed(error) => {
-            serde_json::json!({"cols": cols, "rows": rows, "error": error.to_string()})
+            log_pipe_io_error("resize", error);
+            serde_json::json!({"cols": cols, "rows": rows, "error": RESIZE_ERROR_CODE})
         }
     };
     serde_json::json!({"diag": {"resize": details}}).to_string()
@@ -518,7 +562,10 @@ fn claim_diag_line(result: &PipeIoControlResult<()>) -> String {
         PipeIoControlResult::Gone => {
             serde_json::json!({"error": "remote session unavailable"})
         }
-        PipeIoControlResult::Failed(error) => serde_json::json!({"error": error.to_string()}),
+        PipeIoControlResult::Failed(error) => {
+            log_pipe_io_error("claim geometry", error);
+            serde_json::json!({"error": CLAIM_ERROR_CODE})
+        }
     };
     serde_json::json!({"diag": {"claim": details}}).to_string()
 }
@@ -620,7 +667,7 @@ fn write_pipe_io_data(
     stdout: &mut impl Write,
 ) -> std::io::Result<()> {
     match event {
-        PipeIoEvent::Replay { bytes } => {
+        PipeIoEvent::Replay { bytes, .. } => {
             if *emitted_output {
                 stdout.write_all(REPLAY_RESET)?;
             }
@@ -650,7 +697,7 @@ mod tests {
     use super::*;
 
     fn replay(bytes: &[u8]) -> PipeIoEvent {
-        PipeIoEvent::Replay { bytes: bytes.to_vec() }
+        PipeIoEvent::replay(bytes.to_vec())
     }
 
     #[test]
@@ -685,6 +732,7 @@ mod tests {
             r#"{"claim":null}"#,
             r#"{"claim":{"geometry":false}}"#,
             r#"{"claim":{"other":true}}"#,
+            r#"{"claim":{"geometry":true,"other":true}}"#,
             r#"{"claim":"true"}"#,
         ] {
             assert!(parse_request(line).is_err(), "accepted invalid claim {line}");
@@ -809,8 +857,7 @@ mod tests {
 
     #[test]
     fn stdin_pump_reports_line_read_errors_as_stdin_errors() {
-        let inputs =
-            vec![b"{\"input\":\"aGk=\"}\n\xff".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
+        let inputs = vec![b"\xff\n".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
         for input in inputs {
             let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             let mut input = Cursor::new(input.to_vec());
@@ -865,9 +912,9 @@ mod tests {
             vec![
                 serde_json::json!({"diag": {"resize": {"cols": 100, "rows": 30, "accepted": true}}}),
                 serde_json::json!({"diag": {"resize": {"cols": 80, "rows": 24, "accepted": false}}}),
-                serde_json::json!({"diag": {"resize": {"cols": 120, "rows": 40, "error": "resize rejected"}}}),
+                serde_json::json!({"diag": {"resize": {"cols": 120, "rows": 40, "error": RESIZE_ERROR_CODE}}}),
                 serde_json::json!({"diag": {"claim": {"accepted": true}}}),
-                serde_json::json!({"diag": {"claim": {"error": "claim enqueue failed"}}}),
+                serde_json::json!({"diag": {"claim": {"error": CLAIM_ERROR_CODE}}}),
             ]
         );
     }

@@ -37,15 +37,15 @@ authority (authority is last-claim-wins across a terminal's attachments; an
 embedder sends it when its pane receives user input, so the typed-in pane
 owns the PTY size). Each resize result is reported as one
 `{"diag":{"resize":{"cols":N,"rows":N,"accepted":true|false}}}` line, or
-as `{"diag":{"resize":{"cols":N,"rows":N,"error":"..."}}}` when the
+as `{"diag":{"resize":{"cols":N,"rows":N,"error":"resize-failed"}}}` when the
 request fails. Each claim is reported as
 `{"diag":{"claim":{"accepted":true}}}` or
-`{"diag":{"claim":{"error":"..."}}}`. Unknown keys are ignored. stderr ends with one
-JSON line
-`{"exit":{"reason":"terminal-ended"|"daemon-lost"|"parent-closed"}}`. Exit
-code 0 means the terminal ended or the embedder closed stdin (do not
-respawn); exit code 2 means the daemon connection was lost and a respawn
-reattaches and resyncs from a fresh replay. `--cols` and `--rows` set the
+`{"diag":{"claim":{"error":"claim-failed"}}}`. Unknown keys are ignored. stderr
+ends with one JSON line
+`{"exit":{"reason":"terminal-ended"|"daemon-lost"|"parent-closed"|"setup-failed"}}`.
+Exit code 0 means the terminal ended, the embedder closed stdin, or setup
+failed (do not respawn); exit code 2 means the daemon connection was lost and
+a respawn reattaches and resyncs from a fresh replay. `--cols` and `--rows` set the
 initial viewer size (default 80x24). `--pipe-io` requires `--terminal`.
 
 Interactive and headless ownership are intentionally separate:

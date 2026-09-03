@@ -1727,9 +1727,9 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         if !remote.supports_surface_subscription_filter() {
             // A pipe-IO embedder needs a machine-readable terminal result for
             // every startup path. Without the scoped subscription filter, the
-            // relay cannot safely distinguish this surface's bytes, so treat
-            // it as a retryable daemon capability loss instead of returning a
-            // plain CLI error (which would omit the final exit record).
+            // relay cannot safely distinguish this surface's bytes, so report
+            // a non-respawnable setup failure instead of returning a plain CLI
+            // error (which would omit the final exit record).
             if args.pipe_io {
                 exit_pipe_io(pipe_io::PipeIoExitReason::SetupFailed);
             }
@@ -1766,7 +1766,11 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
             surface,
             args.pipe_io_cols.unwrap_or(80),
             args.pipe_io_rows.unwrap_or(24),
-        )?;
+        )
+        .unwrap_or_else(|error| {
+            crate::client_log::error("pipe-io", &format!("relay failed: {error}"));
+            pipe_io_startup_exit_reason(&error)
+        });
         exit_pipe_io(reason);
     }
     run_connected_session_client(

@@ -1666,9 +1666,9 @@ pub struct RemoteSession {
 /// embedder. `Replay` REPLACES all prior terminal state (the relay must
 /// emit a full reset before any replay that is not its first output);
 /// `Output` appends live PTY bytes.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum PipeIoEvent {
-    Replay { bytes: Vec<u8> },
+    Replay { bytes: Vec<u8>, reservation_id: Option<u64> },
     Output(Vec<u8>),
     SurfaceExited,
     TransportLost,
@@ -1676,12 +1676,32 @@ pub enum PipeIoEvent {
     StdinError,
 }
 
+impl PartialEq for PipeIoEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Replay { bytes: left, .. }, Self::Replay { bytes: right, .. }) => left == right,
+            (Self::Output(left), Self::Output(right)) => left == right,
+            (Self::SurfaceExited, Self::SurfaceExited)
+            | (Self::TransportLost, Self::TransportLost)
+            | (Self::StdinClosed, Self::StdinClosed)
+            | (Self::StdinError, Self::StdinError) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PipeIoEvent {}
+
 impl PipeIoEvent {
+    pub(crate) fn replay(bytes: Vec<u8>) -> Self {
+        Self::Replay { bytes, reservation_id: None }
+    }
+
     /// Bytes retained by the relay's bounded data queue. Lifecycle signals
     /// have a separate one-slot channel and carry no retained payload.
     pub(crate) fn retained_bytes(&self) -> usize {
         match self {
-            Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
+            Self::Replay { bytes, .. } | Self::Output(bytes) => bytes.len(),
             Self::SurfaceExited | Self::TransportLost | Self::StdinClosed | Self::StdinError => 0,
         }
     }
@@ -1695,7 +1715,8 @@ impl PipeIoEvent {
 /// because it is larger than the normal live-output budget.
 struct PipeIoBudgetState {
     retained: usize,
-    oversized_replay: Option<usize>,
+    oversized_replay: Option<u64>,
+    next_oversized_replay_id: u64,
 }
 
 pub(crate) struct PipeIoByteBudget {
@@ -1706,7 +1727,11 @@ pub(crate) struct PipeIoByteBudget {
 impl PipeIoByteBudget {
     pub(crate) fn new(limit: usize) -> Self {
         Self {
-            state: Mutex::new(PipeIoBudgetState { retained: 0, oversized_replay: None }),
+            state: Mutex::new(PipeIoBudgetState {
+                retained: 0,
+                oversized_replay: None,
+                next_oversized_replay_id: 1,
+            }),
             limit: limit.max(1),
         }
     }
@@ -1724,7 +1749,7 @@ impl PipeIoByteBudget {
         true
     }
 
-    fn try_reserve_replay(&self, bytes: usize) -> bool {
+    fn try_reserve_replay(&self, bytes: usize, reservation_id: &mut Option<u64>) -> bool {
         if bytes == 0 {
             return true;
         }
@@ -1742,13 +1767,19 @@ impl PipeIoByteBudget {
             return false;
         }
         state.retained = next;
-        state.oversized_replay = Some(bytes);
+        let id = state.next_oversized_replay_id;
+        state.next_oversized_replay_id = state.next_oversized_replay_id.checked_add(1).unwrap_or(1);
+        state.oversized_replay = Some(id);
+        *reservation_id = Some(id);
         true
     }
 
-    pub(crate) fn try_reserve_event(&self, event: &PipeIoEvent) -> bool {
+    pub(crate) fn try_reserve_event(&self, event: &mut PipeIoEvent) -> bool {
         match event {
-            PipeIoEvent::Replay { bytes } => self.try_reserve_replay(bytes.len()),
+            PipeIoEvent::Replay { bytes, reservation_id } => {
+                *reservation_id = None;
+                self.try_reserve_replay(bytes.len(), reservation_id)
+            }
             _ => self.try_reserve(event.retained_bytes()),
         }
     }
@@ -1760,8 +1791,10 @@ impl PipeIoByteBudget {
         }
         let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
         state.retained = state.retained.saturating_sub(bytes);
-        if matches!(event, PipeIoEvent::Replay { .. }) && state.oversized_replay == Some(bytes) {
-            state.oversized_replay = None;
+        if let PipeIoEvent::Replay { reservation_id: Some(id), .. } = event {
+            if state.oversized_replay == Some(*id) {
+                state.oversized_replay = None;
+            }
         }
     }
 }
@@ -2503,7 +2536,7 @@ impl RemoteSession {
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 let pipe_io_owned =
-                    self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() });
+                    self.pipe_io_forward(id, || PipeIoEvent::replay(replay.clone()));
                 // A pipe-IO relay consumes the authoritative VT byte stream
                 // itself. Do not also parse the same replay into a local
                 // `RemoteSurface`: that duplicate parser can fail or mutate
@@ -2622,7 +2655,7 @@ impl RemoteSession {
                     ),
                 );
                 let pipe_io_owned = if let Some(replay) = replay.as_ref() {
-                    self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() })
+                    self.pipe_io_forward(id, || PipeIoEvent::replay(replay.clone()))
                 } else {
                     self.pipe_io_owns_surface(id)
                 };
@@ -3445,8 +3478,8 @@ impl RemoteSession {
             if tap.surface != surface {
                 return false;
             }
-            let event = event();
-            if !tap.byte_budget.try_reserve_event(&event) {
+            let mut event = event();
+            if !tap.byte_budget.try_reserve_event(&mut event) {
                 Some(tap.token.clone())
             } else {
                 match tap.sender.try_send(event) {
@@ -3473,7 +3506,7 @@ impl RemoteSession {
     fn pipe_io_forward_owned(
         &self,
         surface: SurfaceId,
-        event: PipeIoEvent,
+        mut event: PipeIoEvent,
     ) -> Result<(), PipeIoEvent> {
         use crossbeam_channel::TrySendError;
         let stalled_token = {
@@ -3482,7 +3515,7 @@ impl RemoteSession {
             if tap.surface != surface {
                 return Err(event);
             }
-            if !tap.byte_budget.try_reserve_event(&event) {
+            if !tap.byte_budget.try_reserve_event(&mut event) {
                 Some(tap.token.clone())
             } else {
                 match tap.sender.try_send(event) {
@@ -7051,39 +7084,39 @@ mod tests {
         let _token =
             session.install_pipe_io_tap(7, sender.clone(), lifecycle_sender, budget.clone());
 
-        let queued = PipeIoEvent::Output(vec![0; 7]);
-        assert!(budget.try_reserve_event(&queued));
+        let mut queued = PipeIoEvent::Output(vec![0; 7]);
+        assert!(budget.try_reserve_event(&mut queued));
         sender.send(queued).unwrap();
 
         let replay_bytes = vec![b'R'; 16];
-        assert!(session.pipe_io_forward(7, || PipeIoEvent::Replay { bytes: replay_bytes.clone() }));
+        assert!(session.pipe_io_forward(7, || PipeIoEvent::replay(replay_bytes.clone())));
         assert!(lifecycle_receiver.try_recv().is_err());
 
         let queued = receiver.try_recv().unwrap();
         let replay = receiver.try_recv().unwrap();
         assert_eq!(queued, PipeIoEvent::Output(vec![0; 7]));
-        assert_eq!(replay, PipeIoEvent::Replay { bytes: replay_bytes });
-        let second_replay = PipeIoEvent::Replay { bytes: vec![b'S'; 16] };
-        assert!(!budget.try_reserve_event(&second_replay));
+        assert_eq!(replay, PipeIoEvent::replay(replay_bytes));
+        let mut second_replay = PipeIoEvent::replay(vec![b'S'; 16]);
+        assert!(!budget.try_reserve_event(&mut second_replay));
         budget.release_event(&queued);
         budget.release_event(&replay);
-        assert!(budget.try_reserve_event(&second_replay));
+        assert!(budget.try_reserve_event(&mut second_replay));
         budget.release_event(&second_replay);
     }
 
     #[test]
     fn pipe_io_budget_keeps_same_length_oversized_replay_reserved() {
         let budget = PipeIoByteBudget::new(16);
-        let first = PipeIoEvent::Replay { bytes: vec![b'A'; 16] };
-        let second = PipeIoEvent::Replay { bytes: vec![b'B'; 16] };
-        let third = PipeIoEvent::Replay { bytes: vec![b'C'; 16] };
+        let mut first = PipeIoEvent::replay(vec![b'A'; 16]);
+        let mut second = PipeIoEvent::replay(vec![b'B'; 16]);
+        let mut third = PipeIoEvent::replay(vec![b'C'; 16]);
 
-        assert!(budget.try_reserve_event(&first));
-        assert!(budget.try_reserve_event(&second));
+        assert!(budget.try_reserve_event(&mut first));
+        assert!(budget.try_reserve_event(&mut second));
         budget.release_event(&first);
-        assert!(!budget.try_reserve_event(&third));
+        assert!(!budget.try_reserve_event(&mut third));
         budget.release_event(&second);
-        assert!(budget.try_reserve_event(&third));
+        assert!(budget.try_reserve_event(&mut third));
         budget.release_event(&third);
     }
 

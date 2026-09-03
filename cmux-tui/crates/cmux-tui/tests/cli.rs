@@ -4271,8 +4271,8 @@ fn bin() -> &'static str {
 //   stdout  = raw VT bytes (daemon replay first, then live output),
 //   stdin   = JSON lines ({"input":"<b64>"} | {"resize":{"cols":N,"rows":N}}),
 //   stderr  = one final JSON line {"exit":{"reason":...}},
-//   exit 0  = terminal ended (or parent closed stdin) — do not respawn,
-//   exit 2  = daemon connection lost — the embedder may respawn to resync.
+//   exit 0  = terminal ended, parent closed stdin, or setup failed; do not respawn,
+//   exit 2  = daemon connection lost; the embedder may respawn to resync.
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
@@ -4283,6 +4283,38 @@ struct PipeIoRelay {
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     stdout_drain: Option<std::thread::JoinHandle<()>>,
     stderr_drain: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl Drop for PipeIoRelay {
+    fn drop(&mut self) {
+        // Closing stdin lets a healthy relay finish its parent-closed path.
+        // Child does not reap on drop, so give it a bounded grace period,
+        // then kill and wait before joining the pipe drains.
+        drop(self.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut exited = false;
+        while Instant::now() < deadline {
+            match self.child.try_wait() {
+                Ok(Some(_)) => {
+                    exited = true;
+                    break;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                Err(_) => break,
+            }
+        }
+        if !exited {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        if let Some(drain) = self.stdout_drain.take() {
+            let _ = drain.join();
+        }
+        if let Some(drain) = self.stderr_drain.take() {
+            let _ = drain.join();
+        }
+    }
 }
 
 #[cfg(unix)]
