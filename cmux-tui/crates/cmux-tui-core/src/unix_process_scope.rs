@@ -12,11 +12,19 @@
 //! an expired command deadline returns to the caller while the tracker keeps
 //! the inactive scope and advances through bounded scan chunks.
 
+// Platform arms: Linux uses pidfd and /proc; macOS uses libproc (proc_listpids,
+// proc_pidinfo, proc_signal_with_audittoken) and sandbox-exec. Every other Unix,
+// including iOS, takes the portable arm below: plain kill(2) on the recorded
+// PID, no process scanning, and a PID-only identity. iOS is deliberately not
+// treated as "Apple" here: libproc and its private signalling entry point are
+// not in the iOS SDK, so widening the macOS arm to the vendor makes the static
+// library unlinkable, and the in-process iOS client never spawns a process, so
+// the portable arm's weaker identity guarantee costs nothing there.
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io;
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 use std::mem::size_of;
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
@@ -326,7 +334,7 @@ impl UnixProcessScope {
     /// it, so user code cannot detach before scope ownership exists.
     pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
         let program = program.as_ref();
-        #[cfg(target_vendor = "apple")]
+        #[cfg(target_os = "macos")]
         let command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command
@@ -341,7 +349,7 @@ impl UnixProcessScope {
                 .arg(program);
             command
         };
-        #[cfg(not(target_vendor = "apple"))]
+        #[cfg(not(target_os = "macos"))]
         let command = {
             let mut command = Command::new("/bin/sh");
             command.args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"]).arg(program);
@@ -541,7 +549,7 @@ impl UnixProcessScope {
         let _ = pidfd_send_signal(pidfd, libc::SIGKILL);
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     fn terminate_root_group(&self) {
         let Some(root) = self.root else { return };
         // A live root is stopped through its audit token before the numeric
@@ -559,7 +567,7 @@ impl UnixProcessScope {
         let _ = signal_process_with(root, libc::SIGKILL);
     }
 
-    #[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     fn terminate_root_group(&self) {
         let Some(root) = self.root else { return };
         if process_identity(root.pid) != Some(root) {
@@ -910,6 +918,8 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     }
     // SAFETY: fstat(2) initialized the structure after returning success.
     let stat = unsafe { stat.assume_init() };
+    // `st_dev` is a signed 32-bit `dev_t` on every Apple target and a `u64`
+    // elsewhere.
     #[cfg(target_vendor = "apple")]
     let device = u64::try_from(stat.st_dev)
         .map_err(|_| io::Error::other("file marker device is out of range"))?;
@@ -949,12 +959,12 @@ fn pidfd_send_signal(pidfd: &OwnedFd, signal: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn signal_process(identity: ProcessIdentity) {
     let _ = signal_process_with(identity, libc::SIGKILL);
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn signal_process_with(identity: ProcessIdentity, signal: libc::c_int) -> bool {
     let mut token = MacAuditToken { val: [u32::MAX; 8] };
     token.val[5] = identity.pid;
@@ -965,7 +975,7 @@ fn signal_process_with(identity: ProcessIdentity, signal: libc::c_int) -> bool {
     unsafe { proc_signal_with_audittoken(&mut token, signal) == 0 }
 }
 
-#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn signal_process(identity: ProcessIdentity) {
     if process_identity(identity.pid) != Some(identity) {
         return;
@@ -1173,7 +1183,7 @@ fn linux_process_snapshot_from_stat(pid: u32, stat: &str) -> Option<ProcessSnaps
     Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent })
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn scan_registered_processes(
     scopes: &[ScopeRegistration],
     cursor: ProcessScanCursor,
@@ -1274,7 +1284,7 @@ fn scan_registered_processes(
     result
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct ProcFileInfo {
     _open_flags: u32,
@@ -1284,7 +1294,7 @@ struct ProcFileInfo {
     _guard_flags: u32,
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct MacProcessUniqueInfo {
@@ -1297,38 +1307,38 @@ struct MacProcessUniqueInfo {
     _reserved3: u64,
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct MacBsdInfoWithUniqueId {
     bsd: libc::proc_bsdinfo,
     unique: MacProcessUniqueInfo,
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct MacAuditToken {
     val: [u32; 8],
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn proc_signal_with_audittoken(token: *mut MacAuditToken, signal: libc::c_int) -> libc::c_int;
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct VnodeFdInfo {
     _file: ProcFileInfo,
     vnode: libc::vnode_info,
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 struct MacFileMarkerScan {
     markers: Vec<FileMarker>,
     next_fd: Option<libc::c_int>,
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn mac_process_file_markers(
     pid: u32,
     after_fd: libc::c_int,
@@ -1398,7 +1408,7 @@ fn mac_process_file_markers(
     MacFileMarkerScan { markers, next_fd: None }
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn mac_process_argument_buffer() -> Option<Vec<u8>> {
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
     let mut argmax = 0 as libc::c_int;
@@ -1420,7 +1430,7 @@ fn mac_process_argument_buffer() -> Option<Vec<u8>> {
     (argmax <= 16 * 1024 * 1024).then(|| vec![0; argmax])
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn mac_process_arguments(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
@@ -1438,7 +1448,7 @@ fn mac_process_arguments(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
     if result == 0 { Some(&buffer[..size.min(buffer.len())]) } else { None }
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn mac_environment_contains(arguments: &[u8], expected: &[u8]) -> bool {
     let Some(argc) = arguments.get(..4) else { return false };
     let argc = i32::from_ne_bytes(argc.try_into().expect("four-byte argc"));
@@ -1463,12 +1473,12 @@ fn mac_environment_contains(arguments: &[u8], expected: &[u8]) -> bool {
     arguments[cursor..].split(|byte| *byte == 0).any(|entry| entry == expected)
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(mac_process_snapshot(pid)?.identity)
 }
 
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     const PROC_PIDT_BSDINFOWITHUNIQID: libc::c_int = 18;
     let pid_int = libc::c_int::try_from(pid).ok()?;
@@ -1490,7 +1500,7 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
 }
 
-#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn scan_registered_processes(
     _scopes: &[ScopeRegistration],
     _cursor: ProcessScanCursor,
@@ -1498,7 +1508,7 @@ fn scan_registered_processes(
     ProcessScanResult::default()
 }
 
-#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
 }
@@ -1517,7 +1527,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[test]
     fn mac_argument_parser_finds_only_environment_entries() {
         let expected = b"CMUX_TUI_PROCESS_SCOPE=abc";
@@ -1532,7 +1542,7 @@ mod tests {
         assert!(!mac_environment_contains(&argv_only, expected));
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[test]
     fn mac_process_scope_launcher_stops_before_the_requested_program() {
         let command = UnixProcessScope::suspended_command("/usr/bin/false");
@@ -1554,7 +1564,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[test]
     fn mac_process_scope_runs_the_requested_program() {
         let mut scope = UnixProcessScope::prepare().unwrap();
@@ -1570,7 +1580,7 @@ mod tests {
         assert!(!status.success(), "the macOS process scope did not run the requested program");
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[test]
     fn mac_process_scope_denies_descendant_creation() {
         let mut scope = UnixProcessScope::prepare().unwrap();
@@ -1592,7 +1602,7 @@ mod tests {
         assert!(status.success(), "the macOS process sandbox allowed a hook descendant");
     }
 
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[test]
     #[ignore = "run only as the child of mac_process_scope_denies_descendant_creation"]
     fn mac_process_scope_descendant_probe() {
