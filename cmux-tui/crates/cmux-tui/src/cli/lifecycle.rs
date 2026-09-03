@@ -763,12 +763,13 @@ mod tests {
 
     #[test]
     fn exchange_preserves_daemon_rejection_details() {
+        let rejection = json!({
+            "id": 2,
+            "ok": false,
+            "error": "trusted local connection required",
+        });
         let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
-            response: Cursor::new(
-                br#"{"id":2,"ok":false,"error":"trusted local connection required"}
-"#
-                .to_vec(),
-            ),
+            response: Cursor::new(format!("{rejection}\n").into_bytes()),
         });
         let mut connection = BufReader::new(stream);
         let error = exchange(
