@@ -521,6 +521,10 @@ impl ChildLifecycle {
         state.1 = true;
         true
     }
+
+    fn termination_requested(&self) -> bool {
+        self.state.lock().expect("child lifecycle lock").1
+    }
 }
 
 fn force_kill_process_group(pid: libc::pid_t, process_group: libc::pid_t) {
@@ -754,7 +758,8 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     wait_lifecycle.mark_reap_pending();
                 }
                 Ok(PtyChildCommand::ObserveUnavailable) => {
-                    if wait_lifecycle.begin_termination() {
+                    if wait_lifecycle.begin_termination() || wait_lifecycle.termination_requested()
+                    {
                         force_kill_process_group(pid, process_group);
                         let _ = child.kill();
                     } else {
