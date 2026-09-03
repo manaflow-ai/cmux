@@ -14308,6 +14308,7 @@ impl App {
                 [workspace_index, screen_index, pane_index, shifted_index],
             );
         }
+        self.prune_projection_surface_indexes();
     }
 
     /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
