@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "cmux-tui/**"
+      - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
@@ -36,6 +37,7 @@ on:
   pull_request:
     paths:
       - "cmux-tui/**"
+      - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
