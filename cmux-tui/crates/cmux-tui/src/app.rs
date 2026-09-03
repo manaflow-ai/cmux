@@ -10352,16 +10352,6 @@ impl App {
             }
         }
         let Some(spec) = self.config.sidebar.views.get(index) else { return Arc::from([]) };
-        let empty_collapsed = HashSet::new();
-        let collapsed = if let Some(state) = self.projection_rails.get(&spec.id) {
-            #[cfg(test)]
-            {
-                self.projection_collapsed_clones += 1;
-            }
-            state.collapsed.clone()
-        } else {
-            empty_collapsed
-        };
         let agents = self
             .projection_agents
             .as_ref()
@@ -10382,6 +10372,19 @@ impl App {
             },
             sidebar: self.sidebar_generation,
             rail: rail_generation,
+        };
+        if let Some(rows) = self.projection_rows_cache.get(&spec.id, &revision) {
+            return rows;
+        }
+        let empty_collapsed = HashSet::new();
+        let collapsed = if let Some(state) = self.projection_rails.get(&spec.id) {
+            #[cfg(test)]
+            {
+                self.projection_collapsed_clones += 1;
+            }
+            state.collapsed.clone()
+        } else {
+            empty_collapsed
         };
         let tree = &self.tree;
         let selected_workspace = self.sidebar_workspace_selection;
