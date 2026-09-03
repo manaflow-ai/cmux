@@ -39276,6 +39276,131 @@
         }
       }
     },
+    "cli.forwarding.error.forwardingLoop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تمرير هذا الأمر إلى أداة سطر الأوامر المضمّنة لأن إعادة التوجيه عادت إلى التطبيق نفسه. أعد تثبيت cmux أو شغّل الأمر من تثبيت قياسي لواجهة cmux لسطر الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao proslijediti ovu komandu svom ugrađenom alatu komandne linije jer je prosljeđivanje vratilo na samu aplikaciju. Ponovo instalirajte cmux ili pokrenite komandu iz standardne cmux CLI instalacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke videregive denne kommando til det medfølgende kommandolinjeværktøj, fordi videresendelsen pegede tilbage på selve appen. Geninstallér cmux, eller kør kommandoen fra en standard cmux CLI-installation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diesen Befehl nicht an das mitgelieferte Kommandozeilenwerkzeug übergeben, weil die Weiterleitung zurück zur App selbst führte. Installieren Sie cmux neu oder führen Sie den Befehl aus einer standardmäßigen cmux-CLI-Installation aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not hand this command to its bundled command-line tool because forwarding resolved back to the app itself. Reinstall cmux or run the command from a standard cmux CLI installation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo entregar este comando a su herramienta de línea de comandos integrada porque el reenvío volvió a la propia aplicación. Reinstala cmux o ejecuta el comando desde una instalación estándar de la CLI de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu transmettre cette commande à son outil en ligne de commande intégré car le transfert est revenu vers l'application elle-même. Réinstallez cmux ou exécutez la commande depuis une installation standard de la CLI cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a passare questo comando allo strumento a riga di comando integrato perché l'inoltro è tornato all'app stessa. Reinstalla cmux oppure esegui il comando da un'installazione standard della CLI di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送がアプリ自体に戻ってしまったため、cmux はこのコマンドを同梱のコマンドラインツールに引き渡せませんでした。cmux を再インストールするか、標準の cmux CLI インストールからコマンドを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចប្រគល់ពាក្យបញ្ជានេះទៅឱ្យឧបករណ៍បន្ទាត់ពាក្យបញ្ជាដែលភ្ជាប់មកជាមួយបានទេ ព្រោះការបញ្ជូនបន្តបានវិលត្រឡប់មកកម្មវិធីខ្លួនឯងវិញ។ សូមដំឡើង cmux ឡើងវិញ ឬដំណើរការពាក្យបញ្ជាពីការដំឡើង cmux CLI ស្តង់ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달이 앱 자신으로 되돌아와 cmux 가 이 명령을 내장 명령줄 도구에 넘기지 못했습니다. cmux 를 다시 설치하거나 표준 cmux CLI 설치에서 명령을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke overlevere denne kommandoen til det medfølgende kommandolinjeverktøyet fordi videresendingen pekte tilbake på selve appen. Installer cmux på nytt, eller kjør kommandoen fra en standard cmux CLI-installasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przekazać tego polecenia do dołączonego narzędzia wiersza poleceń, ponieważ przekierowanie wróciło do samej aplikacji. Zainstaluj cmux ponownie lub uruchom polecenie ze standardowej instalacji cmux CLI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu entregar este comando à sua ferramenta de linha de comando integrada porque o encaminhamento voltou para o próprio aplicativo. Reinstale o cmux ou execute o comando a partir de uma instalação padrão da CLI do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не смог передать эту команду встроенному инструменту командной строки, потому что перенаправление вернулось к самому приложению. Переустановите cmux или выполните команду из стандартной установки cmux CLI."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถส่งต่อคำสั่งนี้ไปยังเครื่องมือบรรทัดคำสั่งที่มาพร้อมแอปได้ เนื่องจากการส่งต่อวนกลับมาที่ตัวแอปเอง โปรดติดตั้ง cmux ใหม่ หรือเรียกใช้คำสั่งจากการติดตั้ง cmux CLI แบบมาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönlendirme uygulamanın kendisine geri döndüğü için cmux bu komutu birlikte gelen komut satırı aracına aktaramadı. cmux'u yeniden yükleyin veya komutu standart bir cmux CLI kurulumundan çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не зміг передати цю команду вбудованому інструменту командного рядка, оскільки переспрямування повернулося до самого застосунку. Перевстановіть cmux або виконайте команду зі стандартної інсталяції cmux CLI."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于转发又回到了应用本身,cmux 无法将此命令交给随附的命令行工具。请重新安装 cmux,或从标准的 cmux CLI 安装中运行该命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由於轉發又回到了應用程式本身,cmux 無法將此命令交給隨附的命令列工具。請重新安裝 cmux,或從標準的 cmux CLI 安裝中執行該命令。"
+          }
+        }
+      }
+    },
     "cli.forwarding.error.missingBundledCLI": {
       "extractionState": "manual",
       "localizations": {
