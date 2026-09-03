@@ -40,6 +40,7 @@ import {
 } from "./observability";
 import type { RouteTokenIdentity } from "./routeTokenAuth";
 import {
+  TRACE_ID_RESPONSE_HEADER,
   forceFlushTraces,
   setSpanAttributes,
   spanTraceIds,
@@ -493,7 +494,7 @@ export function withCoderouterRoute<Context = unknown>(
                 response = options.unavailable(request);
               }
             }
-            response = withRequestIdHeader(response, context.requestId);
+            response = withRequestIdHeader(response, context.requestId, context.traceId);
             finalize(context, span, response, thrown, options.telemetry);
             return response;
           },
@@ -510,13 +511,15 @@ function isCallerCancellation(request: Request): boolean {
   return request.signal.aborted;
 }
 
-function withRequestIdHeader(response: Response, requestId: string): Response {
+function withRequestIdHeader(response: Response, requestId: string, traceId?: string): Response {
   try {
     response.headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
+    if (traceId) response.headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
     return response;
   } catch {
     const headers = new Headers(response.headers);
     headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
+    if (traceId) headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
 }
