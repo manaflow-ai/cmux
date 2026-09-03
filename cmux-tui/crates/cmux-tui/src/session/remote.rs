@@ -1649,11 +1649,17 @@ fn wake_reaper_after_completion(state: &Arc<Mutex<ReaperState>>) {
     let needs_start = {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         match current.sender.as_ref() {
-            Some(sender) if sender.send(()).is_ok() => false,
-            Some(_) => {
-                current.sender = None;
-                true
-            }
+            // A wake token is only a hint. If the finite queue is full, the
+            // reaper will observe this completed worker on its next scan. Do
+            // not block the worker while it is publishing completion, since
+            // the reaper may be joining that same worker before receiving.
+            Some(sender) => match sender.try_send(()) {
+                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(())) => false,
+                Err(std::sync::mpsc::TrySendError::Disconnected(())) => {
+                    current.sender = None;
+                    true
+                }
+            },
             None => true,
         }
     };
