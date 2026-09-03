@@ -787,6 +787,10 @@ class TabManager: ObservableObject {
         for tab in tabs where tab.isRemoteWorkspace {
             tab.applyRemotePortScanningEnabled(enabled)
         }
+        // The local scanner reads the same two settings and needs the same
+        // teardown and re-arm, or re-enabling shows the ports as they were when
+        // it was switched off.
+        PortScanner.shared.portScanningEnablementDidChange()
     }
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
