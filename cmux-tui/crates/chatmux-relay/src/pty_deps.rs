@@ -1068,10 +1068,57 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_pty::{ChildKiller, MasterPty};
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
+
+    #[derive(Debug)]
+    struct TestMasterPty;
+
+    impl MasterPty for TestMasterPty {
+        fn resize(&self, _size: PtySize) -> Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> Result<PtySize, anyhow::Error> {
+            Ok(PtySize::default())
+        }
+
+        fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::empty()))
+        }
+
+        fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, anyhow::Error> {
+            Ok(Box::new(Vec::<u8>::new()))
+        }
+
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+
+        fn tty_name(&self) -> Option<std::path::PathBuf> {
+            None
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestChildKiller;
+
+    impl ChildKiller for TestChildKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(Self)
+        }
+    }
 
     struct TestControl {
         kills: TestArc<AtomicUsize>,
@@ -1290,6 +1337,30 @@ mod tests {
 
         assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
         assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn master_control_kill_does_not_wait_for_killer_mutex() {
+        let control = TestArc::new(MasterControl {
+            master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
+            writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
+            killer: TestMutex::new(
+                Box::new(TestChildKiller) as Box<dyn ChildKiller + Send + Sync>
+            ),
+        });
+        let held = control.killer.lock().expect("test killer lock");
+        let (done_tx, done_rx) = mpsc::channel();
+        let kill_control = TestArc::clone(&control);
+        thread::spawn(move || {
+            kill_control.kill();
+            done_tx.send(()).expect("kill completion");
+        });
+
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(100)).is_ok(),
+            "PTY kill must not wait for a synchronous child-killer lock"
+        );
+        drop(held);
     }
 
     #[test]
