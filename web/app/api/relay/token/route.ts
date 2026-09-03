@@ -214,7 +214,7 @@ export async function handleRelayTokenRequest(
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
     // A fresh endpoint must fetch policy before registration, then fetch its
     // bound credential immediately after registration. Renewals happen every
-    // four minutes because both artifacts expire after five. Give bootstrap
+    // ~55 minutes because both artifacts expire after sixty. Give bootstrap
     // and credential issuance separate one-minute partitions so the external
     // rule cannot make the valid two-leg bootstrap or renewal cadence
     // impossible. Duplicate work inside one phase and minute is still bounded.

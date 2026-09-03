@@ -43,15 +43,14 @@ limit while upgraded clients traverse every page. Sign-out callers must invoke
 the authenticated revoke route with their captured binding id before discarding
 the Stack credential.
 
-There is no total active-binding limit per account or device. Postgres advisory
-locks keep request-rate limits concurrency-safe: six challenges per device per
-ten minutes, 32 outstanding challenges per account, 60 pair grants per account
-per hour, three relay mints per endpoint per ten minutes, 12 relay mints per
-endpoint per day, and 100 relay mints per account per day. A relay reservation
-remains active for 60 seconds, then the next account-scoped reservation marks it
-expired before applying those quotas. The optional Vercel Firewall rule is
-defense in depth. A tagged-build override widens challenge issuance only after
-an exact authenticated user-id and deployment-environment allowlist match.
+There is no total active-binding limit per account or device. The broker's own
+challenge, pair-grant, and relay-mint quotas were removed in
+[#9269](https://github.com/manaflow-ai/cmux/pull/9269) after they locked
+legitimate devices out of registration; auth and correctness guards (challenge
+replay gates, binding-slot ownership, discovery pagination bounds) remain. A
+relay reservation remains active for 60 seconds, then the next account-scoped
+reservation marks it expired. The optional Vercel Firewall rules on the relay
+routes are the only remaining rate limits.
 
 Registration bootstraps a relay credential only when it creates a binding.
 Signed refreshes of the same binding return `relay.status = "not_requested"`;

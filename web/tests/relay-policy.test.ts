@@ -230,7 +230,7 @@ describe("signed relay policy", () => {
       sequence: 17,
       iat: 1_700_000_000,
       nbf: 1_699_999_995,
-      exp: 1_700_000_300,
+      exp: 1_700_003_600,
       aud: RELAY_POLICY_AUDIENCE,
       relay_protocol: RELAY_POLICY_PROTOCOL,
       relays: catalog.relays,
