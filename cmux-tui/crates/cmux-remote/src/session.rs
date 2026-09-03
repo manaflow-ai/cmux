@@ -77,7 +77,9 @@ impl Drop for CloseUncommittedLink {
         let Some(link) = self.0.take() else { return };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
         runtime.spawn(async move {
-            let _ = tokio::time::timeout(RECONNECT_CLEANUP_TIMEOUT, link.close()).await;
+            if tokio::time::timeout(RECONNECT_CLEANUP_TIMEOUT, link.close()).await.is_err() {
+                link.abort_close();
+            }
         });
     }
 }
