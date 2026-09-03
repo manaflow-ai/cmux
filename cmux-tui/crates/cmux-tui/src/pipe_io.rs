@@ -674,6 +674,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_request_requires_a_valid_geometry_claim() {
+        assert_eq!(
+            parse_request(r#"{"claim":{"geometry":true}}"#).unwrap(),
+            PipeIoRequest::ClaimGeometry
+        );
+        assert_eq!(parse_request(r#"{"claim":true}"#).unwrap(), PipeIoRequest::ClaimGeometry);
+        for line in [
+            r#"{"claim":false}"#,
+            r#"{"claim":null}"#,
+            r#"{"claim":{"geometry":false}}"#,
+            r#"{"claim":{"other":true}}"#,
+            r#"{"claim":"true"}"#,
+        ] {
+            assert!(parse_request(line).is_err(), "accepted invalid claim {line}");
+        }
+    }
+
+    #[test]
     fn parse_request_rejects_oversized_lines_and_input_before_decoding() {
         let oversized_line = " ".repeat(MAX_PIPE_IO_LINE_BYTES + 1);
         let error = parse_request(&oversized_line).unwrap_err().to_string();
