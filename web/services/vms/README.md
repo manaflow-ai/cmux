@@ -95,9 +95,9 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902c`, image
-  `sh-940ec3bc46224c019e5e8d9a97053293`, baked and verified on cmux's Freestyle account from main
-  `2526fbf0f2`. The retired beta entry stays listed for the record and is never a default; earlier
+- Today's base default is `freestyle-cmux-devbox-20260902e`, image
+  `sh-e4dc9393a82e4dfaaa8f90b01b0d247c`, baked and verified on cmux's Freestyle account from
+  https://github.com/manaflow-ai/cmux/pull/11666 (`6a1243bfd7`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base). The retired beta entry stays listed for the record and is never a default; earlier
   public entries stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
@@ -132,9 +132,10 @@ The Freestyle devbox image is defined in
 (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
-installed at create time from the pinned files.cmux.com artifacts manifest by
-`services/vms/drivers/cmuxTuiDaemon.ts`; no daemon binary is baked. See the devbox
-README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
+baked at `/root/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
+current at bake time (recorded as `cmuxTuiCommit` in the manifest entry). Its identity
+is bound to the machine's instance id by `cmux-devbox-boot`, so create runs no guest
+bootstrap. See the devbox README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
 (`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
 manifest for reference but cannot serve the cmux-remote transport.
 
@@ -348,12 +349,16 @@ Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
-run no cmuxd-remote: the driver bootstraps the image at create time with the **cmux-tui
-remote daemon as the machine's only session daemon**, downloading the pinned static-musl
-`cmux-tui` build to `/root/.cmux/bin/cmux-tui` with `sha256sum -c` verification inside the
-VM. The daemon runs as root with `HOME=/root`; the build and its digest come from the
-artifacts manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is
-pinned by hand. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
+run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
+and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
+`sha256sum -c` verification. A create is `vms.create`, the grow-only resize, and one
+model-plane env file write; the baked supervisor starts the daemon with a fresh identity
+within a second of resume (the snapshot is a memory image, so the identity is keyed on
+the platform instance id). Attach heals a daemon that is not listening, reinstalling only
+when the binary is missing or behind the manifest pin. The daemon runs as root with
+`HOME=/root`; the build and its digest come from the artifacts manifest published by
+`.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new pin
+reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
 `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
 at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling

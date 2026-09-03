@@ -6,13 +6,13 @@
 # coderouter agent-config generator.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). The binary is NOT
-# baked: each driver installs the pinned files.cmux.com build
-# (sha256-verified) onto the machine at create time and heals it on attach
-# (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
-# /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
-# and restarts the daemon. The Freestyle public-platform bake runs it from a
-# systemd unit.
+# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
+# driver installs the pinned files.cmux.com build (sha256-verified) at create
+# time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
+# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# for the binary and restarts the daemon. The Freestyle public-platform bake
+# (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
+# bakes the binary and binds the daemon identity to the instance id.
 #
 # Portability rules the Freestyle replay depends on (originally imposed by a
 # remote builder's restricted Dockerfile parser): no backslash escape

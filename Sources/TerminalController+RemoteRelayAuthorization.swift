@@ -28,6 +28,7 @@ extension TerminalController {
         "surface.list",
         "surface.current",
         "surface.read_text",
+        "surface.read_selection",
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
@@ -72,6 +73,7 @@ extension TerminalController {
         "surface.resume.get",
         "surface.resume.clear",
         "surface.read_text",
+        "surface.read_selection",
         "notification.create_for_target",
     ]
 

@@ -18,7 +18,9 @@ import {
   mapFreestyleState,
   normalizeFreestyleExecTimeout,
   renderFreestyleModelPlaneEnvFile,
+  freestylePinCheckCommand,
 } from "../services/vms/drivers/freestyle";
+import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
@@ -212,6 +214,14 @@ describe("Freestyle platform contract", () => {
     expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
     expect(start).toContain("systemctl restart cmux-tui-daemon");
     expect(start).toContain("--remote-ws [::]:1337"); // non-systemd fallback
+  });
+
+  test("pin check trusts the pin recorded at bake time, falling back to the live pin on older images", () => {
+    const source = { url: "https://files.cmux.com/x", sha256: "f".repeat(64), commit: "abc", builtAt: null };
+    const check = freestylePinCheckCommand(source);
+    expect(check).toContain("if [ -s /etc/cmux/cmux-tui-pin ]; then");
+    expect(check).toContain("cut -d' ' -f1 /etc/cmux/cmux-tui-pin");
+    expect(check).toContain(`else ${cmuxTuiPinCheckCommand(source)}; fi`);
   });
 
   test("model-plane env renders every key into the file agent-config.sh persists", () => {
