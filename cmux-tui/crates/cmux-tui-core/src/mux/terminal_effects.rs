@@ -240,4 +240,13 @@ mod tests {
         assert!(waiter.join().unwrap());
         assert!(gate.wait_until(Instant::now()));
     }
+
+    #[test]
+    fn enqueue_rejects_when_no_workers_are_ready() {
+        let executor = TerminalEffectExecutor::new();
+        assert!(!executor.enqueue(TerminalEffectJob::TerminateDiscovered {
+            terminal_id: "terminal".to_string(),
+            incarnation: None,
+        }));
+    }
 }
