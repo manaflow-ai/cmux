@@ -22,12 +22,19 @@
 //!   (respawning reattaches and resyncs from a fresh replay).
 
 use std::borrow::Cow;
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Write};
 use std::path::Path;
 #[cfg(test)]
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::{AsFd, AsRawFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
@@ -93,18 +100,235 @@ impl StderrGate {
     }
 }
 
-#[cfg(unix)]
-fn pipe_io_stdout() -> std::io::Result<std::io::BufWriter<std::fs::File>> {
-    use std::os::fd::AsFd;
+/// Cancellation shared by the lifecycle monitor and the stdout writer.
+///
+/// Unix uses a wake-up stream in addition to the reason state. This lets a
+/// blocked nonblocking write wait for either writable stdout or a lifecycle
+/// event, with no polling timeout and no detached writer thread.
+#[derive(Clone)]
+struct PipeIoOutputCancellation {
+    reason: Arc<Mutex<Option<PipeIoExitReason>>>,
+    #[cfg(unix)]
+    wake_reader: Arc<UnixStream>,
+    #[cfg(unix)]
+    wake_writer: Arc<Mutex<UnixStream>>,
+}
 
+impl PipeIoOutputCancellation {
+    fn new() -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let (wake_reader, wake_writer) = UnixStream::pair()?;
+            // The monitor must never block while publishing a lifecycle
+            // reason. One byte is enough to wake the writer, and a full
+            // socket already means a wake is pending.
+            wake_reader.set_nonblocking(true)?;
+            wake_writer.set_nonblocking(true)?;
+            return Ok(Self {
+                reason: Arc::new(Mutex::new(None)),
+                wake_reader: Arc::new(wake_reader),
+                wake_writer: Arc::new(Mutex::new(wake_writer)),
+            });
+        }
+
+        #[cfg(not(unix))]
+        Ok(Self { reason: Arc::new(Mutex::new(None)) })
+    }
+
+    fn request(&self, reason: PipeIoExitReason) {
+        let first_reason = {
+            let mut state = self.reason.lock().unwrap_or_else(|poison| poison.into_inner());
+            if state.is_none() {
+                *state = Some(reason);
+                true
+            } else {
+                false
+            }
+        };
+        if !first_reason {
+            return;
+        }
+
+        #[cfg(unix)]
+        if let Ok(mut wake_writer) = self.wake_writer.lock() {
+            let _ = wake_writer.write(&[1]);
+        }
+    }
+
+    fn reason(&self) -> Option<PipeIoExitReason> {
+        *self.reason.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    #[cfg(unix)]
+    fn wake_fd(&self) -> RawFd {
+        self.wake_reader.as_raw_fd()
+    }
+}
+
+/// Output abstraction used by the event pump. The normal test writers use the
+/// standard `Write` implementation, while the process stdout writer uses a
+/// nonblocking descriptor that can observe lifecycle cancellation.
+trait PipeIoOutput {
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
+    fn flush_output(&mut self) -> io::Result<()>;
+    fn cancellation_reason(&self) -> Option<PipeIoExitReason> {
+        None
+    }
+}
+
+impl<W: Write> PipeIoOutput for W {
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.write_all(bytes)
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        self.flush()
+    }
+}
+
+#[cfg(unix)]
+struct PipeIoStdout {
+    file: File,
+    cancellation: PipeIoOutputCancellation,
+}
+
+#[cfg(unix)]
+fn pipe_io_stdout(cancellation: PipeIoOutputCancellation) -> io::Result<PipeIoStdout> {
     let stdout = std::io::stdout();
     let stdout_fd = stdout.as_fd().try_clone_to_owned()?;
-    Ok(std::io::BufWriter::new(std::fs::File::from(stdout_fd)))
+    let file = File::from(stdout_fd);
+    set_nonblocking(file.as_raw_fd())?;
+    Ok(PipeIoStdout { file, cancellation })
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: RawFd) -> io::Result<()> {
+    // `fd` is borrowed from the live `File`; both fcntl calls only inspect or
+    // update descriptor flags and do not take ownership of it.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if flags & libc::O_NONBLOCK != 0 {
+        return Ok(());
+    }
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if result < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+}
+
+#[cfg(unix)]
+impl PipeIoStdout {
+    fn wait_until_writable(&self) -> io::Result<()> {
+        loop {
+            let mut poll_fds = [
+                libc::pollfd { fd: self.file.as_raw_fd(), events: libc::POLLOUT, revents: 0 },
+                libc::pollfd { fd: self.cancellation.wake_fd(), events: libc::POLLIN, revents: 0 },
+            ];
+            let ready = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
+                return Err(error);
+            }
+
+            let output_events = poll_fds[0].revents;
+            let cancel_events = poll_fds[1].revents;
+            let cancellation_requested = cancel_events
+                & (libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)
+                != 0;
+            let output_writable = output_events & libc::POLLOUT != 0;
+
+            // If stdout is writable at the same instant as lifecycle
+            // cancellation, allow one more write. This preserves committed
+            // bytes for a normal surface-exit drain. If it is not writable,
+            // return immediately instead of waiting for a reader that stopped.
+            if cancellation_requested && !output_writable {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
+            }
+            if output_events & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                if let Some(reason) = self.cancellation.reason() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        format!("pipe-io stdout canceled ({})", reason.as_str()),
+                    ));
+                }
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout closed"));
+            }
+            if output_writable {
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl PipeIoOutput for PipeIoStdout {
+    fn write_bytes(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+        while !bytes.is_empty() {
+            // The descriptor is nonblocking, so a full pipe returns EAGAIN
+            // and the poll below can also watch the cancellation wakeup.
+            let written =
+                unsafe { libc::write(self.file.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) };
+            if written > 0 {
+                bytes = &bytes[written as usize..];
+                continue;
+            }
+            if written == 0 {
+                return Err(io::Error::new(io::ErrorKind::WriteZero, "pipe-io stdout write zero"));
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            if matches!(
+                error.raw_os_error(),
+                Some(code) if code == libc::EAGAIN || code == libc::EWOULDBLOCK
+            ) {
+                self.wait_until_writable()?;
+                continue;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        // Each event is written directly to the descriptor. There is no
+        // userspace buffer whose flush could block independently.
+        Ok(())
+    }
+
+    fn cancellation_reason(&self) -> Option<PipeIoExitReason> {
+        self.cancellation.reason()
+    }
 }
 
 #[cfg(not(unix))]
-fn pipe_io_stdout() -> std::io::Result<std::io::BufWriter<std::io::Stdout>> {
-    Ok(std::io::BufWriter::new(std::io::stdout()))
+struct PipeIoStdout {
+    inner: std::io::BufWriter<std::io::Stdout>,
+    cancellation: PipeIoOutputCancellation,
+}
+
+#[cfg(not(unix))]
+fn pipe_io_stdout(cancellation: PipeIoOutputCancellation) -> io::Result<PipeIoStdout> {
+    Ok(PipeIoStdout { inner: std::io::BufWriter::new(std::io::stdout()), cancellation })
+}
+
+#[cfg(not(unix))]
+impl PipeIoOutput for PipeIoStdout {
+    fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.inner.write_all(bytes)
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+
+    fn cancellation_reason(&self) -> Option<PipeIoExitReason> {
+        self.cancellation.reason()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +354,60 @@ impl PipeIoExitReason {
             Self::TerminalEnded | Self::ParentClosed | Self::SetupFailed => EXIT_DO_NOT_RESPAWN,
             Self::DaemonLost => EXIT_DAEMON_LOST,
         }
+    }
+}
+
+fn lifecycle_exit_reason(event: &PipeIoEvent) -> PipeIoExitReason {
+    match event {
+        PipeIoEvent::SurfaceExited => PipeIoExitReason::TerminalEnded,
+        PipeIoEvent::TransportLost => PipeIoExitReason::DaemonLost,
+        PipeIoEvent::StdinClosed => PipeIoExitReason::ParentClosed,
+        PipeIoEvent::StdinError => PipeIoExitReason::SetupFailed,
+        PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_) => {
+            // Lifecycle senders never carry byte events. Treat a malformed
+            // event as a daemon loss, which is the only retryable safe
+            // classification when framing is corrupted.
+            PipeIoExitReason::DaemonLost
+        }
+    }
+}
+
+/// Relays lifecycle events to the byte pump and wakes a blocked stdout write.
+/// The source channel is separate from the bounded byte queue, so this thread
+/// remains able to publish daemon loss while the embedder has stopped reading.
+struct PipeIoLifecycleMonitor {
+    stop: Sender<()>,
+    join: std::thread::JoinHandle<()>,
+}
+
+impl PipeIoLifecycleMonitor {
+    fn spawn(
+        lifecycle_receiver: Receiver<PipeIoEvent>,
+        pump_sender: Sender<PipeIoEvent>,
+        cancellation: PipeIoOutputCancellation,
+    ) -> io::Result<Self> {
+        let (stop, stop_receiver) = crossbeam_channel::bounded(1);
+        let join = std::thread::Builder::new()
+            .name("pipe-io-lifecycle".into())
+            .spawn(move || {
+                crossbeam_channel::select_biased! {
+                    recv(stop_receiver) -> _ => {}
+                    recv(lifecycle_receiver) -> event => {
+                        let event = event.unwrap_or(PipeIoEvent::TransportLost);
+                        cancellation.request(lifecycle_exit_reason(&event));
+                        let _ = pump_sender.try_send(event);
+                    }
+                }
+            })
+            .map_err(|error| {
+                io::Error::other(format!("spawn pipe-io lifecycle monitor: {error}"))
+            })?;
+        Ok(Self { stop, join })
+    }
+
+    fn stop(self) {
+        let _ = self.stop.send(());
+        let _ = self.join.join();
     }
 }
 
@@ -297,6 +575,38 @@ pub fn run(
         }
     }
     let stderr_gate = Arc::new(StderrGate::default());
+    let cancellation = match PipeIoOutputCancellation::new() {
+        Ok(cancellation) => cancellation,
+        Err(error) => {
+            stderr_gate.close();
+            drop(tap_guard);
+            return Err(error.into());
+        }
+    };
+    // On Unix, duplicate stdout and make the descriptor nonblocking. Each
+    // write then waits on stdout readiness and the lifecycle wakeup together,
+    // so a stopped reader cannot strand this relay in write_all or flush.
+    let mut stdout = match pipe_io_stdout(cancellation.clone()) {
+        Ok(stdout) => stdout,
+        Err(error) => {
+            stderr_gate.close();
+            drop(tap_guard);
+            return Err(error.into());
+        }
+    };
+    let (pump_lifecycle_sender, pump_lifecycle_receiver) = crossbeam_channel::bounded(1);
+    let lifecycle_monitor = match PipeIoLifecycleMonitor::spawn(
+        lifecycle_receiver,
+        pump_lifecycle_sender,
+        cancellation,
+    ) {
+        Ok(monitor) => monitor,
+        Err(error) => {
+            stderr_gate.close();
+            drop(tap_guard);
+            return Err(error.into());
+        }
+    };
     let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender, stderr_gate.clone()) {
         Ok(pump) => pump,
         Err(error) => {
@@ -306,21 +616,15 @@ pub fn run(
                 "{}",
                 serde_json::json!({"diag": {"stdin-pump": {"error": STDIN_PUMP_ERROR_CODE}}})
             );
+            lifecycle_monitor.stop();
             drop(tap_guard);
+            stderr_gate.close();
             return Ok(PipeIoExitReason::SetupFailed);
         }
     };
-    // On Unix, duplicate the raw stdout descriptor so VT bytes bypass the
-    // standard library's line writer. The protocol flushes each event.
-    let mut stdout = match pipe_io_stdout() {
-        Ok(stdout) => stdout,
-        Err(error) => {
-            stderr_gate.close();
-            return Err(error.into());
-        }
-    };
     let pump_result =
-        pump_events_to_stdout(&receiver, &lifecycle_receiver, &byte_budget, &mut stdout);
+        pump_events_to_stdout(&receiver, &pump_lifecycle_receiver, &byte_budget, &mut stdout);
+    lifecycle_monitor.stop();
     // The stdin pump can still be blocked in read(2). Close the gate before
     // returning so no late resize/claim diagnostic can follow the exit record.
     stderr_gate.close();
@@ -628,7 +932,7 @@ fn pump_events_to_stdout(
     receiver: &Receiver<PipeIoEvent>,
     lifecycle_receiver: &Receiver<PipeIoEvent>,
     byte_budget: &PipeIoByteBudget,
-    stdout: &mut impl Write,
+    stdout: &mut impl PipeIoOutput,
 ) -> anyhow::Result<PipeIoExitReason> {
     let mut emitted_output = false;
     loop {
@@ -655,7 +959,11 @@ fn pump_events_to_stdout(
                                     )
                                     .is_err()
                                     {
-                                        return Ok(PipeIoExitReason::ParentClosed);
+                                        return Ok(
+                                            stdout
+                                                .cancellation_reason()
+                                                .unwrap_or(PipeIoExitReason::ParentClosed),
+                                        );
                                     }
                                 }
                                 PipeIoEvent::SurfaceExited => {
@@ -710,7 +1018,7 @@ fn pump_events_to_stdout(
         };
         if write_result.is_err() {
             // stdout is the embedder; a failed write means it is gone.
-            return Ok(PipeIoExitReason::ParentClosed);
+            return Ok(stdout.cancellation_reason().unwrap_or(PipeIoExitReason::ParentClosed));
         }
     }
 }
@@ -718,19 +1026,19 @@ fn pump_events_to_stdout(
 fn write_pipe_io_data(
     event: &PipeIoEvent,
     emitted_output: &mut bool,
-    stdout: &mut impl Write,
+    stdout: &mut impl PipeIoOutput,
 ) -> std::io::Result<()> {
     match event {
         PipeIoEvent::Replay { bytes, .. } => {
             if *emitted_output {
-                stdout.write_all(REPLAY_RESET)?;
+                stdout.write_bytes(REPLAY_RESET)?;
             }
-            stdout.write_all(bytes)?;
-            stdout.flush()?;
+            stdout.write_bytes(bytes)?;
+            stdout.flush_output()?;
         }
         PipeIoEvent::Output(bytes) => {
-            stdout.write_all(bytes)?;
-            stdout.flush()?;
+            stdout.write_bytes(bytes)?;
+            stdout.flush_output()?;
         }
         PipeIoEvent::SurfaceExited
         | PipeIoEvent::TransportLost
@@ -897,6 +1205,73 @@ mod tests {
             pump_events_to_stdout(&receiver, &lifecycle_receiver, &budget, &mut stdout).unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         assert_eq!(stdout, b"FINAL");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdout_writer_stops_when_lifecycle_arrives_with_reader_open() {
+        use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+
+        let mut fds = [0 as RawFd; 2];
+        // SAFETY: `fds` points to two writable integers owned by this test;
+        // `pipe` initializes both descriptors on success.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // Keep the read side open but never consume it. This models an
+        // embedder that stopped reading while its process remains alive.
+        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let writer_file = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        set_nonblocking(writer_file.as_raw_fd()).unwrap();
+
+        // Fill the kernel pipe so the first relay write must wait for
+        // POLLOUT. No unbounded userspace buffer is involved.
+        let fill = [0_u8; 4096];
+        loop {
+            // SAFETY: `writer_file` owns the descriptor and `fill` remains
+            // alive and readable for the duration of each call.
+            let written =
+                unsafe { libc::write(writer_file.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            let error = io::Error::last_os_error();
+            assert!(
+                error.raw_os_error() == Some(libc::EAGAIN)
+                    || error.raw_os_error() == Some(libc::EWOULDBLOCK),
+                "unexpected pipe fill error: {error}"
+            );
+            break;
+        }
+
+        let cancellation = PipeIoOutputCancellation::new().unwrap();
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let (pump_sender, pump_receiver) = crossbeam_channel::bounded(1);
+        let monitor =
+            PipeIoLifecycleMonitor::spawn(lifecycle_receiver, pump_sender, cancellation.clone())
+                .unwrap();
+        let mut stdout = PipeIoStdout { file: writer_file, cancellation: cancellation.clone() };
+        let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            finished_sender.send(stdout.write_bytes(b"blocked")).unwrap();
+        });
+
+        lifecycle_sender.send(PipeIoEvent::TransportLost).unwrap();
+        let result = match finished_receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(result) => result,
+            Err(_) => {
+                // Ensure the writer can be joined if the assertion below
+                // fails, while retaining the primary timeout signal.
+                drop(reader);
+                let _ = finished_receiver.recv_timeout(Duration::from_secs(1));
+                let _ = writer.join();
+                panic!("stdout writer did not observe lifecycle cancellation");
+            }
+        };
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert_eq!(cancellation.reason(), Some(PipeIoExitReason::DaemonLost));
+        assert_eq!(pump_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
+        writer.join().unwrap();
+        monitor.stop();
+        drop(reader);
     }
 
     #[test]
