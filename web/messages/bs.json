@@ -61,11 +61,10 @@
     "backToSignIn": "Nazad na prijavu"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux oblak",
     "title": "Nemate pristup",
-    "signedOutBody": "Prijavite se na cmux da biste vidjeli ovu stranicu.",
     "signIn": "Prijavite se na cmux",
     "signedInAs": "Prijavljeni ste kao {identity}",
+    "switchAccount": "Promijeni nalog",
     "invalidTitle": "Ovaj link za pristup nije važeći",
     "invalidBody": "Vratite se na stranicu i pokušajte ponovo.",
     "footer": "Pristupom upravlja cmux."

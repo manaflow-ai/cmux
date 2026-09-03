@@ -61,11 +61,10 @@
     "backToSignIn": "返回登录"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux 云",
     "title": "你没有访问权限",
-    "signedOutBody": "登录 cmux 以查看此网站。",
     "signIn": "登录 cmux",
     "signedInAs": "已以 {identity} 的身份登录",
+    "switchAccount": "切换账号",
     "invalidTitle": "此访问链接无效",
     "invalidBody": "返回网站，然后重试。",
     "footer": "访问权限由 cmux 管理。"

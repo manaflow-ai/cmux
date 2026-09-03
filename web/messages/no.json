@@ -61,11 +61,10 @@
     "backToSignIn": "Tilbake til innlogging"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux-sky",
     "title": "Du har ikke tilgang",
-    "signedOutBody": "Logg på cmux for å se dette nettstedet.",
     "signIn": "Logg på cmux",
     "signedInAs": "Logget på som {identity}",
+    "switchAccount": "Bytt konto",
     "invalidTitle": "Denne tilgangslenken er ugyldig",
     "invalidBody": "Gå tilbake til nettstedet og prøv på nytt.",
     "footer": "Tilgang administreres av cmux."

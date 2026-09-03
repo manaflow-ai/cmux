@@ -61,11 +61,10 @@
     "backToSignIn": "Zur Anmeldung"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux cloud",
     "title": "Du hast keinen Zugriff",
-    "signedOutBody": "Melde dich bei cmux an, um diese Website anzusehen.",
     "signIn": "Bei cmux anmelden",
     "signedInAs": "Angemeldet als {identity}",
+    "switchAccount": "Konto wechseln",
     "invalidTitle": "Dieser Zugriffslink ist ungültig",
     "invalidBody": "Kehre zur Website zurück und versuche es erneut.",
     "footer": "Der Zugriff wird von cmux verwaltet."

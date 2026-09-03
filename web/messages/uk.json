@@ -61,11 +61,10 @@
     "backToSignIn": "Повернутися до входу"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "хмара cmux",
     "title": "У вас немає доступу",
-    "signedOutBody": "Увійдіть у cmux, щоб переглянути цей сайт.",
     "signIn": "Увійти в cmux",
     "signedInAs": "Ви ввійшли як {identity}",
+    "switchAccount": "Змінити обліковий запис",
     "invalidTitle": "Це посилання для доступу недійсне",
     "invalidBody": "Поверніться на сайт і повторіть спробу.",
     "footer": "Доступом керує cmux."

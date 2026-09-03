@@ -61,11 +61,10 @@
     "backToSignIn": "返回登入"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux 雲端",
     "title": "你沒有存取權限",
-    "signedOutBody": "登入 cmux 以檢視此網站。",
     "signIn": "登入 cmux",
     "signedInAs": "已以 {identity} 的身分登入",
+    "switchAccount": "切換帳號",
     "invalidTitle": "此存取連結無效",
     "invalidBody": "返回網站，然後再試一次。",
     "footer": "存取權限由 cmux 管理。"
