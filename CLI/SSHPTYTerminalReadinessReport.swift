@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCLISocketAuth
 
 struct SSHPTYTerminalReadinessReport: Sendable {
     private enum DeliveryOutcome {
@@ -28,7 +29,7 @@ struct SSHPTYTerminalReadinessReport: Sendable {
     ]
 
     let socketPath: String
-    let explicitPassword: String?
+    let credentialResolver: SocketCredentialResolver
     let params: [String: String]
     let attemptTimeout: TimeInterval
     let retryDelay: TimeInterval
@@ -65,10 +66,9 @@ struct SSHPTYTerminalReadinessReport: Sendable {
             guard authenticationTimeout > 0 else { return .transientFailure }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 reportingClient,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath,
                 responseTimeout: authenticationTimeout,
-                deadline: deadline
+                deadline: deadline,
+                credentialResolver: credentialResolver
             )
             let reportTimeout = deadline.timeIntervalSinceNow
             guard reportTimeout > 0 else { return .transientFailure }

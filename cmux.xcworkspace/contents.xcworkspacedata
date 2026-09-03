@@ -133,6 +133,9 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxCLISocketAuth">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef

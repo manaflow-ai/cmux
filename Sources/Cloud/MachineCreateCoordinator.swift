@@ -48,7 +48,7 @@ final class MachineCreateCoordinator {
     /// change to ``operations``. `userInfo[finishedUserInfoKey]` carries the
     /// ``Finished`` value when the change is a completion.
     static let didChangeNotification = Notification.Name("cmux.machineCreate.didChange")
-    static let finishedUserInfoKey = "finished"
+    nonisolated static let finishedUserInfoKey = "finished"
 
     private(set) var operations: [MachineCreateOperation] = []
     /// The most recent completion, for observers that arrive late (tests,

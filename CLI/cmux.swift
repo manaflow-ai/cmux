@@ -1,18 +1,13 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxCLISocketAuth
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
-#if canImport(LocalAuthentication)
-import LocalAuthentication
-#endif
-#if canImport(Security)
-import Security
-#endif
 
 struct CLIError: Error, CustomStringConvertible {
     enum SocketFailureKind: Equatable {
@@ -2879,131 +2874,6 @@ private enum TopTextFormat: Equatable {
     case tree
     case tsv
 }
-
-enum SocketPasswordResolver {
-    private static let service = "com.cmuxterm.app.socket-control"
-    private static let account = "local-socket-password"
-
-    static func resolve(explicit: String?, socketPath: String) -> String? {
-        if let explicit = normalized(explicit) {
-            return explicit
-        }
-        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]) {
-            return env
-        }
-        if let filePassword = loadFromFile() {
-            return filePassword
-        }
-        return loadFromKeychain(socketPath: socketPath)
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .newlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func loadFromFile() -> String? {
-        // Resolve through the shared store so the CLI reads the exact path the app
-        // writes — the non-TCC cmux state directory, not Application Support
-        // (https://github.com/manaflow-ai/cmux/issues/5146). The CLI is a
-        // composition root, so it names the concrete `FileManager.default` here.
-        guard let passwordURL = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default) else {
-            return nil
-        }
-        guard let data = try? Data(contentsOf: passwordURL) else {
-            return nil
-        }
-        guard let value = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return normalized(value)
-    }
-
-    static func keychainServices(
-        socketPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> [String] {
-        guard let scope = keychainScope(socketPath: socketPath, environment: environment) else {
-            return [service]
-        }
-        return ["\(service).\(scope)", service]
-    }
-
-    private static func keychainScope(
-        socketPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
-        if let tag = normalized(environment["CMUX_TAG"]) {
-            let scoped = sanitizeScope(tag)
-            if !scoped.isEmpty {
-                return scoped
-            }
-        }
-
-        let candidate = URL(fileURLWithPath: socketPath).lastPathComponent
-        let prefixes = ["cmux-debug-", "cmux-"]
-        for prefix in prefixes {
-            guard candidate.hasPrefix(prefix), candidate.hasSuffix(".sock") else { continue }
-            let start = candidate.index(candidate.startIndex, offsetBy: prefix.count)
-            let end = candidate.index(candidate.endIndex, offsetBy: -".sock".count)
-            guard start < end else { continue }
-            let rawScope = String(candidate[start..<end])
-            let scoped = sanitizeScope(rawScope)
-            if !scoped.isEmpty {
-                return scoped
-            }
-        }
-        return nil
-    }
-
-    private static func sanitizeScope(_ raw: String) -> String {
-        let lowered = raw.lowercased()
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
-        let mappedScalars = lowered.unicodeScalars.map { scalar -> Character in
-            allowed.contains(scalar) ? Character(scalar) : "."
-        }
-        var normalizedScope = String(mappedScalars)
-        normalizedScope = normalizedScope.replacingOccurrences(
-            of: "\\.+",
-            with: ".",
-            options: .regularExpression
-        )
-        normalizedScope = normalizedScope.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return normalizedScope
-    }
-
-    private static func loadFromKeychain(socketPath: String) -> String? {
-        for service in keychainServices(socketPath: socketPath) {
-            let authContext = LAContext()
-            authContext.interactionNotAllowed = true
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-                // Never trigger keychain UI from CLI commands; fail fast instead.
-                kSecUseAuthenticationContext as String: authContext,
-            ]
-            var result: CFTypeRef?
-            let status = SecItemCopyMatching(query as CFDictionary, &result)
-            if status == errSecItemNotFound || status == errSecInteractionNotAllowed || status == errSecAuthFailed {
-                continue
-            }
-            guard status == errSecSuccess else {
-                continue
-            }
-            guard let data = result as? Data,
-                  let password = String(data: data, encoding: .utf8) else {
-                continue
-            }
-            return password
-        }
-        return nil
-    }
-}
-
 final class SocketClient {
     private struct RelayEndpoint {
         let host: String
@@ -3029,9 +2899,13 @@ final class SocketClient {
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
-    private var authenticationPassword: String?
-    private var authenticationInProgress = false
-    private var socketAuthenticated = false
+    var authenticationPassword: String?
+    /// Deferred password source invoked only after an auth-required reply.
+    var authenticationPasswordProvider: ((Date?) -> String?)?
+    var authenticationPasswordResolutionAttempted = false
+    var authenticationModeCoordinator = SocketAuthenticationModeCoordinator()
+    var authenticationInProgress = false
+    var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
@@ -3199,8 +3073,18 @@ final class SocketClient {
         socketAuthenticated = false
     }
 
-    func configureAuthentication(password: String?) {
+    /// Installs immediate and deferred credentials for a socket connection.
+    func configureAuthentication(
+        password: String?,
+        passwordProvider: ((Date?) -> String?)? = nil,
+        authenticationModeCoordinator: SocketAuthenticationModeCoordinator? = nil
+    ) {
         authenticationPassword = password
+        authenticationPasswordProvider = passwordProvider
+        if let authenticationModeCoordinator {
+            self.authenticationModeCoordinator = authenticationModeCoordinator
+        }
+        authenticationPasswordResolutionAttempted = false
         socketAuthenticated = password == nil
     }
 
@@ -3218,7 +3102,8 @@ final class SocketClient {
         let authResponse = try send(
             command: "auth \(authenticationPassword)",
             responseTimeout: responseTimeout,
-            deadline: deadline
+            deadline: deadline,
+            allowAuthenticationRetry: false
         )
         if authResponse.hasPrefix("ERROR:"),
            !authResponse.contains("Unknown command 'auth'") {
@@ -3230,7 +3115,8 @@ final class SocketClient {
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        allowAuthenticationRetry: Bool = true
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
         let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
@@ -3348,15 +3234,27 @@ final class SocketClient {
         if response.hasSuffix("\n") {
             response.removeLast()
         }
+        if allowAuthenticationRetry,
+           let retriedResponse = try retryAfterAuthenticationChallenge(
+               response: response,
+               command: command,
+               operationDeadline: operationDeadline
+           ) {
+            operationCompleted = true
+            return retriedResponse
+        }
+        recordCredentialFreeResponseIfNeeded(response)
         operationCompleted = true
         return response
     }
 
+    /// Writes a fire-and-forget command without waiting for a response.
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        try prepareOneWayAuthentication(responseTimeout: writeTimeout)
         let shouldCloseAfterSend = relayEndpoint != nil
 
         try configureSocketWriteSafety(writeTimeout)
@@ -4183,6 +4081,7 @@ final class SocketClient {
             .joined(separator: "\n")
     }
 
+    /// Sends a v2 request and forwards subsequent event-stream lines.
     func streamV2(
         method: String,
         params: [String: Any] = [:],
@@ -4201,13 +4100,41 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
-        try writeAll(
-            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
-            timeoutMessage: "Stream request timed out",
-            failureMessage: "Failed to write stream request",
-            deadline: deadline
-        )
-
+        var didRetryAuthentication = false
+        while true {
+            try writeAll(
+                Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
+                timeoutMessage: "Stream request timed out",
+                failureMessage: "Failed to write stream request",
+                deadline: deadline
+            )
+            let line = try readStreamLine(deadline: deadline)
+            if SocketAuthenticationChallenge.isRequired(line) {
+                // The challenge establishes the route's password-required mode
+                // before the auth command can return a successful response.
+                // Otherwise that auth response could be mistaken for a
+                // credential-free stream and suppress later one-way auth.
+                authenticationModeCoordinator.recordPasswordRequired()
+                guard !didRetryAuthentication,
+                      !authenticationInProgress,
+                      !authenticationPasswordResolutionAttempted,
+                      authenticationPasswordProvider != nil,
+                      let password = resolveDeferredAuthenticationPassword(deadline: deadline) else {
+                    throw CLIError(message: line)
+                }
+                authenticationPassword = password
+                socketAuthenticated = false
+                let remaining = deadline?.timeIntervalSinceNow
+                try authenticateIfNeeded(
+                    responseTimeout: remaining.map { max($0, 0.001) },
+                    deadline: deadline
+                )
+                didRetryAuthentication = true
+                continue
+            }
+            try onLine(line)
+            break
+        }
         while true {
             let line = try readStreamLine(deadline: deadline)
             try onLine(line)
@@ -4302,6 +4229,7 @@ struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    let credentialResolutionSession: SocketCredentialResolutionSession
 
     private enum NotifyTargetResolution {
         case surface(
@@ -4529,11 +4457,13 @@ struct CMUXCLI {
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
         simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+            SimulatorOwnedCommandRunner(),
+        credentialResolutionSession: SocketCredentialResolutionSession? = nil
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.credentialResolutionSession = credentialResolutionSession ?? SocketCredentialResolutionSession()
     }
 
     /// Sends transport failures and structured protocol failures through the
@@ -8710,34 +8640,44 @@ struct CMUXCLI {
         return client
     }
 
+    /// Configures a client with the process-scoped lazy credential resolver.
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        credentialResolver: SocketCredentialResolver? = nil
     ) throws {
+        let resolver = credentialResolver
+            ?? credentialResolutionSession.resolver(
+                explicitPassword: explicitPassword,
+                socketPath: socketPath
+            )
         try Self.authenticateSocketClientIfNeeded(
             client,
-            explicitPassword: explicitPassword,
-            socketPath: socketPath,
             responseTimeout: responseTimeout,
-            deadline: deadline
+            deadline: deadline,
+            credentialResolver: resolver
         )
     }
 
+    /// Configures and performs immediate authentication for a socket client.
     static func authenticateSocketClientIfNeeded(
         _ client: SocketClient,
-        explicitPassword: String?,
-        socketPath: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        credentialResolver: SocketCredentialResolver
     ) throws {
-        let socketPassword = SocketPasswordResolver.resolve(
-            explicit: explicitPassword,
-            socketPath: socketPath
+        let initialPassword = credentialResolver.password(for: .initialConnection)
+        let deferredProvider: ((Date?) -> String?)? = initialPassword == nil
+            ? { deadline in credentialResolver.password(for: .authenticationRequired, deadline: deadline) }
+            : nil
+        client.configureAuthentication(
+            password: initialPassword,
+            passwordProvider: deferredProvider,
+            authenticationModeCoordinator: credentialResolver.authenticationModeCoordinator
         )
-        client.configureAuthentication(password: socketPassword)
         try client.authenticateIfNeeded(responseTimeout: responseTimeout, deadline: deadline)
     }
 
@@ -15701,7 +15641,10 @@ struct CMUXCLI {
         }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
-            explicitPassword: explicitPassword,
+            credentialResolver: credentialResolutionSession.resolver(
+                explicitPassword: explicitPassword,
+                socketPath: client.socketPath
+            ),
             workspaceId: workspaceId,
             surfaceID: surfaceID,
             sessionID: sessionID,
@@ -15884,7 +15827,10 @@ struct CMUXCLI {
     ) -> Task<Void, Never> {
         let report = SSHPTYTerminalReadinessReport(
             socketPath: socketPath,
-            explicitPassword: explicitPassword,
+            credentialResolver: credentialResolutionSession.resolver(
+                explicitPassword: explicitPassword,
+                socketPath: socketPath
+            ),
             params: params,
             attemptTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds,
             retryDelay: Self.sshPTYTerminalConnectedRetryDelaySeconds,
@@ -24245,6 +24191,7 @@ struct CMUXCLI {
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
         private let socketPassword: String?
+        private let credentialResolver: SocketCredentialResolver
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -24273,7 +24220,8 @@ struct CMUXCLI {
             launchPath: String?,
             maxAutoDepth: Int,
             socketClient: SocketClient,
-            socketPassword: String?
+            socketPassword: String?,
+            credentialResolver: SocketCredentialResolver
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId
@@ -24283,6 +24231,7 @@ struct CMUXCLI {
             self.maxAutoDepth = max(0, maxAutoDepth)
             self.socketClient = socketClient
             self.socketPassword = socketPassword
+            self.credentialResolver = credentialResolver
         }
 
         func run() throws {
@@ -24535,8 +24484,7 @@ struct CMUXCLI {
             defer { feedClient.close() }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 feedClient,
-                explicitPassword: socketPassword,
-                socketPath: socketClient.socketPath
+                credentialResolver: credentialResolver
             )
             return try feedClient.sendV2(method: "feed.push", params: [
                 "event": event,
@@ -25574,7 +25522,11 @@ struct CMUXCLI {
             launchPath: launchPath,
             maxAutoDepth: maxDepth,
             socketClient: client,
-            socketPassword: socketPassword
+            socketPassword: socketPassword,
+            credentialResolver: credentialResolutionSession.resolver(
+                explicitPassword: socketPassword,
+                socketPath: client.socketPath
+            )
         )
         withExtendedLifetime(ownerSource) {
             do {
@@ -37051,6 +37003,13 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
+        } catch {
+            return
+        }
+        // Authentication-mode discovery is optional for telemetry. A failed
+        // probe must not suppress the best-effort write attempt.
+        try? oneWayClient.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
+        do {
             try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
         } catch {
             return
@@ -37952,26 +37911,43 @@ export default CMUXSessionRestore;
     }
 
     private func runFeedTUI(arguments: [String], socketPath: String, socketPassword: String?) throws {
-        let resolvedSocketPassword = SocketPasswordResolver.resolve(
-            explicit: socketPassword,
+        let credentialResolver = credentialResolutionSession.resolver(
+            explicitPassword: socketPassword,
             socketPath: socketPath
         )
+        let initialSocketPassword = credentialResolver.password(for: .initialConnection)
         let implementation = try parseFeedTUIImplementation(arguments: arguments)
         if implementation == .help { return }
         if implementation == .legacy || ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
-            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            try runLegacyFeedTUI(
+                socketPath: socketPath,
+                socketPassword: initialSocketPassword,
+                credentialResolver: credentialResolver
+            )
             return
         }
         if implementation == .openTUI {
-            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            try runOpenTUIFeedTUI(
+                socketPath: socketPath,
+                socketPassword: initialSocketPassword,
+                credentialResolver: credentialResolver
+            )
             return
         }
 
         do {
-            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            try runOpenTUIFeedTUI(
+                socketPath: socketPath,
+                socketPassword: initialSocketPassword,
+                credentialResolver: credentialResolver
+            )
         } catch {
             cliWriteStderr("cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n")
-            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            try runLegacyFeedTUI(
+                socketPath: socketPath,
+                socketPassword: initialSocketPassword,
+                credentialResolver: credentialResolver
+            )
         }
     }
 
@@ -37999,13 +37975,23 @@ export default CMUXSessionRestore;
         return implementation
     }
 
-    private func runOpenTUIFeedTUI(socketPath: String, socketPassword: String?) throws {
+    private func runOpenTUIFeedTUI(
+        socketPath: String,
+        socketPassword: String?,
+        credentialResolver: SocketCredentialResolver? = nil
+    ) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
         }
         guard let bunPath = resolveBunExecutable() else {
             throw CLIError(message: "Bun is required for the OpenTUI Feed")
         }
+
+        let childSocketPassword = warmOpenTUIFeedAuthentication(
+            socketPath: socketPath,
+            socketPassword: socketPassword,
+            credentialResolver: credentialResolver
+        )
 
         cliWriteStderr("cmux feed tui: preparing OpenTUI Feed...\n")
         let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
@@ -38020,8 +38006,8 @@ export default CMUXSessionRestore;
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath; environment.removeValue(forKey: "CMUX_SOCKET")
-        if let socketPassword {
-            environment["CMUX_SOCKET_PASSWORD"] = socketPassword
+        if let childSocketPassword {
+            environment["CMUX_SOCKET_PASSWORD"] = childSocketPassword
         }
         environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
         environment["OTUI_USE_ALTERNATE_SCREEN"] = "1"
@@ -38197,14 +38183,23 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func runLegacyFeedTUI(socketPath: String, socketPassword: String?) throws {
+    private func runLegacyFeedTUI(
+        socketPath: String,
+        socketPassword: String?,
+        credentialResolver: SocketCredentialResolver? = nil
+    ) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
         }
 
         let client = SocketClient(path: socketPath)
         try client.connect()
-        try authenticateClientIfNeeded(client, explicitPassword: socketPassword, socketPath: socketPath)
+        try authenticateClientIfNeeded(
+            client,
+            explicitPassword: socketPassword,
+            socketPath: socketPath,
+            credentialResolver: credentialResolver
+        )
 
         var rawMode = TerminalRawMode()
         guard rawMode != nil else {
@@ -39697,6 +39692,7 @@ export default CMUXSessionRestore;
                     )
                 }
             } else if let client {
+                try? client.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
