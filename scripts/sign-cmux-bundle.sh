@@ -123,8 +123,11 @@ if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
+# The sidecar must carry exactly the slices the app does: universal for stable
+# and the transitional nightly, one architecture for thinned nightlies.
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+  --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
   --require-signed
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \

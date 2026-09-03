@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
       "title": "coderouter",
-      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。"
+      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "machines": {
+        "title": "機器",
+        "description": "{team} 在過去 {days} 天內每台機器的 coderouter 使用情況。",
+        "machineColumn": "機器",
+        "tokensColumn": "總權杖數",
+        "apiEquivalentColumn": "API 等值金額",
+        "unnamed": "未命名機器",
+        "empty": "過去 {days} 天內沒有機器使用 coderouter。",
+        "unavailable": "機器使用情況暫時無法使用。",
+        "estimateNote": "API 等值金額是依公開牌價估算，並非實際支出。"
+      }
     },
     "accountMenu": {
       "label": "帳戶選單",
@@ -1853,6 +1864,8 @@
     "metaDescription": "下載 cmux NIGHTLY，從最新 main 提交自動建置的獨立應用。與穩定版並行運行，擁有獨立的自動更新。",
     "description": "cmux NIGHTLY 從 main 的最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與穩定版並行運行，互不衝突。用它來測試尚未發佈的新功能。",
     "download": "下載 Mac 版 NIGHTLY",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
   },
   "languageSwitcher": {

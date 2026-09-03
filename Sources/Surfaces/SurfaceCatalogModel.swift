@@ -203,6 +203,10 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
     /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
     var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
+    /// The machine's address on its owner's private network (v4 preferred),
+    /// reachable through the WireGuard tunnel. nil for the local Mac and for
+    /// machines created before private networking.
+    var privateAddress: String? = nil
 }
 
 enum SurfaceLinkState: String, Codable, Sendable {
@@ -250,6 +254,8 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case unavailable(SurfaceResourceID, reason: String)
     case destinationNotFound(String)
     case unsupported(String)
+    /// The target exists but holds nothing to open (an empty remote workspace).
+    case nothingToOpen(String)
 
     var errorDescription: String? {
         switch self {
@@ -258,6 +264,7 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
         case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
+        case .nothingToOpen(let what): return "Nothing to open: \(what)."
         }
     }
 }

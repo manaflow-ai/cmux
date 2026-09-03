@@ -144,33 +144,36 @@ impl TerminalExit {
     }
 }
 
-/// Wait for the native child hidden behind cmux-pty without collapsing Unix
-/// signal/core information into its display-only fallback status.
+/// Wait for a PTY child and report whether the wait reaped it successfully.
 ///
-/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
-/// is an alternate backend and becomes an explicit unknown outcome.
-pub(crate) fn wait_for_native_child_status(
+/// Callers that retain an owning guard can use the boolean to avoid issuing a
+/// second kill against a PID that may already have been reused after a
+/// successful wait.
+pub(crate) fn wait_for_native_child_status_with_reap_result(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
-) -> TerminalExit {
+) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
     if let Some(child) = child.downcast_mut::<std::process::Child>() {
         return match child.wait() {
-            Ok(status) => TerminalExit::from_exit_status(&status),
-            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+            Ok(status) => (TerminalExit::from_exit_status(&status), true),
+            Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
         };
     }
     match child.wait() {
         Ok(status) if status.signal().is_some() => {
-            TerminalExit::unknown(format!("numeric signal status unavailable: {status}"))
+            (TerminalExit::unknown(format!("numeric signal status unavailable: {status}")), true)
         }
         Ok(status) => match i32::try_from(status.exit_code()) {
-            Ok(code) => TerminalExit::now(TerminalExitOutcome::Exit { code }),
-            Err(_) => TerminalExit::unknown(format!(
-                "portable exit code exceeds signed 32-bit range: {}",
-                status.exit_code()
-            )),
+            Ok(code) => (TerminalExit::now(TerminalExitOutcome::Exit { code }), true),
+            Err(_) => (
+                TerminalExit::unknown(format!(
+                    "portable exit code exceeds signed 32-bit range: {}",
+                    status.exit_code()
+                )),
+                true,
+            ),
         },
-        Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
     }
 }
 
@@ -792,7 +795,7 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{mpsc, Arc, Mutex};
 
     /// Test-only stand-in for a direct pipe reader. The bounded queue models
     /// the byte pump, while the mutex is the single parser owner.
@@ -1101,7 +1104,7 @@ mod tests {
             let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
             let mut spawned = pty.spawn(command).unwrap();
-            wait_for_native_child_status(spawned.child.as_mut()).outcome
+            wait_for_native_child_status_with_reap_result(spawned.child.as_mut()).0.outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });

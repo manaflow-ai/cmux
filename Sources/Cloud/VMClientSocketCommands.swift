@@ -16,7 +16,7 @@ extension TerminalController {
                 ]
                 if let limits = page.limits {
                     payload["limits"] = [
-                        "maxActiveVms": limits.maxActiveVms,
+                        "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
                         "planId": limits.planId,
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
@@ -212,6 +212,85 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let payload = try CloudAgentSkillLauncher.promptPayload()
                 return ["prompt": payload.prompt, "skill_path": payload.skillPath]
+            }
+        case "vm.tunnel_config":
+            // Enrolls this Mac into the user's private Cloud VM network and
+            // returns the completed wg-quick config. The private key stays in
+            // app-owned files; it crosses only the same-user control socket,
+            // the same trust boundary every other vm verb already accepts
+            // (see the aiAccounts trust-model note below). `cmux vpn up` is
+            // the caller: it writes nothing itself, it just brings up the
+            // config path this returns.
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let state = try await manager.enroll(client: VMClient.shared)
+                return [
+                    "config_path": state.configPath,
+                    "interface_name": state.interfaceName,
+                    "tunnel_id": state.endpoint.tunnelId,
+                    "provider": state.endpoint.provider,
+                    "device_fingerprint": state.endpoint.deviceFingerprint,
+                    "address_v4": state.endpoint.addressV4 ?? NSNull(),
+                    "address_v6": state.endpoint.addressV6 ?? NSNull(),
+                    "network_cidr": state.endpoint.networkCidr ?? NSNull(),
+                    "network_cidr_v6": state.endpoint.networkCidrV6 ?? NSNull(),
+                    "endpoint_host": state.endpoint.endpointHost ?? NSNull(),
+                    "endpoint_port": state.endpoint.endpointPort,
+                    "routes": state.endpoint.routes,
+                    "created": state.endpoint.created,
+                    "rotated": state.endpoint.rotated,
+                    // Bind the later applied acknowledgement to the exact
+                    // config bytes returned by this enrollment.
+                    "config_digest": manager.configDigest() ?? NSNull(),
+                    "interface_up": manager.wgQuickInterfaceUp(),
+                    // Up with a config other than the one just written (another
+                    // account's enrollment, rotated keys): `vpn up` must replace it.
+                    "stale": manager.isStale(),
+                    "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                ]
+            }
+        case "vm.tunnel_status":
+            // Read-only: local interface state plus whatever enrollment state
+            // is already on disk. Never enrolls, so it is safe for scripts.
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let fingerprint = (try? manager.deviceFingerprint()) ?? ""
+                let hasConfig = FileManager.default.fileExists(atPath: manager.configURL.path)
+                return [
+                    "config_path": manager.configURL.path,
+                    "config_present": hasConfig,
+                    "interface_name": manager.interfaceName,
+                    "interface_up": manager.wgQuickInterfaceUp(),
+                    "stale": manager.isStale(),
+                    "device_fingerprint": fingerprint,
+                    "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                ]
+            }
+        case "vm.tunnel_applied":
+            // `cmux vpn up` reports which config wg-quick brought up (`applied:
+            // true`) and `vpn down` that none is (`applied: false`). The app
+            // keeps the digest, so a later enrollment on disk reads as stale
+            // instead of as "already up".
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let applied = (params["applied"] as? Bool) ?? true
+                let expectedDigest = Self.socketWorkerString(params["config_digest"])
+                try manager.recordApplied(applied, expectedDigest: expectedDigest)
+                return [
+                    "applied": applied,
+                    "digest": manager.appliedDigest() ?? NSNull(),
+                    "stale": manager.isStale(),
+                ]
+            }
+        case "vm.tunnel_revoke":
+            // Unenrolls this Mac server-side and removes the local config so a
+            // later `cmux vpn up` re-enrolls from scratch.
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let fingerprint = try manager.deviceFingerprint()
+                try await VMClient.shared.revokeTunnel(deviceFingerprint: fingerprint)
+                try? FileManager.default.removeItem(at: manager.configURL)
+                return ["revoked": true]
             }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -428,6 +507,12 @@ extension TerminalController {
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
+        }
+        if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
+            var address: [String: Any] = [:]
+            address["ipv4"] = vm.addressIPv4.map { $0 as Any } ?? NSNull()
+            address["ipv6"] = vm.addressIPv6.map { $0 as Any } ?? NSNull()
+            payload["address"] = address
         }
         if let base = vm.base {
             payload["base"] = [

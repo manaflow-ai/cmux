@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
       "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging."
+      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "machines": {
+        "title": "Maskiner",
+        "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
+        "machineColumn": "Maskin",
+        "tokensColumn": "Tokens totalt",
+        "apiEquivalentColumn": "API-ekvivalent verdi",
+        "unnamed": "Maskin uten navn",
+        "empty": "Ingen maskiner har brukt coderouter de siste {days} dagene.",
+        "unavailable": "Bruk per maskin er midlertidig utilgjengelig.",
+        "estimateNote": "API-ekvivalent verdi er et estimat basert på offentlige listepriser, ikke faktisk forbruk."
+      }
     },
     "accountMenu": {
       "label": "Kontomeny",
@@ -1851,6 +1862,8 @@
     "metaDescription": "Last ned cmux NIGHTLY, en separat app som bygges automatisk fra siste main-commit. Kjører ved siden av den stabile versjonen med egne automatiske oppdateringer.",
     "description": "cmux NIGHTLY bygges automatisk fra siste commit på main. Den har sin egen bundle-ID, så den kjører ved siden av den stabile versjonen uten konflikter. Bruk den til å teste nye funksjoner før de lanseres.",
     "download": "Last ned NIGHTLY for Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly-bygg kan inneholde feil eller uferdige funksjoner. Hvis noe går galt, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og bytt tilbake til den stabile versjonen."
   },
   "languageSwitcher": {

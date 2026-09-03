@@ -6,7 +6,9 @@ import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
+  isPaidPlanId,
   isStripePortalRecoverable,
+  manualVmPlanOverride,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
   type BillingManagementKind,
@@ -101,6 +103,11 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
   const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
+  }
+  // An operator team grant (`cmuxVmPlan` on the team) is the Team plan
+  // without a subscription to manage.
+  if (isPaidPlanId(manualVmPlanOverride(team.clientReadOnlyMetadata))) {
+    return { planId: TEAM_PLAN_ID, billingManagement: "none" };
   }
   // Mirror the personal-plan rule: the portal is only useful when it has a
   // recoverable subscription to manage. Terminally canceled teams and
