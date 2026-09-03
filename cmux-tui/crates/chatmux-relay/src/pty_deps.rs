@@ -481,8 +481,9 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ChildLifecycleState {
+    #[default]
     Running,
     ReapPending,
     Exited,
@@ -490,12 +491,6 @@ enum ChildLifecycleState {
 
 struct ChildLifecycle {
     state: Mutex<(ChildLifecycleState, bool)>,
-}
-
-impl Default for ChildLifecycleState {
-    fn default() -> Self {
-        Self::Running
-    }
 }
 
 impl ChildLifecycle {
@@ -791,7 +786,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
-    let mut child = child_cleanup.take();
+    let child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
     let observer_tx = command_tx;
@@ -1268,6 +1263,7 @@ pub fn valid_session(name: &str) -> bool {
 mod tests {
     use super::*;
     use cmux_pty::MasterPty;
+    use std::os::fd::RawFd;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
@@ -1285,11 +1281,11 @@ mod tests {
             Ok(PtySize::default())
         }
 
-        fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
+        fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>, anyhow::Error> {
             Ok(Box::new(std::io::empty()))
         }
 
-        fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, anyhow::Error> {
+        fn take_writer(&self) -> Result<Box<dyn Write + Send>, anyhow::Error> {
             Ok(Box::new(Vec::<u8>::new()))
         }
 
@@ -1297,11 +1293,11 @@ mod tests {
             None
         }
 
-        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        fn as_raw_fd(&self) -> Option<RawFd> {
             None
         }
 
-        fn tty_name(&self) -> Option<std::path::PathBuf> {
+        fn tty_name(&self) -> Option<PathBuf> {
             None
         }
     }
