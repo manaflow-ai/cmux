@@ -32,6 +32,61 @@ struct SessionIndexJSONLReaderTests {
         #expect(visitedSessionIDs == ["exact-cap"])
         #expect(metrics.bytesRead == Data(record.utf8).count)
         #expect(metrics.recordsVisited == 1)
+        #expect(!metrics.didReachByteLimit)
+    }
+
+    @Test
+    func startReaderReportsOnlyActualByteLimitTruncation() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-start-truncated-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let first = #"{"sessionId":"first"}"# + "\n"
+        let second = #"{"sessionId":"second"}"# + "\n"
+        try Data((first + second).utf8).write(to: url)
+
+        let metrics = SessionIndexJSONLReader().fromStart(
+            url: url,
+            maxBytes: Data(first.utf8).count
+        ) { _ in false }
+        let nonpositive = SessionIndexJSONLReader().fromStart(
+            url: url,
+            maxBytes: 0
+        ) { _ in false }
+
+        #expect(metrics.didReachByteLimit)
+        #expect(!nonpositive.didReachByteLimit)
+        #expect(nonpositive.bytesRead == 0)
+    }
+
+    @Test
+    func indexedStartReaderCountsMalformedRawLines() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-start-index-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let content = """
+        {"sessionId":"first"}
+        not-json
+        {"sessionId":"third"}
+
+        """
+        try Data(content.utf8).write(to: url)
+
+        var visits: [(String, Int)] = []
+        let metrics = SessionIndexJSONLReader().fromStart(
+            url: url,
+            maxBytes: Data(content.utf8).count,
+            indexedBody: { object, index in
+                if let sessionID = object["sessionId"] as? String {
+                    visits.append((sessionID, index))
+                }
+                return false
+            }
+        )
+
+        #expect(visits.map(\.0) == ["first", "third"])
+        #expect(visits.map(\.1) == [0, 2])
+        #expect(metrics.recordsVisited == 3)
     }
 
     @Test
