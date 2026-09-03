@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::Duration;
 
 use cmux_tui_core::{Mux, SurfaceOptions};
@@ -47,7 +47,7 @@ struct ProviderCloseWorker {
 }
 
 struct ProviderClosePermit {
-    worker: Arc<ProviderCloseWorker>,
+    worker: Weak<ProviderCloseWorker>,
 }
 
 impl ProviderCloseWorker {
@@ -77,7 +77,7 @@ impl ProviderCloseWorker {
             return None;
         }
         *available -= 1;
-        Some(ProviderClosePermit { worker: Arc::clone(self) })
+        Some(ProviderClosePermit { worker: Arc::downgrade(self) })
     }
 
     fn schedule_reserved(
@@ -96,7 +96,9 @@ impl ProviderCloseWorker {
 
 impl Drop for ProviderClosePermit {
     fn drop(&mut self) {
-        if let Ok(mut available) = self.worker.available.lock() {
+        if let Some(worker) = self.worker.upgrade()
+            && let Ok(mut available) = worker.available.lock()
+        {
             *available += 1;
         }
     }
