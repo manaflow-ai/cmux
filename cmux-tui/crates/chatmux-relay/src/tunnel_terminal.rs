@@ -75,6 +75,10 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// manager's own 1 MiB output cap stays the hard boundary above this.
 const FLOW_PAUSE_BYTES: u64 = 262_144;
 const FLOW_RESUME_BYTES: u64 = 32_768;
+/// Pause before the bounded message queue consumes the slots reserved for
+/// control frames. This covers bursts of many small PTY writes whose byte
+/// total is still below the byte water mark.
+const FLOW_PAUSE_MESSAGES: usize = WRITER_CONTROL_MESSAGE_RESERVE + 16;
 /// The flow worker is local and normally drains synchronously. Keep shutdown
 /// bounded if a future manager implementation blocks unexpectedly.
 const FLOW_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -430,6 +434,26 @@ impl Connection {
         });
     }
 
+    fn maybe_pause_source(&self) {
+        let _gate = self.queue_gate.lock().expect("writer queue lock");
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        let congested = self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
+            || self.writer_tx.capacity() <= FLOW_PAUSE_MESSAGES;
+        if !congested || self.paused.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.flow_tx.send_if_modified(|current| {
+            if *current {
+                false
+            } else {
+                *current = true;
+                true
+            }
+        });
+    }
+
     /// Pause the source before closing when a stalled peer exhausts admission.
     fn reject_due_to_backpressure(&self) {
         let _gate = self.queue_gate.lock().expect("writer queue lock");
@@ -532,9 +556,7 @@ impl Connection {
                 // Socket-side congestion: pause the source through the
                 // manager's own flow verb; the writer resumes it below the
                 // low-water mark.
-                if self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES {
-                    self.publish_flow(true);
-                }
+                self.maybe_pause_source();
             }
             Some("pty_exit") => {
                 let code = frame.get("code").and_then(Value::as_i64).unwrap_or(0);
