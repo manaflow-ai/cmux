@@ -782,6 +782,7 @@ dependencies = [
  "terminput",
  "terminput-crossterm",
  "tokio",
+ "tokio-util",
  "toml",
  "toml_edit 0.22.27",
  "unicode-segmentation",

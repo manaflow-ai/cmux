@@ -50,7 +50,7 @@ use crate::remote_runtime::{
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
     acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
     daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
-    load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    load_shutdown_outcome, start_client_runtime_with_context, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -723,22 +723,25 @@ fn start_connected_with_context(
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?
         .min(context.remaining()?);
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
-        routes,
-        providers,
-        identity: store.identity(),
-        expected_daemon,
-        auth,
-        device_name: flags.device_name.unwrap_or_else(default_device_name),
-        session,
-        lane_policy: flags.lanes,
-        reconnect: flags.reconnect,
-        startup_timeout,
-        state_dir: client_root,
-        local_socket: flags.local_socket,
-        ssh,
-        ssh_bootstrap,
-    })?;
+    let runtime = start_client_runtime_with_context(
+        ClientRuntimeOptions {
+            routes,
+            providers,
+            identity: store.identity(),
+            expected_daemon,
+            auth,
+            device_name: flags.device_name.unwrap_or_else(default_device_name),
+            session,
+            lane_policy: flags.lanes,
+            reconnect: flags.reconnect,
+            startup_timeout,
+            state_dir: client_root,
+            local_socket: flags.local_socket,
+            ssh,
+            ssh_bootstrap,
+        },
+        context,
+    )?;
     if let Err(error) = context.check() {
         let _ = runtime.shutdown();
         return Err(error);
@@ -2742,14 +2745,12 @@ mod tests {
             .expect("client startup did not reach the stalled remote handshake");
         context.cancel();
 
-        let result = done_rx
-            .recv_timeout(Duration::from_millis(500))
-            .unwrap_or_else(|_| {
-                let _ = done_rx
-                    .recv_timeout(Duration::from_secs(3))
-                    .expect("client startup did not finish after its timeout");
-                panic!("client startup ignored cancellation until its startup timeout");
-            });
+        let result = done_rx.recv_timeout(Duration::from_millis(500)).unwrap_or_else(|_| {
+            let _ = done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("client startup did not finish after its timeout");
+            panic!("client startup ignored cancellation until its startup timeout");
+        });
         let error = match result {
             Ok(_) => panic!("cancelled client startup published a ready runtime"),
             Err(error) => error,
