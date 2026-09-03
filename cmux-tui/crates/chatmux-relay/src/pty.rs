@@ -5772,6 +5772,46 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn transport_detach_retires_attachment_when_publication_stalls() {
+        let h = harness(None, None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let mut context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        context.transport_id = Some("transport-a".to_owned());
+        h.manager
+            .handle_frame(
+                &serde_json::json!({
+                    "version": 4,
+                    "type": "pty_open",
+                    "ptyId": "p1",
+                    "session": "main",
+                    "cols": 80,
+                    "rows": 24,
+                    "actorId": "user_owner",
+                }),
+                &context,
+            )
+            .await;
+        let pty = h.spawned()[0].clone();
+        let output = thread::spawn(move || pty.emit("blocked"));
+        entered.wait();
+
+        let manager = h.manager.clone();
+        let mut detach =
+            tokio::spawn(async move { manager.detach_transport_async("transport-a").await });
+        let completed = tokio::time::timeout(Duration::from_secs(1), &mut detach).await;
+
+        release.wait();
+        output.join().expect("output callback");
+        if completed.is_err() {
+            detach.await.expect("transport detach after gate release");
+        }
+        assert!(completed.is_ok(), "transport detach has a bounded publication wait");
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn long_lived_start_does_not_block_close_or_subsequent_frames() {
         let h = harness(None, None);
         let frame = serde_json::json!({
