@@ -364,6 +364,7 @@ import WebKit
                 url,
                 navigationType: navigationAction.navigationType,
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+                shouldPerformDownload: navigationAction.shouldPerformDownload,
                 onOpened: { [self] in
                     clearAttemptedRequest(discardPendingBypasses: true)
                     let reportTerminalCancellation = terminalPolicyCancellationReporter?(
