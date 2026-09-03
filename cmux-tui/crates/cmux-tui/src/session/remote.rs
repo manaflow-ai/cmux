@@ -1257,6 +1257,7 @@ struct WorkerCompletion {
 }
 
 impl WorkerCompletion {
+    #[cfg(test)]
     fn new() -> Self {
         Self::with_slot(None)
     }
