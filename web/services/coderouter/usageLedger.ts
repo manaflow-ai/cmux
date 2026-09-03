@@ -29,6 +29,8 @@ export type UsageEventInput = {
   readonly provider: string;
   /** Claude only; empty for every other provider. */
   readonly upstreamKind?: string;
+  /** The team upstream account that served the request (Claude only for now). */
+  readonly upstreamAccountId?: string;
   readonly agent: string;
   readonly model: string | undefined;
   readonly inputTokens: number;
@@ -52,6 +54,7 @@ export type RouteEventInput = {
   readonly refreshRetryCount: number;
   readonly durationMs: number;
   readonly responseStreamed: boolean;
+  readonly upstreamAccountId?: string;
 };
 
 /** Column-for-column shape of `usage_events`. */
@@ -73,6 +76,7 @@ export type UsageEventRow = {
   readonly rate_card_version: string;
   readonly request_id: string;
   readonly status: number;
+  readonly upstream_account_id: string;
 };
 
 /** Column-for-column shape of `route_events`. */
@@ -90,6 +94,7 @@ export type RouteEventRow = {
   readonly duration_ms: number;
   readonly response_streamed: 0 | 1;
   readonly request_id: string;
+  readonly upstream_account_id: string;
 };
 
 export type UsageLedgerDependencies = {
@@ -172,6 +177,7 @@ export function usageEventRow(
     rate_card_version: CODEROUTER_API_RATE_CARD_VERSION,
     request_id: boundedText(input.requestId, 64),
     status: boundedInteger(input.status, MAX_UINT16),
+    upstream_account_id: ledgerAccountId(input.upstreamAccountId),
   };
 }
 
@@ -190,6 +196,7 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
     duration_ms: boundedInteger(Math.round(input.durationMs), MAX_UINT32),
     response_streamed: input.responseStreamed ? 1 : 0,
     request_id: boundedText(input.requestId, 64),
+    upstream_account_id: ledgerAccountId(input.upstreamAccountId),
   };
 }
 
@@ -224,6 +231,11 @@ export function clickHouseDateTime(date: Date): string {
 
 function ledgerVmId(value: string | null | undefined): string | null {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
+}
+
+/** Empty when the provider has no per-account attribution (codex today). */
+function ledgerAccountId(value: string | undefined): string {
+  return typeof value === "string" && ID_PATTERN.test(value) ? value : "";
 }
 
 function boundedText(value: string | undefined, max: number): string {

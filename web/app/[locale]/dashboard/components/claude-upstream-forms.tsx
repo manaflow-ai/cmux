@@ -1,12 +1,12 @@
 "use client";
 
 import { Dialog } from "@base-ui-components/react/dialog";
-import { useTranslations } from "next-intl";
+import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "../../../../i18n/navigation";
 import { Modal } from "../../components/modal";
 import type {
-  ClaudeUpstreamDescription,
+  ClaudeAccountDescription,
   ClaudeUpstreamKind,
 } from "../../../../services/coderouter/claudeUpstream";
 
@@ -25,14 +25,19 @@ const buttonClass =
 const primaryButtonClass =
   "border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60";
 
+/**
+ * The team's Claude upstream accounts: every account listed with its health,
+ * plus the add form. Requests from a Cloud VM are pinned to one account and
+ * move to another when it cools down, so the list is the whole routing table.
+ */
 export function ClaudeUpstreamSection({
   teamId,
-  current,
+  accounts,
   canManage,
   loadFailed,
 }: {
   readonly teamId: string;
-  readonly current: ClaudeUpstreamDescription | null;
+  readonly accounts: readonly ClaudeAccountDescription[];
   readonly canManage: boolean;
   readonly loadFailed: boolean;
 }) {
@@ -50,25 +55,25 @@ export function ClaudeUpstreamSection({
         </div>
       ) : (
         <div className="space-y-3">
-          <CurrentUpstreamRow teamId={teamId} current={current} canManage={canManage} />
-          {canManage ? <ClaudeUpstreamForms teamId={teamId} /> : null}
+          <AccountList teamId={teamId} accounts={accounts} canManage={canManage} />
+          {canManage ? <AddAccountForm teamId={teamId} /> : null}
         </div>
       )}
     </section>
   );
 }
 
-function CurrentUpstreamRow({
+function AccountList({
   teamId,
-  current,
+  accounts,
   canManage,
 }: {
   readonly teamId: string;
-  readonly current: ClaudeUpstreamDescription | null;
+  readonly accounts: readonly ClaudeAccountDescription[];
   readonly canManage: boolean;
 }) {
   const t = useTranslations("dashboard.claudeUpstream");
-  if (!current) {
+  if (accounts.length === 0) {
     return (
       <div className="border border-border p-3">
         <div className="text-sm font-medium">{t("emptyTitle")}</div>
@@ -77,21 +82,63 @@ function CurrentUpstreamRow({
     );
   }
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border border-border px-3 py-2 text-sm">
-      <div className="min-w-0">
-        <div className="text-xs text-muted">{t("currentLabel")}</div>
-        <div className="mt-0.5">{kindLabel(current.kind, t)}</div>
-        <div className="mt-0.5 font-mono text-xs text-muted">
-          {current.identifier}
-          {current.region ? ` · ${current.region}` : ""}
-        </div>
+    <div className="border border-border">
+      <div className="border-b border-border px-3 py-1.5 text-xs text-muted">
+        {t("accountsLabel", { count: accounts.length })}
       </div>
-      {canManage ? <RemoveUpstreamButton teamId={teamId} /> : null}
+      <ul className="divide-y divide-border">
+        {accounts.map((account) => (
+          <AccountRow key={account.id} teamId={teamId} account={account} canManage={canManage} />
+        ))}
+      </ul>
     </div>
   );
 }
 
-function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
+function AccountRow({
+  teamId,
+  account,
+  canManage,
+}: {
+  readonly teamId: string;
+  readonly account: ClaudeAccountDescription;
+  readonly canManage: boolean;
+}) {
+  const t = useTranslations("dashboard.claudeUpstream");
+  const format = useFormatter();
+  const now = useNow();
+  const cooling = account.cooldownUntil !== null && new Date(account.cooldownUntil).getTime() > now.getTime();
+  const health = account.state === "disabled"
+    ? t("stateDisabled")
+    : cooling
+      ? t("coolingDown", { until: format.dateTime(new Date(account.cooldownUntil!), { timeStyle: "short" }) })
+      : t("stateActive");
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm">
+      <div className="min-w-0">
+        <div>
+          {kindLabel(account.kind, t)}
+          {account.label ? <span className="text-muted"> · {account.label}</span> : null}
+        </div>
+        <div className="mt-0.5 font-mono text-xs text-muted">
+          {account.identifier}
+          {account.region ? ` · ${account.region}` : ""}
+        </div>
+        <div className="mt-0.5 text-xs text-muted">
+          {health}
+          {" · "}
+          {account.lastUsedAt
+            ? t("lastUsed", { at: format.relativeTime(new Date(account.lastUsedAt), now) })
+            : t("neverUsed")}
+          {account.lastFailureCode ? ` · ${t("lastFailure", { code: account.lastFailureCode })}` : ""}
+        </div>
+      </div>
+      {canManage ? <AccountActions teamId={teamId} account={account} /> : null}
+    </li>
+  );
+}
+
+function AddAccountForm({ teamId }: { readonly teamId: string }) {
   const t = useTranslations("dashboard.claudeUpstream");
   const router = useRouter();
   const [kind, setKind] = useState<ClaudeUpstreamKind>("anthropic_api_key");
@@ -108,7 +155,7 @@ function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
       const response = await fetch(
         `/api/coderouter/claude-upstream?teamId=${encodeURIComponent(teamId)}`,
         {
-          method: "PUT",
+          method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         },
@@ -130,7 +177,7 @@ function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
 
   return (
     <div className="border border-border p-3">
-      <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label={t("kindSelectorLabel")}>
+      <div role="tablist" aria-label={t("kindSelectorLabel")} className="mb-3 flex flex-wrap gap-2">
         {KINDS.map((candidate) => (
           <button
             key={candidate}
@@ -141,10 +188,8 @@ function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
               setKind(candidate);
               setStatus(idleStatus);
             }}
-            className={`border px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-              candidate === kind
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-muted hover:text-foreground"
+            className={`px-2 py-1 text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+              candidate === kind ? "border border-foreground" : "border border-border text-muted hover:text-foreground"
             }`}
           >
             {kindLabel(candidate, t)}
@@ -152,19 +197,21 @@ function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
         ))}
       </div>
       <form onSubmit={submit} className="space-y-3">
+        <Field label={t("labelField")} name="label" placeholder={t("labelPlaceholder")} required={false} secret={false} mono={false} />
         {kind === "anthropic_api_key" ? (
           <Field label={t("apiKeyField")} name="apiKey" placeholder="sk-ant-api03-..." />
-        ) : kind === "anthropic_oauth" ? (
-          <div className="space-y-2">
+        ) : null}
+        {kind === "anthropic_oauth" ? (
+          <>
             <Field label={t("oauthTokenField")} name="token" placeholder="sk-ant-oat01-..." />
             <p className="text-xs text-muted">
-              {t("oauthHint")}{" "}
-              <code className="font-mono text-foreground">claude setup-token</code>
+              {t("oauthHint")} <code className="font-mono">claude setup-token</code>
             </p>
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label={t("regionField")} name="region" placeholder="us-east-1" mono={false} />
+          </>
+        ) : null}
+        {kind === "bedrock" ? (
+          <>
+            <Field label={t("regionField")} name="region" placeholder="us-west-2" secret={false} />
             <Field label={t("accessKeyIdField")} name="accessKeyId" placeholder="AKIA..." />
             <Field label={t("secretAccessKeyField")} name="secretAccessKey" placeholder="" />
             <Field
@@ -173,14 +220,16 @@ function ClaudeUpstreamForms({ teamId }: { readonly teamId: string }) {
               placeholder={t("optionalPlaceholder")}
               required={false}
             />
-          </div>
-        )}
+          </>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={status.state === "submitting"} className={primaryButtonClass}>
             {status.state === "submitting" ? t("savingAction") : t("saveAction")}
           </button>
           {status.message ? (
-            <span className="text-xs text-foreground">{status.message}</span>
+            <span className={`text-xs ${status.state === "error" ? "text-foreground" : "text-muted"}`}>
+              {status.message}
+            </span>
           ) : null}
         </div>
       </form>
@@ -193,12 +242,14 @@ function Field({
   name,
   placeholder,
   required = true,
+  secret = true,
   mono = true,
 }: {
   readonly label: string;
   readonly name: string;
   readonly placeholder: string;
   readonly required?: boolean;
+  readonly secret?: boolean;
   readonly mono?: boolean;
 }) {
   const id = `claude-upstream-${name}`;
@@ -208,7 +259,7 @@ function Field({
       <input
         id={id}
         name={name}
-        type="password"
+        type={secret ? "password" : "text"}
         autoComplete="off"
         spellCheck={false}
         required={required}
@@ -219,26 +270,47 @@ function Field({
   );
 }
 
-function RemoveUpstreamButton({ teamId }: { readonly teamId: string }) {
+function AccountActions({
+  teamId,
+  account,
+}: {
+  readonly teamId: string;
+  readonly account: ClaudeAccountDescription;
+}) {
   const t = useTranslations("dashboard.claudeUpstream");
   const router = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const url = `/api/coderouter/claude-upstream/${encodeURIComponent(account.id)}?teamId=${encodeURIComponent(teamId)}`;
+
+  const toggle = async () => {
+    if (status.state === "submitting") return;
+    setStatus({ state: "submitting" });
+    try {
+      const response = await fetch(url, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ state: account.state === "disabled" ? "active" : "disabled" }),
+      });
+      if (!response.ok) {
+        setStatus({ state: "error", message: errorMessageForStatus(response.status, t, t("updateError")) });
+        return;
+      }
+      setStatus(idleStatus);
+      router.refresh();
+    } catch {
+      setStatus({ state: "error", message: t("updateError") });
+    }
+  };
 
   const remove = async () => {
     if (status.state === "submitting") return;
     setConfirmOpen(false);
     setStatus({ state: "submitting" });
     try {
-      const response = await fetch(
-        `/api/coderouter/claude-upstream?teamId=${encodeURIComponent(teamId)}`,
-        { method: "DELETE" },
-      );
+      const response = await fetch(url, { method: "DELETE" });
       if (!response.ok && response.status !== 404) {
-        setStatus({
-          state: "error",
-          message: errorMessageForStatus(response.status, t, t("removeError")),
-        });
+        setStatus({ state: "error", message: errorMessageForStatus(response.status, t, t("removeError")) });
         return;
       }
       setStatus(idleStatus);
@@ -250,14 +322,19 @@ function RemoveUpstreamButton({ teamId }: { readonly teamId: string }) {
 
   return (
     <div className="text-right">
-      <button
-        type="button"
-        onClick={() => setConfirmOpen(true)}
-        disabled={status.state === "submitting"}
-        className={buttonClass}
-      >
-        {status.state === "submitting" ? t("removingAction") : t("removeAction")}
-      </button>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={toggle} disabled={status.state === "submitting"} className={buttonClass}>
+          {account.state === "disabled" ? t("enableAction") : t("disableAction")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(true)}
+          disabled={status.state === "submitting"}
+          className={buttonClass}
+        >
+          {status.state === "submitting" ? t("removingAction") : t("removeAction")}
+        </button>
+      </div>
       {status.state === "error" && status.message ? (
         <div className="mt-1 text-xs text-foreground">{status.message}</div>
       ) : null}
@@ -281,20 +358,22 @@ function RemoveUpstreamButton({ teamId }: { readonly teamId: string }) {
 
 function bodyForKind(kind: ClaudeUpstreamKind, data: FormData): Record<string, string> {
   const field = (name: string) => String(data.get(name) ?? "").trim();
+  const label = field("label");
+  const withLabel = (body: Record<string, string>) => (label ? { ...body, label } : body);
   switch (kind) {
     case "anthropic_api_key":
-      return { kind, apiKey: field("apiKey") };
+      return withLabel({ kind, apiKey: field("apiKey") });
     case "anthropic_oauth":
-      return { kind, token: field("token") };
+      return withLabel({ kind, token: field("token") });
     case "bedrock": {
       const sessionToken = field("sessionToken");
-      return {
+      return withLabel({
         kind,
         region: field("region"),
         accessKeyId: field("accessKeyId"),
         secretAccessKey: field("secretAccessKey"),
         ...(sessionToken ? { sessionToken } : {}),
-      };
+      });
     }
   }
 }

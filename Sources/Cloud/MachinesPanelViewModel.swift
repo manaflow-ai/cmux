@@ -602,9 +602,11 @@ final class MachinesPanelViewModel: ObservableObject {
         usageTask?.cancel()
         guard let client = MachineUsageClient.shared else { return }
         usageTask = Task { [weak self] in
-            guard let usage = try? await client.teamUsage() else { return }
+            // A failed refresh clears the readout: a stale spend figure is
+            // worse than none, and the next poll restores it.
+            let usage = (try? await client.teamUsage())?.byMachineID ?? [:]
             guard !Task.isCancelled, let self else { return }
-            self.applyUsage(usage.byMachineID)
+            self.applyUsage(usage)
         }
     }
 
