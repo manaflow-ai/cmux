@@ -46,3 +46,18 @@ import Testing
         #expect(store.stored == nil)
     }
 }
+
+@Suite struct UserDefaultsCloudDeviceIdentityStoreTests {
+    @Test func roundTripsAndTreatsCorruptDataAsAbsent() throws {
+        let suite = "cmux-cloud-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UserDefaultsCloudDeviceIdentityStore(defaults: defaults)
+        #expect(store.read() == .absent)
+        let identity = CloudDeviceIdentity.mint()
+        try store.write(identity)
+        #expect(store.read() == .found(identity))
+        defaults.set(Data("junk".utf8), forKey: "cmux.cloud.deviceIdentity.v1")
+        #expect(store.read() == .absent)
+    }
+}
