@@ -1,11 +1,25 @@
 import AppKit
 
-/// Pure multi-monitor recovery geometry and window-usability policy for the
-/// Settings window, split out of `SettingsWindowPresenter` (which stays under
-/// the Swift file-length budget) and kept as extensions so call sites and
-/// tests address one type.
+/// Multi-monitor/Space recovery and window-usability policy for Settings,
+/// split out of `SettingsWindowPresenter` (which stays under the Swift
+/// file-length budget) and kept as extensions so call sites and tests address
+/// one type.
 extension SettingsWindowPresenter {
     static let visibleAreaInset: CGFloat = 18
+
+    /// Settings follows the invocation into the user's current Space and can
+    /// appear beside a full-screen cmux window. `NSWindow.isVisible` also
+    /// returns true for windows on another Space or obscured by another
+    /// window, so the presenter's visible-on-return contract depends on these
+    /// AppKit policies rather than `isVisible` alone.
+    func configureSpaceBehavior(of window: NSWindow) {
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        // `NSWindow.allowsAutomaticWindowTabbing` is disabled during normal
+        // launch, but make this lifecycle self-contained for early opens and
+        // identifier-adopted windows. A Settings tab hidden behind a terminal
+        // window is another false-positive `isVisible` state.
+        window.tabbingMode = .disallowed
+    }
 
     func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
         let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }

@@ -78,6 +78,31 @@ extension SettingsWindowSharedStateSuites {
             )
         }
 
+        @Test func presenterBuildsAWindowThatFollowsTheOpenRequestAcrossSpaces() throws {
+            closeSettingsWindows()
+            defer { closeSettingsWindows() }
+
+            let presenter = SettingsWindowPresenter()
+            #expect(presenter.show() == .presented)
+            let window = try #require(
+                NSApp.windows.first {
+                    $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
+                }
+            )
+
+            // `isVisible` remains true for a window stranded in another Space
+            // or obscured by a full-screen main window. The Settings window
+            // itself must carry the AppKit policies that move an activated
+            // window to the user's current Space and admit it beside a
+            // full-screen cmux window.
+            #expect(window.collectionBehavior.contains(.moveToActiveSpace))
+            #expect(window.collectionBehavior.contains(.fullScreenAuxiliary))
+            // A user who enables automatic macOS window tabbing must still
+            // receive a standalone Settings window, never a terminal tab that
+            // makes the open request appear to have done nothing.
+            #expect(window.tabbingMode == .disallowed)
+        }
+
         @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
