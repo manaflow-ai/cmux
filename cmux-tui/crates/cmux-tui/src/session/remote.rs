@@ -6,11 +6,12 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
@@ -202,8 +203,15 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
+    Rejected {
+        error: String,
+        code: Option<String>,
+        delivery: Option<ClearHistoryDelivery>,
+    },
     Shutdown,
+    /// The peer closed the transport. This is retryable for pipe-IO startup,
+    /// unlike a local shutdown initiated by this process.
+    RemoteShutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +244,30 @@ impl RemoteRequestError {
     }
 }
 
+pub(crate) fn is_pipe_io_retryable_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(remote_error) = cause.downcast_ref::<RemoteRequestError>() {
+            return remote_error.is_transport_failure()
+                || remote_error.is_timeout()
+                || matches!(remote_error, RemoteRequestError::RemoteShutdown);
+        }
+        cause.downcast_ref::<io::Error>().is_some_and(|io_error| {
+            matches!(
+                io_error.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::TimedOut
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::WouldBlock
+                    | io::ErrorKind::Interrupted
+                    | io::ErrorKind::NotFound
+            )
+        })
+    })
+}
+
 impl std::fmt::Display for RemoteRequestError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -244,6 +276,9 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Timeout => write!(formatter, "remote session did not respond"),
             Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
+            Self::RemoteShutdown => {
+                write!(formatter, "remote response wait canceled after peer disconnect")
+            }
         }
     }
 }
@@ -1602,6 +1637,100 @@ pub struct RemoteSession {
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    pipe_io_tap: Mutex<Option<PipeIoTap>>,
+}
+
+/// One event on the raw byte stream a `--pipe-io` relay serves to its
+/// embedder. `Replay` REPLACES all prior terminal state (the relay must
+/// emit a full reset before any replay that is not its first output);
+/// `Output` appends live PTY bytes.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PipeIoEvent {
+    Replay { bytes: Vec<u8> },
+    Output(Vec<u8>),
+    SurfaceExited,
+    TransportLost,
+    StdinClosed,
+    StdinError,
+}
+
+impl PipeIoEvent {
+    /// Bytes retained by the relay's bounded data queue. Lifecycle signals
+    /// have a separate one-slot channel and carry no retained payload.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
+            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed | Self::StdinError => 0,
+        }
+    }
+}
+
+/// Shared byte budget for one pipe-IO relay. A count-only bounded channel can
+/// retain megabytes per event when a replay is large; this budget makes the
+/// memory bound explicit and turns an overrun into the same transport-loss
+/// path as a full channel.
+pub(crate) struct PipeIoByteBudget {
+    retained: AtomicUsize,
+    limit: usize,
+}
+
+impl PipeIoByteBudget {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self { retained: AtomicUsize::new(0), limit: limit.max(1) }
+    }
+
+    pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let Some(next) = current.checked_add(bytes) else { return false };
+            if next > self.limit {
+                return false;
+            }
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    pub(crate) fn exceeds_limit(&self, bytes: usize) -> bool {
+        bytes > self.limit
+    }
+
+    pub(crate) fn release(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(bytes);
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+}
+
+struct PipeIoTap {
+    surface: SurfaceId,
+    sender: EventSender<PipeIoEvent>,
+    lifecycle_sender: EventSender<PipeIoEvent>,
+    byte_budget: Arc<PipeIoByteBudget>,
+    token: Arc<u8>,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -1873,14 +2002,41 @@ impl RemoteSession {
     }
 
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
-        })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
-        }
+        let stream = transport::connect(path)
+            .with_context(|| format!("cannot connect to session socket {}", path.display()))?;
+        Self::connect_stream_with_subscription(stream, subscribe)
+    }
+
+    fn connect_path_until(
+        path: &Path,
+        subscribe: bool,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        let path_for_thread = path.to_path_buf();
+        let display = path.display().to_string();
+        let (sender, receiver) = sync_channel(1);
+        let connector =
+            std::thread::Builder::new().name("remote-probe-connect".into()).spawn(move || {
+                let _ = sender.send(transport::connect(&path_for_thread));
+            })?;
+        let stream = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            Ok(result) => {
+                let _ = connector.join();
+                result.with_context(|| format!("cannot connect to session socket {display}"))?
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                let _ = connector.join();
+                anyhow::bail!("remote probe connector stopped without a result")
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // The pipe-io process exits after classification. Dropping the
+                // connector lets that process terminate any blocked connect.
+                drop(connector);
+                anyhow::bail!(RemoteRequestError::Timeout)
+            }
+        };
+        Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -2046,6 +2202,12 @@ impl RemoteSession {
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
         self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    /// Pipe-IO requires the daemon's attach-time geometry handshake so the
+    /// initial replay uses the embedder's requested dimensions.
+    pub(crate) fn supports_pipe_io_initial_size(&self) -> bool {
+        self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
     }
 
     pub fn supports_surface_subscription_filter(&self) -> bool {
@@ -2275,8 +2437,13 @@ impl RemoteSession {
                 let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
+                let bytes = match self.pipe_io_forward_owned(id, PipeIoEvent::Output(bytes)) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Output(bytes)) => bytes,
+                    Err(_) => return,
+                };
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
@@ -2685,6 +2852,14 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
+    fn shutdown_request_error(&self) -> RemoteRequestError {
+        if matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::Remote(_)) {
+            RemoteRequestError::RemoteShutdown
+        } else {
+            RemoteRequestError::Shutdown
+        }
+    }
+
     /// Fire-and-forget command: enqueued in order with interactive traffic,
     /// never awaited. Used for best-effort reporting such as client focus.
     pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
@@ -2730,7 +2905,7 @@ impl RemoteSession {
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
 
         let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
@@ -2777,7 +2952,7 @@ impl RemoteSession {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(RemoteRequestError::Shutdown)
+                    Err(self.shutdown_request_error())
                 }
                 Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
             };
@@ -2803,13 +2978,13 @@ impl RemoteSession {
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    return Err(RemoteRequestError::Shutdown);
+                    return Err(self.shutdown_request_error());
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.shutdown.load(Ordering::Acquire) {
-                return Err(RemoteRequestError::Shutdown);
+                return Err(self.shutdown_request_error());
             }
         }
     }
@@ -2834,7 +3009,7 @@ impl RemoteSession {
             .map_err(RemoteRequestError::Transport)?;
         if self.shutdown.load(Ordering::Acquire) {
             self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
         Ok(())
     }
@@ -2988,6 +3163,173 @@ impl RemoteSession {
         drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
+        self.interactive_writer.abort_transport();
+        self.interactive_writer.join_worker();
+        self.join_reader_worker();
+    }
+
+    fn join_reader_worker(&self) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                worker.take();
+                return;
+            }
+            worker.take()
+        };
+        if let Some(handle) = handle {
+            if self.reader_completion.wait(remote_write_timeout()) {
+                let _ = handle.join();
+            } else if let Err(handle) = enqueue_worker_reap(handle, self.reader_completion.clone())
+            {
+                *self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner()) =
+                    Some(handle);
+            }
+        }
+    }
+
+    /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
+    /// Install before `attach-surface` so the initial replay is not missed.
+    pub(crate) fn install_pipe_io_tap(
+        &self,
+        surface: SurfaceId,
+        sender: EventSender<PipeIoEvent>,
+        lifecycle_sender: EventSender<PipeIoEvent>,
+        byte_budget: Arc<PipeIoByteBudget>,
+    ) -> Arc<u8> {
+        // A non-zero-sized allocation gives each tap a stable identity. A
+        // zero-sized Arc token could share the allocator's dangling pointer.
+        let token = Arc::new(0u8);
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap {
+            surface,
+            sender,
+            lifecycle_sender,
+            byte_budget,
+            token: token.clone(),
+        });
+        token
+    }
+
+    pub(crate) fn clear_pipe_io_tap(&self, token: &Arc<u8>) {
+        let mut slot = self.pipe_io_tap.lock().unwrap();
+        if slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token)) {
+            slot.take();
+        }
+    }
+
+    fn signal_pipe_io_event(
+        &self,
+        surface: Option<SurfaceId>,
+        token: Option<&Arc<u8>>,
+        event: PipeIoEvent,
+    ) -> bool {
+        let tap = {
+            let mut slot = self.pipe_io_tap.lock().unwrap();
+            if (surface.is_none() || slot.as_ref().is_some_and(|tap| Some(tap.surface) == surface))
+                && token.is_none_or(|token| {
+                    slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token))
+                })
+            {
+                slot.take()
+            } else {
+                None
+            }
+        };
+        if let Some(tap) = tap {
+            // A second lifecycle event is redundant. If the one-slot signal
+            // channel is already occupied, the first event remains the
+            // authoritative reason and still wakes the relay.
+            let _ = tap.lifecycle_sender.try_send(event);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns true while this connection has a raw pipe-IO tap for
+    /// `surface`. The event reader uses this fence to avoid feeding the same
+    /// bytes into the normal local mirror parser as well as the relay.
+    fn pipe_io_owns_surface(&self, surface: SurfaceId) -> bool {
+        self.pipe_io_tap.lock().unwrap().as_ref().is_some_and(|tap| tap.surface == surface)
+    }
+
+    /// Forwards one tap event, treating a full or dropped queue as a lost
+    /// transport: the relay's reader stalled, and silently dropping bytes
+    /// would corrupt the embedder's terminal state (bounded-backpressure
+    /// policy; never wedge the session reader thread).
+    fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return false };
+            if tap.surface != surface {
+                return false;
+            }
+            let event = event();
+            let retained_bytes = event.retained_bytes();
+            if !tap.byte_budget.try_reserve(retained_bytes) {
+                Some((tap.token.clone(), tap.byte_budget.exceeds_limit(retained_bytes)))
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                        tap.byte_budget.release(retained_bytes);
+                        Some((tap.token.clone(), false))
+                    }
+                }
+            }
+        };
+        if let Some((token, over_limit)) = stalled_token {
+            let event =
+                if over_limit { PipeIoEvent::StdinError } else { PipeIoEvent::TransportLost };
+            if self.signal_pipe_io_event(Some(surface), Some(&token), event) {
+                self.disconnect_transport();
+            }
+        }
+        true
+    }
+
+    /// Forwards an already-owned event without cloning its payload. If no
+    /// matching tap exists, the event is returned to the caller for normal
+    /// terminal parsing. Once a tap owns the event, queue overflow consumes it
+    /// and tears down that relay, so the caller must not parse it locally.
+    fn pipe_io_forward_owned(
+        &self,
+        surface: SurfaceId,
+        event: PipeIoEvent,
+    ) -> Result<(), PipeIoEvent> {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return Err(event) };
+            if tap.surface != surface {
+                return Err(event);
+            }
+            let retained_bytes = event.retained_bytes();
+            if !tap.byte_budget.try_reserve(retained_bytes) {
+                Some((tap.token.clone(), tap.byte_budget.exceeds_limit(retained_bytes)))
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                        tap.byte_budget.release(retained_bytes);
+                        Some((tap.token.clone(), false))
+                    }
+                }
+            }
+        };
+        if let Some((token, over_limit)) = stalled_token {
+            let event =
+                if over_limit { PipeIoEvent::StdinError } else { PipeIoEvent::TransportLost };
+            // Signal only the tap that observed the stall. A replacement tap
+            // may have been installed while this reader thread released the
+            // mutex; it must not be torn down by an older relay.
+            if self.signal_pipe_io_event(Some(surface), Some(&token), event) {
+                self.disconnect_transport();
+            }
+        }
+        Ok(())
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -4435,6 +4777,18 @@ mod tests {
         }));
         require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
             .unwrap();
+    }
+
+    #[test]
+    fn pipe_io_initial_size_requires_atomic_attach_capability() {
+        let without = test_session_with_provider_context(None, HashSet::new());
+        assert!(!without.supports_pipe_io_initial_size());
+
+        let with = test_session_with_provider_context(
+            None,
+            HashSet::from([cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY.to_string()]),
+        );
+        assert!(with.supports_pipe_io_initial_size());
     }
 
     #[test]
@@ -6250,6 +6604,25 @@ mod tests {
     }
 
     #[test]
+    fn json_line_reader_preserves_utf8_across_buffer_boundaries() {
+        let input = b"{\"text\":\"\xC3\xA9\"}\n".to_vec();
+        let mut reader = BufReader::with_capacity(1, io::Cursor::new(input));
+        let mut progress = Vec::new();
+
+        let line = read_json_line_with_progress_bounded(
+            &mut reader,
+            &mut |partial| progress.push(partial.to_vec()),
+            64,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(line.as_bytes(), b"{\"text\":\"\xC3\xA9\"}");
+        assert!(progress.iter().any(|partial| partial.ends_with(&[0xC3])));
+        assert_eq!(progress.last().unwrap(), b"{\"text\":\"\xC3\xA9\"}");
+    }
+
+    #[test]
     fn remote_reader_end_reason_distinguishes_eof_from_read_failure() {
         let eof: io::Result<Option<String>> = Ok(None);
         assert_eq!(
@@ -6328,6 +6701,331 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    struct LifecycleReader {
+        responses: Receiver<String>,
+        remaining_responses: usize,
+        release: Arc<(Mutex<bool>, Condvar)>,
+        exited: Sender<()>,
+        entered: Option<Sender<()>>,
+        exit_delay: Duration,
+    }
+
+    impl RemoteMessageReader for LifecycleReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            if self.remaining_responses > 0 {
+                self.remaining_responses -= 1;
+                return self.responses.recv().map(Some).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle response channel closed")
+                });
+            }
+
+            let (released, changed) = &*self.release;
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            if !self.exit_delay.is_zero() {
+                std::thread::sleep(self.exit_delay);
+            }
+            self.exited.send(()).unwrap();
+            Ok(None)
+        }
+    }
+
+    struct LifecycleWriter {
+        responses: Sender<String>,
+        closed: Arc<AtomicBool>,
+        exited: Sender<()>,
+    }
+
+    impl RemoteMessageWriter for LifecycleWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("lifecycle request omitted its id"))?;
+            let data = (request.get("cmd").and_then(Value::as_str) == Some("identify"))
+                .then(|| json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION}))
+                .unwrap_or(Value::Null);
+            self.responses
+                .send(json!({"id": id, "ok": true, "data": data}).to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    impl Drop for LifecycleWriter {
+        fn drop(&mut self) {
+            let _ = self.exited.send(());
+        }
+    }
+
+    struct LifecycleAbort {
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl RemoteTransportAbort for LifecycleAbort {
+        fn abort(&self) -> io::Result<()> {
+            let (released, changed) = &*self.release;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transport_disconnect_cancels_and_joins_reader_and_writer_workers() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
+            }),
+            Box::new(LifecycleWriter { responses, closed: closed.clone(), exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+
+        session.disconnect_transport();
+
+        assert!(closed.load(Ordering::Acquire));
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must cancel the blocked reader");
+        writer_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must join the writer");
+    }
+
+    #[test]
+    fn dropping_session_waits_for_blocked_reader_worker() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_entered, reader_entered_rx) = channel();
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: Some(reader_entered),
+                exit_delay: Duration::from_millis(50),
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+        reader_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not reach its blocked receive");
+
+        let started = Instant::now();
+        drop(session);
+        assert!(
+            started.elapsed() >= Duration::from_millis(40),
+            "dropping the session returned before the reader worker exited"
+        );
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("reader worker did not exit before session drop returned");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_saturated() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a zero-capacity queue must return the handle");
+        drop(receiver);
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_disconnected() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        drop(receiver);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a disconnected queue must return the handle");
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::RemoteShutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn full_pipe_io_queue_signals_loss_on_the_reserved_lifecycle_channel() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"first".to_vec()));
+        // The byte queue is full. The second event must force a transport
+        // loss, and that lifecycle signal must remain observable even though
+        // no byte-queue slot is available.
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"second".to_vec()));
+
+        assert_eq!(
+            lifecycle_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            PipeIoEvent::TransportLost
+        );
+        assert!(session.pipe_io_tap.lock().unwrap().is_none());
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"first".to_vec()));
+    }
+
+    #[test]
+    fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let built = Arc::new(AtomicBool::new(false));
+        let built_by_event = built.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            built_by_event.store(true, Ordering::Release);
+            PipeIoEvent::Output(vec![0; 1024])
+        }));
+        assert!(!built.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stale_pipe_io_tap_cleanup_cannot_remove_a_replacement() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let second_token = session.install_pipe_io_tap(
+            7,
+            second_sender,
+            second_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.clear_pipe_io_tap(&first_token);
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"replacement".to_vec()));
+
+        assert!(Arc::ptr_eq(
+            &session.pipe_io_tap.lock().unwrap().as_ref().unwrap().token,
+            &second_token
+        ));
+        assert_eq!(
+            second_receiver.try_recv().unwrap(),
+            PipeIoEvent::Output(b"replacement".to_vec())
+        );
     }
 
     #[test]
@@ -6953,7 +7651,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
+                Some(RemoteRequestError::RemoteShutdown)
             ),
             "expected shutdown after EOF canceled the request, got {error:?}"
         );
