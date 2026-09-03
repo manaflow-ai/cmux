@@ -249,6 +249,69 @@ import Testing
         #expect(mac.legacyTailscaleRoutes == [tailscale])
     }
 
+    @Test func removedRouteStaysHiddenAcrossRegistryRefreshAndReopen() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let removed = try CmxAttachRoute(
+            id: "tailscale-old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.40", port: 8443)
+        )
+        let refreshedRemoved = try CmxAttachRoute(
+            id: "tailscale-new",
+            kind: .tailscale,
+            endpoint: removed.endpoint
+        )
+        let retained = try CmxAttachRoute(
+            id: "tailscale-retained",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.41", port: 8443)
+        )
+
+        try await store.upsert(
+            macDeviceID: "tailscale-mac",
+            displayName: "Tailscale Mac",
+            routes: [removed, retained],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        #expect(
+            try await store.removeRouteIfAuthorized(
+                macDeviceID: "tailscale-mac",
+                route: removed,
+                condition: .matchingInstanceTag(nil),
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+        #expect(try await store.activeMac(stackUserID: "user-1")?.routes == [retained])
+
+        // Presence can immediately publish the same endpoint under a new route
+        // id. The endpoint tombstone must win over that registry refresh.
+        #expect(
+            try await store.upsertRoutesIfAuthorized(
+                macDeviceID: "tailscale-mac",
+                displayName: "Tailscale Mac",
+                routes: [refreshedRemoved, retained],
+                condition: .matchingInstanceTag(nil),
+                markActive: nil,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 3)
+            )
+        )
+        #expect(try await store.activeMac(stackUserID: "user-1")?.routes == [retained])
+
+        // A fresh store instance represents an app relaunch and must retain the
+        // local route choice.
+        let reopenedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        #expect(try await reopenedStore.activeMac(stackUserID: "user-1")?.routes == [retained])
+    }
+
     @Test func userEnteredPairingCodeMintsDeviceLocalGrant() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
