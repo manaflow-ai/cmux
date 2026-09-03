@@ -3,7 +3,14 @@ extension CMUXCLI {
 export default function (amp: PluginAPI) {
   const rootThread = (amp as unknown as { thread?: AmpThread }).thread;
   const helpers = (amp as unknown as { helpers?: unknown }).helpers;
-  const cwdFromEnv = (): string => process.cwd();
+  // Amp executes plugin callbacks from the system plugin directory. The
+  // managed wrapper captures the terminal's project directory explicitly;
+  // retain PWD for older launches and use the callback cwd only as a fallback.
+  const cwdFromEnv = (): string => firstString(
+    process.env.CMUX_AGENT_LAUNCH_CWD,
+    process.env.PWD,
+    process.cwd(),
+  ) || process.cwd();
   const titleByThread = new Map<string, string>();
   const emittedTitleByThread = new Map<string, string>();
   const titleVersions = new Map<string, number>();
