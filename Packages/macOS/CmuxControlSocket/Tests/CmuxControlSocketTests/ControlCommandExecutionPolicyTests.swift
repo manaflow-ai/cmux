@@ -26,6 +26,19 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.remove") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func coderouterPrefixedMethodsRunOnTheSocketWorker() {
+        // `cmux coderouter` verbs (team Claude upstream, per-machine usage) make
+        // blocking authenticated web API calls like `aiAccounts.*`; off the
+        // worker the dispatcher answers method_not_found.
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.get") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.set") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.clear") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.add") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.remove") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.update") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.machines") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",

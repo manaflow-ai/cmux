@@ -242,7 +242,7 @@ cmux هو لبنة أساسية وليس حلًا جاهزًا. يمنحك طر�
 
 ## الإصدارات الليلية
 
-[تحميل cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[تحميل cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY هو تطبيق منفصل بمعرّف حزمة خاص به، لذا يعمل بجانب الإصدار المستقر. يُبنى تلقائيًا من أحدث commit على فرع `main` ويتم تحديثه تلقائيًا عبر Sparkle الخاص به.
 

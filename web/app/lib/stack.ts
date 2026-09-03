@@ -1,5 +1,6 @@
 import { StackServerApp } from "@stackframe/stack";
 import { env } from "../env";
+import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";
 import { withFreshAccountMetadataUser } from "../../services/account/metadataMutation";
 import { canonicalizeEmailForMatching } from "../../services/billing/emailMatching";
@@ -160,29 +161,7 @@ async function updateStackUserViaApi(
     throw new Error("Stack Auth is not configured");
   }
 
-  const configuredBaseURL =
-    process.env.STACK_API_BASE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SERVER_STACK_API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
-    process.env.STACK_API_URL?.trim() ||
-    "https://api.stack-auth.com";
-  let parsedBaseURL: URL;
-  try {
-    parsedBaseURL = new URL(configuredBaseURL);
-  } catch {
-    throw new Error("Stack Auth API URL is invalid");
-  }
-  if (
-    parsedBaseURL.protocol !== "https:" ||
-    !parsedBaseURL.hostname ||
-    parsedBaseURL.username ||
-    parsedBaseURL.password ||
-    parsedBaseURL.search ||
-    parsedBaseURL.hash
-  ) {
-    throw new Error("Stack Auth API URL must use HTTPS");
-  }
-  const normalizedBaseURL = parsedBaseURL.toString().replace(/\/+$/u, "");
+  const normalizedBaseURL = stackApiBaseURL();
   const baseURL = /\/api\/v1$/u.test(normalizedBaseURL)
     ? normalizedBaseURL
     : `${normalizedBaseURL}/api/v1`;

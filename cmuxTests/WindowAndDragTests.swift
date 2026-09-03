@@ -886,11 +886,37 @@ final class WindowDragHandleHitTests: XCTestCase {
                 "titlebarControl.toggleSidebar",
                 "titlebarControl.showNotifications",
                 "titlebarControl.newTab",
+                "titlebarControl.newWorkspaceMenu",
                 "titlebarControl.focusHistoryBack",
                 "titlebarControl.focusHistoryForward",
             ],
             "The hidden minimal-mode click lanes must match the visible titlebar control order."
         )
+        let menuLane = ranges[MinimalModeSidebarControlActionSlot.newWorkspaceMenu.rawValue]
+        let newTabLane = ranges[MinimalModeSidebarControlActionSlot.newTab.rawValue]
+        XCTAssertEqual(
+            menuLane.lowerBound,
+            newTabLane.upperBound,
+            accuracy: 0.001,
+            "The caret lane must butt against the plus lane: the split button has no gap between its segments."
+        )
+        XCTAssertEqual(
+            menuLane.upperBound - menuLane.lowerBound,
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config),
+            accuracy: 0.001,
+            "The hidden New Workspace menu lane should match the visible split-button caret width."
+        )
+        XCTAssertLessThan(
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: config),
+            config.iconSize - 2,
+            "The caret glyph should stay visibly smaller than the primary titlebar icons."
+        )
+        for x in [menuLane.lowerBound + 1, (menuLane.lowerBound + menuLane.upperBound) / 2, menuLane.upperBound - 1] {
+            XCTAssertTrue(
+                TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: x, y: 14), config: config),
+                "The whole caret lane should receive left clicks."
+            )
+        }
         XCTAssertEqual(
             ranges[0].lowerBound,
             TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,

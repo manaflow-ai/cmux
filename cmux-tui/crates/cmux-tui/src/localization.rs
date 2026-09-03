@@ -910,9 +910,23 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
     pub managed_ssh_requires_unix: &'static str,
+    /// Compact machine spend readout template: `{usd}` is the formatted
+    /// dollar amount and `{days}` the trailing window length.
+    pub machine_usage_readout: &'static str,
 }
 
 impl SidebarMessages {
+    /// Render the machine spend readout, e.g. `$1.23 / 30d`.
+    pub(crate) fn machine_usage_readout(
+        &self,
+        api_equivalent_usd: f64,
+        period_days: u32,
+    ) -> String {
+        self.machine_usage_readout
+            .replace("{usd}", &format_usd(api_equivalent_usd))
+            .replace("{days}", &period_days.to_string())
+    }
+
     pub(crate) fn connecting_to_message(&self, target: &str) -> String {
         self.connecting_to.replace("{target}", target)
     }
@@ -957,6 +971,25 @@ impl SidebarMessages {
         )
         .then_some(self.action_workspace_port)
     }
+}
+
+/// Format a dollar amount with two decimals and thousands separators.
+/// Non-finite or negative inputs render as zero so a bad upstream number
+/// can never produce a misleading readout.
+pub(crate) fn format_usd(amount: f64) -> String {
+    let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
+    let cents = (amount * 100.0).round() as u64;
+    let whole = cents / 100;
+    let fraction = cents % 100;
+    let digits = whole.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    format!("${grouped}.{fraction:02}")
 }
 
 impl ForeignViewportMessages {
@@ -1766,6 +1799,7 @@ OPTIONS:
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
         managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
+        machine_usage_readout: "{usd} / {days}d",
     },
 };
 
@@ -2410,6 +2444,7 @@ ID とセッション:
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
         managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
+        machine_usage_readout: "{usd} / {days}日",
     },
 };
 
@@ -2927,5 +2962,29 @@ mod tests {
         assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
         assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
+    }
+
+    #[test]
+    fn usd_formatting_is_two_decimal_and_grouped() {
+        assert_eq!(format_usd(0.0), "$0.00");
+        assert_eq!(format_usd(1.234), "$1.23");
+        assert_eq!(format_usd(1.235), "$1.24");
+        assert_eq!(format_usd(999.999), "$1,000.00");
+        assert_eq!(format_usd(1234567.5), "$1,234,567.50");
+        assert_eq!(format_usd(-3.0), "$0.00");
+        assert_eq!(format_usd(f64::NAN), "$0.00");
+        assert_eq!(format_usd(f64::INFINITY), "$0.00");
+    }
+
+    #[test]
+    fn machine_usage_readout_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30d"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30日"
+        );
     }
 }

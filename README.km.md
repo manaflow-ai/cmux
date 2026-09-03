@@ -242,7 +242,7 @@ cmux គឺជា primitive មិនមែនជាដំណោះស្រា�
 
 ## ការស្ថាបនាប្រចាំយប់ (Nightly Builds)
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY គឺជាកម្មវិធីដាច់ដោយឡែកមួយដែលមាន bundle ID ផ្ទាល់របស់វា ដូច្នេះវាដំណើរការទន្ទឹមនឹងកំណែដែលមានស្ថិរភាព។ វាត្រូវបានស្ថាបនាដោយស្វ័យប្រវត្តិពី commit `main` ចុងក្រោយបង្អស់ និងធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិតាមរយៈ feed Sparkle ផ្ទាល់របស់វា។
 

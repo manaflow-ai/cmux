@@ -95,19 +95,31 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902e`, image
-  `sh-e4dc9393a82e4dfaaa8f90b01b0d247c`, baked and verified on cmux's Freestyle account from
-  https://github.com/manaflow-ai/cmux/pull/11666 (`6a1243bfd7`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base). The retired beta entry stays listed for the record and is never a default; earlier
-  public entries stay for rollback.
+- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
+  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
+  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
+  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
+  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
+  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
+  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
+  beta entry stays listed for the record and is never a default; earlier public entries (the
+  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
-  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
-  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
-  for that reason; re-promote it under cmux's key to make it the default.
+  `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
   with the manifest diff; merging promotes. See
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
+- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
+  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
+  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
+  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+  vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
+  (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
+  path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
+  not listening. noVNC has no auth of its own, so a machine outside a private network (created
+  before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
 - To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
@@ -212,6 +224,11 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
+  (default `https://coderouter.dev`); set it on a preview deployment to test against that
+  deployment. See "Model plane".
+- `CMUX_VM_CODEROUTER_ENV_ENABLED`, local-dev only. `0` creates unwired machines with no
+  coderouter env or edge rule. Never set it in production or staging.
 - `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
   Freestyle machines join their owner's VPC, open no public inbound port, and are
   attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
@@ -286,6 +303,18 @@ Run default-provider stress before changing provider defaults or after provider 
 bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
+
+## Telemetry
+
+Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
+
+- Axiom (`cmux-prod-otel-traces`, 100% of VM traces): route span with `cmux.vm.timing.<stage>_ms`, `cmux.vm.request_duration_ms`, `cmux.vm.request_success`, `cmux.vm.error_*` (code, phase, provider, image, env var, reason), `cmux.client.*`, `cmux.user_id`, `cmux.vercel.request_id`; provider spans under it record the wrapped cause chain (`cmux.error_cause_chain`, `cmux.error_cause_http_status`, `cmux.error_cause_code`). Error and non-polled responses force a bounded span flush in `after()` so an error-heavy instance cannot drop the trace.
+- PostHog (production, or `CMUX_VM_ANALYTICS_FORCE=1`): `cloud_vm_request` for every failure and for the successes a user waits on (create, attach, base open, restore, fork, ...) with `duration_ms`, `status`, `error_code`, `error_phase`, `operator_fault`, `trace_id`, `client_*`; polled reads (`list`, `status`, `stats`, `list_sessions`, `get_tunnel`) succeed silently. Every failure also emits a `$exception` (Error Tracking) fingerprinted by error code. `cloud_vm_provision` (schema 2, failures of create-like operations, feeds the alert) now also carries `trace_id`, `duration_ms`, `error_phase` and client fields.
+- Sentry (shared project, `subsystem: cloud_vm_api`): every VM error, `error` level for operator faults and `warning` for user faults, fingerprint `["cmux-vm-error", code, provider]`, tags `vm.error_code`, `vm.phase`, `vm.operation`, `vm.provider`, `client.*`, `trace_id`, and a trace context holding the same ids.
+
+Client side, `VMClientTelemetry` (`Sources/Cloud/VMClientTelemetry.swift`) measures every request: `os.log` category `CloudVM` for all of them, a Sentry breadcrumb for all, PostHog `cmux_cloud_vm_request` for failures plus non-polled successes, and a Sentry event for failures (5xx and transport failures `error`, 4xx `warning`). Client failures are throttled per operation and code (60 s PostHog, 300 s Sentry) so a polling loop during an outage produces one event per window.
+
+To investigate one failure: take the reference id, query Axiom `['cmux-prod-otel-traces'] | where trace_id == '<id>'`, open the PostHog `$exception` or `cloud_vm_request` row with `trace_id = <id>`, and search Sentry for `trace_id:<id>`.
 
 ## GitHub operations
 
@@ -376,6 +405,8 @@ The Noise handshake encrypts and authenticates the session end to end, so carrie
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
 `/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
+That file carries base URLs, a placeholder key, and the VM id only; the credential is
+edge-injected (see "Model plane" below).
 
 Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
 "the account holding uid 1000, or root in an image with no such account", and the devbox image
@@ -408,6 +439,38 @@ Operational note: before rollout, verify the deployed
 env values with
 `bun run cloud-vm:env:audit -- <target> --strict`, then confirm attach and
 daemon health with `bun run cloud-vm:stress -- <target> --provider default`.
+
+## Model plane
+
+No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `modelPlane`
+provisioner (`services/vms/modelPlaneGateway.ts` adapting
+`services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
+provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
+and returns guest env (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL`,
+placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`, `CMUX_VM_ID`) plus one edge rule for the
+coderouter host with headers `x-coderouter-route-token` and `x-cmux-vm-id`. The Freestyle
+driver passes the rule inline as `tls.rules` on the create; the platform steers the host to
+its edge and installs its CA in the guest at boot, and the edge injects (and overwrites) those
+headers on every request. coderouter rejects a bound token whose request carries a different
+VM id. Rules created after boot never reach a running guest, so the rule is never added later.
+
+The guest dials the real name, `https://coderouter.dev` by default;
+`CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https origin) points guests at a preview deployment.
+Injection activates 20-30 s after boot, so the driver ends bootstrap with a guest-side probe of
+`https://<host>/v1/models` (one exec, bounded loop) and rolls the machine back if it never
+succeeds. Node harnesses (Claude Code, pi) need `NODE_EXTRA_CA_CERTS`, which
+`agent-config.sh` exports when the platform CA file exists.
+
+Provisioning is mandatory: a coderouter outage fails the create with
+`vm_model_plane_unavailable` (503, retryable), refunds the create credit, marks the row failed
+with `model_plane_unavailable` (same-key retries reach provisioning again), and creates no
+provider machine. There is no coderouter plan or entitlement gate on the model plane: access to
+coderouter and Subrouter is team membership only, so every member of the billing team gets a
+token. Rows written by the retired gate still carry `model_plane_entitlement` and stay
+retryable. Tokens never rotate; `destroyVm`, account deletion,
+the status reconcile cron, and every create rollback revoke them best-effort.
+`CMUX_VM_CODEROUTER_ENV_ENABLED=0` is a local-dev escape hatch only: it creates an unwired
+machine (no env, no rule, still no secret) and must never be set in production.
 
 ## Usage, limits, and pricing
 
