@@ -36,7 +36,12 @@ import {
   recordCoderouterOutcome,
   recordCoderouterSpan,
 } from "./requestTelemetry";
-import { fetchWithHeadersTimeout } from "./upstreamFetch";
+import {
+  CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
+  fetchWithHeadersTimeout,
+  remainingUpstreamHeadersTimeoutMs,
+  upstreamHeadersTimeoutMs,
+} from "./upstreamFetch";
 import { isStreamingResponse } from "./responseUsage";
 import { signAwsRequest } from "./awsSigV4";
 import {
@@ -91,6 +96,8 @@ const RESPONSE_HEADER_PREFIXES = ["anthropic-ratelimit-"];
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_ERROR_BODY_CHARS = 16 * 1024;
 const MODELS_TIMEOUT_MS = 10_000;
+/** Leave room below the 60-second models/count_tokens route ceiling. */
+const SHORT_ROUTE_UPSTREAM_FAILOVER_BUDGET_MS = 45_000;
 
 /**
  * Failover budget per request. Each attempt is one account; the loop stops
@@ -116,6 +123,19 @@ export type ClaudeProxyDependencies = {
   readonly capture: typeof captureCoderouterEvent;
 };
 
+/** Runtime seams used by tests to exercise request-wide timeout behavior. */
+export type ClaudeProxyRuntimeOverrides = {
+  readonly now?: () => number;
+  readonly upstreamHeadersBudgetMs?: number;
+  readonly upstreamHeadersTimeoutMs?: number;
+};
+
+type ClaudeProxyRuntime = {
+  readonly now: () => number;
+  readonly upstreamHeadersBudgetMs: number;
+  readonly upstreamHeadersTimeoutMs: number;
+};
+
 const defaultDependencies: ClaudeProxyDependencies = {
   authenticate: (request) => authenticateRequestRouteToken(request),
   select: selectClaudeUpstream,
@@ -125,6 +145,20 @@ const defaultDependencies: ClaudeProxyDependencies = {
   now: () => new Date(),
   capture: captureCoderouterEvent,
 };
+
+function resolveClaudeRuntime(
+  surface: ClaudeSurface,
+  overrides: ClaudeProxyRuntimeOverrides,
+): ClaudeProxyRuntime {
+  return {
+    now: overrides.now ?? (() => performance.now()),
+    upstreamHeadersBudgetMs: overrides.upstreamHeadersBudgetMs ??
+      (surface === "messages"
+        ? CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS
+        : SHORT_ROUTE_UPSTREAM_FAILOVER_BUDGET_MS),
+    upstreamHeadersTimeoutMs: overrides.upstreamHeadersTimeoutMs ?? upstreamHeadersTimeoutMs(),
+  };
+}
 
 type RouteOutcome = "success" | "upstream_error" | "no_usable_account" | "provider_unavailable" | "unauthorized";
 type RouteFailureStage =
@@ -166,18 +200,21 @@ type Routed =
 
 export function createClaudeMessagesProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
+  runtimeOverrides: ClaudeProxyRuntimeOverrides = {},
 ): (request: Request) => Promise<Response> {
+  const runtime = resolveClaudeRuntime("messages", runtimeOverrides);
   return async (request) => {
     const health: Health = { requestId: currentCoderouterRequestId(), startedAt: performance.now() };
+    const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
     const auth = await authenticateRoute(dependencies, request, "messages", health);
     if (!auth.ok) return auth.response;
     const identity = auth.identity;
     const body = await readRequestBytes(request);
     if (!body.ok) return body.response;
-    const routed = await routeWithFailover(dependencies, identity, request, "messages", (upstream) =>
+    const routed = await routeWithFailover(dependencies, identity, request, "messages", upstreamHeaderDeadlineAt, runtime, (upstream, headersTimeoutMs) =>
       upstream.kind === "bedrock"
-        ? bedrockMessages(dependencies, request, body.bytes, upstream)
-        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages"));
+        ? bedrockMessages(dependencies, request, body.bytes, upstream, headersTimeoutMs)
+        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages", request.signal, headersTimeoutMs));
     if (routed.kind === "exhausted") {
       captureRouteHealth(dependencies, {
         ...health,
@@ -220,16 +257,19 @@ export function createClaudeMessagesProxy(
 
 export function createClaudeCountTokensProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
+  runtimeOverrides: ClaudeProxyRuntimeOverrides = {},
 ): (request: Request) => Promise<Response> {
+  const runtime = resolveClaudeRuntime("count_tokens", runtimeOverrides);
   return async (request) => {
+    const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
     const auth = await authenticateRoute(dependencies, request, "count_tokens");
     if (!auth.ok) return auth.response;
     const body = await readRequestBytes(request);
     if (!body.ok) return body.response;
-    const routed = await routeWithFailover(dependencies, auth.identity, request, "count_tokens", (upstream) =>
+    const routed = await routeWithFailover(dependencies, auth.identity, request, "count_tokens", upstreamHeaderDeadlineAt, runtime, (upstream, headersTimeoutMs) =>
       upstream.kind === "bedrock"
-        ? bedrockCountTokens(dependencies, request, body.bytes, upstream)
-        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens"));
+        ? bedrockCountTokens(dependencies, request, body.bytes, upstream, headersTimeoutMs)
+        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens", request.signal, headersTimeoutMs));
     recordRoutedOutcome(routed, request);
     return routed.response;
   };
@@ -237,11 +277,14 @@ export function createClaudeCountTokensProxy(
 
 export function createClaudeModelsProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
+  runtimeOverrides: ClaudeProxyRuntimeOverrides = {},
 ): (request: Request) => Promise<Response> {
+  const runtime = resolveClaudeRuntime("models", runtimeOverrides);
   return async (request) => {
+    const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
     const auth = await authenticateRoute(dependencies, request, "models");
     if (!auth.ok) return auth.response;
-    const routed = await routeWithFailover(dependencies, auth.identity, request, "models", async (upstream) => {
+    const routed = await routeWithFailover(dependencies, auth.identity, request, "models", upstreamHeaderDeadlineAt, runtime, async (upstream, headersTimeoutMs) => {
       if (upstream.kind === "bedrock") {
         return Response.json(bedrockModelCatalog(upstream.config.modelIds), {
           headers: { "cache-control": "no-store" },
@@ -254,6 +297,7 @@ export function createClaudeModelsProxy(
         upstream,
         `/v1/models${new URL(request.url).search}`,
         AbortSignal.timeout(MODELS_TIMEOUT_MS),
+        headersTimeoutMs,
       );
     });
     recordRoutedOutcome(routed, request);
@@ -330,12 +374,22 @@ async function routeWithFailover(
   identity: RouteTokenIdentity,
   request: Request,
   surface: ClaudeSurface,
-  send: (upstream: ClaudeUpstream) => Promise<Response>,
+  upstreamHeaderDeadlineAt: number,
+  runtime: ClaudeProxyRuntime,
+  send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
 ): Promise<Routed> {
   const excluded: string[] = [];
   let lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null = null;
   let attempts = 0;
   while (attempts < MAX_UPSTREAM_ATTEMPTS) {
+    throwIfRequestAborted(request);
+    if (remainingUpstreamHeadersTimeoutMs(
+      upstreamHeaderDeadlineAt,
+      runtime.now(),
+      runtime.upstreamHeadersTimeoutMs,
+    ) === null) {
+      return deadlineResult(attempts, lastFailure);
+    }
     let selection: ClaudeSelection;
     const selectStartedAt = performance.now();
     try {
@@ -349,6 +403,7 @@ async function routeWithFailover(
         attributes: { provider: "claude", attempt: attempts + 1, outcome: selection.kind },
       });
     } catch (error) {
+      if (request.signal.aborted) throw error;
       recordCoderouterSpan({
         name: "account_selection",
         startedAt: selectStartedAt,
@@ -370,6 +425,7 @@ async function routeWithFailover(
         }),
       };
     }
+    throwIfRequestAborted(request);
     if (selection.kind === "none") {
       // The team has not added a Claude account: a tenant state, not an
       // outage, so it shares the `no_usable_account` outcome and is told
@@ -423,9 +479,16 @@ async function routeWithFailover(
     });
     let attempt: Attempt;
     const attemptStartedAt = performance.now();
+    const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+      upstreamHeaderDeadlineAt,
+      runtime.now(),
+      runtime.upstreamHeadersTimeoutMs,
+    );
+    if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
     try {
-      attempt = { kind: "response", response: await send(upstream) };
+      attempt = { kind: "response", response: await send(upstream, headersTimeoutMs) };
     } catch (error) {
+      if (request.signal.aborted) throw error;
       attempt = { kind: "transport", error };
     }
     const verdict = classifyAttempt(attempt);
@@ -473,7 +536,30 @@ async function routeWithFailover(
         : anthropicError(502, "api_error", "coderouter could not reach the Claude upstream. Retry shortly."),
     };
   }
-  return { kind: "response", ...lastFailure!, attempts, failed: true, failureStage: lastFailure!.stage };
+  return deadlineResult(attempts, lastFailure);
+}
+
+function deadlineResult(
+  attempts: number,
+  lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null,
+): Routed {
+  if (lastFailure) {
+    return { kind: "response", ...lastFailure, attempts, failed: true, failureStage: lastFailure.stage };
+  }
+  return {
+    kind: "exhausted",
+    attempts,
+    outcome: "provider_unavailable",
+    failureStage: "upstream_transport",
+    response: anthropicError(503, "api_error", "coderouter could not reach a Claude upstream within the request time limit. Retry shortly.", {
+      "retry-after": "5",
+    }),
+  };
+}
+
+function throwIfRequestAborted(request: Request): void {
+  if (!request.signal.aborted) return;
+  throw request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 type Verdict =
@@ -594,19 +680,23 @@ async function anthropicRequest(
   upstream: ClaudeUpstream,
   pathAndQuery: string,
   signal?: AbortSignal,
+  headersTimeoutMs: number = upstreamHeadersTimeoutMs(),
 ): Promise<Response> {
   const headers = upstream.secret.kind === "anthropic_oauth"
     ? oauthHeaders(request, upstream.secret.token)
     : apiKeyHeaders(request, upstream.secret.kind === "anthropic_api_key" ? upstream.secret.apiKey : "");
   // Bounded to headers only: a hung upstream fails over to the next account
   // instead of holding the function for the full maxDuration.
+  const requestSignal = signal
+    ? AbortSignal.any([request.signal, signal])
+    : request.signal;
   const response = await fetchWithHeadersTimeout(dependencies.fetch, `${ANTHROPIC_UPSTREAM}${pathAndQuery}`, {
     method: request.method,
     headers,
     ...(body ? { body } : {}),
     cache: "no-store",
-    ...(signal ? { signal } : {}),
-  });
+    signal: requestSignal,
+  }, headersTimeoutMs);
   return new Response(response.body, {
     status: response.status,
     headers: responseHeaders(response.headers),
@@ -680,6 +770,7 @@ async function bedrockMessages(
   request: Request,
   body: Uint8Array<ArrayBuffer> | null,
   upstream: ClaudeUpstream,
+  headersTimeoutMs: number,
 ): Promise<Response> {
   const bedrock = bedrockUpstream(upstream);
   if (!bedrock) {
@@ -697,7 +788,7 @@ async function bedrockMessages(
   const invokeBytes = Buffer.from(JSON.stringify(invoke.body), "utf8");
   const response = await bedrockFetch(dependencies, bedrock, url, invokeBytes, invoke.stream
     ? "application/vnd.amazon.eventstream"
-    : "application/json");
+    : "application/json", request.signal, headersTimeoutMs);
   if (!response.ok) return bedrockErrorResponse(response);
   if (invoke.stream) {
     if (!response.body) return anthropicError(502, "api_error", "Bedrock returned an empty stream.");
@@ -737,6 +828,7 @@ async function bedrockCountTokens(
   request: Request,
   body: Uint8Array<ArrayBuffer> | null,
   upstream: ClaudeUpstream,
+  headersTimeoutMs: number,
 ): Promise<Response> {
   const bedrock = bedrockUpstream(upstream);
   if (!bedrock) {
@@ -757,7 +849,15 @@ async function bedrockCountTokens(
   }), "utf8");
   let inputTokens = estimate;
   try {
-    const response = await bedrockFetch(dependencies, bedrock, url, countBody, "application/json");
+    const response = await bedrockFetch(
+      dependencies,
+      bedrock,
+      url,
+      countBody,
+      "application/json",
+      request.signal,
+      headersTimeoutMs,
+    );
     if (response.ok) {
       const value: unknown = await response.json();
       const counted = typeof value === "object" && value !== null && !Array.isArray(value)
@@ -787,6 +887,8 @@ async function bedrockFetch(
   url: URL,
   body: Uint8Array<ArrayBuffer>,
   accept: string,
+  signal: AbortSignal,
+  headersTimeoutMs: number,
 ): Promise<Response> {
   const headers = signAwsRequest({
     method: "POST",
@@ -804,7 +906,13 @@ async function bedrockFetch(
   });
   // `host` is set by the runtime from the URL; sending it explicitly is rejected by fetch.
   headers.delete("host");
-  return await fetchWithHeadersTimeout(dependencies.fetch, url, { method: "POST", headers, body, cache: "no-store" });
+  return await fetchWithHeadersTimeout(dependencies.fetch, url, {
+    method: "POST",
+    headers,
+    body,
+    signal,
+    cache: "no-store",
+  }, headersTimeoutMs);
 }
 
 async function bedrockErrorResponse(response: Response): Promise<Response> {
