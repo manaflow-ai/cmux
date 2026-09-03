@@ -1309,49 +1309,65 @@ type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
 
 struct ReaperState {
     sender: Option<Sender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
     pending: Vec<ReapRequest>,
 }
 
 static REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
 
 fn reaper_state() -> &'static Arc<Mutex<ReaperState>> {
-    REAPER.get_or_init(|| Arc::new(Mutex::new(ReaperState { sender: None, pending: Vec::new() })))
+    REAPER.get_or_init(|| {
+        Arc::new(Mutex::new(ReaperState { sender: None, worker: None, pending: Vec::new() }))
+    })
 }
 
 fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     let (sender, receiver) = channel::<()>();
     let worker_state = state.clone();
-    let Ok(()) = std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
-        let mut pending = Vec::new();
-        loop {
-            {
-                let mut state = worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
-                pending.append(&mut state.pending);
-            }
-            let mut index = pending.len();
-            while index > 0 {
-                index -= 1;
-                if pending[index].1.is_done() {
-                    let (handle, completion) = pending.swap_remove(index);
-                    completion.mark_joined();
-                    let _ = handle.join();
+    let Ok(reaper_worker) =
+        std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
+            let mut pending = Vec::new();
+            loop {
+                {
+                    let mut state =
+                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    pending.append(&mut state.pending);
+                }
+                let mut index = pending.len();
+                while index > 0 {
+                    index -= 1;
+                    if pending[index].1.is_done() {
+                        let (handle, completion) = pending.swap_remove(index);
+                        completion.mark_joined();
+                        let _ = handle.join();
+                    }
+                }
+                {
+                    let mut state =
+                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    state.pending.append(&mut pending);
+                }
+                match receiver.recv_timeout(Duration::from_millis(50)) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            {
-                let mut state = worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
-                state.pending.append(&mut pending);
-            }
-            match receiver.recv_timeout(Duration::from_millis(50)) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-    }) else {
+        })
+    else {
         return;
     };
     let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
     if current.sender.is_none() {
+        let old_worker = current.worker.take();
         current.sender = Some(sender);
+        current.worker = Some(reaper_worker);
+        drop(current);
+        if let Some(old_worker) = old_worker {
+            let _ = old_worker.join();
+        }
+    } else {
+        drop(current);
+        let _ = reaper_worker.join();
     }
 }
 
@@ -1559,11 +1575,19 @@ impl InteractiveWriter {
             state.queued_bytes = 0;
         }
         self.shared.changed.notify_all();
-        let _ = self.abort.abort();
+        if let Err(abort_error) = self.abort.abort() {
+            self.record_abort_failure(&abort_error);
+        }
     }
 
-    fn abort_transport(&self) {
-        let _ = self.abort.abort();
+    fn abort_transport(&self) -> io::Result<()> {
+        self.abort.abort()
+    }
+
+    fn record_abort_failure(&self, error: &io::Error) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
+        self.shared.changed.notify_all();
     }
 
     fn join_worker(&self) {
@@ -3217,7 +3241,9 @@ impl RemoteSession {
         drop(state);
         self.begin_shutdown_until(deadline);
         self.interactive_writer.close_until(deadline);
-        self.interactive_writer.abort_transport();
+        if let Err(error) = self.interactive_writer.abort_transport() {
+            self.interactive_writer.record_abort_failure(&error);
+        }
         self.interactive_writer.join_worker_until(deadline);
         self.join_reader_worker_until(deadline);
     }
@@ -3855,7 +3881,9 @@ fn local_hostname() -> Option<String> {
 impl Drop for RemoteSession {
     fn drop(&mut self) {
         self.interactive_writer.request_close();
-        self.interactive_writer.abort_transport();
+        if let Err(error) = self.interactive_writer.abort_transport() {
+            self.interactive_writer.record_abort_failure(&error);
+        }
         self.join_reader_worker();
         self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
@@ -6823,6 +6851,7 @@ mod tests {
         let completion = Arc::new(WorkerCompletion::new());
         let handle = std::thread::spawn(|| {});
         enqueue_worker_reap(handle, completion.clone());
+        assert!(state.lock().unwrap().worker.is_some());
         wait_for_worker_join(&completion);
         assert!(completion.was_joined());
     }
