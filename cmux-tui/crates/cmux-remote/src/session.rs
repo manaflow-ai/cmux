@@ -140,7 +140,7 @@ impl ReliableSession {
             limits,
             transition: Arc::new(tokio::sync::RwLock::new(())),
             lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
-            outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
+            outbound_progress: std::array::from_fn(|_| Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
         });
         Self::from_parts(shared, link, 0)
@@ -581,7 +581,7 @@ struct SharedState {
     limits: SessionLimits,
     transition: Arc<tokio::sync::RwLock<()>>,
     lane_sends: [tokio::sync::Mutex<()>; 4],
-    outbound_progress: [tokio::sync::Notify; 4],
+    outbound_progress: [Notify; 4],
     state: Mutex<ReliabilityState>,
 }
 

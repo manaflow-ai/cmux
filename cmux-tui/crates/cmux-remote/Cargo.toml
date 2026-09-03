@@ -41,6 +41,7 @@ socket2 = { workspace = true, optional = true }
 snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true
 tower-http.workspace = true
