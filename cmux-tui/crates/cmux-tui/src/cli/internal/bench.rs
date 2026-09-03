@@ -1182,6 +1182,35 @@ mod tests {
     }
 
     #[test]
+    fn visibility_index_evicts_unbounded_history() {
+        let base = Instant::now();
+        let mut index = VisibilityIndex::default();
+        for offset in 0..(MAX_TIMESTAMPS_PER_SURFACE + 10) {
+            index.push(TimedEvent {
+                at: base + Duration::from_millis(offset as u64),
+                value: json!({"event":"tab-added","surface":42}),
+            });
+        }
+        assert!(index.timestamp_count() <= MAX_TIMESTAMPS_PER_SURFACE);
+
+        for surface in 0..(MAX_INDEXED_SURFACES as u64 + 10) {
+            index.push(TimedEvent {
+                at: base,
+                value: json!({"event":"tab-added","surface":surface}),
+            });
+        }
+        assert!(index.surface_count() <= MAX_INDEXED_SURFACES);
+    }
+
+    #[test]
+    fn benchmark_wait_budget_never_exceeds_run_deadline() {
+        let now = Instant::now();
+        assert_eq!(bounded_wait_duration(now, VISIBILITY_GRACE), Duration::ZERO);
+        let deadline = now + Duration::from_millis(50);
+        assert!(bounded_wait_duration(deadline, VISIBILITY_GRACE) <= Duration::from_millis(50));
+    }
+
+    #[test]
     fn same_connection_probe_is_submitted_before_response_drain() {
         let submissions = same_connection_submission_plan(3, 2);
         assert_eq!(

@@ -511,6 +511,7 @@ mod tests {
 
         let owner = ensure_owner_for_bench(&session, &socket).unwrap();
         assert_eq!(owner.pid(), 4242);
+        assert!(!owner.should_stop(), "adopted owners must remain running after the bench");
         assert!(!state_root.exists(), "adopting an owner must remove its unused temporary state root");
 
         server.join().unwrap();
