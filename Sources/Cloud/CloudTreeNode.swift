@@ -253,9 +253,10 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
 /// cloud machine — one big machine hosting many cmux-tui workspaces, with four
 /// groups: Workspaces → workspace → the terminals in its layout (always, the
-/// machine's face), Terminals (every terminal the machine owns, always), Ports,
-/// VNC Displays (one row per screen). A machine without a connected link gets
-/// a placeholder child instead of the first two.
+/// machine's face), Ports, VNC Displays (one row per screen), and last, as its
+/// own section, Terminals (every terminal the machine owns, always). A machine
+/// without a connected link gets a placeholder child instead of Workspaces and
+/// Terminals.
 enum CloudTreeNodeBuilder {
     /// Whether the tree shows this Mac's own terminals and browsers. Off for now —
     /// the Machines panel is the cloud fleet; this Mac's surfaces already live in the
@@ -468,10 +469,6 @@ enum CloudTreeNodeBuilder {
             // "+" — the New Workspace verb — is one click away on a fresh
             // machine with a single workspace as much as on a busy one.
             children.append(workspacesGroupNode(machine: machine, info: info, resources: resources, displays: displays, snapshot: snapshot))
-            // Then every terminal the machine owns, flat (the workspace rows
-            // above point into it); always present, so its "+" — New Terminal —
-            // is there on an empty machine too.
-            children.append(terminalsGroupNode(machine: machine, terminals: terminals, snapshot: snapshot))
         }
         // Ports: one row per listening port, titled as the URL a person would
         // paste (`http://<private-ip>:<port>`) when the machine has a private
@@ -505,6 +502,16 @@ enum CloudTreeNodeBuilder {
                 kind: .displaysPool(machine: machine, count: displays.count),
                 children: displays.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .display($0, openIn: nil)) }
             ))
+        }
+        // Last, its own section: every terminal the machine owns, flat (the
+        // workspace rows above point into it, detached ones live only here);
+        // always present on a connected machine, so its "+" — New Terminal —
+        // is there on an empty machine too.
+        switch info.linkState {
+        case .connected, .notApplicable:
+            children.append(terminalsGroupNode(machine: machine, terminals: terminals, snapshot: snapshot))
+        case .asleep, .connecting, .error, .unavailable:
+            break
         }
         return children
     }
@@ -572,10 +579,10 @@ enum CloudTreeNodeBuilder {
         )
     }
 
-    /// The Terminals group: every terminal the machine owns, one row per identity
-    /// whatever workspaces show it (badge = daemon tabs), a zero-view one greyed
-    /// as detached. Always present under a connected machine — its "+" is New
-    /// Terminal — with a placeholder child when there is none yet.
+    /// The Terminals group, the machine's last section: every terminal it owns,
+    /// one row per identity whatever workspaces show it (badge = daemon tabs), a
+    /// zero-view one greyed as detached. Always present under a connected machine
+    /// — its "+" is New Terminal — with a placeholder child when there is none yet.
     private static func terminalsGroupNode(machine: SurfaceMachineID, terminals: [SurfaceResource], snapshot: SurfaceCatalogSnapshot) -> CloudTreeNode {
         var rows = terminals.map {
             terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count, isDetached: $0.isDetachedTerminal)

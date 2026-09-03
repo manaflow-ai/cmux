@@ -407,8 +407,8 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
         // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then Terminals (every terminal the
-        // machine owns), Ports, and VNC Displays (one row per screen).
+        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
+        // per screen), and last, its own section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
@@ -423,13 +423,13 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_1",
-            "resource:vivid-newt/terminal/term_2",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
             "resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_1",
+            "resource:vivid-newt/terminal/term_2",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
@@ -515,10 +515,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/browser/port:3000",
             "vivid-newt/display/display:1",
-        ], "one drag resource per pointer (or implicit display) row, then the pool rows, the port, the screen")
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
+        ], "one drag resource per pointer (or implicit display) row, then the port, the screen, then the Terminals rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
