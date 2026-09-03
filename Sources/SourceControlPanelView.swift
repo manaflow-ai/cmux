@@ -8,8 +8,10 @@ import SwiftUI
 /// while the richer staged/merge model is introduced behind the same registry
 /// seam in a later increment.
 struct SourceControlPanelView: View {
-    @ObservedObject var tabManager: TabManager
-    @ObservedObject var fileExplorerStore: FileExplorerStore
+    let tabManager: TabManager
+    /// The parent right-sidebar view owns observation of this store and passes
+    /// the immutable status projection through the panel context.
+    let fileExplorerStore: FileExplorerStore
     let onOpenDiffViewer: (String, GitFileDiffSource) -> Void
     @FocusState private var focusedResourceID: String?
 

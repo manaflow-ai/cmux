@@ -847,7 +847,9 @@ final class FileExplorerStore: ObservableObject {
         let requestedRootPath = rootPath
         let requestedWorkspaceRootIdentity = workspaceRootIdentity
         let requestedProviderIdentity = provider.map(ObjectIdentifier.init)
-        objectWillChange.send()
+        // `contentRevision` is the existing published invalidation signal for
+        // state that is intentionally kept outside the legacy file-tree map.
+        contentRevision &+= 1
         gitStatusLoadState = .loading
         let statusScopeChanged = gitStatusPublishedRootPath != requestedRootPath
             || gitStatusPublishedProviderIdentity != requestedProviderIdentity
@@ -870,7 +872,7 @@ final class FileExplorerStore: ObservableObject {
         gitStatusRefreshInFlight = true
 
         guard !rootPath.isEmpty else {
-            objectWillChange.send()
+            contentRevision &+= 1
             gitStatusLoadState = .unavailable
             gitStatusPublishedRootPath = requestedRootPath
             gitStatusPublishedProviderIdentity = requestedProviderIdentity
@@ -906,7 +908,6 @@ final class FileExplorerStore: ObservableObject {
                     self.sourceControlGroups = sourceControlGroups
                     self.gitStatusPublishedRootPath = requestedRootPath
                     self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
-                    self.objectWillChange.send()
                     self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
@@ -932,7 +933,6 @@ final class FileExplorerStore: ObservableObject {
                     self.sourceControlGroups = sourceControlGroups
                     self.gitStatusPublishedRootPath = requestedRootPath
                     self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
-                    self.objectWillChange.send()
                     self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
