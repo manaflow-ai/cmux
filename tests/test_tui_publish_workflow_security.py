@@ -105,7 +105,7 @@ def valgrind_build_step() -> str:
     marker = "      - name: Build test binaries\n"
     assert marker in job
     return job.split(marker, 1)[1].split(
-        "      - name: Verify baseline terminal replay behavior", 1
+        "      - name: Run test binaries under valgrind", 1
     )[0]
 
 
@@ -133,6 +133,7 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
 
+    assert "Verify baseline terminal replay behavior" not in job
     assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
     assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
     assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job
