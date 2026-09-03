@@ -1,14 +1,15 @@
+import Image from "next/image";
+
 export type PublicationAccessView =
   | "signed-out"
   | "signed-in"
   | "invalid";
 
 export type PublicationAccessMessages = {
-  readonly eyebrow: string;
   readonly title: string;
-  readonly signedOutBody: string;
   readonly signIn: string;
   readonly signedInAs: string;
+  readonly switchAccount: string;
   readonly invalidTitle: string;
   readonly invalidBody: string;
   readonly footer: string;
@@ -19,12 +20,14 @@ type PublicationAccessCardProps = {
   readonly hostname?: string | null;
   readonly identity?: string | null;
   readonly signInHref?: string | null;
+  readonly switchAccountHref?: string | null;
   readonly messages: PublicationAccessMessages;
   readonly locale: string;
 };
 
 /**
- * One deliberately small surface for every protected-domain access state.
+ * One deliberately small surface for every protected-domain access state:
+ * the app icon, one sentence, the hostname, and at most one action.
  * Authentication data is resolved by the server page; this component only
  * renders product-owned copy and opaque action targets.
  */
@@ -33,6 +36,7 @@ export function PublicationAccessCard({
   hostname,
   identity,
   signInHref,
+  switchAccountHref,
   messages,
   locale,
 }: PublicationAccessCardProps) {
@@ -41,92 +45,93 @@ export function PublicationAccessCard({
 
   return (
     <main
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f7f7f5] px-5 py-12 text-[#171717]"
+      className="relative flex min-h-screen flex-col items-center justify-center bg-[#fafafa] px-6 pb-20 pt-12 text-[#171717]"
       dir={direction}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.32]"
-        style={{
-          backgroundImage:
-            "linear-gradient(to right, #deded9 1px, transparent 1px), linear-gradient(to bottom, #deded9 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-          maskImage:
-            "radial-gradient(circle at center, black 0%, transparent 72%)",
-        }}
-      />
-
       <section
-        className="relative w-full max-w-[460px] border border-black/[0.12] bg-white px-6 py-7 shadow-[0_18px_55px_rgba(0,0,0,0.08)] sm:px-8 sm:py-8"
+        className="flex w-full max-w-[400px] flex-col items-center text-center"
         data-publication-access={view}
         lang={locale}
       >
-        <div className="flex items-center justify-between gap-4 border-b border-black/[0.08] pb-5">
-          <p className="font-mono text-xs font-medium tracking-[0.14em] text-[#676762]">
-            {messages.eyebrow}
+        <Image
+          alt=""
+          className={invalid ? "opacity-50 grayscale" : undefined}
+          height={64}
+          priority
+          src="/logo.png"
+          width={64}
+        />
+
+        <h1 className="mt-6 text-balance text-2xl font-semibold leading-tight tracking-[-0.03em]">
+          {invalid ? messages.invalidTitle : messages.title}
+        </h1>
+
+        {hostname && !invalid ? (
+          <p
+            className="mt-2 max-w-full truncate font-mono text-[13px] text-[#737373]"
+            title={hostname}
+          >
+            {hostname}
           </p>
-          <AccessGlyph invalid={invalid} />
-        </div>
+        ) : null}
 
-        <div className="pt-7">
-          <h1 className="text-[28px] font-medium leading-[1.15] tracking-[-0.035em]">
-            {invalid ? messages.invalidTitle : messages.title}
-          </h1>
+        {invalid ? (
+          <p className="mt-2 text-sm leading-6 text-[#555550]">
+            {messages.invalidBody}
+          </p>
+        ) : null}
 
-          {hostname && !invalid ? (
-            <p className="mt-3 w-fit max-w-full truncate border border-black/[0.09] bg-[#f7f7f5] px-2.5 py-1.5 font-mono text-xs text-[#555550]">
-              {hostname}
-            </p>
-          ) : null}
+        {view === "signed-in" && identity ? (
+          <IdentityPill
+            identity={identity}
+            label={messages.signedInAs.replace("{identity}", () => identity)}
+          />
+        ) : null}
 
-          <div className="mt-5 text-sm leading-6 text-[#62625d]">
-            {view === "signed-out" ? <p>{messages.signedOutBody}</p> : null}
-            {view === "signed-in" && identity ? (
-              <p className="font-medium text-[#30302d]">
-                {messages.signedInAs.replace("{identity}", () => identity)}
-              </p>
-            ) : null}
-            {view === "invalid" ? <p>{messages.invalidBody}</p> : null}
-          </div>
+        {view === "signed-in" && switchAccountHref ? (
+          <a
+            className="mt-3 text-[13px] text-[#0073d9] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0073d9]"
+            href={switchAccountHref}
+          >
+            {messages.switchAccount}
+          </a>
+        ) : null}
 
-          {view === "signed-out" && signInHref ? (
-            <a
-              className="mt-7 inline-flex min-h-11 w-full items-center justify-center bg-[#171717] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#30302d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
-              href={signInHref}
-            >
-              {messages.signIn}
-            </a>
-          ) : null}
-
-        </div>
-
-        <p className="mt-7 border-t border-black/[0.08] pt-5 text-xs text-[#8a8a84]">
-          {messages.footer}
-        </p>
+        {view === "signed-out" && signInHref ? (
+          <a
+            className="mt-7 inline-flex min-h-10 items-center justify-center rounded-full bg-[#171717] px-6 text-sm font-medium text-white transition-colors hover:bg-[#30302d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
+            href={signInHref}
+          >
+            {messages.signIn}
+          </a>
+        ) : null}
       </section>
+
+      <p className="absolute inset-x-0 bottom-7 px-6 text-center text-xs text-[#8a8a84]">
+        {messages.footer}
+      </p>
     </main>
   );
 }
 
-function AccessGlyph({ invalid }: { readonly invalid: boolean }) {
+function IdentityPill({
+  identity,
+  label,
+}: {
+  readonly identity: string;
+  readonly label: string;
+}) {
+  const initial = [...identity.trim()][0]?.toUpperCase() ?? "";
   return (
-    <span
-      aria-hidden="true"
-      className="grid size-9 shrink-0 place-items-center border border-black/[0.1] bg-[#f7f7f5] text-[#3c3c38]"
-    >
-      {invalid ? (
-        <svg fill="none" height="17" viewBox="0 0 20 20" width="17">
-          <path d="M10 6.25v4.25" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
-          <path d="M10 13.75h.008" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-          <path d="M8.49 2.66 1.96 14.1A1.75 1.75 0 0 0 3.48 16.7h13.04a1.75 1.75 0 0 0 1.52-2.6L11.51 2.66a1.74 1.74 0 0 0-3.02 0Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
-        </svg>
-      ) : (
-        <svg fill="none" height="17" viewBox="0 0 20 20" width="17">
-          <rect height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" width="13" x="3.5" y="8" />
-          <path d="M6.5 8V6a3.5 3.5 0 1 1 7 0v2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
-          <path d="M10 11.25v2.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
-        </svg>
-      )}
-    </span>
+    <p className="mt-5 inline-flex max-w-full items-center gap-2 rounded-full border border-[#e5e5e5] bg-white py-1 pe-3 ps-1 text-[13px] text-[#30302d]">
+      <span
+        aria-hidden="true"
+        className="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white"
+        style={{ backgroundImage: "linear-gradient(135deg, #3cc3ff, #5b5cf6)" }}
+      >
+        {initial}
+      </span>
+      <span className="truncate">{label}</span>
+    </p>
   );
 }
