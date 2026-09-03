@@ -37,7 +37,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Native cmux split/tab chrome for this mirrored tmux window.
     var bonsplitController: BonsplitController
 
-    @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
+    @ObservationIgnored weak var connection: (any RemoteTmuxSessionSource)?
     @ObservationIgnored weak var workspaceBonsplitController: BonsplitController?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
@@ -289,7 +289,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     init(
         windowId: Int,
         panelId: UUID,
-        connection: RemoteTmuxControlConnection,
+        connection: any RemoteTmuxSessionSource,
         layout: RemoteTmuxLayoutNode,
         appearance: BonsplitConfiguration.Appearance = .init(),
         workspaceBonsplitController: BonsplitController? = nil,
@@ -406,6 +406,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // The pane set just changed, and one pane versus several is what decides whether the
+        // per-pane tab bars say anything. Derived here rather than at split/close call sites
+        // because tmux can change the pane count without either — a pane exiting on its own,
+        // or a `kill-pane` from another client — and every one of those arrives as a layout.
+        updatePaneTabBarVisibilityForPaneCount()
         // Pin every pane's grid to the fresh assignment HERE, not only in
         // the sizing pass: the pass is visibility-gated, so a hidden
         // window's pins would otherwise freeze at its last-visible
@@ -527,7 +532,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// The pane's last-known foreground classification (alt-screen flag +
     /// `pane_current_command`), driving the kill-pane close confirmation.
     /// `nil` when the pane was never classified (closes without a dialog).
-    func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxControlConnection.PaneForegroundState? {
+    func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxPaneForegroundState? {
         connection?.paneForegroundStates[tmuxPaneId]
     }
 
@@ -537,7 +542,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// to ``paneForegroundState(_:)``.
     func queryPaneActivity(
         _ tmuxPaneId: Int,
-        completion: @escaping ([Int: RemoteTmuxControlConnection.PaneForegroundState]?) -> Void
+        completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void
     ) {
         guard let connection else {
             completion(nil)

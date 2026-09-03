@@ -16,7 +16,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
     /// de-dup works before the control stream reports `connection.sessionId`.
     let seededSessionId: Int?
-    let connection: RemoteTmuxControlConnection
+    let connection: any RemoteTmuxSessionSource
     let onControlPaneRemoved: (PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
@@ -155,7 +155,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
-    private var observerToken: RemoteTmuxControlConnection.ObserverToken?
+    private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
 
     /// Snapshots the session's ordered input seam for a Ghostty I/O callback.
@@ -172,7 +172,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         host: RemoteTmuxHost,
         sessionName: String,
         seededSessionId: Int? = nil,
-        connection: RemoteTmuxControlConnection,
+        connection: any RemoteTmuxSessionSource,
         tabManager: TabManager,
         workspace: Workspace,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
@@ -198,13 +198,13 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onOverflow: { [weak self] in
                 guard let self else { return }
                 self.connection.record("manual-input-backpressure")
-                self.connection.beginReconnecting()
+                self.connection.beginReconnecting(preservingBackoff: false)
             }
         )
 
         // Register as one of possibly several observers — never overwrite a
         // single shared closure on the connection.
-        self.observerToken = connection.addObserver(
+        self.observerToken = connection.addObserver(RemoteTmuxSessionObservers(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
             },
@@ -247,9 +247,34 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                         $0.cancelPendingControlPaneFocus()
                     }
                 }
+                // Reaching `.connected` is the only thing that proves the login worked, so
+                // it is what ends the host's outstanding login offer. Releasing it on a
+                // resume *attempt* instead meant a reconnect that failed authentication
+                // again opened another login tab, once per retry.
+                if state == .connected, let self {
+                    AppDelegate.shared?.remoteTmuxController.noteMirrorConnected(host: self.host)
+                }
+            },
+            onAuthRequired: { [weak self] sshArgv in
+                self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
-        )
+        ))
         rebuild()
+    }
+
+    /// A reconnect stopped because the host wants interactive authentication that a
+    /// pipe-backed reconnect cannot service (a password, MFA, a security-key touch).
+    ///
+    /// The mirror is frozen but ALIVE — the tmux session and every mirrored workspace
+    /// are intact — so nothing is torn down here. The controller surfaces a login the
+    /// user can complete; finishing it opens the shared ControlMaster and the parked
+    /// connection resumes over it.
+    /// - Returns: whether a login was actually put in front of the user. `false` means the
+    ///   caller must fall back to retrying, or the host is stranded with nothing pending.
+    private func handleReconnectNeedsAuthentication(sshArgv: [String]) -> Bool {
+        AppDelegate.shared?.remoteTmuxController.presentReconnectAuthentication(
+            host: host, sshArgv: sshArgv
+        ) ?? false
     }
 
     /// The remote session ended for good (its last tmux window was killed, it was

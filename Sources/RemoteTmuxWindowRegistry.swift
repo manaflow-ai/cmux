@@ -33,6 +33,14 @@ final class RemoteTmuxWindowRegistry {
         pendingAttaches.remove(hostHash)
     }
 
+    /// Whether an attach for `hostHash` is currently in flight. The login-offer path
+    /// consults this: during a socket-driven attach the caller's terminal owns the
+    /// interactive login, and opening the in-app sign-in tab as well makes two ssh
+    /// processes race for one security key.
+    func isAttachInFlight(hostHash: String) -> Bool {
+        pendingAttaches.contains(hostHash)
+    }
+
     /// Marks `windowId`'s impending close as a tab/session close that should kill
     /// the remote session(s) on commit (rather than detach). Set just before
     /// `performClose`; consumed on the close commit, or on a close veto to clear it.
