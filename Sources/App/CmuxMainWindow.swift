@@ -244,9 +244,9 @@ final class CmuxMainWindow: NSWindow {
     ///
     /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
     /// regardless of the OS's implicit default. It is idempotent where AppKit
-    /// would have granted it anyway, and composes with the temporary
-    /// `.fullScreenDisallowsTiling` opt-out the window factory applies when
-    /// spawning a window out of an existing fullscreen Space.
+    /// would have granted it anyway. `.fullScreenDisallowsTiling` is also set
+    /// permanently so macOS Full Screen Tile does not trap cmux in a managed
+    /// tile Space that breaks Mission Control and horizontal Space swipes.
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
@@ -269,9 +269,11 @@ final class CmuxMainWindow: NSWindow {
 
     /// Returns `base` guaranteed to carry `.fullScreenPrimary` (and never
     /// `.fullScreenNone`) so a cmux main window can always enter a native
-    /// fullscreen Space. Pure and `nonisolated` so it can be unit-tested
-    /// without constructing a window; see ``init(contentRect:styleMask:backing:defer:)``
-    /// for why declaring the capability explicitly is required.
+    /// fullscreen Space, plus `.fullScreenDisallowsTiling` so AppKit does not
+    /// route the window into macOS Full Screen Tile. Pure and `nonisolated` so
+    /// it can be unit-tested without constructing a window; see
+    /// ``init(contentRect:styleMask:backing:defer:)`` for why declaring the
+    /// capability explicitly is required.
     nonisolated static func canonicalCollectionBehavior(
         _ base: NSWindow.CollectionBehavior
     ) -> NSWindow.CollectionBehavior {
@@ -281,6 +283,7 @@ final class CmuxMainWindow: NSWindow {
         // suppressed.
         behavior.remove(.fullScreenNone)
         behavior.insert(.fullScreenPrimary)
+        behavior.insert(.fullScreenDisallowsTiling)
         return behavior
     }
 

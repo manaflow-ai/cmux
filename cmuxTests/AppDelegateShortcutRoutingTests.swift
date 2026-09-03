@@ -206,7 +206,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
-        AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
@@ -1020,7 +1019,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
     }
 
-    func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
+    func testCreateMainWindowDisallowsFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1036,43 +1035,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(
-            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "Main windows should still support standard macOS Split View when not created from a fullscreen source"
-        )
-    }
-
-    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = true
-
-        let newWindowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: newWindowId)
-        }
-
-        guard let newWindow = window(withId: newWindowId) else {
-            XCTFail("Expected new window")
-            return
-        }
-
         XCTAssertTrue(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "New windows should temporarily opt out of fullscreen tiling while opening from a fullscreen source"
-        )
-
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        waitUntil(timeout: 1.0) {
-            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
-        }
-
-        XCTAssertFalse(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "The fullscreen tiling opt-out should be cleared after initial presentation so Split View keeps working"
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Main windows should opt out of macOS Full Screen Tile so native fullscreen does not trap Space navigation"
         )
     }
 
