@@ -748,6 +748,12 @@ fn parse_layout(value: &Value) -> Option<Node> {
 }
 
 fn parse_pane(value: &Value) -> Option<PaneView> {
+    let raw_active_tab = value
+        .get("active_tab")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok());
+    let active_tab_is_declared = value.get("active_tab").is_some();
+    let mut active_tab = None;
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
         resource_id: value
@@ -756,15 +762,16 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
             .and_then(|value| PanePublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
         focused_at: value.get("focused_at").and_then(|v| v.as_u64()).unwrap_or(0),
         tabs: value
             .get("tabs")
             .and_then(|v| v.as_array())
             .map(|tabs| {
+                let mut compact_index = 0;
                 tabs.iter()
-                    .filter_map(|tab| {
-                        Some(TabView {
+                    .enumerate()
+                    .filter_map(|(raw_index, tab)| {
+                        let parsed = Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
                             public_id: tab
                                 .get("tab_resource_id")
@@ -816,11 +823,18 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
-                        })
+                        })?;
+                        if raw_active_tab == Some(raw_index) {
+                            active_tab = Some(compact_index);
+                        }
+                        compact_index += 1;
+                        Some(parsed)
                     })
                     .collect()
             })
             .unwrap_or_default(),
+        active_tab: active_tab
+            .unwrap_or_else(|| if active_tab_is_declared { usize::MAX } else { 0 }),
     })
 }
 
@@ -933,14 +947,28 @@ pub(super) fn parse_tree_with_capabilities(
             active_screen: 0,
         };
         if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
-            for (s, screen) in screens.iter().enumerate() {
-                if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
-                    view.active_screen = s;
-                }
-                if let Some(parsed) = parse_screen(screen, capabilities) {
-                    view.screens.push(parsed);
+            let mut active_screen = None;
+            let mut active_screen_is_invalid = false;
+            for screen in screens {
+                let is_active = screen.get("active").and_then(|v| v.as_bool()) == Some(true);
+                match parse_screen(screen, capabilities) {
+                    Some(parsed) => {
+                        if is_active {
+                            active_screen = Some(view.screens.len());
+                            active_screen_is_invalid = false;
+                        }
+                        view.screens.push(parsed);
+                    }
+                    None => {
+                        if is_active {
+                            active_screen = None;
+                            active_screen_is_invalid = true;
+                        }
+                    }
                 }
             }
+            view.active_screen = active_screen
+                .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
         }
         tree.workspaces.push(view);
     }
@@ -994,6 +1022,53 @@ mod tests {
         let pane = &tree.workspaces[0].screens[0].panes[0];
         assert_eq!(pane.tabs.len(), 2);
         assert_eq!(pane.active_tab, 1);
+    }
+
+    #[test]
+    fn parser_reindexes_active_screen_after_dropping_malformed_screens() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {"active": false},
+                    {
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    }
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert_eq!(tree.workspaces[0].active_screen, 0);
+        assert_eq!(tree.active_screen().map(|screen| screen.id), Some(2));
+    }
+
+    #[test]
+    fn parser_fails_closed_when_active_screen_is_malformed() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {
+                        "id": 2,
+                        "active": false,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    },
+                    {"active": true}
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert!(tree.active_screen().is_none());
     }
 
     fn tree_with_tabs(active_tab: usize, surfaces: &[SurfaceId]) -> TreeView {
@@ -1452,6 +1527,67 @@ mod tests {
         .unwrap();
 
         assert_eq!(pane.focused_at, 42);
+    }
+
+    #[test]
+    fn pane_parser_reindexes_active_tab_after_dropping_malformed_tabs() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 1,
+            "tabs": [
+                {"title": "malformed"},
+                {"surface": 5, "title": "active"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active_surface(), Some(5));
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_is_out_of_range() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 9,
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_value_is_malformed() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": "invalid",
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_is_malformed() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 1,
+            "tabs": [
+                {"surface": 5, "title": "first"},
+                {"title": "malformed"},
+                {"surface": 6, "title": "third"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
     }
 
     #[test]
