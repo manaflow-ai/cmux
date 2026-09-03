@@ -723,16 +723,81 @@ extension CMUXCLI {
         }
     }
 
+    /// How `<machine>/<workspace>` resolved against the machine's catalog payload.
+    enum VMOpenWorkspaceResolution {
+        /// Exactly one workspace: its `ws_…` id and the terminals it views.
+        case found(id: String, terminals: [[String: Any]])
+        /// Several workspaces carry the selector as their name; only an id picks one.
+        case ambiguous(ids: [String])
+        case notFound
+    }
+
+    /// `<machine>/<workspace>` resolved against the machine's catalog payload, the
+    /// way the sidebar row and `vm.workspace_open` resolve it: a `ws_…` id first,
+    /// else a workspace name when exactly one workspace carries it. Workspaces come
+    /// from the machine's own list (so an EMPTY workspace resolves and `vm open`
+    /// starts a shell in it) and from every view of every terminal (a terminal
+    /// viewed in two workspaces belongs to both; older apps send only
+    /// `remote_workspace`).
+    static func resolveVMOpenWorkspace(
+        _ selector: String,
+        machine: [String: Any]?,
+        resources: [[String: Any]]
+    ) -> VMOpenWorkspaceResolution {
+        func workspaces(of terminal: [String: Any]) -> [[String: Any]] {
+            if let views = terminal["remote_views"] as? [[String: Any]] {
+                // An explicit empty array is authoritative: the terminal has
+                // left every workspace layout. Fall back to the legacy field
+                // only for payloads that predate remote_views entirely.
+                return views.compactMap { $0["workspace"] as? [String: Any] }
+            }
+            return (terminal["remote_workspace"] as? [String: Any]).map { [$0] } ?? []
+        }
+        // Every workspace the payload knows, id → name, in first-seen order.
+        var nameByID: [String: String] = [:]
+        var order: [String] = []
+        func note(_ workspace: [String: Any]) {
+            guard let id = workspace["id"] as? String, !id.isEmpty else { return }
+            if nameByID[id] == nil { order.append(id) }
+            if let name = workspace["name"] as? String, !name.isEmpty { nameByID[id] = name } else if nameByID[id] == nil { nameByID[id] = "" }
+        }
+        for workspace in (machine?["remote_workspaces"] as? [[String: Any]]) ?? [] { note(workspace) }
+        let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
+        // Workspace membership is a property of every surface resource. A
+        // browser or display can be the only fresh reference while the daemon's
+        // remote_workspaces list is catching up, so do not limit resolution to
+        // terminals (the terminal filter above remains for opening members).
+        for resource in resources {
+            for workspace in workspaces(of: resource) { note(workspace) }
+        }
+        let resolvedID: String
+        if nameByID[selector] != nil {
+            resolvedID = selector
+        } else {
+            let byName = order.filter { nameByID[$0] == selector }
+            switch byName.count {
+            case 0: return .notFound
+            case 1: resolvedID = byName[0]
+            default: return .ambiguous(ids: byName)
+            }
+        }
+        let inWorkspace = terminals.filter { terminal in
+            workspaces(of: terminal).contains { ($0["id"] as? String) == resolvedID }
+        }
+        return .found(id: resolvedID, terminals: inWorkspace)
+    }
+
     static var vmTreeUsage: String {
-        """
+        CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.usage",
+            defaultValue: """
         Usage: cmux vm tree [<machine>|local] [--refresh] [--json]
                cmux surface ls [<machine>|local] [--refresh] [--json]
 
         The Finder-style view of every surface: This Mac first (its terminals grouped by
-        workspace, and its browsers), then each cloud machine — the cmux-tui workspaces
-        running on it, the terminals in each workspace (title, cwd, agent state, and
-        whether a pane in this app already shows it), the machine's desktop, and its
-        forwarded ports. Every line carries an address `cmux vm open` or
+        workspace, and its browsers), then each cloud machine — Workspaces, Ports, VNC
+        Displays (one row per screen), and a final Terminals section containing every
+        machine-owned terminal. Every line carries an address `cmux vm open` or
         `cmux surface open` accepts.
 
         Options:
@@ -740,6 +805,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
+        )
     }
 
     static var surfaceUsage: String {
@@ -1131,8 +1197,15 @@ extension CMUXCLI {
         // Remote workspaces, in cmux-tui index order: the machine payload lists them all
         // (so an empty workspace still shows), terminals fill them in.
         var workspaces: [(id: String, name: String, index: Int, focused: Bool, terminals: [[String: Any]])] = []
+        // Terminal views can be numerous; keep membership assignment O(1)
+        // instead of scanning every workspace for every view.
+        var workspaceIndexByID: [String: Int] = [:]
         for raw in (machine["remote_workspaces"] as? [[String: Any]]) ?? [] {
             guard let workspaceId = raw["id"] as? String, !workspaceId.isEmpty else { continue }
+            let index = workspaces.count
+            if workspaceIndexByID[workspaceId] == nil {
+                workspaceIndexByID[workspaceId] = index
+            }
             workspaces.append((
                 id: workspaceId,
                 name: (raw["name"] as? String) ?? "",
@@ -1142,10 +1215,12 @@ extension CMUXCLI {
             ))
         }
         for terminal in terminals {
-            // Every workspace with a view of the terminal (deduped); a zero-view terminal
-            // lands in the detached group. Older apps send only `remote_workspace`.
+            // Every workspace with a view of the terminal (deduped). A zero-view
+            // terminal is kept for the final Terminals section below, never made
+            // into an empty-id pseudo-workspace. Older apps send only
+            // `remote_workspace`.
             var workspacePayloads: [[String: Any]?] = []
-            if let views = terminal["remote_views"] as? [[String: Any]], !views.isEmpty {
+            if let views = terminal["remote_views"] as? [[String: Any]] {
                 var seen = Set<String>()
                 for view in views {
                     guard let workspace = view["workspace"] as? [String: Any],
@@ -1153,15 +1228,18 @@ extension CMUXCLI {
                           seen.insert(workspaceId).inserted else { continue }
                     workspacePayloads.append(workspace)
                 }
-            }
-            if workspacePayloads.isEmpty {
+            } else {
+                // Only pre-multi-view payloads fall back to this field. An
+                // explicit empty `remote_views` is authoritative: the terminal
+                // has no workspace layout and belongs only in Terminals.
                 workspacePayloads = [terminal["remote_workspace"] as? [String: Any]]
             }
             for workspace in workspacePayloads {
-                let workspaceId = (workspace?["id"] as? String) ?? ""
-                if let index = workspaces.firstIndex(where: { $0.id == workspaceId }) {
+                guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
+                if let index = workspaceIndexByID[workspaceId] {
                     workspaces[index].terminals.append(terminal)
                 } else {
+                    workspaceIndexByID[workspaceId] = workspaces.count
                     workspaces.append((
                         id: workspaceId,
                         name: (workspace?["name"] as? String) ?? "",
@@ -1203,14 +1281,6 @@ extension CMUXCLI {
             }
         }
         for workspace in workspaces {
-            if workspace.id.isEmpty {
-                // Zero-view terminals: alive in the machine's pool, in no workspace.
-                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
-                for terminal in workspace.terminals {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
-                }
-                continue
-            }
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
@@ -1218,12 +1288,7 @@ extension CMUXCLI {
                 lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
             }
         }
-        if !displays.isEmpty || (machine["has_desktop"] as? Bool) == true {
-            lines.append("  " + String(
-                format: String(localized: "cli.vm.tree.desktop", defaultValue: "desktop  (cmux vm open %@:desktop)"),
-                id
-            ))
-        }
+        // Ports come before displays, matching the Cloud sidebar's group order.
         let ports = browsers.compactMap { browser -> (Int, [String: Any])? in
             guard let port = vmTreeNumber(browser["port"]).map({ Int($0) }) else { return nil }
             return (port, browser)
@@ -1238,13 +1303,78 @@ extension CMUXCLI {
                 lines.append(cell)
             }
         }
+
+        // VNC Displays are catalog resources, so emit one addressable row per
+        // screen instead of collapsing several screens into one synthetic desktop.
+        if !displays.isEmpty {
+            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "VNC Displays/"))
+            for display in displays {
+                lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            }
+        }
+
+        // Every machine-owned terminal stays in the flat index even while its
+        // link is connecting/asleep/failed. The link-status line above explains
+        // why workspace membership may be stale; hiding the terminals would
+        // make an otherwise addressable resource disappear from the catalog.
+        let terminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.terminals",
+            defaultValue: "terminals/"
+        )
+        let noTerminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.noTerminals",
+            defaultValue: "(no terminals)"
+        )
+        lines.append("  " + terminalsLabel)
+        if terminals.isEmpty {
+            lines.append("    " + noTerminalsLabel)
+        } else {
+            var attached: [[String: Any]] = []
+            var detached: [[String: Any]] = []
+            for terminal in terminals {
+                if vmTreeTerminalIsDetached(terminal) {
+                    detached.append(terminal)
+                } else {
+                    attached.append(terminal)
+                }
+            }
+            for terminal in attached {
+                lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+            }
+            if !detached.isEmpty {
+                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
+                for terminal in detached {
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                }
+            }
+        }
         return lines
     }
 
-    /// One terminal line: lifecycle glyph, id, title, cwd, agent badge, open marker, and the
-    /// address to open it. `addressKey` picks the resource's `key` (cloud: `term_…`, after
-    /// the workspace address) or its full `id` (local: `cmux surface open <id>`).
-    private static func vmTreeResourceCell(_ terminal: [String: Any], openHint: String, addressKey: String = "id") -> String {
+    /// Whether a catalog terminal is live and has no resolved daemon views.
+    /// Exited records with stale tab ids are intentionally not detached.
+    private static func vmTreeTerminalIsDetached(_ terminal: [String: Any]) -> Bool {
+        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+        guard lifecycle == "launching" || lifecycle == "running" else { return false }
+        if let views = terminal["remote_views"] as? [[String: Any]] {
+            return views.isEmpty
+        }
+        if let viewCount = vmTreeNumber(terminal["view_count"]) {
+            return viewCount == 0
+        }
+        return terminal["remote_workspace"] == nil
+    }
+
+    /// One resource line: lifecycle glyph, id, title, detail, agent badge, open marker,
+    /// and the address to open it. `addressKey` picks the resource's `key` (cloud terminal
+    /// workspace rows) or its full id (pool rows); display rows set `showFullKey` so each
+    /// screen number remains visible instead of being truncated to the common prefix.
+    private static func vmTreeResourceCell(
+        _ terminal: [String: Any],
+        openHint: String,
+        addressKey: String = "id",
+        showFullKey: Bool = false
+    ) -> String {
         let resourceId = (terminal["id"] as? String) ?? "?"
         let key = (terminal["key"] as? String) ?? resourceId
         let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
@@ -1255,7 +1385,8 @@ extension CMUXCLI {
         case "unavailable": glyph = "◌"
         default: glyph = "●"
         }
-        var cell = "\(glyph) \(addressKey == "key" ? key : String(key.prefix(8)))"
+        let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
+        var cell = "\(glyph) \(displayKey)"
         if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
         if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
@@ -1306,13 +1437,22 @@ extension CMUXCLI {
         case .workspace(let machine, let workspace):
             let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
-            let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
-            let inWorkspace = terminals.filter { terminal in
-                let remote = terminal["remote_workspace"] as? [String: Any]
-                return (remote?["id"] as? String) == workspace || (remote?["name"] as? String) == workspace
-            }
-            let remoteWorkspaceId = (inWorkspace.first?["remote_workspace"] as? [String: Any])?["id"] as? String
-            guard let remoteWorkspaceId else {
+            let machinePayload = ((catalog["machines"] as? [[String: Any]]) ?? []).first { ($0["id"] as? String) == machine }
+            let remoteWorkspaceId: String
+            let inWorkspace: [[String: Any]]
+            switch Self.resolveVMOpenWorkspace(workspace, machine: machinePayload, resources: resources) {
+            case .found(let id, let terminals):
+                remoteWorkspaceId = id
+                inWorkspace = terminals
+            case .ambiguous(let ids):
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.vm.open.workspaceAmbiguous",
+                        defaultValue: "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+                    ),
+                    machine, workspace, ids.joined(separator: ", ")
+                ))
+            case .notFound:
                 throw CLIError(message: String(
                     format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"),
                     machine, workspace

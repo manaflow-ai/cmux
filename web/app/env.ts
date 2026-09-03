@@ -27,10 +27,6 @@ const isVercelNonPreviewDeployment =
   typeof process.env.VERCEL_ENV === "string" &&
   process.env.VERCEL_ENV !== "preview" &&
   !isDocsZone;
-const isVercelProductionDeployment =
-  process.env.VERCEL === "1" &&
-  process.env.VERCEL_ENV === "production" &&
-  !isDocsZone;
 const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
   allowInsecureLoopback:
     trimEnv(process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER) === "1",
@@ -47,18 +43,6 @@ const requireVercelNonPreviewValue = (
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${name} is required for deployed non-preview runtimes`,
-      });
-    }
-  });
-const requireVercelProductionValue = (
-  name: string,
-  schema: z.ZodType<string> = z.string().min(1),
-): z.ZodType<string | undefined> =>
-  schema.optional().superRefine((value, context) => {
-    if (isVercelProductionDeployment && !value) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${name} is required for deployed production runtimes`,
       });
     }
   });
@@ -139,6 +123,30 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
       code: z.ZodIssueCode.custom,
       message:
         "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    });
+  }
+});
+const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
     });
   }
 });
@@ -245,12 +253,33 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
     CMUX_VM_REQUIRE_PRO: z.string().optional(),
     CMUX_VM_DEFAULT_PLAN: z.string().optional(),
-    // Hosted coderouter requires an active personal cmux Pro subscription.
-    // Self-hosted deployments leave this unset (or set it to "0").
-    CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
-      "CODEROUTER_HOSTED_PRO_REQUIRED",
-      z.enum(["0", "1"]),
-    ),
+    // Freestyle authenticates every protected-domain subrequest with this
+    // write-only token. Publication routes fail closed while it is absent.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET:
+      z.string().min(32).max(512).optional(),
+    // Canonical CMUX web origin used for the cross-domain sign-in handoff and
+    // pushed to Freestyle as the account-wide forward-auth target. It is never
+    // derived from a request; protected publications fail closed without it.
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Zone generated Cloud VM publication hostnames are minted under
+    // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
+    // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
+    // request its wildcard certificate. Defaults to cmux.sh.
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: z
+      .string()
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u,
+        "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
+      )
+      // A hostname is at most 253 characters; leave room for the generated label.
+      .max(200, "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must leave room for a generated label")
+      .optional(),
+    // Vercel Firewall rule id that throttles sign-in transaction creation per
+    // client and hostname on the Freestyle forward-auth route. Unset (or off
+    // Vercel) applies no limit.
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Hosted coderouter and Subrouter have no plan, permission, or team
+    // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
@@ -274,14 +303,6 @@ export const env = createEnv({
     SUBROUTER_STACK_TENANT_DELETE_TOKEN: requireVercelNonPreviewValue(
       "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
       z.string().min(32).max(1_024),
-    ),
-    SUBROUTER_ENFORCE_STACK_PERMISSIONS: requireVercelNonPreviewValue(
-      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
-      z.enum(["0", "1"]),
-    ),
-    SUBROUTER_ALLOWED_TEAM_IDS: requireVercelNonPreviewValue(
-      "SUBROUTER_ALLOWED_TEAM_IDS",
-      z.string().min(1).max(8_192),
     ),
     SUBROUTER_STACK_AUTH_TIMEOUT_MS: z.string()
       .regex(/^[1-9][0-9]{0,4}$/)
@@ -421,8 +442,17 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
     CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
     CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
-    CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
-      process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
+    ),
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
+    ),
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
@@ -436,12 +466,6 @@ export const env = createEnv({
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
     SUBROUTER_STACK_TENANT_DELETE_TOKEN: trimEnv(
       process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN,
-    ),
-    SUBROUTER_ENFORCE_STACK_PERMISSIONS: trimEnv(
-      process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
-    ),
-    SUBROUTER_ALLOWED_TEAM_IDS: trimEnv(
-      process.env.SUBROUTER_ALLOWED_TEAM_IDS,
     ),
     SUBROUTER_STACK_AUTH_TIMEOUT_MS: trimEnv(
       process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS,

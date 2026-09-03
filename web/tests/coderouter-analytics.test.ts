@@ -259,6 +259,51 @@ describe("coderouter analytics", () => {
     expect(captured.bodies[0]).not.toContain("must-not-leak");
   });
 
+  test("attributes VM-bound traffic per machine", () => {
+    expect(
+      analyticsTest.eventProperties("coderouter_auth_rejected", {
+        surface: "responses",
+        reason: "vm_mismatch",
+      }),
+    ).toEqual({ surface: "responses", reason: "vm_mismatch" });
+    const health = analyticsTest.eventProperties("coderouter_route_health", {
+      provider: "codex",
+      agent: "codex",
+      outcome: "success",
+      failure_stage: "none",
+      status: 200,
+      duration_ms: 10,
+      attempt_count: 1,
+      refresh_retry_count: 0,
+      response_streamed: true,
+      vm_id: "0f4b1c2e-1111-4222-8333-444455556666",
+    });
+    expect(health).toMatchObject({ vm_id: "0f4b1c2e-1111-4222-8333-444455556666" });
+    // Unbound traffic and malformed ids carry no vm_id at all.
+    expect(
+      analyticsTest.eventProperties("coderouter_route_health", {
+        provider: "codex",
+        agent: "codex",
+        outcome: "success",
+        failure_stage: "none",
+        status: 200,
+        vm_id: "not a vm id; free text",
+      }),
+    ).not.toHaveProperty("vm_id");
+    expect(
+      analyticsTest.aiUsageProperties(
+        { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5, vm_id: "vm-1" },
+        "team-scope",
+      ),
+    ).toMatchObject({ coderouter_vm_id: "vm-1" });
+    expect(
+      analyticsTest.aiUsageProperties(
+        { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5 },
+        "team-scope",
+      ),
+    ).not.toHaveProperty("coderouter_vm_id");
+  });
+
   test("rejects invalid enum values and bounds numeric dimensions", () => {
     expect(
       analyticsTest.eventProperties("coderouter_auth_rejected", {

@@ -105,7 +105,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string },
+    options: { slug: string; displayName?: string; heal?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,

@@ -60,6 +60,15 @@
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
     "backToSignIn": "Retour à la connexion"
   },
+  "cloudPublicationAccess": {
+    "title": "Vous n’avez pas accès",
+    "signIn": "Se connecter à cmux",
+    "signedInAs": "Connecté en tant que {identity}",
+    "switchAccount": "Changer de compte",
+    "invalidTitle": "Ce lien d’accès n’est pas valide",
+    "invalidBody": "Retournez sur le site et réessayez.",
+    "footer": "L’accès est géré par cmux."
+  },
   "common": {
     "downloadForMac": "Télécharger pour Mac",
     "viewOnGitHub": "Voir sur GitHub",
@@ -261,7 +270,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
       "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation."
+      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "machines": {
+        "title": "Machines",
+        "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Jetons au total",
+        "apiEquivalentColumn": "Valeur équivalente API",
+        "unnamed": "Machine sans nom",
+        "empty": "Aucune machine n'a utilisé coderouter au cours des {days} derniers jours.",
+        "unavailable": "L'utilisation par machine est temporairement indisponible.",
+        "estimateNote": "La valeur équivalente API est une estimation basée sur les prix publics, pas une dépense réelle."
+      }
     },
     "accountMenu": {
       "label": "Menu du compte",

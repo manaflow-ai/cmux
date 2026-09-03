@@ -1,4 +1,6 @@
+import CmuxCore
 import Foundation
+import CmuxWorkspaces
 
 extension TerminalController {
     /// Mobile-gated workspace-group creation that mirrors mobile workspace.create.
@@ -6,6 +8,8 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
+        let identity = mobileWorkspaceGroupExternalID(params: params)
+        if let error = identity.error { return error }
         let title = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = title?.isEmpty == false ? title ?? "" : ""
 
@@ -13,6 +17,7 @@ extension TerminalController {
         v2MainSync {
             guard tabManager.createWorkspaceGroup(
                 name: name,
+                externalID: identity.value,
                 selectAnchor: false,
                 collapseSidebarSelection: false
             ) != nil else {
@@ -71,7 +76,26 @@ extension TerminalController {
                 }
                 tabManager.renameWorkspaceGroup(groupId: groupID, name: title)
             case .ungroup:
-                if tabManager.workspaceGroups.first(where: { $0.id == groupID }).map({ $0.isPinned && $0.isEmpty }) == true {
+                let removeGeneratedAnchor: Bool
+                if !v2HasNonNullParam(params, "remove_generated_anchor") {
+                    removeGeneratedAnchor = false
+                } else if let value = params["remove_generated_anchor"] as? Bool {
+                    removeGeneratedAnchor = value
+                } else {
+                    mutationError = .err(
+                        code: "invalid_params",
+                        message: controlWorkspaceGroupStrings().removeGeneratedAnchorMustBeBoolean,
+                        data: nil
+                    )
+                    return
+                }
+                switch tabManager.ungroupWorkspaceGroup(
+                    groupId: groupID,
+                    removeGeneratedAnchor: removeGeneratedAnchor
+                ) {
+                case .groupNotFound:
+                    mutationError = .err(code: "not_found", message: "Group not found", data: nil)
+                case .emptyPinnedCannotUngroup:
                     mutationError = .err(
                         code: "invalid_request",
                         message: String(
@@ -80,9 +104,27 @@ extension TerminalController {
                         ),
                         data: ["group_id": groupID.uuidString]
                     )
-                    return
+                case .dissolved, .removedGeneratedAnchor:
+                    break
+                case .generatedAnchorRequiresAnchorOnly:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRequiresAnchorOnly,
+                        data: nil
+                    )
+                case .generatedAnchorNotOwned:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorNotOwned,
+                        data: nil
+                    )
+                case .generatedAnchorRemovalFailed:
+                    mutationError = .err(
+                        code: "not_removed",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRemovalFailed,
+                        data: nil
+                    )
                 }
-                tabManager.ungroupWorkspaceGroup(groupId: groupID)
             case .delete:
                 let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
                 let isPinnedEmptyGroup = tabManager.workspaceGroups.first {
@@ -163,6 +205,58 @@ extension TerminalController {
             return nil
         }
         return trimmed
+    }
+
+    /// Parses the shared caller-owned identity accepted by mobile and control
+    /// workspace-group creation. The control-socket path supplies localized
+    /// errors; this mobile path is only reached after authenticated RPC gating.
+    private func mobileWorkspaceGroupExternalID(
+        params: [String: Any]
+    ) -> (value: String?, error: V2CallResult?) {
+        do {
+            let resolution = try WorkspaceGroupIdentityResolution(
+                externalID: mobileWorkspaceGroupIdentityInput(params["external_id"]),
+                idempotencyKey: mobileWorkspaceGroupIdentityInput(params["idempotency_key"])
+            )
+            return (resolution.value, nil)
+        } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
+            let messageKey: String
+            let defaultValue: String
+            switch error {
+            case .nonString:
+                messageKey = "workspaceGroup.error.idempotencyKeyMustBeString"
+                defaultValue = "external_id and idempotency_key must be strings"
+            case .empty:
+                messageKey = "workspaceGroup.error.idempotencyKeyMustNotBeEmpty"
+                defaultValue = "The group identity must not be empty"
+            case .mismatchedAliases:
+                messageKey = "workspaceGroup.error.idempotencyKeysMustMatch"
+                defaultValue = "external_id and idempotency_key must match"
+            }
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(localized: messageKey, defaultValue: defaultValue),
+                data: nil
+            ))
+        } catch {
+            assertionFailure("Unexpected workspace-group identity validation error: \(error)")
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                ),
+                data: nil
+            ))
+        }
+    }
+
+    private func mobileWorkspaceGroupIdentityInput(
+        _ value: Any?
+    ) -> WorkspaceGroupIdentityResolution.Input {
+        guard let value, !(value is NSNull) else { return .absent }
+        guard let raw = value as? String else { return .invalid }
+        return .string(raw)
     }
 }
 

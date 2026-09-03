@@ -12,7 +12,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -51,6 +51,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `window-title-requested` | subscribe | session | protocol 6 |
+| `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -749,6 +750,28 @@ Example:
 
 ```json
 {"event":"window-title-requested","title":"hello"}
+```
+
+### machine-usage-changed
+
+| Field | Value |
+| --- | --- |
+| event | `machine-usage-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Payload:
+
+```text
+object{event:"machine-usage-changed",usage:MachineUsage|null}
+```
+
+Meaning: The daemon's machine-level model spend readout changed. `usage` carries the same object `machine-usage` returns; null means the readout became unavailable and frontends must hide it. Emitted only when the value differs from the previous one, so a steady poll is silent.
+
+Example:
+
+```json
+{"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
 ```
 
 ### empty

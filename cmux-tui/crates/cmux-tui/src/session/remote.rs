@@ -1087,14 +1087,17 @@ impl PendingRemoteRequests {
         progressed
     }
 
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.requests.len()
     }
 
+    #[cfg(test)]
     fn values(&self) -> impl Iterator<Item = &PendingRemoteRequest> {
         self.requests.values()
     }
@@ -2536,6 +2539,9 @@ impl RemoteSession {
                 if let Some(status) = parse_graphics_status(&value) {
                     self.emit(MuxEvent::GraphicsStatus(status));
                 }
+            }
+            Some("machine-usage-changed") => {
+                self.emit(MuxEvent::MachineUsageChanged(super::parse_machine_usage(&value)));
             }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
             Some("window-title-requested") => {

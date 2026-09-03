@@ -18,7 +18,11 @@ final class MachineCreateCoordinator {
     /// Starts the CLI with the arguments; returns false when it could not
     /// launch (a sign-out raced the click). The completion carries the exit
     /// status and combined output, which is the error text on failure.
-    typealias Launch = @MainActor ([String], @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void) -> Bool
+    typealias Launch = @MainActor (
+        [String],
+        @escaping @MainActor (String) -> Void,
+        @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
+    ) -> Bool
 
     /// How a create ended.
     enum Outcome: Equatable {
@@ -55,6 +59,7 @@ final class MachineCreateCoordinator {
     /// never invalidates views, and so `deinit` (nonisolated) can reach the
     /// observer token without going through an isolated accessor.
     @ObservationIgnored private var launches: [UUID: Launch] = [:]
+    @ObservationIgnored private var progressOutput: [UUID: String] = [:]
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let notificationCenter: NotificationCenter
@@ -101,12 +106,14 @@ final class MachineCreateCoordinator {
         let operation = MachineCreateOperation(id: UUID(), request: request, startedAt: now())
         operations.append(operation)
         launches[operation.id] = launch
+        progressOutput[operation.id] = ""
         postDidChange(finished: nil)
-        guard launch(request.arguments, completionHandler(for: operation.id)) else {
+        guard launch(request.arguments, progressHandler(for: operation.id), completionHandler(for: operation.id)) else {
             if let index = operations.firstIndex(where: { $0.id == operation.id }) {
                 operations.remove(at: index)
             }
             launches.removeValue(forKey: operation.id)
+            progressOutput.removeValue(forKey: operation.id)
             postDidChange(finished: nil)
             return false
         }
@@ -123,8 +130,10 @@ final class MachineCreateCoordinator {
               !operations[index].isRunning,
               let launch = launches[id] else { return false }
         operations[index].phase = .running
+        operations[index].createdMachineID = nil
+        progressOutput[id] = ""
         postDidChange(finished: nil)
-        guard launch(operations[index].request.arguments, completionHandler(for: id)) else {
+        guard launch(operations[index].request.arguments, progressHandler(for: id), completionHandler(for: id)) else {
             if let failedIndex = operations.firstIndex(where: { $0.id == id }) {
                 operations[failedIndex].phase = .failed(output: String(
                     localized: "machines.new.error.launch",
@@ -143,6 +152,7 @@ final class MachineCreateCoordinator {
         guard let index = operations.firstIndex(where: { $0.id == id }), !operations[index].isRunning else { return }
         operations.remove(at: index)
         launches.removeValue(forKey: id)
+        progressOutput.removeValue(forKey: id)
         postDidChange(finished: nil)
     }
 
@@ -151,6 +161,7 @@ final class MachineCreateCoordinator {
         guard !operations.isEmpty || !launches.isEmpty else { return }
         operations.removeAll()
         launches.removeAll()
+        progressOutput.removeAll()
         postDidChange(finished: nil)
     }
 
@@ -158,6 +169,17 @@ final class MachineCreateCoordinator {
     /// format is the CLI's own localized string, so the match follows the
     /// user's language instead of a hard-coded English prefix.
     nonisolated static func createdMachineID(fromOutput output: String) -> String? {
+        // The stable marker is emitted before opening starts and is the
+        // authoritative correlation key. Parse it before localized display
+        // text, so partial progress can identify the machine in every locale.
+        for token in output.split(whereSeparator: \.isWhitespace) {
+            let token = String(token)
+            guard token.hasPrefix("machine=") else { continue }
+            let id = String(token.dropFirst("machine=".count))
+            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
+                return id
+            }
+        }
         let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
         let parts = format.components(separatedBy: "%@")
         guard parts.count == 2 else { return nil }
@@ -202,16 +224,32 @@ final class MachineCreateCoordinator {
         }
     }
 
+    private func progressHandler(for id: UUID) -> @MainActor (String) -> Void {
+        { [weak self] chunk in
+            guard let self, let index = self.operations.firstIndex(where: { $0.id == id }) else { return }
+            self.progressOutput[id, default: ""].append(chunk)
+            if let machineID = Self.createdMachineID(fromOutput: self.progressOutput[id] ?? "") {
+                guard self.operations[index].createdMachineID != machineID else { return }
+                self.operations[index].createdMachineID = machineID
+                self.postDidChange(finished: nil)
+            }
+        }
+    }
+
     private func finish(id: UUID, completion: CloudVMActionLauncher.Completion) {
         // Dropped by a sign-out (or dismissed after a retry was refused): the
         // account this belonged to is gone, so there is nobody to tell.
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
-        let operation = operations[index]
+        var operation = operations[index]
         let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
         // The CLI's `machine=` token is the authoritative created-machine
         // signal; the localized "Created Cloud VM" line is the fallback for
         // older bundled CLIs.
         let createdMachineID = completion.machineId ?? Self.createdMachineID(fromOutput: output)
+        if let createdMachineID {
+            operation.createdMachineID = createdMachineID
+            operations[index].createdMachineID = createdMachineID
+        }
         let outcome: Outcome
         if completion.succeeded {
             outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)

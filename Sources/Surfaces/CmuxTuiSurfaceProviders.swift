@@ -136,7 +136,7 @@ final class CmuxTuiSurfaceProviderRegistry {
 }
 
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
-/// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
+/// VNC display resources, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (`projectionDidEnd` is a no-op).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
@@ -313,7 +313,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
-            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            var text = status?.error ?? CloudMachineLink.errorText(error)
+            // A machine on the private network is reachable only through this
+            // Mac's tunnel: when that is down, or up for another enrollment, say
+            // so first — the raw connect timeout explains nothing on its own.
+            if summary.preferredPrivateAddress != nil, let blocker = VMTunnelManager().privateRouteBlocker() {
+                text = "\(blocker) (\(text))"
+            }
+            linkError = text
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif

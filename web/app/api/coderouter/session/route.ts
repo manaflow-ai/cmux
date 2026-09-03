@@ -1,15 +1,9 @@
-import { env } from "../../../env";
-import {
-  CODEROUTER_FREE_ACCOUNT_LIMIT,
-  coderouterEntitlement,
-} from "../../../../services/coderouter/entitlement";
 import {
   authenticateRouteToken,
   issueRouteToken,
   revokeRouteToken,
 } from "../../../../services/coderouter/repository";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
-import { captureCoderouterError } from "../../../../services/errors";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -19,16 +13,12 @@ import {
 
 type SessionDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly entitlement: typeof coderouterEntitlement;
   readonly issueToken: typeof issueRouteToken;
-  readonly hostedProRequired: () => boolean;
 };
 
 const defaultDependencies: SessionDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
-  entitlement: coderouterEntitlement,
   issueToken: issueRouteToken,
-  hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
 };
 
 export const POST = makeCoderouterSessionPostHandler();
@@ -77,52 +67,10 @@ export function makeCoderouterSessionPostHandler(
   dependencies: SessionDependencies = defaultDependencies,
 ) {
   return async function POST(request: Request): Promise<Response> {
-    const resolved = await dependencies.resolveContext(request, "use");
+    // Team membership is the only requirement for a hosted route session.
+    const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
     const userId = resolved.value.user.id;
-    let entitlementBasis = "ungated";
-    if (dependencies.hostedProRequired()) {
-      try {
-        const entitlement = await dependencies.entitlement(
-          userId,
-          resolved.value.team.teamId,
-        );
-        entitlementBasis = entitlement.basis;
-        if (!entitlement.allowed) {
-          return Response.json(
-            {
-              error: "pro_required",
-              message:
-                `Free hosted coderouter covers up to ${CODEROUTER_FREE_ACCOUNT_LIMIT} connected accounts; ` +
-                `this team has ${entitlement.accountCount}. ` +
-                "Upgrade to cmux Pro or Team, remove accounts, or connect a self-hosted server.",
-              retryable: false,
-            },
-            {
-              status: 402,
-              headers: { "cache-control": "no-store" },
-            },
-          );
-        }
-      } catch (error) {
-        captureCoderouterError(error, {
-          operation: "resolve_hosted_entitlement",
-          route: "/api/coderouter/session",
-        });
-        return Response.json(
-          {
-            error: "entitlement_unavailable",
-            message:
-              "coderouter could not verify your Pro entitlement. Nothing was charged or changed; retry shortly.",
-            retryable: true,
-          },
-          {
-            status: 503,
-            headers: { "cache-control": "no-store" },
-          },
-        );
-      }
-    }
     let issued;
     try {
       issued = await dependencies.issueToken(
@@ -150,10 +98,6 @@ export function makeCoderouterSessionPostHandler(
       event: "coderouter_route_session_issued",
       userId,
       teamId: resolved.value.team.teamId,
-      properties: {
-        hosted_pro_required: dependencies.hostedProRequired(),
-        entitlement_basis: entitlementBasis,
-      },
     });
     addCoderouterBreadcrumb("session", "Route session issued");
     return Response.json(
@@ -171,7 +115,7 @@ export function makeCoderouterSessionPostHandler(
 }
 
 export async function DELETE(request: Request): Promise<Response> {
-  const resolved = await resolveCodeRouterRequestContext(request, "use");
+  const resolved = await resolveCodeRouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
   const routeToken = request.headers.get("x-coderouter-route-token")?.trim();
   if (!routeToken) {
