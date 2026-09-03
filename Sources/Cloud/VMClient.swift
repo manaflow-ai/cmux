@@ -99,7 +99,20 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append("Details:")
         lines.append(contentsOf: details.map { "  \($0)" })
     }
+    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
+        // The support reference. Operators open the exact server trace,
+        // PostHog row and Sentry event from this one id.
+        lines.append("")
+        lines.append(cloudVMReferenceLine(traceId: traceId))
+    }
     return lines.joined(separator: "\n")
+}
+
+func cloudVMReferenceLine(traceId: String) -> String {
+    String(
+        format: String(localized: "cloudVM.error.reference", defaultValue: "Reference: %@"),
+        traceId
+    )
 }
 
 private func defaultCloudVMMessage(status: Int) -> String {
@@ -539,10 +552,12 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let telemetry: VMClientTelemetry
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(session: URLSession = .shared, auth: AuthCoordinator, telemetry: VMClientTelemetry = .shared) {
         self.session = session
         self.auth = auth
+        self.telemetry = telemetry
     }
 
     func list() async throws -> [VMSummary] {
@@ -1224,12 +1239,117 @@ actor VMClient {
 
     // MARK: - HTTP
 
+    /// Every Cloud VM API call goes through here. Mints the trace context,
+    /// sends the client identity headers, measures wall-clock latency and
+    /// records the outcome (success, HTTP error with the server's code and
+    /// trace id, or transport failure) with `VMClientTelemetry`.
     private func request(
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let trace = VMRequestTraceContext.mint()
+        let route = VMClientTelemetry.normalizedRoute(path: path)
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        var retryCount = 0
+        func elapsedMs() -> Double {
+            Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        }
+        func record(_ outcome: VMRequestOutcome) {
+            telemetry.record(VMRequestTelemetryRecord(
+                method: method,
+                route: route,
+                outcome: outcome,
+                durationMs: elapsedMs(),
+                retryCount: retryCount,
+                trace: trace
+            ))
+        }
+        var headers = VMClientTelemetry.clientIdentityHeaders()
+        headers.merge(trace.headers) { _, new in new }
+        headers.merge(extraHeaders) { _, new in new }
+        do {
+            let (data, http) = try await performRequest(
+                method,
+                path: path,
+                jsonBody: jsonBody,
+                extraHeaders: headers,
+                timeoutSeconds: timeoutSeconds,
+                onRetry: { retryCount += 1 }
+            )
+            record(.response(
+                status: http.statusCode,
+                errorCode: http.statusCode >= 400 ? Self.cloudVMErrorCode(http: http, data: data) : nil,
+                serverTraceId: Self.cloudVMServerTraceId(http: http, data: data)
+            ))
+            return (data, http)
+        } catch let error as VMClientError {
+            record(.transportFailure(kind: Self.transportFailureKind(error), detail: Self.transportFailureDetail(error)))
+            throw error
+        } catch is CancellationError {
+            record(.transportFailure(kind: .cancelled, detail: "cancelled"))
+            throw CancellationError()
+        } catch let error as URLError {
+            record(.transportFailure(kind: error.code == .cancelled ? .cancelled : .urlError, detail: "URLError \(error.code.rawValue): \(error.localizedDescription)"))
+            throw error
+        } catch {
+            record(.transportFailure(kind: .unknown, detail: String(describing: error).prefix(300).description))
+            throw error
+        }
+    }
+
+    private static func transportFailureKind(_ error: VMClientError) -> VMTransportFailureKind {
+        switch error {
+        case .notSignedIn: return .notSignedIn
+        case .sessionRefreshFailed: return .sessionRefreshFailed
+        case .backendUnreachable: return .backendUnreachable
+        case .malformedResponse: return .malformedResponse
+        case .httpStatus: return .unknown
+        }
+    }
+
+    private static func transportFailureDetail(_ error: VMClientError) -> String {
+        switch error {
+        case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
+        case .malformedResponse(let message): return message
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
+        }
+    }
+
+    /// The server's `x-cmux-vm-error` header, else the body's `error` field.
+    private static func cloudVMErrorCode(http: HTTPURLResponse, data: Data) -> String? {
+        if let header = http.value(forHTTPHeaderField: "x-cmux-vm-error"), !header.isEmpty {
+            return header
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String, !code.isEmpty else {
+            return nil
+        }
+        return code
+    }
+
+    /// The server's `x-cmux-trace-id` header, else the body's `traceId`.
+    private static func cloudVMServerTraceId(http: HTTPURLResponse, data: Data) -> String? {
+        if let header = http.value(forHTTPHeaderField: VMRequestTraceContext.serverTraceIdHeader), !header.isEmpty {
+            return header
+        }
+        guard http.statusCode >= 400,
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let traceId = object["traceId"] as? String, !traceId.isEmpty else {
+            return nil
+        }
+        return traceId
+    }
+
+    private func performRequest(
+        _ method: String,
+        path: String,
+        jsonBody: [String: Any]?,
+        extraHeaders: [String: String],
+        timeoutSeconds: TimeInterval?,
+        onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
         // session. A request that was already queued when sign-out began must
@@ -1302,6 +1422,7 @@ actor VMClient {
             }
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
+                onRetry()
                 let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
                 let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
                 try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
@@ -1475,5 +1596,246 @@ actor VMClient {
                 break
             }
         }
+    }
+}
+
+// MARK: - Per-machine coderouter usage
+
+/// Token and spend totals for one machine over the usage window, as
+/// `GET /api/coderouter/vm-usage/team` reports them.
+struct MachineUsageTotals: Equatable, Sendable {
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let totalTokens: Int
+    /// What the same traffic would have cost at list API prices.
+    let apiEquivalentUsd: Double
+
+    /// Nothing to show for a machine that has not routed a single token.
+    var isEmpty: Bool { totalTokens <= 0 && apiEquivalentUsd <= 0 }
+}
+
+/// One machine's usage readout: the row shows `totals` labeled with
+/// `periodDays`. `vmID` is the id `GET /api/vm` returns as the machine id, so
+/// it matches ``MachineSnapshot/id`` directly.
+struct MachineUsageSnapshot: Equatable, Sendable {
+    let vmID: String
+    /// The provider machine id, the `id` that `GET /api/vm` lists. Rows key
+    /// on it when present because `vmID` is the backend's own uuid.
+    let providerVmID: String?
+    let displayName: String?
+    let periodDays: Int
+    let asOf: Date?
+    let totals: MachineUsageTotals
+}
+
+/// The team-wide usage payload. `kind == .unavailable` means the backend has no
+/// usage store for this team (no rows are rendered, no error is surfaced).
+struct TeamMachineUsage: Equatable, Sendable {
+    enum Kind: String, Sendable {
+        case ready
+        case unavailable
+    }
+
+    let teamID: String
+    let periodDays: Int
+    let kind: Kind
+    let asOf: Date?
+    let machines: [MachineUsageSnapshot]
+
+    /// The lookup the machines panel keys rows by. Empty when the backend says
+    /// usage is unavailable; blank ids are dropped; the first entry wins when
+    /// the backend repeats a machine.
+    var byMachineID: [String: MachineUsageSnapshot] {
+        guard kind == .ready else { return [:] }
+        var result: [String: MachineUsageSnapshot] = [:]
+        for machine in machines {
+            for key in [machine.providerVmID ?? "", machine.vmID] where !key.isEmpty && result[key] == nil {
+                result[key] = machine
+            }
+        }
+        return result
+    }
+}
+
+enum MachineUsageClientError: Error, CustomStringConvertible {
+    case notSignedIn
+    case sessionRefreshFailed
+    case httpStatus(Int, String)
+    case malformedResponse(String)
+    case backendUnreachable(url: String, detail: String)
+
+    var description: String {
+        switch self {
+        case .notSignedIn:
+            return "Not signed in. Run `cmux auth login`, then retry."
+        case .sessionRefreshFailed:
+            return "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment."
+        case let .httpStatus(status, _):
+            return "Machine usage request failed (HTTP \(status))."
+        case let .malformedResponse(message):
+            return "The machine usage service returned an unexpected response: \(message)"
+        case let .backendUnreachable(url, detail):
+            return "Could not reach the cmux backend at \(url): \(detail)"
+        }
+    }
+}
+
+/// Fetches per-machine coderouter spend for the Cloud machines panel from
+/// `GET /api/coderouter/vm-usage/team`. Same origin, session auth, and team
+/// header as ``AIAccountsClient``; results are typed values so nothing
+/// untyped crosses the actor boundary. Callers treat every failure (a 404 on
+/// a backend without the route, a network error) as "no data".
+actor MachineUsageClient {
+    @MainActor private(set) static var shared: MachineUsageClient?
+
+    @MainActor
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
+        shared = MachineUsageClient(session: session, auth: auth)
+    }
+
+    private let session: URLSession
+    private let auth: AuthCoordinator
+
+    init(session: URLSession = .shared, auth: AuthCoordinator) {
+        self.session = session
+        self.auth = auth
+    }
+
+    func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
+        let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
+        guard (200...299).contains(http.statusCode) else {
+            throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return try Self.decodeTeamUsage(data)
+    }
+
+    /// Decodes the wire payload. Pure and nonisolated so tests can pin the
+    /// shape without a live client.
+    nonisolated static func decodeTeamUsage(_ data: Data) throws -> TeamMachineUsage {
+        let parsed = try JSONSerialization.jsonObject(with: data, options: [])
+        guard let object = parsed as? [String: Any] else {
+            throw MachineUsageClientError.malformedResponse("expected a JSON object")
+        }
+        guard let teamID = object["teamId"] as? String else {
+            throw MachineUsageClientError.malformedResponse("missing `teamId`")
+        }
+        guard let rawKind = object["kind"] as? String, let kind = TeamMachineUsage.Kind(rawValue: rawKind) else {
+            throw MachineUsageClientError.malformedResponse("missing or unknown `kind`")
+        }
+        let periodDays = intValue(object["periodDays"]) ?? 0
+        let asOf = dateValue(object["asOf"])
+        let rawMachines = (object["machines"] as? [[String: Any]]) ?? []
+        let machines = try rawMachines.enumerated().map { index, entry -> MachineUsageSnapshot in
+            guard let vmID = entry["vmId"] as? String else {
+                throw MachineUsageClientError.malformedResponse("machine \(index) is missing `vmId`")
+            }
+            guard let rawTotals = entry["totals"] as? [String: Any] else {
+                throw MachineUsageClientError.malformedResponse("machine \(index) is missing `totals`")
+            }
+            let totals = MachineUsageTotals(
+                inputTokens: intValue(rawTotals["inputTokens"]) ?? 0,
+                cachedInputTokens: intValue(rawTotals["cachedInputTokens"]) ?? 0,
+                outputTokens: intValue(rawTotals["outputTokens"]) ?? 0,
+                totalTokens: intValue(rawTotals["totalTokens"]) ?? 0,
+                apiEquivalentUsd: doubleValue(rawTotals["apiEquivalentUsd"]) ?? 0
+            )
+            let displayName = (entry["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let providerVmID = (entry["providerVmId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return MachineUsageSnapshot(
+                vmID: vmID,
+                providerVmID: providerVmID,
+                displayName: displayName,
+                periodDays: periodDays,
+                asOf: asOf,
+                totals: totals
+            )
+        }
+        return TeamMachineUsage(teamID: teamID, periodDays: periodDays, kind: kind, asOf: asOf, machines: machines)
+    }
+
+    private nonisolated static func intValue(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? Int64 { return Int(clamping: value) }
+        if let value = raw as? Double, value.isFinite { return Int(value) }
+        return nil
+    }
+
+    private nonisolated static func doubleValue(_ raw: Any?) -> Double? {
+        if let value = raw as? Double, value.isFinite { return value }
+        if let value = raw as? Int { return Double(value) }
+        if let value = raw as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
+    private nonisolated static let iso8601WithFractions: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private nonisolated static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    /// `null`/absent is nil; an unparseable string is nil too, since the date
+    /// only labels the readout and must never fail the whole payload.
+    private nonisolated static func dateValue(_ raw: Any?) -> Date? {
+        guard let text = raw as? String, !text.isEmpty else { return nil }
+        return iso8601WithFractions.date(from: text) ?? iso8601.date(from: text)
+    }
+
+    private func request(
+        _ method: String,
+        path: String,
+        teamID explicitTeamID: String?
+    ) async throws -> (Data, HTTPURLResponse) {
+        let tokens: (accessToken: String, refreshToken: String)
+        do {
+            tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw MachineUsageClientError.sessionRefreshFailed
+        } catch {
+            throw MachineUsageClientError.notSignedIn
+        }
+        let resolvedTeamID = await auth.resolvedTeamID
+
+        guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+            throw MachineUsageClientError.malformedResponse("the cmux backend URL is misconfigured")
+        }
+        comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
+        guard let url = comps.url else {
+            throw MachineUsageClientError.malformedResponse("could not build the request URL")
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        let teamID = explicitTeamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let teamID = teamID?.isEmpty == false ? teamID : resolvedTeamID, !teamID.isEmpty {
+            req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+            default:
+                throw error
+            }
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw MachineUsageClientError.malformedResponse("non-HTTP response")
+        }
+        return (data, http)
     }
 }

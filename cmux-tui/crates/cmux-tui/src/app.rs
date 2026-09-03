@@ -25,11 +25,12 @@ use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
     GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
-    MIN_VIEWPORT_PANE_WIDTH, Mux, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
-    PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
-    ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
-    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
+    MIN_VIEWPORT_PANE_WIDTH, MachineUsage, Mux, MuxEvent, Node, PairingChallenge, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId,
+    SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult,
+    VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
+    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
+    split_sides, zellij_default_pane_layout,
 };
 use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
@@ -2209,6 +2210,30 @@ impl OrderedSession {
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
+    }
+
+    /// Fetch the daemon's machine spend readout off the UI thread and feed
+    /// it back as a `MachineUsageChanged` event. The event is scoped to this
+    /// session generation, so a late answer from a replaced session is
+    /// dropped. A failed read is silent: the readout is informational and
+    /// the next `machine-usage-changed` event corrects it.
+    fn refresh_machine_usage_background(&self) {
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let spawn =
+            std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
+                match session.machine_usage() {
+                    Ok(usage) => {
+                        let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
+                    }
+                    Err(error) => {
+                        crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+                    }
+                }
+            });
+        if let Err(error) = spawn {
+            crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+        }
     }
 
     fn refresh_clients_background(&self) {
@@ -7138,6 +7163,9 @@ pub struct App {
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
+    /// Machine-level model spend readout from the session's daemon; `None`
+    /// hides the sidebar readout.
+    pub machine_usage: Option<MachineUsage>,
     /// When set, render only this PTY surface without session chrome.
     surface_only: Option<SurfaceId>,
     pub sidebar_visible: bool,
@@ -9511,10 +9539,12 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         retiring_status_workers: Vec::new(),
         status_outputs_generation: Arc::new(AtomicU64::new(0)),
         status_segments_cache: None,
+        machine_usage: None,
     };
     app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
+        app.session.refresh_machine_usage_background();
     }
 
     if let Err(error) = app.restart_machine_updates() {
@@ -11827,6 +11857,7 @@ impl App {
             }
             self.session.apply_config(self.config.clone());
             self.session.refresh_clients_background();
+            self.session.refresh_machine_usage_background();
         }
 
         if let Some(mut previous_worker) = previous_worker {
@@ -11842,6 +11873,9 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        // The readout belongs to the previous daemon; the replacement's own
+        // value arrives from its background refresh.
+        self.machine_usage = None;
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -15437,6 +15471,13 @@ impl App {
                 self.write_window_title(&title)?;
                 Ok(RenderAction::None)
             }
+            AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)) => {
+                if self.machine_usage == usage {
+                    return Ok(RenderAction::None);
+                }
+                self.machine_usage = usage;
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 self.graphics_dirty_surfaces.insert(id);
                 if self.sidebar_plugin_surface == Some(id) {
@@ -15931,6 +15972,7 @@ impl App {
                     mouse,
                     input_sequence,
                     terminal_pointer_admission,
+                    Instant::now(),
                 )?;
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
@@ -17179,12 +17221,14 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
+        let host_selection_modifier =
+            |modifiers| modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT;
         if !previous.repeatable
             || screen.is_none()
             || previous.surface != surface
             || previous.screen != screen
-            || previous.modifiers != KeyModifiers::NONE
-            || modifiers != KeyModifiers::NONE
+            || previous.modifiers != modifiers
+            || !host_selection_modifier(modifiers)
         {
             return false;
         }
@@ -17204,9 +17248,9 @@ impl App {
         cell: (u16, u64),
         position: (u16, u16),
         modifiers: KeyModifiers,
+        now: Instant,
     ) -> SelectionMode {
         self.semantic_selection_cache = None;
-        let now = Instant::now();
         let previous = self.selection_click_sequence.take();
         let screen = self.terminal_active_screen(surface);
         let repeated = previous.as_ref().is_some_and(|previous| {
@@ -20970,7 +21014,12 @@ impl App {
 
     #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
-        self.handle_mouse_with_sequence(mouse, None, None)
+        self.handle_mouse_with_sequence(mouse, None, None, Instant::now())
+    }
+
+    #[cfg(test)]
+    fn handle_mouse_at(&mut self, mouse: MouseEvent, now: Instant) -> anyhow::Result<RenderAction> {
+        self.handle_mouse_with_sequence(mouse, None, None, now)
     }
 
     fn handle_mouse_with_sequence(
@@ -20978,6 +21027,7 @@ impl App {
         mouse: MouseEvent,
         replay_sequence: Option<u64>,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
@@ -21038,6 +21088,7 @@ impl App {
                 mouse.row,
                 mouse.modifiers,
                 terminal_admission,
+                now,
             ),
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.forward_pty_mouse_drag(
@@ -22296,7 +22347,7 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
-        self.handle_left_down_with_admission(x, y, modifiers, None)
+        self.handle_left_down_with_admission(x, y, modifiers, None, Instant::now())
     }
 
     fn handle_left_down_with_admission(
@@ -22305,15 +22356,16 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         self.replace_selection(None);
         self.status_selection = None;
         self.finish_active_drag();
 
         // A repeat is valid only for presses that land directly in a PTY
-        // content cell. Any chrome, overlay, browser, or modified click ends
-        // the pending terminal click sequence.
-        let repeat_target = modifiers == KeyModifiers::NONE
+        // content cell. Shift is the host-selection override when an inner
+        // PTY application owns mouse input, so preserve it for repeats.
+        let repeat_target = (modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT)
             && self.hit_at(x, y).is_none()
             && self.pane_area_at(x, y).is_some_and(|area| {
                 self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
@@ -22633,6 +22685,7 @@ impl App {
                     terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
+                    self.reset_selection_click_sequence();
                     return Ok(RenderAction::Draw);
                 } else {
                     if self.active_pane() != Some(area.pane) {
@@ -22657,6 +22710,7 @@ impl App {
                         cell,
                         (x.saturating_sub(content.x), y.saturating_sub(content.y)),
                         modifiers,
+                        now,
                     );
                     if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
                         // Ghostty's cell behavior returns no range on press.
@@ -27955,6 +28009,70 @@ mod tests {
             .selection_for_click(surface.id, (1, 0), SelectionMode::Word)
             .expect("a word click must return the terminal selection range");
         assert_eq!(selection.range(), ((0, 0), (4, 0)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn shift_double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-double-click-word-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        let now = Instant::now();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "Shift double click must select the complete word when bypassing PTY mouse reporting"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn shift_triple_click_selects_a_complete_line() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-triple-click-line-selection-test", b"alpha beta\ngamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        let now = Instant::now();
+        for _ in 0..3 {
+            app.handle_mouse_at(click, now).unwrap();
+            app.handle_mouse_at(
+                MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+                now,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (10, 0))),
+            "Shift triple click must select the complete line when bypassing PTY mouse reporting"
+        );
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -40238,6 +40356,79 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_shows_machine_usage_readout_only_when_available() {
+        let (mux, surface) = test_mux("machine-usage-readout-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 24;
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden = buffer_text(terminal.backend().buffer());
+        assert!(!hidden.contains("/ 30d"), "{hidden}");
+
+        let usage = cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 184_220,
+            api_equivalent_usd: 1.234,
+            as_of: None,
+        };
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage.clone())))).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.machine_usage.as_ref(), Some(&usage));
+        let repeat = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage)))).unwrap();
+        assert_eq!(repeat, RenderAction::None, "an unchanged readout does not redraw");
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let shown = buffer_text(terminal.backend().buffer());
+        let expected = localization::catalog().sidebar.machine_usage_readout(1.234, 30);
+        assert_eq!(expected, "$1.23 / 30d");
+        let first_row = shown.lines().next().unwrap();
+        assert!(first_row.contains(&expected), "readout sits on the rail's top pad row: {shown}");
+        assert!(
+            !shown.lines().skip(1).any(|line| line.contains(&expected)),
+            "readout stays out of the body rows: {shown}"
+        );
+        let readout_end = first_row.find(&expected).unwrap() + expected.len();
+        assert!(
+            readout_end < usize::from(app.sidebar_width),
+            "readout stays inside the rail: {first_row}"
+        );
+
+        let cleared = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(None))).unwrap();
+        assert_eq!(cleared, RenderAction::Draw);
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden_again = buffer_text(terminal.backend().buffer());
+        assert!(!hidden_again.contains("/ 30d"), "{hidden_again}");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn machine_usage_readout_is_skipped_when_the_rail_is_too_narrow() {
+        let (mux, surface) = test_mux("machine-usage-narrow-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 8;
+        app.tree = notify_tree(surface.id, false);
+        app.machine_usage = Some(cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 0,
+            api_equivalent_usd: 12345.0,
+            as_of: None,
+        });
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains('$'), "a readout that does not fit is not drawn at all: {text}");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn files_filter_exposes_ratatui_cursor_and_accepts_mouse_cursor_placement() {
         let temp = test_temp_dir("files-filter-cursor");
         let (mux, surface) = test_mux("files-filter-cursor-test", Some(&temp));
@@ -45847,6 +46038,7 @@ mod tests {
             retiring_status_workers: Vec::new(),
             status_outputs_generation: Arc::new(AtomicU64::new(0)),
             status_segments_cache: None,
+            machine_usage: None,
         };
         (app, receiver)
     }
