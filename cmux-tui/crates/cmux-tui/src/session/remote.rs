@@ -1932,8 +1932,15 @@ impl RemoteSession {
         context: &MachineConnectContext,
     ) -> anyhow::Result<Arc<Self>> {
         context.check()?;
-        let stream = transport::connect_timeout(path, context.remaining()?).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        let stream = transport::connect_timeout_with_cancel(path, context.remaining()?, || {
+            context.is_cancelled()
+        })
+        .map_err(|error| {
+            if context.is_cancelled() {
+                anyhow::anyhow!("machine connection cancelled")
+            } else {
+                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+            }
         })?;
         context.check()?;
         let transport = RemoteTransport::json_lines(stream).map_err(|error| {
