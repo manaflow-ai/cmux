@@ -23,7 +23,6 @@ import {
 } from "../../../i18n/locale-availability";
 import {
   CurrentPlanBadge,
-  DisabledButton,
   FeatureList,
   PlanCard,
   PricingCompareTable,
@@ -205,19 +204,14 @@ export default async function PricingPage({
                 ) : null
               }
             >
-              {snapshot.isPro ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                </div>
-              ) : canManageBilling ? (
+              {/* The badge already says "Current plan"; the one action a
+                  subscriber has here is billing. */}
+              {snapshot.isPro || canManageBilling ? (
                 <SecondaryLink href="/api/billing/portal">
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -245,7 +239,6 @@ export default async function PricingPage({
                 hrefs={teamCheckoutHrefs}
                 location="pricing_page"
                 plan="team"
-                size="compact"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
@@ -303,9 +296,7 @@ export default async function PricingPage({
                   </PrimaryLink>
                 ),
                 pro: (
-                  snapshot.isPro ? (
-                    <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                  ) : canManageBilling ? (
+                  snapshot.isPro || canManageBilling ? (
                     <SecondaryLink href="/api/billing/portal" size="compact">
                       {t("manageBilling")}
                     </SecondaryLink>
