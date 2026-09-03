@@ -7247,7 +7247,7 @@ mod tests {
 
         let completion = Arc::new(WorkerCompletion::with_runtime(runtime, None, true));
         let (finished_tx, finished_rx) = channel();
-        let worker_completion = completion.clone();
+        let worker_completion = completion;
         let worker = std::thread::spawn(move || {
             worker_completion.mark_done();
             finished_tx.send(()).unwrap();
