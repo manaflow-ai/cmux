@@ -789,39 +789,26 @@ pub(super) fn parse_tab(tab: &Value) -> Option<TabView> {
             .get("tab_resource_id")
             .and_then(Value::as_str)
             .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
-        content_id: tab
-            .get("content_resource_id")
-            .and_then(Value::as_str)
-            .and_then(|value| {
-                TerminalPublicId::parse(value.to_string())
-                    .map(ContentPublicId::Terminal)
-                    .or_else(|_| {
-                        BrowserPublicId::parse(value.to_string())
-                            .map(ContentPublicId::Browser)
-                    })
-                    .ok()
-            }),
+        content_id: tab.get("content_resource_id").and_then(Value::as_str).and_then(|value| {
+            TerminalPublicId::parse(value.to_string())
+                .map(ContentPublicId::Terminal)
+                .or_else(|_| {
+                    BrowserPublicId::parse(value.to_string()).map(ContentPublicId::Browser)
+                })
+                .ok()
+        }),
         terminal_id: tab
             .get("terminal_resource_id")
             .and_then(Value::as_str)
             .and_then(|value| TerminalPublicId::parse(value.to_string()).ok()),
-        short_id: tab
-            .get("short_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        short_id: tab.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        title: tab
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        title: tab.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         kind: match tab.get("kind").and_then(|v| v.as_str()) {
             Some("browser") => SurfaceKind::Browser,
             _ => SurfaceKind::Pty,
         },
-        browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
-        {
+        browser_source: match tab.get("browser_source").and_then(|v| v.as_str()) {
             Some("external") => Some(BrowserSource::External),
             Some("launched") => Some(BrowserSource::Launched),
             _ => None,
@@ -835,7 +822,7 @@ pub(super) fn parse_tab(tab: &Value) -> Option<TabView> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         notification: tab.get("notification").and_then(parse_notification),
-    }
+    })
 }
 
 fn parse_notification(value: &Value) -> Option<TabNotificationView> {
@@ -975,8 +962,8 @@ pub(super) fn parse_workspace(ws: &Value, capabilities: TreeCapabilities) -> Wor
                 }
             }
         }
-        view.active_screen = active_screen
-            .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
+        view.active_screen =
+            active_screen.unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
     }
     view
 }

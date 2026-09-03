@@ -2903,7 +2903,7 @@ impl OrderedSession {
     fn surfaces_in_pane(&self, pane: PaneId) -> crate::pty_input::MutationTargets {
         self.inner
             .tree()
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -2915,7 +2915,7 @@ impl OrderedSession {
     fn surfaces_in_workspace(&self, workspace: WorkspaceId) -> crate::pty_input::MutationTargets {
         self.inner
             .tree()
-            .workspaces
+            .workspaces()
             .iter()
             .filter(|candidate| candidate.id == workspace)
             .flat_map(|workspace| workspace.screens.iter())
@@ -3703,7 +3703,7 @@ impl OrderedSession {
         let targets = self
             .inner
             .tree()
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .filter(|candidate| candidate.id == screen)
@@ -23814,13 +23814,13 @@ impl App {
             let current: Option<Option<String>> = match target {
                 PendingRenameTarget::Workspace(id) => self
                     .tree
-                    .workspaces
+                    .workspaces()
                     .iter()
                     .find(|workspace| workspace.id == id)
                     .map(|workspace| Some(workspace.name.clone())),
                 PendingRenameTarget::Screen(id) => self
                     .tree
-                    .workspaces
+                    .workspaces()
                     .iter()
                     .flat_map(|workspace| workspace.screens.iter())
                     .find(|screen| screen.id == id)
@@ -23840,7 +23840,7 @@ impl App {
             match target {
                 PendingRenameTarget::Workspace(id) => {
                     if let Some(workspace) =
-                        self.tree.workspaces.iter_mut().find(|workspace| workspace.id == id)
+                        self.tree.workspaces_mut().iter_mut().find(|workspace| workspace.id == id)
                         && let Some(name) = pending
                     {
                         workspace.name = name;
@@ -23849,7 +23849,7 @@ impl App {
                 PendingRenameTarget::Screen(id) => {
                     if let Some(screen) = self
                         .tree
-                        .workspaces
+                        .workspaces_mut()
                         .iter_mut()
                         .flat_map(|workspace| workspace.screens.iter_mut())
                         .find(|screen| screen.id == id)
@@ -23860,7 +23860,7 @@ impl App {
                 PendingRenameTarget::Surface(id) => {
                     if let Some(tab) = self
                         .tree
-                        .workspaces
+                        .workspaces_mut()
                         .iter_mut()
                         .flat_map(|workspace| workspace.screens.iter_mut())
                         .flat_map(|screen| screen.panes.iter_mut())
@@ -25198,8 +25198,8 @@ mod tests {
         browser_source_crop, canonical_terminal_content, catch_renderer_panic,
         clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
         content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
-        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
+        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -29931,7 +29931,7 @@ mod tests {
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         let epoch = app.client_focus_epoch;
-        let remembered_pane = app.tree.workspaces[1].screens[0].active_pane;
+        let remembered_pane = app.tree.workspaces()[1].screens[0].active_pane;
 
         // A late answer while the user has stayed put applies.
         app.handle(AppEvent::ClientFocusRestored {
@@ -29944,7 +29944,7 @@ mod tests {
         // A late answer after the user navigated is ignored, even when the
         // user navigated back to where the adoption started.
         app.select_workspace_for_client(Some(0), None);
-        let first_pane = app.tree.workspaces[0].screens[0].active_pane;
+        let first_pane = app.tree.workspaces()[0].screens[0].active_pane;
         assert_eq!(app.tree.active_workspace, 0);
         app.handle(AppEvent::ClientFocusRestored {
             focus: crate::session::ClientFocus { pane: remembered_pane, tab: 0 },
@@ -29952,7 +29952,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(app.tree.active_workspace, 0);
-        assert_eq!(app.tree.workspaces[0].screens[0].active_pane, first_pane);
+        assert_eq!(app.tree.workspaces()[0].screens[0].active_pane, first_pane);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {

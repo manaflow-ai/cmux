@@ -433,7 +433,8 @@ impl RemoteTreeCache {
                         }
                     }
                     K::WorkspaceRenamed => {
-                        match self.view.workspaces_mut().iter_mut().find(|ws| ws.id == workspace_id) {
+                        match self.view.workspaces_mut().iter_mut().find(|ws| ws.id == workspace_id)
+                        {
                             Some(workspace) => {
                                 workspace.name = entity
                                     .get("name")
@@ -451,13 +452,19 @@ impl RemoteTreeCache {
                             index,
                         ) {
                             (Some(from), Some(to)) if to < self.view.workspaces().len() => {
-                                let active_id =
-                                    self.view.workspaces().get(self.view.active_workspace).map(|ws| ws.id);
+                                let active_id = self
+                                    .view
+                                    .workspaces()
+                                    .get(self.view.active_workspace)
+                                    .map(|ws| ws.id);
                                 let moved = self.view.workspaces_mut().remove(from);
                                 self.view.workspaces_mut().insert(to, moved);
                                 if let Some(active_id) = active_id
-                                    && let Some(position) =
-                                        self.view.workspaces().iter().position(|ws| ws.id == active_id)
+                                    && let Some(position) = self
+                                        .view
+                                        .workspaces()
+                                        .iter()
+                                        .position(|ws| ws.id == active_id)
                                 {
                                     self.view.active_workspace = position;
                                 }
@@ -537,7 +544,7 @@ impl RemoteTreeCache {
             K::TabAdded | K::TabClosed | K::TabRenamed => {
                 let Some(pane) = self
                     .view
-                    .workspaces
+                    .workspaces_mut()
                     .iter_mut()
                     .find(|ws| ws.id == workspace_id)
                     .and_then(|ws| {
@@ -8123,6 +8130,7 @@ mod tests {
 
         assert_eq!(cache.agents, vec![agent]);
         assert_eq!(cache.agent_updates.len(), 1);
+    }
 
     fn delta_test_tree() -> Value {
         json!({
@@ -8157,7 +8165,7 @@ mod tests {
             Ok(MuxEvent::TreeDelta(delta)) if delta.kind == TreeDeltaKind::TabAdded
         ));
         let tree = session.cached_tree();
-        let tabs = &tree.workspaces[0].screens[0].panes[0].tabs;
+        let tabs = &tree.workspaces()[0].screens[0].panes[0].tabs;
         assert_eq!(tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![7, 8]);
         assert_eq!(tree.surface(8).unwrap().title, "b");
 
@@ -8172,7 +8180,7 @@ mod tests {
             "index": 0, "entity": {"surface": 7, "title": "a", "kind": "pty"}
         }));
         let tree = session.cached_tree();
-        let pane = &tree.workspaces[0].screens[0].panes[0];
+        let pane = &tree.workspaces()[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
         assert_eq!(pane.active_tab, 0);
 
@@ -8182,9 +8190,9 @@ mod tests {
                        "panes": [{"id": 10, "tabs": [{"surface": 11, "title": "c"}]}]}
         }));
         let tree = session.cached_tree();
-        assert_eq!(tree.workspaces[0].screens.len(), 2);
-        assert_eq!(tree.workspaces[0].screens[1].id, 9);
-        assert_eq!(tree.workspaces[0].active_screen, 0);
+        assert_eq!(tree.workspaces()[0].screens.len(), 2);
+        assert_eq!(tree.workspaces()[0].screens[1].id, 9);
+        assert_eq!(tree.workspaces()[0].active_screen, 0);
         assert!(!session.tree_is_stale());
         assert!(events.try_iter().all(|event| matches!(event, MuxEvent::TreeDelta(_))));
     }
@@ -8204,7 +8212,7 @@ mod tests {
                 "panes": [{"id": 22, "tabs": [{"surface": 23, "title": "d"}]}]}]}
         }));
         let tree = session.cached_tree();
-        assert_eq!(tree.workspaces.iter().map(|ws| ws.id).collect::<Vec<_>>(), vec![1, 20]);
+        assert_eq!(tree.workspaces().iter().map(|ws| ws.id).collect::<Vec<_>>(), vec![1, 20]);
         assert_eq!(tree.workspace_revision, 5);
         assert_eq!(tree.active_workspace, 0);
         assert!(!session.tree_is_stale());
@@ -8214,7 +8222,7 @@ mod tests {
             "event": "workspace-renamed", "workspace": 20, "workspace_revision": 6,
             "registry_id": "r", "generation": "g", "entity": {"id": 20, "name": "renamed"}
         }));
-        assert_eq!(session.cached_tree().workspaces[1].name, "renamed");
+        assert_eq!(session.cached_tree().workspaces()[1].name, "renamed");
 
         // Revision 8 skips 7: a gap is a resync barrier.
         session.handle_line(json!({
@@ -8222,7 +8230,7 @@ mod tests {
             "registry_id": "r", "generation": "g", "entity": {"id": 20, "name": "renamed"}
         }));
         assert!(session.tree_is_stale(), "a revision gap must force a refetch");
-        assert_eq!(session.cached_tree().workspaces.len(), 2, "a gapped delta is not applied");
+        assert_eq!(session.cached_tree().workspaces().len(), 2, "a gapped delta is not applied");
         let _renamed = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
     }
@@ -8241,7 +8249,7 @@ mod tests {
         }));
         assert!(session.tree_is_stale());
         assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
-        assert_eq!(session.cached_tree().workspaces[0].screens[0].panes.len(), 1);
+        assert_eq!(session.cached_tree().workspaces()[0].screens[0].panes.len(), 1);
 
         session.tree_stale.store(false, Ordering::Release);
         session.handle_line(json!({"event": "tree-changed"}));
@@ -8264,7 +8272,8 @@ mod tests {
     fn subscription_requests_tree_deltas() {
         let (session, requests) = recording_acknowledging_session();
         assert_eq!(session.subscription_request()["tree_events"], json!("deltas"));
-        drop(requests);    }
+        drop(requests);
+    }
 
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
