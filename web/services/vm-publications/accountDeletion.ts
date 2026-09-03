@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -132,11 +132,18 @@ export async function deleteVmPublicationsForAccountDeletion(
   return result.right;
 }
 
-/** Delete publications and viewer identity data, while retaining provider domain ownership. */
+/**
+ * Delete publications and viewer identity data. Domain rows are kept under a
+ * tombstone owner: a generated name stays reserved forever so old links never
+ * point at a stranger's site, while a custom zone drops its verified claim so
+ * whoever proves DNS control next (often the same person with a new account)
+ * can verify and publish it again.
+ */
 export async function deleteVmPublicationRowsForAccountDeletion(
   tx: CloudDbTransaction,
   userId: string,
 ): Promise<void> {
+  const now = new Date();
   await tx
     .delete(cloudVmPublicationSessions)
     .where(eq(cloudVmPublicationSessions.userId, userId));
@@ -149,8 +156,21 @@ export async function deleteVmPublicationRowsForAccountDeletion(
   await tx
     .update(cloudVmDomains)
     .set({
+      verificationState: "failed",
+      certificateState: "missing",
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(cloudVmDomains.ownerUserId, userId),
+        eq(cloudVmDomains.kind, "custom"),
+      ),
+    );
+  await tx
+    .update(cloudVmDomains)
+    .set({
       ownerUserId: sql<string>`'deleted-domain:' || ${cloudVmDomains.id}::text`,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(cloudVmDomains.ownerUserId, userId));
 }

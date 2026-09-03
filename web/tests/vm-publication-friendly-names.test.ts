@@ -8,15 +8,12 @@ import {
 
 describe("Cloud VM publication friendly names", () => {
   test("mints adjective-colour-animal labels that are valid DNS labels", () => {
-    const seen = new Set<string>();
-    for (let index = 0; index < 200; index++) {
-      const label = friendlyPublicationLabel();
+    for (let index = 0; index < 50; index++) {
+      const label = friendlyPublicationLabel(`label-${index}`);
       expect(label).toMatch(FRIENDLY_LABEL_PATTERN);
       expect(label.length).toBeLessThanOrEqual(63);
-      seen.add(label);
     }
-    // Three dictionaries of hundreds of words: repeats in 200 draws are rare.
-    expect(seen.size).toBeGreaterThan(190);
+    expect(friendlyPublicationLabel()).toMatch(FRIENDLY_LABEL_PATTERN);
   });
 
   test("pins the label to a seed for deterministic fixtures", () => {

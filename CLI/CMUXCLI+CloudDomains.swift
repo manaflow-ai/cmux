@@ -116,8 +116,8 @@ extension CMUXCLI {
             )
             guard let domain = response["domain"] as? [String: Any] else {
                 throw CLIError(message: String(
-                    localized: "cli.cloud.domains.malformedResponse",
-                    defaultValue: "The cmux app returned a publication response this CLI could not read."
+                    localized: "cli.cloud.domains.malformedDomainResponse",
+                    defaultValue: "The cmux app returned a domain response this CLI could not read."
                 ))
             }
             if jsonOutput {
@@ -338,7 +338,9 @@ extension CMUXCLI {
             print(String(format: publicationsFormat, summary))
         }
 
-        guard verificationState != "verified",
+        // Ownership can be proven while the certificate delegation is still
+        // missing, so the checklist stays visible until the certificate is live.
+        guard verificationState != "verified" || certificateState != "active",
               let instructions = domain["dnsInstructions"] as? [[String: Any]] else {
             return
         }

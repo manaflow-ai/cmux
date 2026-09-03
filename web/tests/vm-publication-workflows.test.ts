@@ -1401,7 +1401,7 @@ describe("Cloud VM publication workflows", () => {
         calls.push(`zone.persist:${input.providerVerificationId}`);
         return Effect.succeed(challenged);
       },
-      listOwnedPublications: () => Effect.succeed([]),
+      listOwnedPublicationsForDomain: () => Effect.succeed([]),
     });
     const provider = fakeProvider({
       createDomainVerification: (input) => {
@@ -1477,11 +1477,6 @@ describe("Cloud VM publication workflows", () => {
       state: "provisioning",
     });
     const withRule = { ...waiting, providerTlsRuleId: "tls-rule-app", hostnameClaimedAt: NOW };
-    const unrelated = publication("public", {
-      id: "10000000-0000-4000-8000-000000000003",
-      state: "active",
-      providerForwardAuthId: null,
-    });
     const repository = fakeRepository({
       findOwnedDomainByHostname: () => Effect.succeed(pendingZone),
       updateDomainState: (input) => {
@@ -1496,10 +1491,10 @@ describe("Cloud VM publication workflows", () => {
         calls.push("certificate.persist");
         return Effect.succeed(verifiedZone);
       },
-      listOwnedPublications: () => Effect.succeed([
-        target(waiting, pendingZone),
-        target(unrelated, domain("generated")),
-      ]),
+      listOwnedPublicationsForDomain: (input) => {
+        expect(input.domainId).toBe(pendingZone.id);
+        return Effect.succeed([target(waiting, pendingZone)]);
+      },
       claimVmPublicationOperation: (input) => {
         calls.push(`operation.claim:${input.publicationId}`);
         return Effect.succeed({ kind: "claimed", vmId: "db-vm-1" });
@@ -1589,7 +1584,7 @@ describe("Cloud VM publication workflows", () => {
     const repository = fakeRepository({
       findOwnedDomainByHostname: () => Effect.succeed(pendingZone),
       updateDomainState: () => Effect.succeed(pendingZone),
-      listOwnedPublications: () => Effect.succeed([]),
+      listOwnedPublicationsForDomain: () => Effect.succeed([]),
     });
     const provider = fakeProvider({
       getDomainVerification: () => Effect.succeed(zoneVerification),
@@ -1669,7 +1664,7 @@ describe("Cloud VM publication workflows", () => {
         id: input.id,
         hostname: input.id === "zone-created" ? "new.example.org" : challenged.hostname,
       }),
-      listOwnedPublications: () => Effect.succeed([]),
+      listOwnedPublicationsForDomain: () => Effect.succeed([]),
     });
     const provider = fakeProvider({
       createDomainVerification: () => Effect.succeed(zoneVerification),

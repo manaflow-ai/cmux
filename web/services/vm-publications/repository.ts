@@ -124,7 +124,8 @@ export type PublicationConflictReason =
   | "publication_revision_changed"
   | "vm_publication_frozen"
   | "publication_operation_lost"
-  | "forward_auth_bootstrap_lost";
+  | "forward_auth_bootstrap_lost"
+  | "auth_transaction_limit";
 
 export class PublicationConflictError extends Data.TaggedError(
   "PublicationConflictError",
@@ -358,6 +359,14 @@ export type CloudVmPublicationRepositoryShape = {
     readonly CloudVmPublicationTarget[],
     PublicationDatabaseError
   >;
+  /** The owner's publications on one zone, newest first. */
+  readonly listOwnedPublicationsForDomain: (input: {
+    readonly ownerUserId: string;
+    readonly domainId: string;
+  }) => Effect.Effect<
+    readonly CloudVmPublicationTarget[],
+    PublicationDatabaseError
+  >;
   readonly listPublicationsForAccountDeletion: (
     ownerUserId: string,
   ) => Effect.Effect<
@@ -584,13 +593,17 @@ function accountDeletionError(
 }
 
 /**
- * Every unauthenticated request to a protected hostname mints a transaction,
- * so hygiene runs on that hot path instead of a cron: retire a bounded batch of
- * this publication's expired or consumed transactions (codes cascade) and cap
- * the pending ones so one hostname cannot fill the table.
+ * Every unauthenticated navigation to a protected hostname mints a
+ * transaction, so hygiene runs on that hot path instead of a cron: retire a
+ * bounded batch of this publication's expired or consumed transactions (codes
+ * cascade) and cap the pending ones so one hostname cannot fill the table.
+ * At the cap, sign-ins that have sat untouched longer than a browser needs to
+ * finish the handoff are retired first; if the cap is still reached, the new
+ * transaction is refused rather than evicting someone mid sign-in.
  */
 export const AUTH_ARTIFACT_SWEEP_LIMIT = 100;
 export const MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION = 1_000;
+export const AUTH_TRANSACTION_ABANDONED_AFTER_MS = 2 * 60 * 1_000;
 
 type CloudDbTx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -620,40 +633,33 @@ async function sweepAuthTransactions(
           .limit(AUTH_ARTIFACT_SWEEP_LIMIT),
       ),
     );
-  const [pending] = await tx
-    .select({ total: count() })
-    .from(cloudVmPublicationAuthTransactions)
-    .where(
-      and(
-        eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
-        gt(cloudVmPublicationAuthTransactions.expiresAt, now),
-        isNull(cloudVmPublicationAuthTransactions.consumedAt),
-      ),
-    );
-  const excess = (pending?.total ?? 0) - (MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION - 1);
-  if (excess <= 0) return;
+  const pendingWhere = and(
+    eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
+    gt(cloudVmPublicationAuthTransactions.expiresAt, now),
+    isNull(cloudVmPublicationAuthTransactions.consumedAt),
+  );
+  const countPending = async (): Promise<number> => {
+    const [pending] = await tx
+      .select({ total: count() })
+      .from(cloudVmPublicationAuthTransactions)
+      .where(pendingWhere);
+    return pending?.total ?? 0;
+  };
+  if (await countPending() < MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION) return;
   await tx
     .delete(cloudVmPublicationAuthTransactions)
     .where(
-      inArray(
-        cloudVmPublicationAuthTransactions.transactionHash,
-        tx
-          .select({ hash: cloudVmPublicationAuthTransactions.transactionHash })
-          .from(cloudVmPublicationAuthTransactions)
-          .where(
-            and(
-              eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
-              gt(cloudVmPublicationAuthTransactions.expiresAt, now),
-              isNull(cloudVmPublicationAuthTransactions.consumedAt),
-            ),
-          )
-          .orderBy(
-            asc(cloudVmPublicationAuthTransactions.createdAt),
-            asc(cloudVmPublicationAuthTransactions.transactionHash),
-          )
-          .limit(excess),
+      and(
+        pendingWhere,
+        lte(
+          cloudVmPublicationAuthTransactions.createdAt,
+          new Date(now.getTime() - AUTH_TRANSACTION_ABANDONED_AFTER_MS),
+        ),
       ),
     );
+  if (await countPending() >= MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION) {
+    throw new PublicationConflictError({ reason: "auth_transaction_limit" });
+  }
 }
 
 async function sweepPublicationSessions(
@@ -1798,6 +1804,30 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             .orderBy(desc(cloudVmPublications.createdAt)),
       ),
 
+    listOwnedPublicationsForDomain: (input) =>
+      databaseEffect(
+        "listOwnedPublicationsForDomain",
+        async () =>
+          await cloudDb()
+            .select({
+              publication: cloudVmPublications,
+              domain: cloudVmDomains,
+              vm: cloudVms,
+            })
+            .from(cloudVmPublications)
+            .innerJoin(
+              cloudVmDomains,
+              eq(cloudVmPublications.domainId, cloudVmDomains.id),
+            )
+            .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
+            .where(
+              and(
+                eq(cloudVmPublications.ownerUserId, input.ownerUserId),
+                eq(cloudVmPublications.domainId, input.domainId),
+              ),
+            )
+            .orderBy(desc(cloudVmPublications.createdAt)),
+      ),
     listPublicationsForAccountDeletion: (ownerUserId) =>
       databaseEffect(
         "listPublicationsForAccountDeletion",

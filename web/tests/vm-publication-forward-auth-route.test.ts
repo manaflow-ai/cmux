@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  enforcePublicationSignInRateLimit,
   handleForwardAuthRequest,
   type ForwardAuthHandlerDependencies,
 } from "../app/api/freestyle/forward-auth/route";
@@ -12,6 +13,9 @@ import {
 } from "../services/vm-publications/security";
 
 const serviceSecret = "publication-forward-auth-test-secret";
+const target = {
+  publication: { id: "publication-1", hostname: "preview.example.com" },
+} as unknown as Parameters<ForwardAuthHandlerDependencies["begin"]>[0]["target"];
 
 function request(
   overrides: Record<string, string> = {},
@@ -35,7 +39,10 @@ function dependencies(
   return {
     serviceSecret,
     authPageOrigin: "https://cmux.com",
-    authorize: async () => ({ kind: "allow" }),
+    evaluate: async () => ({ kind: "allow" }),
+    begin: async () => {
+      throw new Error("unexpected transaction");
+    },
     complete: async () => ({ kind: "invalid" }),
     ...overrides,
   };
@@ -47,7 +54,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
     const result = await handleForwardAuthRequest(
       request({ authorization: "Bearer wrong-secret" }),
       dependencies({
-        authorize: async () => {
+        evaluate: async () => {
           called = true;
           return { kind: "allow" };
         },
@@ -84,7 +91,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
         "x-forwarded-method": "HEAD",
       }),
       dependencies({
-        authorize: async (input) => {
+        evaluate: async (input) => {
           captured = input as unknown as Record<string, unknown>;
           return { kind: "allow" };
         },
@@ -92,13 +99,11 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
     );
 
     expect(result.status).toBe(204);
-    expect(captured).toMatchObject({
+    expect(captured).toEqual({
       hostname: "preview.example.com",
       providerTlsRuleId: "tls-rule-1",
       method: "HEAD",
-      returnPath: "/editor?file=readme",
       sessionToken: session,
-      authPageOrigin: "https://cmux.com",
     });
   });
 
@@ -108,18 +113,24 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
       randomPublicationToken(),
     );
     const location = "https://cmux.com/cloud/access?transaction=one&state=two";
+    let begun: Record<string, unknown> | null = null;
     const result = await handleForwardAuthRequest(
       request(),
       dependencies({
-        authorize: async () => ({
-          kind: "redirect",
-          location,
-          transactionCookie,
-        }),
+        evaluate: async () => ({ kind: "sign_in_required", target }),
+        begin: async (input) => {
+          begun = input as unknown as Record<string, unknown>;
+          return { location, transactionCookie };
+        },
       }),
     );
 
     expect(result.status).toBe(302);
+    expect(begun).toMatchObject({
+      target,
+      returnPath: "/editor?file=readme",
+      authPageOrigin: "https://cmux.com",
+    });
     expect(result.headers.get("location")).toBe(location);
     const cookie = result.headers.get("set-cookie") ?? "";
     expect(cookie).toContain(`${PUBLICATION_TRANSACTION_COOKIE}=${transactionCookie}`);
@@ -132,7 +143,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
   test("does not redirect a non-idempotent request or mint it a transaction cookie", async () => {
     const result = await handleForwardAuthRequest(
       request({ "x-forwarded-method": "POST" }),
-      dependencies({ authorize: async () => ({ kind: "unauthorized" }) }),
+      dependencies({ evaluate: async () => ({ kind: "unauthorized" }) }),
     );
 
     expect(result.status).toBe(401);
@@ -154,7 +165,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
         foreignRequest(),
         dependencies({
           authPageOrigin,
-          authorize: async () => {
+          evaluate: async () => {
             authorized = true;
             return { kind: "allow" };
           },
@@ -170,14 +181,92 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
       foreignRequest(),
       dependencies({
         authPageOrigin: "https://cmux.com/",
-        authorize: async (input) => {
+        evaluate: async () => ({ kind: "sign_in_required", target }),
+        begin: async (input) => {
           captured = { authPageOrigin: input.authPageOrigin };
-          return { kind: "allow" };
+          return {
+            location: "https://cmux.com/cloud/access?transaction=one&state=two",
+            transactionCookie: "",
+          };
         },
       }),
     );
-    expect(result.status).toBe(204);
+    expect(result.status).toBe(302);
     expect(captured).toEqual({ authPageOrigin: "https://cmux.com" });
+  });
+
+  test("rate limits only the requests that would mint a sign-in transaction", async () => {
+    const events: string[] = [];
+    const limited = new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
+    const deps = (evaluation: Awaited<ReturnType<ForwardAuthHandlerDependencies["evaluate"]>>) =>
+      dependencies({
+        evaluate: async () => evaluation,
+        rateLimit: async ({ hostname }) => {
+          events.push(`limit:${hostname}`);
+          return limited;
+        },
+        begin: async () => {
+          events.push("begin");
+          return { location: "https://cmux.com/cloud/access", transactionCookie: "" };
+        },
+      });
+
+    const allowed = await handleForwardAuthRequest(request(), deps({ kind: "allow" }));
+    expect(allowed.status).toBe(204);
+    const refused = await handleForwardAuthRequest(
+      request(),
+      deps({ kind: "sign_in_required", target }),
+    );
+    expect(refused.status).toBe(429);
+    expect(events).toEqual(["limit:preview.example.com"]);
+  });
+
+  test("keys the sign-in rate limit by the relayed browser address and hostname", async () => {
+    const seen: Array<{ id: string; key: string | undefined }> = [];
+    const check = async (id: string, options: { rateLimitKey?: string }) => {
+      seen.push({ id, key: options.rateLimitKey });
+      return { rateLimited: id === "rule-limited" };
+    };
+    const forwarded = new Request("https://cmux.com/api/freestyle/forward-auth", {
+      headers: { "x-forwarded-for": " 203.0.113.9 , 198.51.100.2" },
+    });
+
+    expect(await enforcePublicationSignInRateLimit({
+      request: forwarded,
+      hostname: "preview.example.com",
+      ruleId: "rule-open",
+      check,
+      isVercel: true,
+    })).toBeNull();
+    const refused = await enforcePublicationSignInRateLimit({
+      request: forwarded,
+      hostname: "preview.example.com",
+      ruleId: "rule-limited",
+      check,
+      isVercel: true,
+    });
+    expect(refused?.status).toBe(429);
+    expect(seen).toEqual([
+      { id: "rule-open", key: "publication-sign-in:preview.example.com:203.0.113.9" },
+      { id: "rule-limited", key: "publication-sign-in:preview.example.com:203.0.113.9" },
+    ]);
+
+    // No rule configured, or not on Vercel: nothing is checked.
+    expect(await enforcePublicationSignInRateLimit({
+      request: forwarded,
+      hostname: "preview.example.com",
+      ruleId: undefined,
+      check,
+      isVercel: true,
+    })).toBeNull();
+    expect(await enforcePublicationSignInRateLimit({
+      request: forwarded,
+      hostname: "preview.example.com",
+      ruleId: "rule-limited",
+      check,
+      isVercel: false,
+    })).toBeNull();
+    expect(seen).toHaveLength(2);
   });
 
   test("only completes the callback for a browser navigation", async () => {
@@ -246,7 +335,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
       const result = await handleForwardAuthRequest(
         request(),
         dependencies({
-          authorize: async () => {
+          evaluate: async () => {
             throw new Error("database unavailable");
           },
         }),

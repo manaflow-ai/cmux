@@ -9,6 +9,7 @@ import {
 import {
   authorizePublicationRequest,
   completePublicationAuthorization,
+  evaluatePublicationRequest,
   PublicationViewerResolver,
   resolvePublicationAccess,
   type PublicationViewerResolverShape,
@@ -89,6 +90,24 @@ describe("Cloud VM publication auth exchange", () => {
       );
       if (method.trim().toUpperCase() !== "HEAD") expect(created.current).toBeNull();
     }
+  });
+
+  test("evaluation reports that sign-in is required without minting a transaction", async () => {
+    const repository = authRepository({
+      findActivePublicationForRequest: () => Effect.succeed(target as never),
+      createAuthTransaction: () => Effect.die("evaluation must not write"),
+    });
+    const evaluation = await run(
+      evaluatePublicationRequest({
+        hostname: publication.hostname,
+        providerTlsRuleId: "tls-rule-1",
+        method: "GET",
+        sessionToken: null,
+        now,
+      }),
+      repository,
+    );
+    expect(evaluation).toEqual({ kind: "sign_in_required", target });
   });
 
   test("allows a personal session without enumerating teams and rechecks team membership", async () => {

@@ -1,12 +1,14 @@
 import { env } from "../../../env";
+import { enforceNativeIngressRateLimit } from "../../../../services/nativeIngressRateLimit";
 import {
-  authorizePublicationRequest,
+  beginPublicationAuthorization,
   completePublicationAuthorization,
+  evaluatePublicationRequest,
   isRedirectableMethod,
   PUBLICATION_SESSION_TTL_MS,
   PUBLICATION_TRANSACTION_TTL_MS,
   runPublicationAuth,
-  type ForwardAuthorizationDecision,
+  type PublicationRequestEvaluation,
 } from "../../../../services/vm-publications/auth";
 import {
   PUBLICATION_CALLBACK_PATH,
@@ -28,8 +30,15 @@ const MAX_FORWARDED_URI_BYTES = 2_048;
 export type ForwardAuthHandlerDependencies = {
   readonly serviceSecret: string | undefined;
   readonly authPageOrigin: string | undefined;
-  readonly authorize: (input: Parameters<typeof authorizePublicationRequest>[0]) =>
-    Promise<ForwardAuthorizationDecision>;
+  readonly evaluate: (input: Parameters<typeof evaluatePublicationRequest>[0]) =>
+    Promise<PublicationRequestEvaluation>;
+  /** Runs only when a sign-in transaction is about to be minted; a Response short-circuits. */
+  readonly rateLimit?: (input: {
+    readonly request: Request;
+    readonly hostname: string;
+  }) => Promise<Response | null>;
+  readonly begin: (input: Parameters<typeof beginPublicationAuthorization>[0]) =>
+    Promise<{ readonly location: string; readonly transactionCookie: string }>;
   readonly complete: (input: Parameters<typeof completePublicationAuthorization>[0]) =>
     Promise<
       | { readonly kind: "invalid" }
@@ -45,9 +54,37 @@ const liveDependencies: ForwardAuthHandlerDependencies = {
   serviceSecret: env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
   authPageOrigin: normalizePublicationAuthOrigin(env.CMUX_VM_PUBLICATION_AUTH_ORIGIN) ??
     undefined,
-  authorize: (input) => runPublicationAuth(authorizePublicationRequest(input)),
+  evaluate: (input) => runPublicationAuth(evaluatePublicationRequest(input)),
+  rateLimit: (input) => enforcePublicationSignInRateLimit({
+    ...input,
+    ruleId: env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
+  }),
+  begin: (input) => runPublicationAuth(beginPublicationAuthorization(input)),
   complete: (input) => runPublicationAuth(completePublicationAuthorization(input)),
 };
+
+/**
+ * Throttle sign-in starts per browser and hostname. Freestyle calls this route
+ * from its own edge, so the caller IP is Freestyle's; the browser is the first
+ * `X-Forwarded-For` entry it relays. Allowed session traffic is never limited.
+ */
+export async function enforcePublicationSignInRateLimit(input: {
+  readonly request: Request;
+  readonly hostname: string;
+  readonly ruleId: string | undefined;
+  readonly check?: Parameters<typeof enforceNativeIngressRateLimit>[0]["check"];
+  readonly isVercel?: boolean;
+}): Promise<Response | null> {
+  const client = input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return enforceNativeIngressRateLimit({
+    request: input.request,
+    route: "freestyle.forward-auth.sign-in",
+    ruleId: input.ruleId,
+    rateLimitKey: `publication-sign-in:${input.hostname}:${client}`,
+    check: input.check,
+    isVercel: input.isVercel,
+  });
+}
 
 /**
  * Freestyle's shared forward-auth target. It never authenticates from caller-
@@ -110,23 +147,31 @@ export async function handleForwardAuthRequest(
       }, dependencies);
     }
 
-    const decision = await dependencies.authorize({
+    const evaluation = await dependencies.evaluate({
       hostname,
       providerTlsRuleId,
       method,
-      returnPath: safePublicationReturnPath(
-        `${forwardedUri.pathname}${forwardedUri.search}`,
-      ),
       sessionToken: publicationCookie(
         request.headers.get("cookie"),
         PUBLICATION_SESSION_COOKIE,
       ),
-      authPageOrigin,
     });
 
-    if (decision.kind === "allow") return response(null, 204);
-    if (decision.kind === "not_found") return response(null, 404);
-    if (decision.kind === "unauthorized") return response(null, 401);
+    if (evaluation.kind === "allow") return response(null, 204);
+    if (evaluation.kind === "not_found") return response(null, 404);
+    if (evaluation.kind === "unauthorized") return response(null, 401);
+
+    // Minting a transaction is the one write an anonymous request can cause;
+    // gate it before touching the database.
+    const limited = await dependencies.rateLimit?.({ request, hostname });
+    if (limited) return limited;
+    const decision = await dependencies.begin({
+      target: evaluation.target,
+      returnPath: safePublicationReturnPath(
+        `${forwardedUri.pathname}${forwardedUri.search}`,
+      ),
+      authPageOrigin,
+    });
 
     const headers = new Headers({
       "cache-control": "no-store",

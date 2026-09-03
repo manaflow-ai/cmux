@@ -14,6 +14,7 @@ import { closeCloudDbForTests, cloudDb } from "../db/client";
 import { deleteVmPublicationRowsForAccountDeletion } from "../services/vm-publications/accountDeletion";
 import {
   AUTH_ARTIFACT_SWEEP_LIMIT,
+  AUTH_TRANSACTION_ABANDONED_AFTER_MS,
   CloudVmPublicationRepository,
   CloudVmPublicationRepositoryLive,
   MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION,
@@ -1137,6 +1138,7 @@ describe("Cloud VM publication persistence", () => {
         created_at: new Date(NOW.getTime() - 120_000),
         expires_at: new Date(NOW.getTime() - 60_000),
       }));
+      // Pending rows old enough to count as abandoned sign-ins at `later`.
       const pendingRows = Array.from({ length: MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION }, (_, index) => ({
         transaction_hash: hash("p", index),
         publication_id: publicationId,
@@ -1145,7 +1147,7 @@ describe("Cloud VM publication persistence", () => {
         state_hash: hash("t", index),
         hostname: target.publication.hostname,
         return_path: "/",
-        created_at: new Date(NOW.getTime() + index),
+        created_at: new Date(later.getTime() - AUTH_TRANSACTION_ABANDONED_AFTER_MS - 1_000 + index),
         expires_at: new Date(later.getTime() + 600_000),
       }));
       await sql`insert into cloud_vm_publication_auth_transactions ${sql(expiredRows)}`;
@@ -1172,11 +1174,46 @@ describe("Cloud VM publication persistence", () => {
         from cloud_vm_publication_auth_transactions
         where publication_id = ${publicationId}
       `;
-      // One bounded batch of expired rows is gone, the oldest pending row made
-      // room for the new one, and the pending set never exceeds the cap.
+      // One bounded batch of expired rows is gone, and every abandoned pending
+      // sign-in was retired to make room, leaving only the new transaction.
       expect(Number(counts?.expired)).toBe(5);
-      expect(Number(counts?.pending)).toBe(MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION);
+      expect(Number(counts?.pending)).toBe(1);
       expect(Number(counts?.oldest_pending)).toBe(0);
+
+      // Fresh sign-ins at the cap are never evicted; the newcomer is refused.
+      const freshRows = Array.from({ length: MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION }, (_, index) => ({
+        transaction_hash: hash("f", index),
+        publication_id: publicationId,
+        routing_revision: target.publication.routingRevision,
+        pkce_challenge: "P".repeat(43),
+        state_hash: hash("g", index),
+        hostname: target.publication.hostname,
+        return_path: "/",
+        created_at: new Date(later.getTime() - index),
+        expires_at: new Date(later.getTime() + 600_000),
+      }));
+      await sql`insert into cloud_vm_publication_auth_transactions ${sql(freshRows)}`;
+      await expectRepositoryError(
+        runRepository(
+          repo.createAuthTransaction({
+            publicationId,
+            transactionHash: hash("n", 1),
+            pkceChallenge: "P".repeat(43),
+            stateHash: hash("u", 1),
+            hostname: target.publication.hostname,
+            returnPath: "/",
+            now: new Date(later.getTime() + 1),
+            expiresAt: new Date(later.getTime() + 600_000),
+          }),
+        ),
+        { _tag: "PublicationConflictError", reason: "auth_transaction_limit" },
+      );
+      const [refused] = await sql<{ pending: string }[]>`
+        select count(*) filter (where expires_at > ${later} and consumed_at is null) as pending
+        from cloud_vm_publication_auth_transactions where publication_id = ${publicationId}
+      `;
+      // The fresh sign-ins and the earlier accepted transaction all survive.
+      expect(Number(refused?.pending)).toBe(MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION + 1);
 
       // Sessions: an expired or revoked session is retired when a new one is minted.
       await sql`
@@ -1355,6 +1392,122 @@ describe("Cloud VM publication persistence", () => {
           repo.findOwnedDomainByHostname({ hostname: "zone.example.test", ownerUserId: "other" }),
         ),
       ).toBeNull();
+    },
+  );
+
+  dbTest(
+    "makes a deleted account's custom zone reclaimable while its generated names stay reserved",
+    async () => {
+      const repo = requiredRepository();
+      const deletingUserId = "owner-zone-reclaim";
+      const generated = await createActivePublication({
+        suffix: "reclaim-generated",
+        ownerUserId: deletingUserId,
+      });
+      const zone = await runRepository(
+        repo.createDomain({
+          ownerUserId: deletingUserId,
+          hostname: "reclaim.example.test",
+          kind: "custom",
+          provider: "freestyle",
+          verificationState: "pending",
+          certificateState: "missing",
+          now: NOW,
+        }),
+      );
+      await runRepository(
+        repo.updateDomainState({
+          id: zone.id,
+          ownerUserId: deletingUserId,
+          providerVerificationId: "verification-reclaim-1",
+          verificationState: "verified",
+          certificateState: "active",
+          now: new Date(NOW.getTime() + 1),
+        }),
+      );
+
+      await cloudDb().transaction(async (tx) => {
+        await deleteVmPublicationRowsForAccountDeletion(tx, deletingUserId);
+      });
+
+      const rows = await requiredSql()<
+        { id: string; owner_user_id: string; verification_state: string; certificate_state: string }[]
+      >`
+        select id, owner_user_id, verification_state, certificate_state
+        from cloud_vm_domains where id in (${zone.id}, ${generated.domain.id})
+      `;
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      expect(byId.get(zone.id)).toMatchObject({
+        owner_user_id: `deleted-domain:${zone.id}`,
+        verification_state: "failed",
+        certificate_state: "missing",
+      });
+      expect(byId.get(generated.domain.id)).toMatchObject({
+        owner_user_id: `deleted-domain:${generated.domain.id}`,
+        verification_state: "not_required",
+      });
+
+      // The next DNS owner can verify the same zone; the generated name cannot be re-minted.
+      const successor = await runRepository(
+        repo.createDomain({
+          ownerUserId: "owner-successor",
+          hostname: "reclaim.example.test",
+          kind: "custom",
+          provider: "freestyle",
+          verificationState: "pending",
+          certificateState: "missing",
+          now: new Date(NOW.getTime() + 2),
+        }),
+      );
+      const verified = await runRepository(
+        repo.updateDomainState({
+          id: successor.id,
+          ownerUserId: "owner-successor",
+          providerVerificationId: "verification-reclaim-2",
+          verificationState: "verified",
+          certificateState: "pending",
+          now: new Date(NOW.getTime() + 3),
+        }),
+      );
+      expect(verified.verificationState).toBe("verified");
+      await expectRepositoryError(
+        runRepository(
+          repo.createDomain({
+            ownerUserId: "owner-successor",
+            hostname: generated.domain.hostname,
+            kind: "generated",
+            provider: "freestyle",
+            verificationState: "not_required",
+            certificateState: "active",
+            now: new Date(NOW.getTime() + 4),
+          }),
+        ),
+        { _tag: "PublicationConflictError", reason: "hostname_taken" },
+      );
+    },
+  );
+
+  dbTest(
+    "lists an owner's publications for one zone only",
+    async () => {
+      const repo = requiredRepository();
+      const first = await createActivePublication({ suffix: "zone-scope-a", ownerUserId: "owner-scope" });
+      const second = await createActivePublication({ suffix: "zone-scope-b", ownerUserId: "owner-scope" });
+      const scoped = await runRepository(
+        repo.listOwnedPublicationsForDomain({
+          ownerUserId: "owner-scope",
+          domainId: first.domain.id,
+        }),
+      );
+      expect(scoped.map((target) => target.publication.id)).toEqual([first.publication.id]);
+      expect(
+        await runRepository(
+          repo.listOwnedPublicationsForDomain({
+            ownerUserId: "someone-else",
+            domainId: second.domain.id,
+          }),
+        ),
+      ).toEqual([]);
     },
   );
 });

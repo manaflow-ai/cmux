@@ -271,7 +271,13 @@ export const env = createEnv({
         /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u,
         "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
       )
+      // A hostname is at most 253 characters; leave room for the generated label.
+      .max(200, "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must leave room for a generated label")
       .optional(),
+    // Vercel Firewall rule id that throttles sign-in transaction creation per
+    // client and hostname on the Freestyle forward-auth route. Unset (or off
+    // Vercel) applies no limit.
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
@@ -444,6 +450,9 @@ export const env = createEnv({
     ),
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
+    ),
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),

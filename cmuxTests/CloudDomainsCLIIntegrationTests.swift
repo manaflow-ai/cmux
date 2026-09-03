@@ -198,9 +198,27 @@ extension CMUXCLIErrorOutputRegressionTests {
             "dnsInstructions": NSNull(),
             "publications": [],
         ]
+        let certificatePendingZone: [String: Any] = [
+            "id": "zone-3",
+            "hostname": "pending-cert.example.org",
+            "verificationState": "verified",
+            "certificateState": "pending",
+            "createdAt": NSNull(),
+            "dnsInstructions": [
+                [
+                    "purpose": "certificate",
+                    "recordTypes": ["NS"],
+                    "name": "_acme-challenge.pending-cert.example.org",
+                    "value": "beta-dns.freestyle.sh",
+                ],
+            ],
+            "publications": [],
+        ]
         let responder = try UnixSocketResponder(
             path: socketPath,
-            response: try cloudDomainsV2Response(result: ["domains": [pendingZone, verifiedZone]])
+            response: try cloudDomainsV2Response(
+                result: ["domains": [pendingZone, verifiedZone, certificatePendingZone]]
+            )
         )
         defer { responder.stop() }
 
@@ -236,6 +254,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             )
         )
         #expect(!result.stdout.contains("verified.example.net beta-web"))
+        #expect(zones.contains("certificate NS _acme-challenge.pending-cert.example.org beta-dns.freestyle.sh"))
+        #expect(result.stdout.contains("cmux cloud domains verify pending-cert.example.org"))
         let request = try cloudDomainsRequest(from: try #require(responder.receivedRequests.first))
         #expect(request["method"] as? String == "vm.domain_list")
     }

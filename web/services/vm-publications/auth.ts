@@ -127,18 +127,25 @@ export type PublicationAccessResolution =
     readonly user: PublicationAccessUser;
   };
 
+export type PublicationRequestEvaluation =
+  | { readonly kind: "allow" }
+  | { readonly kind: "not_found" }
+  | { readonly kind: "unauthorized" }
+  /** No usable session and a navigable request: the caller may mint a sign-in transaction. */
+  | { readonly kind: "sign_in_required"; readonly target: CloudVmPublicationTarget };
+
 /**
- * Resolve an edge-authenticated request against the current publication and
- * current Stack team membership. The untrusted VM never receives either cmux
- * cookie; Freestyle keeps both names in protectedCookies.
+ * Evaluate an edge-authenticated request against the current publication and
+ * current Stack team membership without writing anything. The untrusted VM
+ * never receives either cmux cookie; Freestyle keeps both in protectedCookies.
+ * Minting the sign-in transaction is a separate step so the route can rate
+ * limit it: every unauthenticated navigation would otherwise cost a write.
  */
-export function authorizePublicationRequest(input: {
+export function evaluatePublicationRequest(input: {
   readonly hostname: string;
   readonly providerTlsRuleId: string;
   readonly method: string;
-  readonly returnPath: string;
   readonly sessionToken: string | null;
-  readonly authPageOrigin: string;
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
@@ -148,12 +155,12 @@ export function authorizePublicationRequest(input: {
       hostname: input.hostname,
       providerTlsRuleId: input.providerTlsRuleId,
     });
-    if (!target) return { kind: "not_found" } as const;
+    if (!target) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
 
     if (target.publication.accessMode === "public") {
       // This can occur briefly during the fail-open-safe half of a protected ->
       // public transition, before the provider detaches forward auth.
-      return { kind: "allow" } as const;
+      return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
     }
 
     if (isPublicationToken(input.sessionToken)) {
@@ -172,7 +179,7 @@ export function authorizePublicationRequest(input: {
             ? yield* viewerResolver.resolve(principal.session.userId)
             : { userId: principal.session.userId, teamIds: [] };
         if (vmPublicationAllowsViewer(principal.publication, viewer)) {
-          return { kind: "allow" } as const;
+          return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
         }
       }
     }
@@ -181,11 +188,27 @@ export function authorizePublicationRequest(input: {
     // Other methods fail without minting a transaction a browser could never
     // finish, so a scripted caller cannot grow the auth tables per request.
     if (!isRedirectableMethod(input.method)) {
-      return { kind: "unauthorized" } as const;
+      return { kind: "unauthorized" } as const satisfies PublicationRequestEvaluation;
     }
+    return { kind: "sign_in_required", target } as const satisfies PublicationRequestEvaluation;
+  });
+}
 
+/** Evaluate and, when sign-in is required, mint the transaction in one step. */
+export function authorizePublicationRequest(input: {
+  readonly hostname: string;
+  readonly providerTlsRuleId: string;
+  readonly method: string;
+  readonly returnPath: string;
+  readonly sessionToken: string | null;
+  readonly authPageOrigin: string;
+  readonly now?: Date;
+}) {
+  return Effect.gen(function* () {
+    const evaluation = yield* evaluatePublicationRequest(input);
+    if (evaluation.kind !== "sign_in_required") return evaluation;
     return yield* beginPublicationAuthorization({
-      target,
+      target: evaluation.target,
       returnPath: input.returnPath,
       authPageOrigin: input.authPageOrigin,
       now: input.now ?? new Date(),
@@ -305,17 +328,19 @@ function currentPublicationViewer(
   });
 }
 
-function beginPublicationAuthorization(input: {
+/** Mint the PKCE-bound sign-in transaction and the redirect that carries it. */
+export function beginPublicationAuthorization(input: {
   readonly target: CloudVmPublicationTarget;
   readonly returnPath: string;
   readonly authPageOrigin: string;
-  readonly now: Date;
+  readonly now?: Date;
 }) {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const transaction = randomPublicationToken();
     const state = randomPublicationToken();
     const verifier = randomPublicationToken();
+    const now = input.now ?? new Date();
     yield* repository.createAuthTransaction({
       publicationId: input.target.publication.id,
       transactionHash: hashPublicationToken(transaction),
@@ -323,8 +348,8 @@ function beginPublicationAuthorization(input: {
       stateHash: hashPublicationToken(state),
       hostname: input.target.publication.hostname,
       returnPath: input.returnPath,
-      now: input.now,
-      expiresAt: new Date(input.now.getTime() + PUBLICATION_TRANSACTION_TTL_MS),
+      now,
+      expiresAt: new Date(now.getTime() + PUBLICATION_TRANSACTION_TTL_MS),
     });
     const location = new URL("/cloud/access", normalizedAuthPageOrigin(input.authPageOrigin));
     location.searchParams.set("transaction", transaction);

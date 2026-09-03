@@ -178,9 +178,15 @@ export function listCustomDomains(input: {
     const repository = yield* CloudVmPublicationRepository;
     const domains = yield* repository.listOwnedDomains(input.principal.userId);
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
+    const byDomain = new Map<string, CloudVmPublicationTarget[]>();
+    for (const target of targets) {
+      const bucket = byDomain.get(target.domain.id) ?? [];
+      bucket.push(target);
+      byDomain.set(target.domain.id, bucket);
+    }
     return domains
       .filter((domain) => domain.kind === "custom")
-      .map((domain) => customDomainDto(domain, targets));
+      .map((domain) => customDomainDto(domain, byDomain.get(domain.id) ?? []));
   });
 }
 
@@ -323,7 +329,10 @@ export function verifyCustomDomain(input: {
       });
     }
 
-    const targets = yield* repository.listOwnedPublications(ownerUserId);
+    const targets = yield* repository.listOwnedPublicationsForDomain({
+      ownerUserId,
+      domainId: domain.id,
+    });
     return customDomainDto(domain, targets);
   });
 }
@@ -342,14 +351,12 @@ function provisionPublicationsWaitingOnZone(input: {
   readonly now: Date;
 }) {
   return Effect.gen(function* () {
-    const targets = yield* input.repository.listOwnedPublications(input.ownerUserId);
+    const targets = yield* input.repository.listOwnedPublicationsForDomain({
+      ownerUserId: input.ownerUserId,
+      domainId: input.domain.id,
+    });
     for (const target of targets) {
-      if (
-        target.domain.id !== input.domain.id ||
-        target.publication.state !== "provisioning"
-      ) {
-        continue;
-      }
+      if (target.publication.state !== "provisioning") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
         provider: input.provider,
@@ -395,9 +402,7 @@ function customDomainDto(
       ]
       : null,
     publications: targets
-      .filter((target) =>
-        target.domain.id === domain.id && target.publication.state !== "disabled"
-      )
+      .filter((target) => target.publication.state !== "disabled")
       .map((target) => ({
         id: target.publication.id,
         hostname: target.publication.hostname,

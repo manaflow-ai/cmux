@@ -414,19 +414,23 @@ function publicationTlsRule(rule: TlsRuleData): PublicationTlsRule {
   };
 }
 
-function sameExactHttpIngressHostname(rule: TlsRuleData, hostname: string): boolean {
+/** The exact hostname of a public HTTP ingress rule, or null for any other rule shape. */
+function exactHttpIngressHostname(rule: TlsRuleData): string | null {
   let ruleHostname: string;
   try {
     ruleHostname = normalizedExactHostname(rule.domain);
   } catch {
-    return false;
+    return null;
   }
-  return (
-    ruleHostname === hostname &&
-    rule.protocol === "http" &&
-    rule.source.public === true &&
-    exactKeys(rule.source, ["public"])
-  );
+  return rule.protocol === "http" &&
+      rule.source.public === true &&
+      exactKeys(rule.source, ["public"])
+    ? ruleHostname
+    : null;
+}
+
+function sameExactHttpIngressHostname(rule: TlsRuleData, hostname: string): boolean {
+  return exactHttpIngressHostname(rule) === hostname;
 }
 
 function oldestRule(rules: readonly TlsRuleData[]): TlsRuleData | undefined {
@@ -568,29 +572,46 @@ function accountCertificateStatus(
 
 const TLS_RULE_LIST_PAGE_SIZE = 100;
 const TLS_RULE_LIST_MAX_PAGES = 1_000;
+const TLS_RULE_LIST_MAX_SCANS = 3;
 
 /**
- * Freestyle lists rules newest-first in pages. Rules span every CMUX account,
- * so a single page can never be assumed to hold the hostname being swept or
- * reconciled; walk until `totalCount` is reached, deduplicating by id in case
- * a concurrent create shifts the offsets between pages.
+ * Freestyle lists rules newest-first in offset pages with no snapshot cursor.
+ * Rules span every CMUX account, so one page never suffices, and a rule
+ * created or deleted mid-scan shifts every later offset. A scan is trusted
+ * only when every page reported the same `totalCount` and the pages added up
+ * to it; otherwise it is repeated, and after a few unstable scans the caller
+ * fails closed and retries later rather than acting on a partial snapshot.
  */
 async function listAllTlsRules(
   client: VmPublicationFreestyleClient,
 ): Promise<TlsRuleData[]> {
+  for (let scan = 0; scan < TLS_RULE_LIST_MAX_SCANS; scan++) {
+    const rules = await scanTlsRulesOnce(client);
+    if (rules) return rules;
+  }
+  throw new Error("Freestyle TLS rules kept changing while they were being listed");
+}
+
+async function scanTlsRulesOnce(
+  client: VmPublicationFreestyleClient,
+): Promise<TlsRuleData[] | null> {
   const rules: TlsRuleData[] = [];
   const seen = new Set<string>();
+  let expectedTotal: number | null = null;
   for (let page = 0; page < TLS_RULE_LIST_MAX_PAGES; page++) {
     const listed = await client.tls.rules.list({
       limit: TLS_RULE_LIST_PAGE_SIZE,
       offset: page * TLS_RULE_LIST_PAGE_SIZE,
     });
+    if (expectedTotal !== null && listed.totalCount !== expectedTotal) return null;
+    expectedTotal = listed.totalCount;
     for (const rule of listed.rules) {
-      if (seen.has(rule.id)) continue;
+      if (seen.has(rule.id)) return null;
       seen.add(rule.id);
       rules.push(rule);
     }
-    if (listed.rules.length === 0 || rules.length >= listed.totalCount) return rules;
+    if (rules.length >= expectedTotal) return rules;
+    if (listed.rules.length === 0) return null;
   }
   throw new Error("Freestyle TLS rule listing exceeded its page limit");
 }
@@ -599,10 +620,13 @@ async function deleteExactHostnameRules(
   client: VmPublicationFreestyleClient,
   hostnames: readonly string[],
 ): Promise<number> {
-  const targets = [...new Set(hostnames.map(normalizedExactHostname))];
-  if (targets.length === 0) return 0;
+  const targets = new Set(hostnames.map(normalizedExactHostname));
+  if (targets.size === 0) return 0;
   const ruleIds = (await listAllTlsRules(client))
-    .filter((rule) => targets.some((hostname) => sameExactHttpIngressHostname(rule, hostname)))
+    .filter((rule) => {
+      const hostname = exactHttpIngressHostname(rule);
+      return hostname !== null && targets.has(hostname);
+    })
     .map((rule) => rule.id);
   for (const ruleId of ruleIds) {
     try {

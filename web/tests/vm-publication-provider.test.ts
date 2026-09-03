@@ -504,6 +504,57 @@ describe("VM publication Freestyle provider", () => {
     expect(await Effect.runPromise(provider.deleteTlsRulesForHostnames([]))).toBe(0);
   });
 
+  test("repeats an unstable rule scan and fails closed when it never settles", async () => {
+    const desired: CreateTlsRuleOptions = {
+      action: "allow",
+      domain: "app.example.com",
+      protocol: "http",
+      source: { public: true },
+      destination: { vmId: "vm-1", port: 3_000 },
+    };
+    const other = (index: number) =>
+      tlsRuleData(`tls-rule-${index}`, { ...desired, domain: `r${index}.example.com` });
+    const stable = [
+      ...Array.from({ length: 100 }, (_, index) => other(index)),
+      tlsRuleData("tls-rule-target", desired),
+    ];
+    let calls = 0;
+    const deleted: string[] = [];
+    const client = fakeClient({
+      // The first scan sees a rule inserted between its two pages (the total
+      // grows and the second page repeats an id); the second scan is stable.
+      tlsList: async (options = {}) => {
+        calls += 1;
+        const offset = options.offset ?? 0;
+        if (calls === 1) return { rules: stable.slice(0, 100), totalCount: 101 };
+        if (calls === 2) return { rules: [stable[99]!, stable[100]!], totalCount: 102 };
+        return { rules: stable.slice(offset, offset + 100), totalCount: stable.length };
+      },
+      tlsDelete: async (id) => {
+        deleted.push(id);
+      },
+    });
+    const provider = makeVmPublicationProvider(() => client);
+
+    await expect(
+      Effect.runPromise(provider.deleteTlsRulesForHostnames(["app.example.com"])),
+    ).resolves.toBe(1);
+    expect(deleted).toEqual(["tls-rule-target"]);
+    expect(calls).toBe(4);
+
+    const neverSettles = makeVmPublicationProvider(() => fakeClient({
+      tlsList: async () => {
+        calls += 1;
+        return { rules: [other(calls)], totalCount: calls + 5 };
+      },
+    }));
+    const error = await Effect.runPromise(
+      Effect.flip(neverSettles.deleteTlsRulesForHostnames(["app.example.com"])),
+    );
+    expect(error).toBeInstanceOf(VmPublicationProviderError);
+    expect(String((error.cause as Error).message)).toContain("kept changing");
+  });
+
   test("refuses a blank forward-auth id rather than publishing a protected rule", async () => {
     const provider = makeVmPublicationProvider(() => fakeClient());
     const error = await Effect.runPromise(Effect.flip(provider.createTlsRule({
