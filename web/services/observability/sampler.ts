@@ -36,7 +36,15 @@ const PRIORITY_PATH_ATTRIBUTE_KEYS = ["http.route", "url.path", "http.target"] a
  * VM spans (the guaranteed signal: we control it).
  */
 export function isVmPrioritySpan(spanName: string, attributes: Attributes): boolean {
-  return isPrioritySpan(spanName, attributes);
+  if (attributes["cmux.subsystem"] === "vm-cloud") return true;
+  for (const key of PRIORITY_PATH_ATTRIBUTE_KEYS) {
+    const value = attributes[key];
+    if (typeof value === "string" && isVmPriorityPath(value)) return true;
+  }
+  return (
+    spanName.endsWith(` ${VM_PRIORITY_PATH_PREFIX}`) ||
+    spanName.includes(` ${VM_PRIORITY_PATH_PREFIX}/`)
+  );
 }
 
 export function isPrioritySpan(spanName: string, attributes: Attributes): boolean {
