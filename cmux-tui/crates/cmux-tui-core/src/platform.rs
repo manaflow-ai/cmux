@@ -32,6 +32,10 @@ pub mod transport {
         imp::connect(path)
     }
 
+    pub fn connect_timeout(path: &Path, timeout: Duration) -> io::Result<Box<dyn Stream>> {
+        imp::connect_timeout(path, timeout)
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -41,9 +45,12 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io;
+        use std::os::fd::{FromRawFd, IntoRawFd};
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
         use std::time::Duration;
+
+        use socket2::{Domain, SockAddr, Socket, Type};
 
         use super::Stream;
 
@@ -57,6 +64,17 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_timeout(
+            path: &Path,
+            timeout: Duration,
+        ) -> io::Result<Box<dyn Stream>> {
+            let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+            let address = SockAddr::unix(path)?;
+            socket.connect_timeout(&address, timeout)?;
+            let stream = unsafe { UnixStream::from_raw_fd(socket.into_raw_fd()) };
+            Ok(Box::new(stream))
         }
 
         impl Listener {
@@ -88,10 +106,12 @@ pub mod transport {
     #[cfg(windows)]
     mod imp {
         use std::io;
+        use std::os::windows::io::{FromRawSocket, IntoRawSocket};
         use std::path::Path;
         use std::time::Duration;
 
         use super::Stream;
+        use socket2::{Domain, SockAddr, Socket, Type};
         use uds_windows::{UnixListener, UnixStream};
 
         pub(super) struct Listener {
@@ -104,6 +124,20 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_timeout(
+            path: &Path,
+            timeout: Duration,
+        ) -> io::Result<Box<dyn Stream>> {
+            // `uds_windows::UnixStream::connect` is a blocking wrapper around
+            // Winsock. `socket2` performs a nonblocking connect followed by
+            // `WSAPoll`, then returns the socket to blocking mode.
+            let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+            let address = SockAddr::unix(path)?;
+            socket.connect_timeout(&address, timeout)?;
+            let stream = unsafe { UnixStream::from_raw_socket(socket.into_raw_socket()) };
+            Ok(Box::new(stream))
         }
 
         impl Listener {

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -41,6 +42,7 @@ use super::parse_identity_capabilities;
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
+use crate::machine_runtime::MachineConnectContext;
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -1694,6 +1696,63 @@ impl RemoteTransport {
     }
 }
 
+/// Interrupts synchronous session initialization when its owning connection
+/// attempt is cancelled. The worker is joined before this guard is dropped,
+/// so cancellation never leaves an unowned blocker behind.
+struct RemoteConnectCancellation {
+    cancel: Option<std::sync::mpsc::SyncSender<()>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl RemoteConnectCancellation {
+    fn start(
+        abort: Arc<dyn RemoteTransportAbort>,
+        context: &MachineConnectContext,
+    ) -> io::Result<Self> {
+        let (cancel, cancelled) = std::sync::mpsc::sync_channel(1);
+        let context = context.clone();
+        let worker =
+            std::thread::Builder::new().name("remote-connect-deadline".to_string()).spawn(
+                move || loop {
+                    if context.is_cancelled() {
+                        let _ = abort.abort();
+                        break;
+                    }
+                    let remaining = context
+                        .remaining_io()
+                        .unwrap_or(Duration::ZERO)
+                        .min(Duration::from_millis(50));
+                    match cancelled.recv_timeout(remaining) {
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                        Err(RecvTimeoutError::Timeout)
+                            if context.is_cancelled() || context.is_expired() =>
+                        {
+                            let _ = abort.abort();
+                            break;
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                    }
+                },
+            )?;
+        Ok(Self { cancel: Some(cancel), worker: Some(worker) })
+    }
+
+    fn stop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.try_send(());
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for RemoteConnectCancellation {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 struct StreamTransportAbort {
     inner: Box<dyn transport::Stream>,
 }
@@ -1868,6 +1927,21 @@ impl RemoteSession {
         Self::connect_path(path, true)
     }
 
+    pub(crate) fn connect_with_context(
+        path: &Path,
+        context: &MachineConnectContext,
+    ) -> anyhow::Result<Arc<Self>> {
+        context.check()?;
+        let stream = transport::connect_timeout(path, context.remaining()?).map_err(|e| {
+            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        })?;
+        context.check()?;
+        let transport = RemoteTransport::json_lines(stream).map_err(|error| {
+            anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
+        })?;
+        Self::connect_transport_with_context(transport, context)
+    }
+
     pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
         Self::connect_path(path, false)
     }
@@ -1903,6 +1977,7 @@ impl RemoteSession {
         Self::connect_transport_with_initial_subscription(transport, subscribe)
     }
 
+    #[allow(dead_code)]
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
         Self::connect_transport_with_initial_subscription(transport, true)
     }
@@ -1914,11 +1989,58 @@ impl RemoteSession {
         Self::connect_transport_with_provider_authority(transport, None, subscribe)
     }
 
+    #[allow(dead_code)]
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
         Self::connect_transport_with_provider_authority(transport, Some(authority), true)
+    }
+
+    pub(crate) fn connect_provider_transport_with_context(
+        transport: RemoteTransport,
+        authority: BearerToken,
+        context: &MachineConnectContext,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_context_and_authority(transport, context, Some(authority))
+    }
+
+    pub(crate) fn connect_transport_with_context(
+        transport: RemoteTransport,
+        context: &MachineConnectContext,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_context_and_authority(transport, context, None)
+    }
+
+    fn connect_transport_with_context_and_authority(
+        transport: RemoteTransport,
+        context: &MachineConnectContext,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> anyhow::Result<Arc<Self>> {
+        context.check()?;
+        let abort = Arc::clone(&transport.abort);
+        let mut cancellation = RemoteConnectCancellation::start(abort, context)
+            .map_err(|error| anyhow::anyhow!("cannot start remote connection deadline: {error}"))?;
+        let result = Self::connect_transport_with_provider_authority(
+            transport,
+            provider_workspace_authority,
+            true,
+        );
+        cancellation.stop();
+        match result {
+            Ok(session) => {
+                if let Err(error) = context.check() {
+                    // The deadline may expire in the small interval after the
+                    // cancellation watcher is stopped. Close the transport
+                    // before returning so the reader and writer do not outlive
+                    // this failed connection attempt.
+                    session.disconnect_transport();
+                    return Err(error);
+                }
+                Ok(session)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn connect_transport_with_provider_authority(

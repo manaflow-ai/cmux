@@ -42,6 +42,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use crate::localization::catalog;
+use crate::machine_runtime::MachineConnectContext;
 #[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
@@ -572,7 +573,16 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let context = MachineConnectContext::new(Duration::from_secs(5 * 60));
+    start_connected_with_context(flags, &context)
+}
+
+fn start_connected_with_context(
+    mut flags: ConnectFlags,
+    context: &MachineConnectContext,
+) -> anyhow::Result<ConnectedRuntime> {
+    context.check()?;
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -584,7 +594,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .transpose()?;
     let total_startup_timeout = flags
         .startup_timeout
-        .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout));
+        .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout))
+        .min(context.remaining()?);
     let client_root = flags
         .state_dir
         .clone()
@@ -708,7 +719,9 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         }
     }
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
-    let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
+    context.check()?;
+    let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?
+        .min(context.remaining()?);
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
     let runtime = start_client_runtime(ClientRuntimeOptions {
         routes,
@@ -726,6 +739,10 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         ssh,
         ssh_bootstrap,
     })?;
+    if let Err(error) = context.check() {
+        let _ = runtime.shutdown();
+        return Err(error);
+    }
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -1185,7 +1202,9 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
 
 pub(crate) fn connect_managed_ssh(
     options: ManagedSshOptions,
+    context: &MachineConnectContext,
 ) -> anyhow::Result<ManagedSshConnection> {
+    context.check()?;
     let mut arguments = vec![
         options.destination,
         "--session".into(),
@@ -1198,9 +1217,9 @@ pub(crate) fn connect_managed_ssh(
         arguments.push(argument);
     }
 
-    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let connected = start_connected_with_context(direct_ssh_flags(&arguments)?, context)?;
     let local_socket = connected.runtime.info().local_socket.clone();
-    match RemoteSession::connect(&local_socket) {
+    match RemoteSession::connect_with_context(&local_socket, context) {
         Ok(remote) => Ok(ManagedSshConnection {
             session: Session::Remote(remote),
             lease: ManagedSshLease { runtime: Some(connected.runtime) },
