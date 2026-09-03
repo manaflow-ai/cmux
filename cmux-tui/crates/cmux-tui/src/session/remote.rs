@@ -6,9 +6,11 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1809,25 +1811,25 @@ impl InteractiveWriter {
 
     fn join_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
-        let handle = self.shared.worker_completion.take_handle();
-        if let Some(handle) = handle {
-            if handle.thread().id() == current {
-                self.shared.worker_completion.install_handle(handle);
-                return;
-            }
-            if self
+        let Some(handle) = self.shared.worker_completion.take_handle() else {
+            let _ = self
                 .shared
                 .worker_completion
-                .wait(deadline.saturating_duration_since(Instant::now()))
-            {
-                let _ = handle.join();
-                self.shared.worker_completion.release_slot();
-            } else {
-                self.shared
-                    .worker_completion
-                    .runtime
-                    .enqueue(handle, self.shared.worker_completion.clone());
-            }
+                .wait(deadline.saturating_duration_since(Instant::now()));
+            return;
+        };
+        if handle.thread().id() == current {
+            self.shared.worker_completion.install_handle(handle);
+            return;
+        }
+        if self.shared.worker_completion.wait(deadline.saturating_duration_since(Instant::now())) {
+            let _ = handle.join();
+            self.shared.worker_completion.release_slot();
+        } else {
+            self.shared
+                .worker_completion
+                .runtime
+                .enqueue(handle, self.shared.worker_completion.clone());
         }
     }
 
