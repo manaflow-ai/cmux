@@ -38,6 +38,33 @@ type BrowserAttachEvent interface {
 	isBrowserAttachEvent()
 }
 
+func marshalEvent(name string, value any) ([]byte, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) < 2 || payload[0] != '{' || payload[len(payload)-1] != '}' {
+		return nil, fmt.Errorf("encode event %s: expected object payload", name)
+	}
+	encodedName, err := json.Marshal(name)
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) == 2 {
+		result := make([]byte, 0, len(encodedName)+10)
+		result = append(result, `{"event":`...)
+		result = append(result, encodedName...)
+		result = append(result, '}')
+		return result, nil
+	}
+	result := make([]byte, 0, len(payload)+len(encodedName)+9)
+	result = append(result, `{"event":`...)
+	result = append(result, encodedName...)
+	result = append(result, ',')
+	result = append(result, payload[1:]...)
+	return result, nil
+}
+
 // AgentChangedEvent is emitted by protocol v11.
 type AgentChangedEvent struct {
 	Session     RequiredNullable[string] `json:"-"`
@@ -121,6 +148,11 @@ func (AgentChangedEvent) isSubscribeEvent() {}
 // BellEvent is emitted by protocol v5.
 type BellEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value BellEvent) MarshalJSON() ([]byte, error) {
+	type wire BellEvent
+	return marshalEvent("bell", wire(value))
 }
 
 func (value *BellEvent) UnmarshalJSON(data []byte) error {
@@ -527,6 +559,11 @@ type ClientDetachedEvent struct {
 	Client uint64 `json:"client"`
 }
 
+func (value ClientDetachedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientDetachedEvent
+	return marshalEvent("client-detached", wire(value))
+}
+
 func (value *ClientDetachedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ClientDetachedEvent: expected object")
@@ -553,6 +590,11 @@ func (ClientDetachedEvent) isSubscribeEvent() {}
 
 // ClientListInvalidatedEvent is emitted by protocol v9.
 type ClientListInvalidatedEvent struct {
+}
+
+func (value ClientListInvalidatedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientListInvalidatedEvent
+	return marshalEvent("client-list-invalidated", wire(value))
 }
 
 func (value *ClientListInvalidatedEvent) UnmarshalJSON(data []byte) error {
@@ -752,6 +794,11 @@ func (ColorsChangedEvent) isByteAttachEvent() {}
 type ConfigReloadRequestedEvent struct {
 }
 
+func (value ConfigReloadRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire ConfigReloadRequestedEvent
+	return marshalEvent("config-reload-requested", wire(value))
+}
+
 func (value *ConfigReloadRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ConfigReloadRequestedEvent: expected object")
@@ -774,6 +821,11 @@ func (ConfigReloadRequestedEvent) isSubscribeEvent() {}
 // DetachedEvent is emitted by protocol v5.
 type DetachedEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value DetachedEvent) MarshalJSON() ([]byte, error) {
+	type wire DetachedEvent
+	return marshalEvent("detached", wire(value))
 }
 
 func (value *DetachedEvent) UnmarshalJSON(data []byte) error {
@@ -806,6 +858,11 @@ func (DetachedEvent) isRenderAttachEvent()  {}
 type EmptyEvent struct {
 }
 
+func (value EmptyEvent) MarshalJSON() ([]byte, error) {
+	type wire EmptyEvent
+	return marshalEvent("empty", wire(value))
+}
+
 func (value *EmptyEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode EmptyEvent: expected object")
@@ -832,6 +889,11 @@ type FrameEvent struct {
 	Seq     uint64 `json:"seq"`
 	Surface ID     `json:"surface"`
 	Width   uint32 `json:"width"`
+}
+
+func (value FrameEvent) MarshalJSON() ([]byte, error) {
+	type wire FrameEvent
+	return marshalEvent("frame", wire(value))
 }
 
 func (value *FrameEvent) UnmarshalJSON(data []byte) error {
@@ -886,6 +948,11 @@ type FrontendProjectionChangedEvent struct {
 	ProjectionRevision uint64 `json:"projection_revision"`
 	Scope              string `json:"scope"`
 	SubjectKey         string `json:"subject_key"`
+}
+
+func (value FrontendProjectionChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire FrontendProjectionChangedEvent
+	return marshalEvent("frontend-projection-changed", wire(value))
 }
 
 func (value *FrontendProjectionChangedEvent) UnmarshalJSON(data []byte) error {
@@ -993,7 +1060,16 @@ func (value GraphicsStatusEvent) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode GraphicsStatusEvent.Kind: invalid value %v", value.Kind)
 	}
 	type wire GraphicsStatusEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"graphics-status\"")
+	return json.Marshal(object)
 }
 
 func (value *GraphicsStatusEvent) UnmarshalJSON(data []byte) error {
@@ -1077,6 +1153,11 @@ func (GraphicsStatusEvent) isSubscribeEvent() {}
 // LayoutChangedEvent is emitted by protocol v6.
 type LayoutChangedEvent struct {
 	Screen ID `json:"screen"`
+}
+
+func (value LayoutChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire LayoutChangedEvent
+	return marshalEvent("layout-changed", wire(value))
 }
 
 func (value *LayoutChangedEvent) UnmarshalJSON(data []byte) error {
@@ -1249,6 +1330,11 @@ type OutputEvent struct {
 	Surface ID              `json:"surface"`
 }
 
+func (value OutputEvent) MarshalJSON() ([]byte, error) {
+	type wire OutputEvent
+	return marshalEvent("output", wire(value))
+}
+
 func (value *OutputEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode OutputEvent: expected object")
@@ -1336,7 +1422,16 @@ func (value OverflowEvent) MarshalJSON() ([]byte, error) {
 		}
 	}
 	type wire OverflowEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"overflow\"")
+	return json.Marshal(object)
 }
 
 func (value *OverflowEvent) UnmarshalJSON(data []byte) error {
@@ -1394,6 +1489,11 @@ type PairingRequestedEvent struct {
 	Request   uint64 `json:"request"`
 }
 
+func (value PairingRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire PairingRequestedEvent
+	return marshalEvent("pairing-requested", wire(value))
+}
+
 func (value *PairingRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode PairingRequestedEvent: expected object")
@@ -1438,6 +1538,11 @@ type PairingResolvedEvent struct {
 	Request uint64 `json:"request"`
 }
 
+func (value PairingResolvedEvent) MarshalJSON() ([]byte, error) {
+	type wire PairingResolvedEvent
+	return marshalEvent("pairing-resolved", wire(value))
+}
+
 func (value *PairingResolvedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode PairingResolvedEvent: expected object")
@@ -1469,6 +1574,11 @@ type PaneAddedEvent struct {
 	Pane      ID     `json:"pane"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value PaneAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire PaneAddedEvent
+	return marshalEvent("pane-added", wire(value))
 }
 
 func (value *PaneAddedEvent) UnmarshalJSON(data []byte) error {
@@ -1522,6 +1632,11 @@ type PaneClosedEvent struct {
 	Pane      ID     `json:"pane"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value PaneClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire PaneClosedEvent
+	return marshalEvent("pane-closed", wire(value))
 }
 
 func (value *PaneClosedEvent) UnmarshalJSON(data []byte) error {
@@ -1580,6 +1695,11 @@ type RenderDeltaEvent struct {
 	ScrollbackRows *uint32              `json:"scrollback_rows,omitempty"`
 	Size           *Size                `json:"size,omitempty"`
 	Surface        ID                   `json:"surface"`
+}
+
+func (value RenderDeltaEvent) MarshalJSON() ([]byte, error) {
+	type wire RenderDeltaEvent
+	return marshalEvent("render-delta", wire(value))
 }
 
 func (value *RenderDeltaEvent) UnmarshalJSON(data []byte) error {
@@ -1676,6 +1796,11 @@ type RenderStateEvent struct {
 	Surface        ID              `json:"surface"`
 }
 
+func (value RenderStateEvent) MarshalJSON() ([]byte, error) {
+	type wire RenderStateEvent
+	return marshalEvent("render-state", wire(value))
+}
+
 func (value *RenderStateEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode RenderStateEvent: expected object")
@@ -1755,6 +1880,11 @@ type ResizedEvent struct {
 	Surface            ID                  `json:"surface"`
 }
 
+func (value ResizedEvent) MarshalJSON() ([]byte, error) {
+	type wire ResizedEvent
+	return marshalEvent("resized", wire(value))
+}
+
 func (value *ResizedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ResizedEvent: expected object")
@@ -1832,6 +1962,11 @@ type ScreenAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value ScreenAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenAddedEvent
+	return marshalEvent("screen-added", wire(value))
+}
+
 func (value *ScreenAddedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ScreenAddedEvent: expected object")
@@ -1877,6 +2012,11 @@ type ScreenClosedEvent struct {
 	Index     uint64 `json:"index"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value ScreenClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenClosedEvent
+	return marshalEvent("screen-closed", wire(value))
 }
 
 func (value *ScreenClosedEvent) UnmarshalJSON(data []byte) error {
@@ -1925,6 +2065,11 @@ type ScreenRenamedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value ScreenRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenRenamedEvent
+	return marshalEvent("screen-renamed", wire(value))
+}
+
 func (value *ScreenRenamedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ScreenRenamedEvent: expected object")
@@ -1964,6 +2109,11 @@ type ScrollChangedEvent struct {
 	AtBottom bool   `json:"at_bottom"`
 	Offset   uint64 `json:"offset"`
 	Surface  ID     `json:"surface"`
+}
+
+func (value ScrollChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScrollChangedEvent
+	return marshalEvent("scroll-changed", wire(value))
 }
 
 func (value *ScrollChangedEvent) UnmarshalJSON(data []byte) error {
@@ -2009,6 +2159,11 @@ type StatusEvent struct {
 	Message string `json:"message"`
 }
 
+func (value StatusEvent) MarshalJSON() ([]byte, error) {
+	type wire StatusEvent
+	return marshalEvent("status", wire(value))
+}
+
 func (value *StatusEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode StatusEvent: expected object")
@@ -2038,6 +2193,11 @@ type SurfaceExitedEvent struct {
 	Surface ID `json:"surface"`
 }
 
+func (value SurfaceExitedEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceExitedEvent
+	return marshalEvent("surface-exited", wire(value))
+}
+
 func (value *SurfaceExitedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode SurfaceExitedEvent: expected object")
@@ -2065,6 +2225,11 @@ func (SurfaceExitedEvent) isSubscribeEvent() {}
 // SurfaceOutputEvent is emitted by protocol v5.
 type SurfaceOutputEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value SurfaceOutputEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceOutputEvent
+	return marshalEvent("surface-output", wire(value))
 }
 
 func (value *SurfaceOutputEvent) UnmarshalJSON(data []byte) error {
@@ -2274,6 +2439,11 @@ type TabAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value TabAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabAddedEvent
+	return marshalEvent("tab-added", wire(value))
+}
+
 func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TabAddedEvent: expected object")
@@ -2333,6 +2503,11 @@ type TabClosedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value TabClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabClosedEvent
+	return marshalEvent("tab-closed", wire(value))
+}
+
 func (value *TabClosedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TabClosedEvent: expected object")
@@ -2389,6 +2564,11 @@ type TabRenamedEvent struct {
 	Screen    ID  `json:"screen"`
 	Surface   ID  `json:"surface"`
 	Workspace ID  `json:"workspace"`
+}
+
+func (value TabRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabRenamedEvent
+	return marshalEvent("tab-renamed", wire(value))
 }
 
 func (value *TabRenamedEvent) UnmarshalJSON(data []byte) error {
@@ -2622,7 +2802,16 @@ func (value TerminalRegistryChangedEvent) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode TerminalRegistryChangedEvent.Refetch: invalid value %v", value.Refetch)
 	}
 	type wire TerminalRegistryChangedEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"terminal-registry-changed\"")
+	return json.Marshal(object)
 }
 
 func (value *TerminalRegistryChangedEvent) UnmarshalJSON(data []byte) error {
@@ -2675,6 +2864,11 @@ type TitleChangedEvent struct {
 	Title   *string `json:"title,omitempty"`
 }
 
+func (value TitleChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire TitleChangedEvent
+	return marshalEvent("title-changed", wire(value))
+}
+
 func (value *TitleChangedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TitleChangedEvent: expected object")
@@ -2710,6 +2904,11 @@ func (TitleChangedEvent) isSubscribeEvent() {}
 type TreeChangedEvent struct {
 }
 
+func (value TreeChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire TreeChangedEvent
+	return marshalEvent("tree-changed", wire(value))
+}
+
 func (value *TreeChangedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TreeChangedEvent: expected object")
@@ -2738,6 +2937,11 @@ type VTStateEvent struct {
 	KittyImageAliases  *[]KittyImageAlias  `json:"kitty_image_aliases,omitempty"`
 	Rows               uint16              `json:"rows"`
 	Surface            ID                  `json:"surface"`
+}
+
+func (value VTStateEvent) MarshalJSON() ([]byte, error) {
+	type wire VTStateEvent
+	return marshalEvent("vt-state", wire(value))
 }
 
 func (value *VTStateEvent) UnmarshalJSON(data []byte) error {
@@ -2805,6 +3009,11 @@ type WindowTitleRequestedEvent struct {
 	Title string `json:"title"`
 }
 
+func (value WindowTitleRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire WindowTitleRequestedEvent
+	return marshalEvent("window-title-requested", wire(value))
+}
+
 func (value *WindowTitleRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WindowTitleRequestedEvent: expected object")
@@ -2839,6 +3048,11 @@ type WorkspaceAddedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value WorkspaceAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceAddedEvent
+	return marshalEvent("workspace-added", wire(value))
 }
 
 func (value *WorkspaceAddedEvent) UnmarshalJSON(data []byte) error {
@@ -2916,6 +3130,11 @@ type WorkspaceClosedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value WorkspaceClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceClosedEvent
+	return marshalEvent("workspace-closed", wire(value))
+}
+
 func (value *WorkspaceClosedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WorkspaceClosedEvent: expected object")
@@ -2991,6 +3210,11 @@ type WorkspaceMovedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value WorkspaceMovedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceMovedEvent
+	return marshalEvent("workspace-moved", wire(value))
+}
+
 func (value *WorkspaceMovedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WorkspaceMovedEvent: expected object")
@@ -3063,6 +3287,11 @@ type WorkspaceRenamedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value WorkspaceRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceRenamedEvent
+	return marshalEvent("workspace-renamed", wire(value))
 }
 
 func (value *WorkspaceRenamedEvent) UnmarshalJSON(data []byte) error {

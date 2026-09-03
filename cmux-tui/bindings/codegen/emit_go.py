@@ -399,7 +399,23 @@ def _render_object_json(
     additional = bool(expr["additional_properties"])
 
     lines: list[str] = []
-    if nullable or additional or constrained or event_discriminator is not None:
+    direct_event = (
+        event_discriminator is not None
+        and not nullable
+        and not additional
+        and not constrained
+    )
+    if direct_event:
+        lines.extend(
+            [
+                f"func (value {name}) MarshalJSON() ([]byte, error) {{",
+                f"\ttype wire {name}",
+                f"\treturn marshalEvent({_go_string(event_discriminator)}, wire(value))",
+                "}",
+                "",
+            ]
+        )
+    if not direct_event and (nullable or additional or constrained or event_discriminator is not None):
         lines.append(f"func (value {name}) MarshalJSON() ([]byte, error) {{")
         for wire_name, field in constrained:
             go_name = _go_name(wire_name)
@@ -1482,15 +1498,7 @@ def _render_event_type(
     name = _event_name(wire_name)
     lines = [
         f"// {name} is emitted by protocol v{event['since']}.",
-        # Event payloads with nullable fields already use the map-based
-        # encoder to preserve presence. Add the discriminator there without
-        # imposing a map round-trip on the hot-path events that use direct
-        # struct encoding.
-        *_render_object(
-            name,
-            payload,
-            event_discriminator=wire_name if _nullable_fields(payload) else None,
-        ),
+        *_render_object(name, payload, event_discriminator=wire_name),
         "",
         f"func ({name}) EventName() string {{ return {_go_string(wire_name)} }}",
     ]
@@ -1560,6 +1568,29 @@ def _render_events(ir: SdkIR, document: Mapping[str, Any]) -> str:
             "type ByteAttachEvent interface { Event; isByteAttachEvent() }",
             "type RenderAttachEvent interface { Event; isRenderAttachEvent() }",
             "type BrowserAttachEvent interface { Event; isBrowserAttachEvent() }",
+            "",
+            "func marshalEvent(name string, value any) ([]byte, error) {",
+            "\tpayload, err := json.Marshal(value)",
+            "\tif err != nil { return nil, err }",
+            "\tif len(payload) < 2 || payload[0] != '{' || payload[len(payload)-1] != '}' {",
+            '\t\treturn nil, fmt.Errorf("encode event %s: expected object payload", name)',
+            "\t}",
+            "\tencodedName, err := json.Marshal(name)",
+            "\tif err != nil { return nil, err }",
+            "\tif len(payload) == 2 {",
+            "\t\tresult := make([]byte, 0, len(encodedName)+10)",
+            '\t\tresult = append(result, `{"event":`...)',
+            "\t\tresult = append(result, encodedName...)",
+            "\t\tresult = append(result, '}')",
+            "\t\treturn result, nil",
+            "\t}",
+            "\tresult := make([]byte, 0, len(payload)+len(encodedName)+9)",
+            '\tresult = append(result, `{"event":`...)',
+            "\tresult = append(result, encodedName...)",
+            "\tresult = append(result, ',')",
+            "\tresult = append(result, payload[1:]...)",
+            "\treturn result, nil",
+            "}",
             "",
         ]
     )
