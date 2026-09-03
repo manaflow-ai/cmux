@@ -9,22 +9,10 @@ cd "$PROJECT_DIR"
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
 
-echo "==> Checking for zig..."
-if ! command -v zig &> /dev/null; then
-    echo "Error: zig is not installed."
-    echo "Install via: brew install zig"
-    exit 1
-fi
+echo "==> Checking Zig version..."
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/ghostty-zig-version.sh"
-ZIG_REQUIRED="$(ghostty_minimum_zig_version "$PROJECT_DIR")"
-ZIG_ACTUAL="$(zig version)"
-if ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
-    echo "Error: Ghostty requires zig ${ZIG_REQUIRED} or a newer patch release in the same major/minor series, but $(command -v zig) reports ${ZIG_ACTUAL}."
-    echo "Install or upgrade via: brew install zig"
-    exit 1
-fi
-echo "zig ${ZIG_ACTUAL} found at $(command -v zig)"
+ghostty_require_compatible_zig "$PROJECT_DIR"
 
 echo "==> Checking for Rust..."
 # Xcode uses a non-login shell, so verify the same PATH used by the sidecar

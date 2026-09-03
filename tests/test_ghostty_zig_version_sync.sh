@@ -49,6 +49,30 @@ for incompatible_version in "${incompatible_versions[@]}"; do
   fi
 done
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+cat > "$TMP_DIR/zig" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '$actual'
+EOF
+chmod +x "$TMP_DIR/zig"
+
+guard_output="$(PATH="$TMP_DIR:$PATH" ghostty_require_compatible_zig "$ROOT_DIR")"
+if [[ "$guard_output" != *"zig $actual found at $TMP_DIR/zig"* ]]; then
+  echo "shared Zig guard did not validate the active compatible binary: $guard_output" >&2
+  exit 1
+fi
+
+cat > "$TMP_DIR/zig" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '${actual_major}.$((10#$actual_minor + 1)).${actual_patch}'
+EOF
+chmod +x "$TMP_DIR/zig"
+if PATH="$TMP_DIR:$PATH" ghostty_require_compatible_zig "$ROOT_DIR" >/dev/null 2>&1; then
+  echo "shared Zig guard accepted an incompatible active binary" >&2
+  exit 1
+fi
+
 for consumer in \
   "$ROOT_DIR/scripts/install-zig-ci.sh" \
   "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
@@ -69,13 +93,13 @@ python3 \
   --require-setup-zig \
   "$ROOT_DIR/.github/workflows"
 
-if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$ROOT_DIR/scripts/setup.sh" ||
-   ! grep -Fq 'ghostty_minimum_zig_version "$PROJECT_DIR"' "$ROOT_DIR/scripts/setup.sh" ||
-   ! grep -Fq 'ZIG_ACTUAL="$(zig version)"' "$ROOT_DIR/scripts/setup.sh" ||
-   ! grep -Fq 'ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"' "$ROOT_DIR/scripts/setup.sh"; then
-  echo "setup.sh does not validate the manifest-derived Ghostty Zig version" >&2
-  exit 1
-fi
+for consumer in "$ROOT_DIR/scripts/setup.sh" "$ROOT_DIR/scripts/ensure-ghosttykit.sh"; do
+  if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$consumer" ||
+     ! grep -Fq 'ghostty_require_compatible_zig "$PROJECT_DIR"' "$consumer"; then
+    echo "$(basename "$consumer") does not enforce the manifest-derived Ghostty Zig version" >&2
+    exit 1
+  fi
+done
 
 if ! awk '
   /^  workflow-guard-tests:$/ { in_job = 1; next }
