@@ -202,12 +202,18 @@ fn watch_error_frame(
     code: wire::WorkspaceErrorCode,
     message: Option<&str>,
 ) -> String {
+    let message = match code {
+        wire::WorkspaceErrorCode::PathForbidden => {
+            Some("path is forbidden by the workspace policy".to_owned())
+        }
+        _ => message.map(str::to_owned),
+    };
     serde_json::to_string(&wire::RelayFsWatchError {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchError::FsWatchError,
         watch_id: watch_id.to_owned(),
         code,
-        message: message.map(str::to_owned),
+        message,
     })
     .unwrap_or_else(|_| String::new())
 }
