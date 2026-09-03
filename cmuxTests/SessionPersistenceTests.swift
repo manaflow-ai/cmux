@@ -4517,6 +4517,23 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testAgentHookSurfaceResumeBindingDropsDuplicateKimiWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && kimi --resume session --work-dir '/tmp/project' --model kimi-k2",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "kimi --resume session --model kimi-k2",
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
     func testAgentHookSurfaceResumeBindingPreservesShellOperatorsWhenDroppingDuplicateWorkingDirectoryOption() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "cd '/tmp/project' && codex resume session --cd '/tmp/project' && echo done",
