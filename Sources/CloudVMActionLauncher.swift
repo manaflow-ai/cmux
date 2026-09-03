@@ -436,6 +436,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
     private let lock = NSLock()
+    private let readCondition = NSCondition()
     private let byteLimit = 32 * 1024
     private var stdout = Data()
     private var stderr = Data()
@@ -490,9 +491,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
     func finishResult() -> ProcessOutputResult {
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        stopAcceptingAndWaitForReads()
         lock.lock()
-        acceptingReads = false
-        while activeReads > 0 { lock.unlock(); Thread.yield(); lock.lock() }
         if isFinished {
             let output = formattedResultLocked()
             lock.unlock()
@@ -518,9 +518,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
     func cancel() {
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        stopAcceptingAndWaitForReads()
         lock.lock()
-        acceptingReads = false
-        while activeReads > 0 { lock.unlock(); Thread.yield(); lock.lock() }
         if isFinished {
             lock.unlock()
             return
@@ -551,16 +550,24 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     private func beginRead() -> Bool {
-        lock.lock(); defer { lock.unlock() }
+        readCondition.lock(); defer { readCondition.unlock() }
         guard acceptingReads else { return false }
         activeReads += 1
         return true
     }
 
     private func endRead() {
-        lock.lock()
+        readCondition.lock()
         activeReads -= 1
-        lock.unlock()
+        if activeReads == 0 { readCondition.broadcast() }
+        readCondition.unlock()
+    }
+
+    private func stopAcceptingAndWaitForReads() {
+        readCondition.lock()
+        acceptingReads = false
+        while activeReads > 0 { readCondition.wait() }
+        readCondition.unlock()
     }
 
     private func appendBounded(_ data: Data, to buffer: inout Data, pending: inout Data) {
