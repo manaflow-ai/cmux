@@ -977,8 +977,8 @@ actor VMClient {
             expiresAtUnix: expiresAtUnix,
             session: session,
             invitation: invitation,
-            daemonBuild: daemonBuild,
-            networkAddresses: networkAddresses
+            networkAddresses: networkAddresses,
+            daemonBuild: daemonBuild
         )
     }
 
