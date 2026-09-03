@@ -10297,9 +10297,11 @@ impl App {
             tree_workspace: self.tree.workspace_revision,
             tree_pane: self.tree.pane_revision,
             agents: agent_revision,
-            selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
-                .then_some(self.sidebar_workspace_selection)
-                .unwrap_or(0),
+            selected_workspace: if !spec.includes(SidebarResourceKind::Workspaces) {
+                self.sidebar_workspace_selection
+            } else {
+                0
+            },
             sidebar: self.sidebar_generation,
             rail: rail_generation,
         };
