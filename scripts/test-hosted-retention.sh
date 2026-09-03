@@ -187,6 +187,25 @@ if cmux_hosted_retention_validate_no_symlink_ancestors "$tmp/../tmp" cmux-tui ta
   echo "path traversal base was accepted" >&2
   exit 1
 fi
+if CMUX_TUI_HOSTED_RETENTION_COUNT=1 \
+  cmux_hosted_retention_run "$test_root/../${test_root##*/}" "$current_commit" 2>/dev/null; then
+  echo "destructive helper accepted traversal path" >&2
+  exit 1
+fi
+
+# A clean checkout can lack cmux-tui/target. Validate and create that parent
+# from a physical path so macOS /var symlinks do not weaken the test.
+clean_checkout="$(cd "$(mktemp -d "$tmp/clean-checkout.XXXXXX")" && pwd -P)"
+mkdir "$clean_checkout/cmux-tui"
+if ! cmux_hosted_retention_validate_no_symlink_ancestors "$clean_checkout" cmux-tui target hosted; then
+  echo "clean checkout ancestor validation failed" >&2
+  exit 1
+fi
+mkdir "$clean_checkout/cmux-tui/target"
+[[ -d "$clean_checkout/cmux-tui/target" ]] || {
+  echo "missing artifact parent was not created" >&2
+  exit 1
+}
 
 # A clean checkout can lack cmux-tui/target. The safe parent creation path
 # must create it only after ancestor validation.
