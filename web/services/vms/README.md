@@ -302,6 +302,21 @@ Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`),
 
 Client side, `VMClientTelemetry` (`Sources/Cloud/VMClientTelemetry.swift`) measures every request: `os.log` category `CloudVM` for all of them, a Sentry breadcrumb for all, PostHog `cmux_cloud_vm_request` for failures plus non-polled successes, and a Sentry event for failures (5xx and transport failures `error`, 4xx `warning`). Client failures are throttled per operation and code (60 s PostHog, 300 s Sentry) so a polling loop during an outage produces one event per window.
 
+Every outbound call (Freestyle, Stack Auth, Stripe, PostHog, Slack, Postgres, ...) is a client span inside the request trace, so the Axiom trace view shows the waterfall of third-party calls under each route span. `DependencySpanProcessor` (`services/observability/dependencies.ts`) stamps `cmux.dep.name` (third party) and `cmux.dep.route` (method plus id-templated path, `POST /v5/vms/{id}/exec-await`) on each of them at start. Failure rate and latency per dependency and endpoint, VM traces at 100%, everything else sampled at the base ratio:
+
+```
+['cmux-prod-otel-traces']
+| where _time > ago(1h) and isnotempty(['attributes.custom']['cmux.dep.name'])
+| extend status = toint(coalesce(['attributes.custom']['http.status_code'], ['attributes.custom']['http.response.status_code']))
+| summarize calls = count(), failures = countif(status >= 400 or isnotempty(error)),
+            p50_ms = percentile(duration, 50) / 1ms, p95_ms = percentile(duration, 95) / 1ms
+  by dep = tostring(['attributes.custom']['cmux.dep.name']), route = tostring(['attributes.custom']['cmux.dep.route'])
+| extend failure_rate = round(100.0 * failures / calls, 2)
+| order by failures desc, calls desc
+```
+
+Freestyle only, per endpoint over time: add `| where dep == 'freestyle'` and `bin(_time, 5m)` to the `by` clause. Sentry's NodeFetch integration is disabled in `instrumentation.ts` because it duplicated every fetch span as a bare `GET`/`POST` client span without a URL.
+
 To investigate one failure: take the reference id, query Axiom `['cmux-prod-otel-traces'] | where trace_id == '<id>'`, open the PostHog `$exception` or `cloud_vm_request` row with `trace_id = <id>`, and search Sentry for `trace_id:<id>`.
 
 ## GitHub operations
