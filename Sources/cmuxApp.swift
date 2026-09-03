@@ -1346,6 +1346,22 @@ struct cmuxApp: App {
         manager.selectWorkspace(workspace)
     }
 
+    private func moveSelectedWorkspaceToBottom(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        manager.moveTabsToBottom([workspace.id])
+        manager.selectWorkspace(workspace)
+    }
+
+    private func selectedWorkspaceCanMoveToBottom(in manager: TabManager, workspace: Workspace?) -> Bool {
+        guard let workspace else { return false }
+        return manager.canMoveTabsToBottom([workspace.id])
+    }
+
+    private func selectedWorkspaceCanMoveToTop(in manager: TabManager, workspace: Workspace?) -> Bool {
+        guard let workspace else { return false }
+        return manager.canMoveTabsToTop([workspace.id])
+    }
+
     private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
         guard let workspace = manager.selectedWorkspace else { return }
         _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
@@ -1447,7 +1463,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             moveSelectedWorkspaceToTop(in: manager)
         }
-        .disabled(workspace == nil || workspaceIndex == 0)
+        .disabled(!selectedWorkspaceCanMoveToTop(in: manager, workspace: workspace))
+
+        Button(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")) {
+            moveSelectedWorkspaceToBottom(in: manager)
+        }
+        .disabled(!selectedWorkspaceCanMoveToBottom(in: manager, workspace: workspace))
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {

@@ -6835,6 +6835,14 @@ struct ContentView: View {
                 (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanMoveToTop,
+                tabManager.canMoveTabsToTop([workspace.id])
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanMoveToBottom,
+                tabManager.canMoveTabsToBottom([workspace.id])
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
                 sidebarUnread.canMarkWorkspaceRead(forWorkspaceIds: [workspace.id])
             )
@@ -7549,7 +7557,17 @@ struct ContentView: View {
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "move", "top", "reorder"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMoveToTop) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveWorkspaceToBottom",
+                title: constant(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "move", "bottom", "reorder"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMoveToBottom) }
             )
         )
         contributions.append(
@@ -8661,6 +8679,14 @@ struct ContentView: View {
                 return
             }
             tabManager.moveTabsToTop([workspace.id])
+            tabManager.selectWorkspace(workspace)
+        }
+        registry.register(commandId: "palette.moveWorkspaceToBottom") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            tabManager.moveTabsToBottom([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
@@ -11968,6 +11994,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // root row construction independent from notification publications.
         let unreadSnapshot = SidebarUnreadSnapshot()
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
+        let tierMoveAvailabilityByTabId = tabManager.tierMoveAvailabilityByTabId()
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )
@@ -11977,7 +12004,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceRowInput(
                     workspace,
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    tierMoveAvailabilityByTabId: tierMoveAvailabilityByTabId
                 )
             )
         })
@@ -11998,6 +12026,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
+            canMoveSelectedTargetsToTop: tabManager.canMoveTabsToTop(Set(renderContext.selectedContextTargetIds)),
+            canMoveSelectedTargetsToBottom: tabManager.canMoveTabsToBottom(Set(renderContext.selectedContextTargetIds)),
             anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
@@ -13709,6 +13739,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // Shared notification/selection projections are built once here; full
         // row trees and row-specific closure binding remain lazy.
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
+        let tierMoveAvailabilityByTabId = tabManager.tierMoveAvailabilityByTabId()
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )
@@ -13718,7 +13749,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceRowInput(
                     workspace,
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    tierMoveAvailabilityByTabId: tierMoveAvailabilityByTabId
                 )
             )
         })
@@ -13740,6 +13772,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
+            canMoveSelectedTargetsToTop: tabManager.canMoveTabsToTop(Set(renderContext.selectedContextTargetIds)),
+            canMoveSelectedTargetsToBottom: tabManager.canMoveTabsToBottom(Set(renderContext.selectedContextTargetIds)),
             anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
@@ -14535,7 +14569,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceRowInput(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
+        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
+        tierMoveAvailabilityByTabId: [UUID: WorkspaceTierMoveAvailability]
     ) -> SidebarWorkspaceRowInput {
 #if DEBUG
         sidebarLazyContractProbe.workspaceRowInputProjection?()
@@ -14555,6 +14590,7 @@ struct VerticalTabsSidebar: View, Equatable {
             in: renderContext.pinResolutionContext,
             target: contextMenuPinTarget
         )
+        let tierMoveAvailability = tierMoveAvailabilityByTabId[tab.id]
         let unreadSummary = unreadSummariesByWorkspaceId[tab.id]
             ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
         let liveLatestNotificationText: String? = renderContext.tabItemSettings.showsNotificationMessage
@@ -14657,6 +14693,8 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
             isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
             isRemoteContextMenuEligible: tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace,
+            canMoveToTop: tierMoveAvailability?.canMoveToTop ?? false,
+            canMoveToBottom: tierMoveAvailability?.canMoveToBottom ?? false,
             remoteConnectionState: tab.remoteConnectionState,
             contextMenuPinState: contextMenuPinState,
             inferredTaskStatus: tab.inferredTaskStatus,
@@ -14756,6 +14794,10 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             moveTargetsToTop: { targetIds in
                 tabManager.moveTabsToTop(Set(targetIds))
+                syncWorkspaceRowSelectionAfterMutation()
+            },
+            moveTargetsToBottom: { targetIds in
+                tabManager.moveTabsToBottom(Set(targetIds))
                 syncWorkspaceRowSelectionAfterMutation()
             },
             currentWindowMoveTargets: {

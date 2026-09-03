@@ -8,6 +8,11 @@ public import Foundation
 /// order-change publication inverts through `WorkspaceOrderHosting`.
 @MainActor
 public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
+    private enum TierPlacement {
+        case top
+        case bottom
+    }
+
     private let model: WorkspacesModel<Tab>
     private let planner = WorkspaceReorderPlanner()
     private weak var host: (any WorkspaceOrderHosting)?
@@ -32,35 +37,164 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Moves the given workspaces to the top of their pin tiers, preserving
     /// their relative order (group members hoist behind their anchors).
     public func moveTabsToTop(_ tabIds: Set<UUID>) {
-        guard !tabIds.isEmpty else { return }
+        moveTabs(tabIds, to: .top)
+    }
+
+    /// Returns whether moving the given workspaces to the top of their pin
+    /// tiers would change the sidebar's top-level workspace order.
+    ///
+    /// - Parameter tabIds: The workspace identifiers to evaluate.
+    /// - Returns: `true` when a move-to-top action would change the order.
+    public func canMoveTabsToTop(_ tabIds: Set<UUID>) -> Bool {
+        canMoveTabs(tabIds, to: .top)
+    }
+
+    /// Moves the given workspaces to the bottom of their pin tiers, preserving
+    /// their relative order (group members follow their anchors).
+    public func moveTabsToBottom(_ tabIds: Set<UUID>) {
+        moveTabs(tabIds, to: .bottom)
+    }
+
+    /// Returns whether moving the given workspaces to the bottom of their pin
+    /// tiers would change the sidebar's top-level workspace order.
+    ///
+    /// - Parameter tabIds: The workspace identifiers to evaluate.
+    /// - Returns: `true` when a move-to-bottom action would change the order.
+    public func canMoveTabsToBottom(_ tabIds: Set<UUID>) -> Bool {
+        canMoveTabs(tabIds, to: .bottom)
+    }
+
+    /// Returns each workspace's tier-relative move availability in one pass.
+    ///
+    /// Group members share their group's top-level row availability, so a
+    /// sidebar can project boundary action state without evaluating each row
+    /// against the complete workspace model.
+    public func tierMoveAvailabilityByTabId() -> [UUID: WorkspaceTierMoveAvailability] {
+        guard !model.tabs.isEmpty else { return [:] }
+
+        if model.workspaceGroups.isEmpty {
+            return tierMoveAvailability(
+                ids: model.tabs.map(\.id),
+                pinnedIds: Set(model.tabs.filter(\.isPinned).map(\.id))
+            )
+        }
+
+        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let availabilityByTopLevelId = tierMoveAvailability(
+            ids: topLevelIds,
+            pinnedIds: model.sidebarTopLevelPinnedWorkspaceIds()
+        )
+        let groupsById = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map { ($0.id, $0) })
+        return Dictionary(uniqueKeysWithValues: model.tabs.map { tab in
+            let topLevelId = tab.groupId.flatMap { groupsById[$0]?.anchorWorkspaceId } ?? tab.id
+            return (tab.id, availabilityByTopLevelId[topLevelId] ?? WorkspaceTierMoveAvailability(
+                canMoveToTop: false,
+                canMoveToBottom: false
+            ))
+        })
+    }
+
+    /// Determines whether a tier-relative move would change the top-level order.
+    private func canMoveTabs(_ tabIds: Set<UUID>, to placement: TierPlacement) -> Bool {
+        guard !tabIds.isEmpty else { return false }
         let selectedTabs = model.tabs.filter { tabIds.contains($0.id) }
-        guard !selectedTabs.isEmpty else { return }
+        guard !selectedTabs.isEmpty else { return false }
+
+        if !model.workspaceGroups.isEmpty {
+            let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+            let selectedTopLevelIds = model.topLevelWorkspaceIds(for: selectedTabs)
+            let desiredTopLevelIds = tierOrderedIds(
+                topLevelIds,
+                selectedIds: Set(selectedTopLevelIds),
+                pinnedIds: model.sidebarTopLevelPinnedWorkspaceIds(),
+                placement: placement
+            )
+            return desiredTopLevelIds != topLevelIds
+        }
+
+        let workspaceIds = model.tabs.map(\.id)
+        let desiredWorkspaceIds = tierOrderedIds(
+            workspaceIds,
+            selectedIds: Set(selectedTabs.map(\.id)),
+            pinnedIds: Set(model.tabs.filter(\.isPinned).map(\.id)),
+            placement: placement
+        )
+        return desiredWorkspaceIds != workspaceIds
+    }
+
+    /// Applies a tier-relative move through the shared group and pin ordering path.
+    private func moveTabs(_ tabIds: Set<UUID>, to placement: TierPlacement) {
+        guard canMoveTabs(tabIds, to: placement) else { return }
+        let selectedTabs = model.tabs.filter { tabIds.contains($0.id) }
         let previousOrder = model.tabs.map(\.id)
 
         if !model.workspaceGroups.isEmpty {
             model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: selectedTabs.map(\.id))
-            let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+            let topLevelIds = model.sidebarTopLevelWorkspaceIds()
             let selectedTopLevelIds = model.topLevelWorkspaceIds(for: selectedTabs)
-            let selectedTopLevelIdSet = Set(selectedTopLevelIds)
-            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
-            let desiredTopLevelIds =
-                selectedTopLevelIds.filter { pinnedTopLevelIds.contains($0) } +
-                topLevelIds.filter { pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
-                selectedTopLevelIds.filter { !pinnedTopLevelIds.contains($0) } +
-                topLevelIds.filter { !pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) }
+            let desiredTopLevelIds = tierOrderedIds(
+                topLevelIds,
+                selectedIds: Set(selectedTopLevelIds),
+                pinnedIds: model.sidebarTopLevelPinnedWorkspaceIds(),
+                placement: placement
+            )
             model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
-            model.syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: desiredTopLevelIds)
+            model.syncWorkspaceGroupsOrderToAnchorOrder()
         } else {
-            let remainingTabs = model.tabs.filter { !tabIds.contains($0.id) }
-            let selectedPinned = selectedTabs.filter { $0.isPinned }
-            let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
-            let remainingPinned = remainingTabs.filter { $0.isPinned }
-            let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
-            model.tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+            let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
+            let desiredWorkspaceIds = tierOrderedIds(
+                model.tabs.map(\.id),
+                selectedIds: Set(selectedTabs.map(\.id)),
+                pinnedIds: Set(model.tabs.filter(\.isPinned).map(\.id)),
+                placement: placement
+            )
+            model.tabs = desiredWorkspaceIds.compactMap { tabsById[$0] }
         }
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
         }
+    }
+
+    /// Computes a tier-preserving order for selected workspace ids.
+    private func tierOrderedIds(
+        _ ids: [UUID],
+        selectedIds: Set<UUID>,
+        pinnedIds: Set<UUID>,
+        placement: TierPlacement
+    ) -> [UUID] {
+        let selectedPinned = ids.filter { selectedIds.contains($0) && pinnedIds.contains($0) }
+        let selectedUnpinned = ids.filter { selectedIds.contains($0) && !pinnedIds.contains($0) }
+        let remainingPinned = ids.filter { !selectedIds.contains($0) && pinnedIds.contains($0) }
+        let remainingUnpinned = ids.filter { !selectedIds.contains($0) && !pinnedIds.contains($0) }
+        switch placement {
+        case .top:
+            return selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        case .bottom:
+            return remainingPinned + selectedPinned + remainingUnpinned + selectedUnpinned
+        }
+    }
+
+    /// Computes each id's top and bottom availability within its pin tier.
+    private func tierMoveAvailability(
+        ids: [UUID],
+        pinnedIds: Set<UUID>
+    ) -> [UUID: WorkspaceTierMoveAvailability] {
+        let pinnedIdsInOrder = ids.filter { pinnedIds.contains($0) }
+        let unpinnedIdsInOrder = ids.filter { !pinnedIds.contains($0) }
+        var availabilityById: [UUID: WorkspaceTierMoveAvailability] = [:]
+        availabilityById.reserveCapacity(ids.count)
+
+        for tierIds in [pinnedIdsInOrder, unpinnedIdsInOrder] where !tierIds.isEmpty {
+            let firstId = tierIds[0]
+            let lastId = tierIds[tierIds.count - 1]
+            for id in tierIds {
+                availabilityById[id] = WorkspaceTierMoveAvailability(
+                    canMoveToTop: id != firstId,
+                    canMoveToBottom: id != lastId
+                )
+            }
+        }
+        return availabilityById
     }
 
     /// Moves a workspace to the top of the unpinned tier for a notification
