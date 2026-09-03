@@ -1681,20 +1681,33 @@ fn pipe_io_startup_exit_reason(error: &anyhow::Error) -> pipe_io::PipeIoExitReas
     }
 }
 
+fn pipe_io_startup_result<T>(pipe_io: bool, result: anyhow::Result<T>) -> anyhow::Result<T> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) if pipe_io => exit_pipe_io(pipe_io_startup_exit_reason(&error)),
+        Err(error) => Err(error),
+    }
+}
+
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
-    let socket_path = match args.socket {
-        Some(path) => path,
-        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
-    };
+    let socket_path = pipe_io_startup_result(
+        args.pipe_io,
+        match args.socket {
+            Some(path) => Ok(path),
+            None => cmux_tui_core::server::try_default_socket_path(&args.session),
+        },
+    )?;
     let messages = &localization::catalog().attach;
-    let terminal = args
-        .terminal
-        .as_deref()
-        .map(|reference| {
-            TerminalPublicId::parse(reference.to_string())
-                .map_err(|_| anyhow::anyhow!(messages.unknown_terminal(reference)))
-        })
-        .transpose()?;
+    let terminal = pipe_io_startup_result(
+        args.pipe_io,
+        args.terminal
+            .as_deref()
+            .map(|reference| {
+                TerminalPublicId::parse(reference.to_string())
+                    .map_err(|_| anyhow::anyhow!(messages.unknown_terminal(reference)))
+            })
+            .transpose(),
+    )?;
     let remote = if terminal.is_some() {
         match RemoteSession::connect_for_terminal_attach(&socket_path) {
             Ok(remote) => remote,
