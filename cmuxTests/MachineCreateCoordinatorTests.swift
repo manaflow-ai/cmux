@@ -185,7 +185,7 @@ struct MachineCreateCoordinatorTests {
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
 
-        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK workspace=\(workspaceID.uuidString) transport=cmux-remote\n", workspaceID: workspaceID)
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK machine=calm-petrel\nOK workspace=\(workspaceID.uuidString) transport=cmux-remote\n", workspaceID: workspaceID, machineID: "calm-petrel")
 
         #expect(coordinator.operations.isEmpty, "the fleet row takes over")
         #expect(changes.finished.count == 1)
@@ -200,7 +200,7 @@ struct MachineCreateCoordinatorTests {
     @Test func successKeepsTheTypedLabelInTheNotification() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
-        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK machine=calm-petrel\n", machineID: "calm-petrel")
         #expect(notices.notices.first?.title == "build box is ready")
         #expect(notices.notices.first?.workspaceID == nil)
     }
@@ -242,7 +242,7 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.arguments[1] == launches.arguments[0])
         #expect(coordinator.operation(id: id)?.isRunning == true)
 
-        launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
+        launches.complete(status: 0, output: "Created Cloud VM noble-wren\nOK machine=noble-wren\n", machineID: "noble-wren")
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.count == 2)
     }
@@ -280,6 +280,20 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operation(id: id)?.failureOutput?.contains("Sign in") == true)
     }
 
+    @Test func lateProgressFromAnEarlierAttemptCannotOverwriteRetry() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        let firstProgress = launches.progressHandlers[0]
+        launches.complete(status: 1, output: "Error: first attempt")
+        #expect(coordinator.retry(id))
+        let secondProgress = launches.progressHandlers[1]
+        firstProgress("OK machine=stale-machine\n")
+        #expect(coordinator.operation(id: id)?.createdMachineID == nil)
+        secondProgress("OK machine=current-machine\n")
+        #expect(coordinator.operation(id: id)?.createdMachineID == "current-machine")
+    }
+
     // MARK: Created but opening failed
 
     @Test func createdButOpenFailedDropsTheRowAndNeverRetriesTheCreate() {
@@ -308,19 +322,14 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
     }
 
-    /// An older bundled CLI without the `machine=` token still classifies via
-    /// the localized "Created Cloud VM" line.
-    @Test func createdButOpenFailedFallsBackToTheLocalizedCreatedLine() {
+    @Test func localizedCreatedLineWithoutProtocolMarkerDoesNotClaimAMachine() {
         let (coordinator, launches, _, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let id = coordinator.operations[0].id
         launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)")
-        #expect(coordinator.operations.isEmpty)
-        #expect(!coordinator.retry(id))
-        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
-            machineID: "calm-petrel",
-            output: "Error: attach failed (HTTP 502)"
-        ))
+        #expect(coordinator.operations.count == 1)
+        #expect(coordinator.retry(id))
+        #expect(changes.finished.first?.outcome == .failed(output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)"))
     }
 
     /// Transcripts that trip the app's redaction never reach the row, the
@@ -352,10 +361,12 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.arguments.count == 2)
     }
 
-    @Test func createdMachineIDIsParsedFromTheCLIsCreatedLine() {
+    @Test func createdMachineIDRequiresTheStrictProtocolLine() {
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=calm-petrel") == "calm-petrel")
-        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == "calm-petrel")
-        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  ") == "noble_wren2")
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == nil)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  OK machine=noble_wren2 transport=cmux-remote  ") == "noble_wren2")
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: machine=calm-petrel") == nil)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=bad.id") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "") == nil)
