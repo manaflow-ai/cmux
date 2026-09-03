@@ -59904,6 +59904,23 @@
         }
       }
     },
+    "cli.vpn.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切り替えられませんでした。上のコマンド出力を確認し、`cmux vpn down` を実行してから `cmux vpn up` を再試行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.tree.detached": {
       "extractionState": "manual",
       "localizations": {

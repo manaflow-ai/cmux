@@ -15,6 +15,9 @@ struct MachineCreateOperation: Identifiable, Equatable {
     let id: UUID
     let request: MachineCreateRequest
     let startedAt: Date
+    /// Stable machine id emitted as soon as the provider creates it. This is
+    /// the only safe correlation key while the CLI is still opening the machine.
+    var createdMachineID: String? = nil
     var phase: Phase = .running
 
     var isRunning: Bool {
@@ -47,31 +50,23 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// Whether the machine this create asked for is already a row of its own —
     /// the fleet list returned it, or the catalog registered it while the CLI
     /// is still opening it — so the stand-in must step aside instead of showing
-    /// the same machine twice ("troll · Creating…" above "troll"). A named
-    /// create is matched by its label on a machine that appeared after it
-    /// started (a machine with no known creation time matches by label alone);
-    /// an unnamed create is matched by any machine that appeared after it
-    /// started. Base setup reopens an existing slot and a failed create stays
-    /// red until retried or dismissed, so neither is ever superseded.
+    /// the same machine twice ("troll · Creating…" above "troll"). Both named
+    /// and unnamed creates use the authoritative id emitted by the CLI, and
+    /// remain visible until that id appears in the fleet or catalog. Base setup
+    /// reopens an existing slot and a failed create stays red until retried or
+    /// dismissed, so neither is ever superseded.
     func isSuperseded(by machines: [MachineSnapshot], catalogMachines: [SurfaceMachineInfo]) -> Bool {
         guard isRunning, !request.isBaseSetup else { return false }
-        // Creation timestamps come from the control plane, `startedAt` from this
-        // Mac; a minute of skew must not hide a match.
-        let earliest = startedAt.addingTimeInterval(-60)
-        let requestedName = request.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let named = requestedName.map { !$0.isEmpty } ?? false
+        guard let createdMachineID, !createdMachineID.isEmpty else {
+            // A catalog row without the CLI's authoritative id cannot be
+            // correlated safely. Keep the stand-in visible until the progress
+            // marker arrives or the process exits.
+            return false
+        }
         for machine in machines {
-            let appearedAfterStart = machine.createdAt.map { $0 >= earliest }
-            if named {
-                if machine.label == requestedName, appearedAfterStart != false { return true }
-            } else if appearedAfterStart == true {
-                return true
-            }
+            if machine.id == createdMachineID { return true }
         }
-        if named {
-            return catalogMachines.contains { !$0.id.isLocal && $0.name == requestedName }
-        }
-        return false
+        return catalogMachines.contains { $0.id.cloudMachineID == createdMachineID }
     }
 
     /// The first line of CLI output that explains a failure: blank lines and

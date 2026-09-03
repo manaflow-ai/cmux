@@ -100,12 +100,10 @@ extension CMUXCLI {
                 arguments: [wgQuick, "down", configPath]
             )
             guard downStatus == 0 else {
-                throw CLIError(message: """
-                    wg-quick down failed (exit \(downStatus)) while replacing the stale tunnel.
-
-                    What to do:
-                      Check the output above, run `cmux vpn down`, then retry `cmux vpn up`.
-                    """)
+                throw CLIError(message: String(
+                    localized: "cli.vpn.switchFailed",
+                    defaultValue: "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+                ))
             }
         }
         let status = runInteractiveProcess(
@@ -124,7 +122,9 @@ extension CMUXCLI {
         // account, rotated keys) is detected as stale instead of read as "up".
         // Best effort: the tunnel works either way; without the record the next
         // `vpn up` simply re-applies once.
-        _ = try? client.sendV2(method: "vm.tunnel_applied", params: ["applied": true], responseTimeout: 30)
+        var appliedParams: [String: Any] = ["applied": true]
+        if let digest = response["config_digest"] as? String { appliedParams["config_digest"] = digest }
+        _ = try? client.sendV2(method: "vm.tunnel_applied", params: appliedParams, responseTimeout: 30)
         if jsonOutput {
             print(jsonString(["status": "up", "config_path": configPath, "changed": true, "switched": interfaceUp]))
         } else {

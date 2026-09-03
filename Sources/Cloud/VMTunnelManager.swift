@@ -39,6 +39,7 @@ struct VMTunnelManager: Sendable {
     enum TunnelError: Error, CustomStringConvertible {
         case keyStorageFailed(String)
         case configMalformed(String)
+        case configChangedWhileApplying(expected: String, actual: String?)
 
         var description: String {
             switch self {
@@ -46,6 +47,8 @@ struct VMTunnelManager: Sendable {
                 return "Could not store the WireGuard key for this Mac: \(detail)"
             case .configMalformed(let detail):
                 return "The tunnel config from the Cloud VM service could not be completed: \(detail)"
+            case .configChangedWhileApplying:
+                return "The tunnel config changed while it was being applied; run `cmux vpn up` again."
             }
         }
     }
@@ -174,13 +177,16 @@ struct VMTunnelManager: Sendable {
 
     /// `applied: true` after wg-quick brought the current config up, `false`
     /// after the interface was taken down.
-    func recordApplied(_ applied: Bool) throws {
+    func recordApplied(_ applied: Bool, expectedDigest: String? = nil) throws {
         guard applied else {
             try? FileManager.default.removeItem(at: appliedDigestURL)
             return
         }
         guard let digest = configDigest() else {
             throw TunnelError.configMalformed("no tunnel config to record as applied")
+        }
+        if let expectedDigest, digest != expectedDigest {
+            throw TunnelError.configChangedWhileApplying(expected: expectedDigest, actual: digest)
         }
         try ensureStateDir()
         try write(digest + "\n", to: appliedDigestURL)

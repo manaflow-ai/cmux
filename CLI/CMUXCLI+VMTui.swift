@@ -761,8 +761,12 @@ extension CMUXCLI {
         }
         for workspace in (machine?["remote_workspaces"] as? [[String: Any]]) ?? [] { note(workspace) }
         let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
-        for terminal in terminals {
-            for workspace in workspaces(of: terminal) { note(workspace) }
+        // Workspace membership is a property of every surface resource. A
+        // browser or display can be the only fresh reference while the daemon's
+        // remote_workspaces list is catching up, so do not limit resolution to
+        // terminals (the terminal filter above remains for opening members).
+        for resource in resources {
+            for workspace in workspaces(of: resource) { note(workspace) }
         }
         let resolvedID: String
         if nameByID[selector] != nil {
