@@ -66,6 +66,7 @@ actor CloudMachineLink {
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
     private var eventsProcess: Process?
+    private var statsProcess: Process?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
@@ -74,11 +75,18 @@ actor CloudMachineLink {
     let changes: AsyncStream<Void>
     private let changesContinuation: AsyncStream<Void>.Continuation
 
+    /// The machine's own host samples (`machine-stats` follow feed), newest wins; `nil`
+    /// when the daemon reports no sampler. Ends with the link. A daemon too old for the
+    /// command ends the feed at once and the machine simply shows no reading.
+    let stats: AsyncStream<VMStats?>
+    private let statsContinuation: AsyncStream<VMStats?>.Continuation
+
     init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
         (changes, changesContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        (stats, statsContinuation) = AsyncStream<VMStats?>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
     var isConnected: Bool { connected != nil && state == .connected }
@@ -161,6 +169,7 @@ actor CloudMachineLink {
         self.connected = connected
         state = .connected
         startEventsSubscription(socketPath: socketPath)
+        startStatsFollow(socketPath: socketPath)
         changesContinuation.yield()
         return connected
     }
@@ -168,6 +177,9 @@ actor CloudMachineLink {
     func disconnect() {
         eventsProcess?.terminate()
         eventsProcess = nil
+        statsProcess?.terminate()
+        statsProcess = nil
+        statsContinuation.finish()
         process?.terminate()
         process = nil
         connected = nil
@@ -244,6 +256,37 @@ actor CloudMachineLink {
         }
     }
 
+    /// Follows the daemon's host sample on its own child process, like the events
+    /// subscription: the first line is the `machine-stats` response, later lines are
+    /// `machine-stats-changed` events. The child exits with the link or when the daemon
+    /// predates the command; either way the stream just stops delivering.
+    private func startStatsFollow(socketPath: String) {
+        let process = Process()
+        process.executableURL = clientURL
+        process.arguments = CloudTuiCommandLine.machineStatsFollowArguments(socketPath: socketPath)
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        do {
+            try process.run()
+        } catch {
+            return
+        }
+        statsProcess = process
+        let continuation = statsContinuation
+        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        Task.detached {
+            for await line in lines where !line.isEmpty {
+                switch CmuxTuiSnapshotParser.machineStats(fromLine: line) {
+                case .sample(let sample): continuation.yield(sample)
+                case .unavailable: continuation.yield(nil)
+                case .unrelated: continue
+                }
+            }
+        }
+    }
+
     private func drainStderr(_ handle: FileHandle) {
         let lines = CloudLinkPipe.lines(from: handle)
         Task.detached { [weak self] in
@@ -261,6 +304,9 @@ actor CloudMachineLink {
     private func linkProcessDidExit(status: Int32) {
         eventsProcess?.terminate()
         eventsProcess = nil
+        statsProcess?.terminate()
+        statsProcess = nil
+        statsContinuation.finish()
         process = nil
         connected = nil
         removeInviteFile()

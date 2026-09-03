@@ -218,7 +218,14 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.stats requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
-                let stats = try await VMClient.shared.stats(id: vmId)
+                // The reading comes from the machine's own daemon over its link, never
+                // from the web tier, so it exists only while the Mac holds a link.
+                let info = await MainActor.run { SurfaceCatalog.shared.snapshot.machines.first { $0.id == .cloud(vmId) } }
+                guard let info, let stats = MachineSnapshotBuilder.linkStats(from: info) else {
+                    throw VMClientError.malformedResponse(
+                        "No live reading for \(vmId): machines report CPU, memory, and disk over their cmux-tui link. Open the machine in the Machines panel or run `cmux vm shell \(vmId)`, then retry."
+                    )
+                }
                 var payload: [String: Any] = [
                     "id": vmId,
                     "state": stats.state.rawValue,

@@ -197,9 +197,14 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     var diskMb: Int?
     var linkState: SurfaceLinkState
     var linkError: String?
+    /// Host reading the machine's daemon publishes over the link (`machine-stats`);
+    /// nil until the first sample arrives and cleared when the link ends.
     var cpuPercent: Double?
     var memoryUsedMb: Int?
     var diskUsedMb: Int?
+    var statsSampledAt: Date? = nil
+    var cpus: Int? = nil
+    var loadAverage1m: Double? = nil
     /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
     /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
     var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil

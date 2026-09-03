@@ -297,6 +297,39 @@ enum MachineSnapshotBuilder {
         }
     }
 
+    /// The row's live reading, from what the machine's own daemon sent over the
+    /// link (`SurfaceMachineInfo`): an awake sample when one has arrived, the
+    /// asleep line while the link reports the machine sleeping, else nothing.
+    /// Never wakes a machine and never asks the web tier.
+    static func linkStats(from info: SurfaceMachineInfo) -> VMStats? {
+        if info.linkState == .asleep {
+            return VMStats(
+                state: .asleep, sampledAt: info.statsSampledAt ?? .distantPast, cpus: info.cpus, cpuPercent: nil,
+                loadAverage1m: nil, memoryTotalMb: info.memoryMb, memoryUsedMb: nil, diskTotalMb: info.diskMb, diskUsedMb: nil
+            )
+        }
+        guard let sampledAt = info.statsSampledAt else { return nil }
+        return VMStats(
+            state: .awake, sampledAt: sampledAt, cpus: info.cpus, cpuPercent: info.cpuPercent,
+            loadAverage1m: info.loadAverage1m, memoryTotalMb: info.memoryMb, memoryUsedMb: info.memoryUsedMb,
+            diskTotalMb: info.diskMb, diskUsedMb: info.diskUsedMb
+        )
+    }
+
+    /// Stamps every row with its machine's link reading; rows the catalog does
+    /// not know keep no reading.
+    static func applyingLinkStats(
+        to snapshots: [MachineSnapshot],
+        catalog: SurfaceCatalogSnapshot
+    ) -> [MachineSnapshot] {
+        let infoByMachine = Dictionary(catalog.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return snapshots.map { snapshot in
+            var next = snapshot
+            next.stats = infoByMachine[.cloud(snapshot.id)].flatMap(linkStats(from:))
+            return next
+        }
+    }
+
     /// Recomputes only the free-access facet of existing snapshots against a
     /// fresh clock — no network, stats and identity preserved.
     static func applyingFreeAccess(
@@ -426,7 +459,6 @@ final class MachinesPanelViewModel: ObservableObject {
 
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
-    private var statsTask: Task<Void, Never>?
     private var usageTask: Task<Void, Never>?
     /// One-shot timer armed at the exact next free-access transition (a
     /// countdown day-boundary or an expiry). Expiry is client-computable from
@@ -443,7 +475,6 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
-    private static let statsInterval: Duration = .seconds(20)
 
     init(createCoordinator: MachineCreateCoordinator = .shared) {
         self.createCoordinator = createCoordinator
@@ -540,11 +571,14 @@ final class MachinesPanelViewModel: ObservableObject {
         refresh()
     }
 
-    /// Publishes the catalog's current value and the local workspace list. Cheap
-    /// (a value read), so every change notification may call it.
+    /// Publishes the catalog's current value and the local workspace list, and
+    /// re-derives every row's live reading from it. Cheap (a value read), so
+    /// every change notification may call it: the machine's daemon pushes a
+    /// host sample over the link every 10 s and each one arrives here.
     func readCatalog() {
         catalog = SurfaceCatalog.shared.snapshot
         localWorkspaces = localWorkspacesProvider()
+        machines = MachineSnapshotBuilder.applyingLinkStats(to: machines, catalog: catalog)
     }
 
     /// The explicit Refresh verb: asks every provider to re-sync (machine list,
@@ -568,29 +602,6 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTree(force: forceTree)
     }
 
-    /// Samples every machine's CPU/memory/disk. Sleeping machines report
-    /// `asleep` without being woken, so polling never costs the user anything.
-    func refreshStats() {
-        statsTask?.cancel()
-        let ids = machines.map(\.id)
-        guard !ids.isEmpty else { return }
-        statsTask = Task { [weak self] in
-            await withTaskGroup(of: (String, VMStats?).self) { group in
-                for id in ids {
-                    group.addTask {
-                        (id, try? await VMClient.shared.stats(id: id))
-                    }
-                }
-                for await (id, stats) in group {
-                    guard !Task.isCancelled, let stats else { continue }
-                    await MainActor.run { [weak self] in
-                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }) else { return }
-                        self.machines[index].stats = stats
-                    }
-                }
-            }
-        }
-    }
     /// Fetches the team's per-machine coderouter spend and stamps it onto the
     /// rows. Rides the machine-list refresh, so it shares that cadence. Any
     /// failure (404 on a backend without the route, network) is "no data":
@@ -654,8 +665,6 @@ final class MachinesPanelViewModel: ObservableObject {
     func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
-        statsTask?.cancel()
-        statsTask = nil
         usageTask?.cancel()
         usageTask = nil
         treeTask?.cancel()
@@ -697,8 +706,6 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTask?.cancel()
         refreshTask = nil
         refreshRequestedWhileLoading = false
-        statsTask?.cancel()
-        statsTask = nil
         usageTask?.cancel()
         usageTask = nil
         freeAccessTransitionTask?.cancel()
@@ -728,20 +735,18 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         do {
             let page = try await client.listPage()
-            let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
                 MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: freeAccessWindowDays)
             }
-            for index in snapshots.indices {
-                snapshots[index].stats = previous[snapshots[index].id] ?? nil
-            }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            // The live reading rides the catalog (each machine's daemon pushes it over
+            // the link), so the fresh list is stamped from there rather than re-fetched.
+            snapshots = MachineSnapshotBuilder.applyingLinkStats(to: snapshots, catalog: catalog)
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
-            refreshStats()
             refreshUsage()
             readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)

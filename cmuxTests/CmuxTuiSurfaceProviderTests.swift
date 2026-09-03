@@ -453,3 +453,72 @@ import Testing
         #expect(untouched.first { $0.kind == .display }?.remoteViews == nil)
     }
 }
+
+/// The `machine-stats` follow feed: the argv the link spawns and the strict decode of
+/// what comes back. The machine runs untrusted code, so a malformed sample is dropped
+/// rather than rendered, and bounds are clamped.
+@Suite struct MachineStatsFeedTests {
+    @Test func followArgvIsExact() {
+        #expect(CloudTuiCommandLine.machineStatsFollowArguments(socketPath: "/k.sock") == [
+            "--socket", "/k.sock", "--jsonl", "raw", "command",
+            "--request-json", #"{"id":1,"cmd":"machine-stats","follow":true}"#, "--stream",
+        ])
+    }
+
+    @Test func responseAndEventLinesDecodeToTheSameSample() {
+        let response = #"{"stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}"#
+        let event = #"{"event":"machine-stats-changed","stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}"#
+        guard case .sample(let sample) = CmuxTuiSnapshotParser.machineStats(fromLine: response) else {
+            Issue.record("response line did not decode"); return
+        }
+        #expect(sample.state == .awake)
+        #expect(sample.sampledAt == Date(timeIntervalSince1970: 1_756_800_000))
+        #expect(sample.cpus == 4)
+        #expect(sample.cpuPercent == 12.5)
+        #expect(sample.loadAverage1m == 0.42)
+        #expect(sample.memoryTotalMb == 7937)
+        #expect(sample.memoryUsedMb == 2210)
+        #expect(sample.diskTotalMb == 65536)
+        #expect(sample.diskUsedMb == 18342)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: event) == .sample(sample))
+    }
+
+    @Test func nullOptionalFieldsAreUnknownAndNullStatsIsUnavailable() {
+        let first = #"{"stats":{"sampled_at_ms":1,"cpus":1,"cpu_percent":null,"load_average_1m":0,"memory_total_mb":100,"memory_used_mb":40,"disk_total_mb":null,"disk_used_mb":null,"disk_path":"/"}}"#
+        guard case .sample(let sample) = CmuxTuiSnapshotParser.machineStats(fromLine: first) else {
+            Issue.record("first sample did not decode"); return
+        }
+        #expect(sample.cpuPercent == nil)
+        #expect(sample.diskTotalMb == nil)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: #"{"stats":null}"#) == .unavailable)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: #"{"event":"machine-stats-changed","stats":null}"#) == .unavailable)
+    }
+
+    @Test func hostileOrForeignLinesAreDroppedAndBoundsClamp() {
+        // Wrong kinds: booleans, strings, negatives, fractions where a count is documented.
+        for bad in [
+            #"{"stats":{"sampled_at_ms":true,"cpus":1,"load_average_1m":0,"memory_total_mb":1,"memory_used_mb":0}}"#,
+            #"{"stats":{"sampled_at_ms":1,"cpus":"4","load_average_1m":0,"memory_total_mb":1,"memory_used_mb":0}}"#,
+            #"{"stats":{"sampled_at_ms":1,"cpus":0,"load_average_1m":0,"memory_total_mb":1,"memory_used_mb":0}}"#,
+            #"{"stats":{"sampled_at_ms":1,"cpus":1,"load_average_1m":-1,"memory_total_mb":1,"memory_used_mb":0}}"#,
+            #"{"stats":{"sampled_at_ms":1,"cpus":1,"load_average_1m":0,"memory_total_mb":1.5,"memory_used_mb":0}}"#,
+            #"{"stats":{"sampled_at_ms":1,"cpus":1,"load_average_1m":0,"memory_total_mb":1,"memory_used_mb":0,"cpu_percent":"hot"}}"#,
+            #"{"stats":{"cpus":1,"load_average_1m":0,"memory_total_mb":1,"memory_used_mb":0}}"#,
+        ] {
+            #expect(CmuxTuiSnapshotParser.machineStats(fromLine: bad) == .unavailable, "\(bad)")
+        }
+        // Lines that are not part of the feed are ignored, never treated as a lost sampler.
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: #"{"event":"tree-changed"}"#) == .unrelated)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: #"{"event":"machine-usage-changed","stats":{"cpus":1}}"#) == .unrelated)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: "not json") == .unrelated)
+        #expect(CmuxTuiSnapshotParser.machineStats(fromLine: "") == .unrelated)
+        // Over-reported values clamp to their documented ceilings.
+        let inflated = #"{"stats":{"sampled_at_ms":1,"cpus":2,"cpu_percent":250,"load_average_1m":0,"memory_total_mb":100,"memory_used_mb":900,"disk_total_mb":10,"disk_used_mb":99,"disk_path":"/"}}"#
+        guard case .sample(let sample) = CmuxTuiSnapshotParser.machineStats(fromLine: inflated) else {
+            Issue.record("inflated sample did not decode"); return
+        }
+        #expect(sample.cpuPercent == 100)
+        #expect(sample.memoryUsedMb == 100)
+        #expect(sample.diskUsedMb == 10)
+    }
+}

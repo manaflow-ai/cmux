@@ -1150,3 +1150,58 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 }
+
+/// The row's live reading now comes from the machine's own daemon over the link
+/// (`SurfaceMachineInfo`), never from a web poll. Pins the mapping the Machines
+/// panel applies on every catalog change.
+final class MachineLinkStatsTests: XCTestCase {
+    private func info(linkState: SurfaceLinkState, sampledAt: Date? = nil) -> SurfaceMachineInfo {
+        var info = SurfaceMachineInfo(
+            id: .cloud("troll"), name: "troll", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: linkState, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        if let sampledAt {
+            info.statsSampledAt = sampledAt
+            info.cpus = 4
+            info.cpuPercent = 12.5
+            info.loadAverage1m = 0.42
+            info.memoryMb = 7937
+            info.memoryUsedMb = 2210
+            info.diskMb = 65536
+            info.diskUsedMb = 18342
+        }
+        return info
+    }
+
+    func testAwakeSampleBecomesTheRowReading() {
+        let sampledAt = Date(timeIntervalSince1970: 1_756_800_000)
+        let stats = MachineSnapshotBuilder.linkStats(from: info(linkState: .connected, sampledAt: sampledAt))
+        XCTAssertEqual(stats, VMStats(
+            state: .awake, sampledAt: sampledAt, cpus: 4, cpuPercent: 12.5, loadAverage1m: 0.42,
+            memoryTotalMb: 7937, memoryUsedMb: 2210, diskTotalMb: 65536, diskUsedMb: 18342
+        ))
+        XCTAssertEqual(CloudTreeMachineRowContent.statsLine(stats!), "CPU 13% · Mem 2.2/7.8 GB · Disk 18/64 GB")
+    }
+
+    func testLinkStateDrivesAsleepAndNoReading() {
+        XCTAssertEqual(MachineSnapshotBuilder.linkStats(from: info(linkState: .asleep))?.state, .asleep)
+        XCTAssertNil(MachineSnapshotBuilder.linkStats(from: info(linkState: .connected)))
+        XCTAssertNil(MachineSnapshotBuilder.linkStats(from: info(linkState: .connecting)))
+        XCTAssertNil(MachineSnapshotBuilder.linkStats(from: info(linkState: .error)))
+    }
+
+    func testRowsAreStampedFromTheCatalogByMachineID() {
+        let sampledAt = Date(timeIntervalSince1970: 1_756_800_000)
+        let catalog = SurfaceCatalogSnapshot(machines: [info(linkState: .connected, sampledAt: sampledAt)], resources: [], projections: [])
+        let rows = ["troll", "other"].map {
+            MachineSnapshotBuilder.snapshot(from: VMSummary(id: $0, provider: "freestyle", status: "running", image: "cmux-devbox:x", createdAt: 0, base: nil))
+        }
+        let stamped = MachineSnapshotBuilder.applyingLinkStats(to: rows, catalog: catalog)
+        XCTAssertEqual(stamped[0].stats?.cpuPercent, 12.5)
+        XCTAssertNil(stamped[1].stats)
+        // A later catalog without the reading clears it rather than leaving a stale number.
+        let cleared = MachineSnapshotBuilder.applyingLinkStats(to: stamped, catalog: .empty)
+        XCTAssertNil(cleared[0].stats)
+    }
+}

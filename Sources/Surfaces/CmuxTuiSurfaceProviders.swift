@@ -171,6 +171,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let links: CloudMachineLinkManager
     unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
+    /// Consumes the link's `machine-stats` feed for the life of the link.
+    private var statsWatcher: Task<Void, Never>?
+    /// The newest host sample the daemon sent; nil without a live link or sampler.
+    private var latestStats: VMStats?
     private var refreshDebounce: Task<Void, Never>?
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
@@ -209,13 +213,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     func update(summary: VMSummary) {
         self.summary = summary
-        info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: nil, remoteWorkspaces: info.remoteWorkspaces)
+        info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: latestStats, remoteWorkspaces: info.remoteWorkspaces)
         catalog.updateMachine(info)
     }
 
     func stop() {
         changeWatcher?.cancel()
         changeWatcher = nil
+        statsWatcher?.cancel()
+        statsWatcher = nil
         refreshDebounce?.cancel()
         refreshDebounce = nil
         endpointPrefetch?.cancel()
@@ -255,7 +261,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if summary.resolvedKind.hasDesktop {
             prefetchDesktopEndpoint()
         }
-        async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
@@ -263,6 +268,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             watchChanges(link: link)
+            watchStats(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 resources = CmuxTuiSnapshotParser.mergingDisplays(
@@ -325,7 +331,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
         }
-        info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
+        info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: latestStats, remoteWorkspaces: remoteWorkspaces)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
     }
@@ -599,22 +605,59 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     // MARK: - internals
 
     private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
+        var info = SurfaceMachineInfo(
             id: .cloud(summary.id),
             name: summary.preferredName,
             status: summary.status,
             image: summary.image,
             hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
+            memoryMb: nil,
+            diskMb: nil,
             linkState: linkState,
             linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil,
             remoteWorkspaces: remoteWorkspaces,
             privateAddress: summary.preferredPrivateAddress
         )
+        Self.apply(stats: stats, to: &info)
+        return info
+    }
+
+    /// The daemon's host sample as the catalog carries it; nil clears every reading.
+    static func apply(stats: VMStats?, to info: inout SurfaceMachineInfo) {
+        info.memoryMb = stats?.memoryTotalMb
+        info.diskMb = stats?.diskTotalMb
+        info.cpuPercent = stats?.cpuPercent
+        info.memoryUsedMb = stats?.memoryUsedMb
+        info.diskUsedMb = stats?.diskUsedMb
+        info.statsSampledAt = stats?.sampledAt
+        info.cpus = stats?.cpus
+        info.loadAverage1m = stats?.loadAverage1m
+    }
+
+    /// Each sample lands on the catalog's machine info directly (no session re-read);
+    /// the Machines panel re-derives the row from the catalog change notification.
+    private func watchStats(link: CloudMachineLink) {
+        guard statsWatcher == nil else { return }
+        statsWatcher = Task { [weak self] in
+            for await sample in link.stats {
+                guard let self else { return }
+                self.applyStats(sample)
+            }
+            guard let self else { return }
+            self.statsWatcher = nil
+            self.applyStats(nil)
+        }
+    }
+
+    private func applyStats(_ sample: VMStats?) {
+        latestStats = sample
+        var current = catalog.snapshot.machines.first { $0.id == machine } ?? info
+        Self.apply(stats: sample, to: &current)
+        info = current
+        catalog.updateMachine(current)
     }
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
