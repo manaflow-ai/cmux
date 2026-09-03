@@ -4744,26 +4744,34 @@ mod tests {
             }
             sent.lock().expect("sent lock").push(frame);
         });
-        h.manager
-            .inner
-            .emit_error_for_generation_async(
-                &context,
-                "p1",
-                generation,
-                &publication_gate,
-                "failed",
-                "publication gate timed out",
-            )
-            .await;
+        let manager = h.manager.clone();
+        let context_for_error = context.clone();
+        let gate_for_error = Arc::clone(&publication_gate);
+        let error = tokio::spawn(async move {
+            manager
+                .inner
+                .emit_error_for_generation_async(
+                    &context_for_error,
+                    "p1",
+                    generation,
+                    &gate_for_error,
+                    "failed",
+                    "publication gate timed out",
+                )
+                .await;
+        });
+        tokio::time::sleep(PUBLICATION_GATE_TIMEOUT + Duration::from_millis(50)).await;
+        assert!(!error_seen.load(Ordering::SeqCst), "error waits for gated retirement");
+
+        release_tx.send(()).expect("release publication gate owner");
+        gate_owner.join().expect("publication gate owner");
+        error.await.expect("publication timeout task");
         assert!(error_seen.load(Ordering::SeqCst), "publication timeout reports an error");
         assert!(
             !attachment_visible_on_error.load(Ordering::SeqCst),
             "publication timeout must retire before publishing its error"
         );
         assert!(!h.manager.has_attachment("p1"));
-
-        release_tx.send(()).expect("release publication gate owner");
-        gate_owner.join().expect("publication gate owner");
     }
 
     #[tokio::test(flavor = "current_thread")]
