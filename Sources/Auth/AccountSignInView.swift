@@ -1,7 +1,7 @@
 import CmuxSettingsUI
 import SwiftUI
 
-/// Shared Stack sign-in status UI used by the Account and Tailscale Pairing panes.
+/// Shared Stack sign-in status UI used by the Account and mobile pairing panes.
 struct AccountSignInView: View {
     let model: AccountSignInModel
     let automaticallyStartsSignIn: Bool

@@ -235,7 +235,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .mobile,
                 id: "pairDevice",
-                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Pair mobile"),
                 synonyms: """
                 pair pairing add device qr qr code scan iphone ipad ios mobile \
                 tailscale connect onboarding sign in

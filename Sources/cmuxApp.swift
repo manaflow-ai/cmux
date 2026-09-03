@@ -700,6 +700,12 @@ struct cmuxApp: App {
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
+                    Button(String(
+                        localized: "debug.mobilePairingDesign.menu",
+                        defaultValue: "Pair Mobile Design Lab…"
+                    )) {
+                        MobilePairingDesignDebugWindowController.shared.show()
+                    }
                     Button(
                         String(
                             localized: "debug.menu.aboutTitlebarDebug",
@@ -1558,6 +1564,7 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
+        MobilePairingDesignDebugWindowController.shared.show()
         PDFPreviewChromeDebugWindowController.shared.show()
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
@@ -1616,6 +1623,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
+    "cmux.mobilePairingDesignDebug",
     "cmux.sidebarFooterIconBalanceDebug",
 ]
 
@@ -1825,6 +1833,12 @@ private struct DebugWindowControlsView: View {
                         Button("Menu Bar Extra Debug…") {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
+                        Button(String(
+                            localized: "debug.mobilePairingDesign.menu",
+                            defaultValue: "Pair Mobile Design Lab…"
+                        )) {
+                            MobilePairingDesignDebugWindowController.shared.show()
+                        }
                         Button(
                             String(
                                 localized: "debug.menu.pdfPreviewChromeDebug",
@@ -1861,6 +1875,7 @@ private struct DebugWindowControlsView: View {
                             BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
+                            MobilePairingDesignDebugWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()

@@ -24,12 +24,12 @@ final class MobilePairingWindowController: ReleasingWindowController {
     private var idealContentHeight: CGFloat?
     private var isUserResizing = false
 
-    private override init() {
+    override private init() {
         super.init()
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -54,36 +54,34 @@ final class MobilePairingWindowController: ReleasingWindowController {
         let root = MobilePairingView { [weak self] height in
             self?.pairingContentHeightDidChange(height)
         }
-            .cmuxAppearanceColorScheme(appearanceMode)
+        .cmuxAppearanceColorScheme(appearanceMode)
         let hostingController = NSHostingController(rootView: root)
 
         let window = NSWindow(contentViewController: hostingController)
-        window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+        window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair mobile")
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
-        // Resizable so the QR (which fills the window width) can be made even
-        // larger for scanning at a distance.
+        // Resizable so the compact Iroh view stays comfortable while the
+        // explicit Tailscale view can grow for QR scanning.
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        // Tall enough that the title, the manual-entry block, and the whole QR
-        // are visible without scrolling out of the box; the 540x720 default
-        // clipped the heading and pushed Copy IP/Port below the fold in
-        // dogfood. The minimum keeps the QR plus the manual block usable on
-        // small screens.
-        window.setContentSize(NSSize(width: 560, height: 800))
-        window.contentMinSize = NSSize(width: 480, height: 320)
+        // The Iroh-first page has no QR, so a shorter default avoids making a
+        // simple account connection feel like a setup wizard. The content
+        // measurement callback grows the window when Tailscale is selected.
+        window.setContentSize(NSSize(width: 560, height: 560))
+        window.contentMinSize = NSSize(width: 480, height: 360)
         window.center()
         return window
     }
 
-    override func managedWindowWillClose(_ window: NSWindow) {
+    override func managedWindowWillClose(_: NSWindow) {
         idealContentHeight = nil
         isUserResizing = false
     }
 
-    func windowWillStartLiveResize(_ notification: Notification) {
+    func windowWillStartLiveResize(_: Notification) {
         isUserResizing = true
     }
 
-    func windowDidEndLiveResize(_ notification: Notification) {
+    func windowDidEndLiveResize(_: Notification) {
         isUserResizing = false
     }
 
@@ -129,7 +127,7 @@ final class MobilePairingWindowController: ReleasingWindowController {
     }
 }
 
-/// Workspace-owned pane for the Tailscale pairing flow.
+/// Workspace-owned pane for the mobile pairing flow.
 @MainActor
 final class MobilePairingPanel: Panel {
     let id = UUID()
@@ -137,15 +135,19 @@ final class MobilePairingPanel: Panel {
     let panelType: PanelType = .mobilePairing
 
     var displayTitle: String {
-        String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+        String(localized: "mobile.pairing.window.title", defaultValue: "Pair mobile")
     }
 
-    var displayIcon: String? { "iphone" }
+    var displayIcon: String? {
+        "iphone"
+    }
 
     func focus() {}
     func unfocus() {}
     func close() {}
-    func triggerFlash(reason: WorkspaceAttentionFlashReason) { _ = reason }
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+    }
 }
 
 struct MobilePairingPanelView: View {

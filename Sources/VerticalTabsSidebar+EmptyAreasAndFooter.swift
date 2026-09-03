@@ -446,7 +446,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Pair mobile")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize

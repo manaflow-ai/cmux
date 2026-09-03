@@ -6984,7 +6984,7 @@ struct ContentView: View {
         return snapshot
     }
 
-    /// Search keywords for the Tailscale pairing command palette entry.
+    /// Search keywords for the mobile pairing command palette entry.
     ///
     /// Kept as a single source of truth so the contribution and its behavioral
     /// test agree on what queries (e.g. `ios`, `ipados`) must surface the
@@ -7339,9 +7339,9 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.mobileConnect",
                 title: constant(
-                    String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+                    String(localized: "command.mobileConnect.title", defaultValue: "Pair mobile")
                 ),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
                 keywords: Self.commandPaletteMobileConnectKeywords,
                 when: { !$0.bool(CommandPaletteContextKeys.mobileRemoteControlManagedByPolicy) }
             )

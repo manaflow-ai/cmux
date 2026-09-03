@@ -61044,13 +61044,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing is unavailable"
+            "value": "Pair mobile is unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングは利用できません"
+            "value": "モバイルのペアリングは利用できません"
           }
         }
       }
@@ -69889,7 +69889,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Mobile"
           }
         },
         "es": {
@@ -69913,7 +69913,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "モバイル"
           }
         },
         "km": {
@@ -70014,7 +70014,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "es": {
@@ -70038,7 +70038,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングを開く"
+            "value": "モバイルをペアリング"
           }
         },
         "km": {
@@ -119311,13 +119311,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Tailscale Pairing button in the sidebar footer."
+            "value": "Shows the Pair mobile button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
+            "value": "サイドバーのフッターにモバイルのペアリングボタンを表示します。"
           }
         }
       }
@@ -119328,13 +119328,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing button"
+            "value": "Pair mobile button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングボタン"
+            "value": "モバイルのペアリングボタン"
           }
         }
       }
@@ -145672,6 +145672,176 @@
         }
       }
     },
+    "mobile.pairing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルをペアリング"
+          }
+        }
+      }
+    },
+    "mobile.pairing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect your iPhone to this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone をこの Mac に接続します。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続の準備ができました"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を待っています"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.iroh.shortDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic, no code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動、コード不要"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.tailscale.shortDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR or manual address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR または手動アドレス"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manual.addTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't scan? Add this Mac manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャンできない場合は、この Mac を手動で追加"
+          }
+        }
+      }
+    },
     "mobile.pairing.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -145811,26 +145981,26 @@
     "mobile.pairing.irohInstruction": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه. يتصل تلقائيًا — لا حاجة إلى رمز." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Instalirajte cmux na svoj iPhone i prijavite se istim računom. Povezuje se automatski — kôd nije potreban." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Installer cmux på din iPhone, og log ind med den samme konto. Den forbinder automatisk — ingen kode nødvendig." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto an. Die Verbindung erfolgt automatisch — kein Code nötig." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه. يتصل تلقائيًا. لا حاجة إلى رمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Instalirajte cmux na svoj iPhone i prijavite se istim računom. Povezuje se automatski. Kôd nije potreban." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Installer cmux på din iPhone, og log ind med den samme konto. Den forbinder automatisk. Ingen kode nødvendig." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto an. Die Verbindung erfolgt automatisch. Kein Code nötig." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Install cmux on your iPhone and sign in with the same account. It connects automatically. No code needed." } },
         "es": { "stringUnit": { "state": "translated", "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta. Se conecta automáticamente: no se necesita código." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte. La connexion est automatique — aucun code nécessaire." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account. Si connette automaticamente — nessun codice necessario." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte. La connexion est automatique. Aucun code nécessaire." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account. Si connette automaticamente. Nessun codice necessario." } },
         "ja": { "stringUnit": { "state": "translated", "value": "iPhoneにcmuxをインストールし、同じアカウントにサインインしてください。自動的に接続されます。コードは不要です。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលគណនីដូចគ្នា។ វាភ្ជាប់ដោយស្វ័យប្រវត្តិ — មិនត្រូវការកូដទេ។" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលគណនីដូចគ្នា។ វាភ្ជាប់ដោយស្វ័យប្រវត្តិ។ មិនត្រូវការកូដទេ។" } },
         "ko": { "stringUnit": { "state": "translated", "value": "iPhone에 cmux를 설치하고 동일한 계정으로 로그인하세요. 자동으로 연결되며 코드가 필요 없습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Installer cmux på iPhonen din og logg på med samme konto. Den kobler til automatisk — ingen kode nødvendig." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj cmux na swoim iPhonie i zaloguj się na to samo konto. Łączy się automatycznie — kod nie jest potrzebny." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instale o cmux no seu iPhone e entre com a mesma conta. Ele conecta automaticamente — nenhum código necessário." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Установите cmux на iPhone и войдите в ту же учётную запись. Подключение происходит автоматически — код не нужен." } },
-        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง cmux บน iPhone ของคุณและลงชื่อเข้าด้วยบัญชีเดียวกัน ระบบจะเชื่อมต่อโดยอัตโนมัติ — ไม่ต้องใช้โค้ด" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuza cmux'u yükleyin ve aynı hesapla oturum açın. Otomatik olarak bağlanır — kod gerekmez." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Установіть cmux на iPhone та увійдіть у той самий обліковий запис. Підключення відбувається автоматично — код не потрібен." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安装 cmux 并使用同一账户登录。它会自动连接——无需扫码。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安裝 cmux 並使用同一帳戶登入。它會自動連線——無需掃碼。" } }
+        "nb": { "stringUnit": { "state": "translated", "value": "Installer cmux på iPhonen din og logg på med samme konto. Den kobler til automatisk. Ingen kode nødvendig." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj cmux na swoim iPhonie i zaloguj się na to samo konto. Łączy się automatycznie. Kod nie jest potrzebny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instale o cmux no seu iPhone e entre com a mesma conta. Ele conecta automaticamente. Nenhum código necessário." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Установите cmux на iPhone и войдите в ту же учётную запись. Подключение происходит автоматически. Код не нужен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง cmux บน iPhone ของคุณและลงชื่อเข้าด้วยบัญชีเดียวกัน ระบบจะเชื่อมต่อโดยอัตโนมัติ ไม่ต้องใช้โค้ด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuza cmux'u yükleyin ve aynı hesapla oturum açın. Otomatik olarak bağlanır. Kod gerekmez." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Установіть cmux на iPhone та увійдіть у той самий обліковий запис. Підключення відбувається автоматично. Код не потрібен." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安装 cmux 并使用同一账户登录。它会自动连接。无需扫码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安裝 cmux 並使用同一帳戶登入。它會自動連線。無需掃碼。" } }
       }
     },
     "mobile.pairing.subheading": {
@@ -146011,26 +146181,26 @@
     "mobile.pairing.transport.iroh.detail": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "تعثر أجهزة iPhone المسجّلة الدخول إلى حسابك على هذا الـ Mac تلقائيًا عبر Iroh — بتشفير من طرف إلى طرف، مباشرةً عند الإمكان، وعبر مُرحّل cmux عند التعذّر. لا حاجة إلى رمز." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "iPhone uređaji prijavljeni na vaš račun automatski pronalaze ovaj Mac preko Iroha — s end-to-end enkripcijom, direktno kad je moguće, a preko cmux releja kad nije. Kôd nije potreban." } },
-        "da": { "stringUnit": { "state": "translated", "value": "iPhones, der er logget ind på din konto, finder automatisk denne Mac via Iroh — end-to-end-krypteret, direkte når det er muligt og via et cmux-relæ, når det ikke er. Ingen kode nødvendig." } },
-        "de": { "stringUnit": { "state": "translated", "value": "iPhones, die mit deinem Konto angemeldet sind, finden diesen Mac automatisch über Iroh — Ende-zu-Ende-verschlüsselt, direkt wenn möglich, sonst über ein cmux-Relay. Kein Code nötig." } },
-        "en": { "stringUnit": { "state": "translated", "value": "iPhones signed in to your account find this Mac automatically over Iroh — end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تعثر أجهزة iPhone المسجّلة الدخول إلى حسابك على هذا الـ Mac تلقائيًا عبر Iroh، بتشفير من طرف إلى طرف، مباشرةً عند الإمكان، وعبر مُرحّل cmux عند التعذّر. لا حاجة إلى رمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "iPhone uređaji prijavljeni na vaš račun automatski pronalaze ovaj Mac preko Iroha, s end-to-end enkripcijom, direktno kad je moguće, a preko cmux releja kad nije. Kôd nije potreban." } },
+        "da": { "stringUnit": { "state": "translated", "value": "iPhones, der er logget ind på din konto, finder automatisk denne Mac via Iroh, end-to-end-krypteret, direkte når det er muligt og via et cmux-relæ, når det ikke er. Ingen kode nødvendig." } },
+        "de": { "stringUnit": { "state": "translated", "value": "iPhones, die mit deinem Konto angemeldet sind, finden diesen Mac automatisch über Iroh, Ende-zu-Ende-verschlüsselt, direkt wenn möglich, sonst über ein cmux-Relay. Kein Code nötig." } },
+        "en": { "stringUnit": { "state": "translated", "value": "iPhones signed in to your account find this Mac automatically over Iroh. End-to-end encrypted, direct when possible, through a cmux relay when not. No code needed." } },
         "es": { "stringUnit": { "state": "translated", "value": "Los iPhone con sesión iniciada en tu cuenta encuentran este Mac automáticamente a través de Iroh: cifrado de extremo a extremo, directo cuando es posible y mediante un relay de cmux cuando no. No se necesita código." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Les iPhone connectés à votre compte trouvent automatiquement ce Mac via Iroh — chiffré de bout en bout, en direct quand c'est possible, via un relais cmux sinon. Aucun code nécessaire." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Gli iPhone con l'accesso effettuato al tuo account trovano questo Mac automaticamente tramite Iroh — crittografato end-to-end, in modo diretto quando possibile e tramite un relay cmux quando non lo è. Nessun codice necessario." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les iPhone connectés à votre compte trouvent automatiquement ce Mac via Iroh, chiffré de bout en bout, en direct quand c'est possible, via un relais cmux sinon. Aucun code nécessaire." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Gli iPhone con l'accesso effettuato al tuo account trovano questo Mac automaticamente tramite Iroh, crittografato end-to-end, in modo diretto quando possibile e tramite un relay cmux quando non lo è. Nessun codice necessario." } },
         "ja": { "stringUnit": { "state": "translated", "value": "アカウントにサインインしたiPhoneは、Irohを介してこのMacを自動的に検出します。エンドツーエンド暗号化で、可能な場合は直接、そうでない場合はcmuxリレー経由で接続します。コードは不要です。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "iPhone ដែលបានចូលគណនីរបស់អ្នក រកឃើញ Mac នេះដោយស្វ័យប្រវត្តិតាមរយៈ Iroh — អ៊ិនគ្រីបពីចុងដល់ចុង ដោយផ្ទាល់នៅពេលអាច និងតាមរយៈ relay របស់ cmux នៅពេលមិនអាច។ មិនត្រូវការកូដទេ។" } },
+        "km": { "stringUnit": { "state": "translated", "value": "iPhone ដែលបានចូលគណនីរបស់អ្នក រកឃើញ Mac នេះដោយស្វ័យប្រវត្តិតាមរយៈ Iroh, អ៊ិនគ្រីបពីចុងដល់ចុង ដោយផ្ទាល់នៅពេលអាច និងតាមរយៈ relay របស់ cmux នៅពេលមិនអាច។ មិនត្រូវការកូដទេ។" } },
         "ko": { "stringUnit": { "state": "translated", "value": "계정에 로그인된 iPhone은 Iroh를 통해 이 Mac을 자동으로 찾습니다. 종단 간 암호화되며, 가능하면 직접, 불가능하면 cmux 릴레이를 통해 연결합니다. 코드가 필요 없습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "iPhoner som er logget på kontoen din, finner denne Macen automatisk via Iroh — ende-til-ende-kryptert, direkte når det er mulig og via et cmux-relé når det ikke er det. Ingen kode nødvendig." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "iPhone'y zalogowane na Twoje konto automatycznie znajdują tego Maca przez Iroh — z szyfrowaniem end-to-end, bezpośrednio gdy to możliwe, a przez przekaźnik cmux gdy nie. Kod nie jest potrzebny." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhones conectados à sua conta encontram este Mac automaticamente via Iroh — criptografado de ponta a ponta, direto quando possível e por um relay do cmux quando não. Nenhum código necessário." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "iPhone, вошедшие в вашу учётную запись, находят этот Mac автоматически через Iroh — со сквозным шифрованием, напрямую, когда это возможно, и через ретранслятор cmux, когда нет. Код не нужен." } },
-        "th": { "stringUnit": { "state": "translated", "value": "iPhone ที่ลงชื่อเข้าบัญชีของคุณจะพบ Mac เครื่องนี้โดยอัตโนมัติผ่าน Iroh — เข้ารหัสจากต้นทางถึงปลายทาง เชื่อมต่อโดยตรงเมื่อทำได้ และผ่านรีเลย์ของ cmux เมื่อทำไม่ได้ ไม่ต้องใช้โค้ด" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Hesabınızda oturum açmış iPhone'lar bu Mac'i Iroh üzerinden otomatik olarak bulur — uçtan uca şifreli, mümkün olduğunda doğrudan, olmadığında bir cmux aktarıcısı üzerinden. Kod gerekmez." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "iPhone, що увійшли у ваш обліковий запис, знаходять цей Mac автоматично через Iroh — з наскрізним шифруванням, напряму, коли це можливо, і через ретранслятор cmux, коли ні. Код не потрібен." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录了您账户的 iPhone 会通过 Iroh 自动发现这台 Mac——端到端加密，可行时直接连接，否则经由 cmux 中继。无需扫码。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入您帳戶的 iPhone 會透過 Iroh 自動發現這台 Mac——端對端加密，可行時直接連線，否則經由 cmux 中繼。無需掃碼。" } }
+        "nb": { "stringUnit": { "state": "translated", "value": "iPhoner som er logget på kontoen din, finner denne Macen automatisk via Iroh, ende-til-ende-kryptert, direkte når det er mulig og via et cmux-relé når det ikke er det. Ingen kode nødvendig." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "iPhone'y zalogowane na Twoje konto automatycznie znajdują tego Maca przez Iroh, z szyfrowaniem end-to-end, bezpośrednio gdy to możliwe, a przez przekaźnik cmux gdy nie. Kod nie jest potrzebny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhones conectados à sua conta encontram este Mac automaticamente via Iroh, criptografado de ponta a ponta, direto quando possível e por um relay do cmux quando não. Nenhum código necessário." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "iPhone, вошедшие в вашу учётную запись, находят этот Mac автоматически через Iroh, со сквозным шифрованием, напрямую, когда это возможно, и через ретранслятор cmux, когда нет. Код не нужен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "iPhone ที่ลงชื่อเข้าบัญชีของคุณจะพบ Mac เครื่องนี้โดยอัตโนมัติผ่าน Iroh, เข้ารหัสจากต้นทางถึงปลายทาง เชื่อมต่อโดยตรงเมื่อทำได้ และผ่านรีเลย์ของ cmux เมื่อทำไม่ได้ ไม่ต้องใช้โค้ด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Hesabınızda oturum açmış iPhone'lar bu Mac'i Iroh üzerinden otomatik olarak bulur, uçtan uca şifreli, mümkün olduğunda doğrudan, olmadığında bir cmux aktarıcısı üzerinden. Kod gerekmez." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "iPhone, що увійшли у ваш обліковий запис, знаходять цей Mac автоматично через Iroh, з наскрізним шифруванням, напряму, коли це можливо, і через ретранслятор cmux, коли ні. Код не потрібен." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录了您账户的 iPhone 会通过 Iroh 自动发现这台 Mac。端到端加密，可行时直接连接，否则经由 cmux 中继。无需扫码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入您帳戶的 iPhone 會透過 Iroh 自動發現這台 Mac。端對端加密，可行時直接連線，否則經由 cmux 中繼。無需掃碼。" } }
       }
     },
     "mobile.pairing.transport.status.connected": {
@@ -146561,13 +146731,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルをペアリング"
           }
         }
       }
@@ -186644,13 +186814,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルをペアリング"
           }
         }
       }
@@ -186661,13 +186831,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Tailscale QR…"
+            "value": "Pair Mobile…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale QRを表示…"
+            "value": "モバイルをペアリング…"
           }
         }
       }
@@ -272940,6 +273110,188 @@
             "value": "作成"
           }
         }
+      }
+    },
+    "debug.mobilePairingDesign.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair Mobile Design Lab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングデザインラボ" } }
+      }
+    },
+    "debug.mobilePairingDesign.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair Mobile Design Lab…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングデザインラボ…" } }
+      }
+    },
+    "debug.mobilePairingDesign.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compare the same pairing flow in six layouts. The live Pair Mobile window follows the selected design." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同じペアリングフローを6種類のレイアウトで比較できます。選択したデザインは「モバイルをペアリング」ウインドウに反映されます。" } }
+      }
+    },
+    "debug.mobilePairingDesign.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングを開く" } }
+      }
+    },
+    "debug.mobilePairingDesign.previewState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview state" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー状態" } }
+      }
+    },
+    "debug.mobilePairingDesign.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中: %@" } }
+      }
+    },
+    "debug.mobilePairingDesign.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "debug.mobilePairingDesign.inUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "In use" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用中" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.centeredCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Centered card" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中央カード" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.leftAligned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Left aligned" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左揃え" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.methodCards": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Method cards" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "方式カード" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.settingsList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Settings list" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定リスト" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.splitView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Split view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "分割ビュー" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected for Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングに適用済み" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use in Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングで使う" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.readyBoth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Iroh + Tailscale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Iroh + Tailscale" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.irohOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Iroh only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Irohのみ" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.tailscaleOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscaleのみ" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.noTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No reachable transport" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用可能な接続なし" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.centeredCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One clear next step, with details contained in a calm card." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次の操作を1つに絞り、詳細をカードにまとめます。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.leftAligned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Flat surface, left-aligned explanation, and one clear next step." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フラットな背景、左揃えの説明、明確な次の操作。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.methodCards": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Makes both connection methods visible before choosing one." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択前に2つの接続方式を表示します。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.settingsList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A familiar settings list with a clear selected method and status." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中の方式と状態が分かる、見慣れた設定リストです。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.splitView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A persistent left rail for wide windows and frequent switching." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "広いウインドウで方式を頻繁に切り替えるための固定レールです。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The smallest left-to-right version for a utility window or narrow panel." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ユーティリティウインドウや狭いパネル向けの最小構成です。" } }
       }
     },
     "machines.pending.failed": {

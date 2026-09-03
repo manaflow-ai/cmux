@@ -5065,7 +5065,7 @@ class TerminalController {
                         code: "unavailable",
                         message: String(
                             localized: "cli.workspaceAction.tailscalePairingUnavailable",
-                            defaultValue: "Tailscale Pairing is unavailable"
+                            defaultValue: "Pair mobile is unavailable"
                         ),
                         data: nil
                     )
