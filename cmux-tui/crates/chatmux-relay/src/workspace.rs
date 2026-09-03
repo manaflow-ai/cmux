@@ -3587,7 +3587,9 @@ mod tests {
         let frame = error_frame("req-path", &refusal);
         assert!(!frame.contains(&home));
         assert!(!frame.contains(&allowed));
-        assert_eq!(serde_json::from_str::<Value>(&frame).unwrap()["message"],
-            "path is forbidden by the workspace policy");
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap()["message"],
+            "path is forbidden by the workspace policy"
+        );
     }
 }
