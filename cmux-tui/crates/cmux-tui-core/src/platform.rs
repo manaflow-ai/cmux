@@ -49,7 +49,14 @@ pub mod transport {
     where
         F: Fn() -> bool,
     {
+        if cancelled() {
+            return Err(cancelled_error());
+        }
         imp::connect_timeout_with_cancel(path, timeout, cancelled)
+    }
+
+    fn cancelled_error() -> io::Error {
+        io::Error::new(io::ErrorKind::Interrupted, "session socket connection cancelled")
     }
 
     impl Listener {
@@ -209,13 +216,17 @@ pub mod transport {
     #[cfg(windows)]
     mod imp {
         use std::io;
-        use std::os::windows::io::{FromRawSocket, IntoRawSocket};
+        use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket};
         use std::path::Path;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
         use socket2::{Domain, SockAddr, Socket, Type};
         use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLNVAL, POLLOUT, WSAEALREADY, WSAEINPROGRESS, WSAEINTR,
+            WSAEWOULDBLOCK, WSAPOLLFD, WSAPoll,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -237,15 +248,92 @@ pub mod transport {
         where
             F: Fn() -> bool,
         {
-            let _ = cancelled;
-            // `uds_windows::UnixStream::connect` is a blocking wrapper around
-            // Winsock. `socket2` performs a nonblocking connect followed by
-            // `WSAPoll`, then returns the socket to blocking mode.
             let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
             let address = SockAddr::unix(path)?;
-            socket.connect_timeout(&address, timeout)?;
+            socket.set_nonblocking(true)?;
+            let deadline = Instant::now().checked_add(timeout).unwrap_or_else(Instant::now);
+            match socket.connect(&address) {
+                Ok(()) => {}
+                Err(error) if connect_is_pending(&error) => {
+                    wait_for_socket(&socket, deadline, &cancelled)?;
+                }
+                Err(error) => return Err(error),
+            }
+            if cancelled() {
+                return Err(super::cancelled_error());
+            }
+            socket.set_nonblocking(false)?;
             let stream = unsafe { UnixStream::from_raw_socket(socket.into_raw_socket()) };
             Ok(Box::new(stream))
+        }
+
+        fn connect_is_pending(error: &io::Error) -> bool {
+            matches!(
+                error.raw_os_error(),
+                Some(code)
+                    if code == WSAEALREADY
+                        || code == WSAEINPROGRESS
+                        || code == WSAEINTR
+                        || code == WSAEWOULDBLOCK
+            )
+        }
+
+        fn wait_for_socket<F>(socket: &Socket, deadline: Instant, cancelled: &F) -> io::Result<()>
+        where
+            F: Fn() -> bool,
+        {
+            let raw_socket = usize::try_from(socket.as_raw_socket()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "session socket handle is invalid")
+            })?;
+            let mut descriptor = WSAPOLLFD {
+                fd: raw_socket,
+                events: POLLOUT | POLLERR | POLLHUP | POLLNVAL,
+                revents: 0,
+            };
+            loop {
+                if cancelled() {
+                    return Err(super::cancelled_error());
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "session socket connection timed out",
+                    ));
+                }
+                let timeout = remaining.as_millis().min(Duration::from_millis(50).as_millis());
+                let timeout = i32::try_from(timeout).unwrap_or(50);
+                let result = unsafe { WSAPoll(&mut descriptor, 1, timeout) };
+                if result < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(WSAEINTR) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if result == 0 {
+                    continue;
+                }
+                if cancelled() {
+                    return Err(super::cancelled_error());
+                }
+                if descriptor.revents & POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "session socket descriptor is invalid",
+                    ));
+                }
+                if let Some(error) = socket.take_error()? {
+                    return Err(error);
+                }
+                if descriptor.revents & POLLOUT != 0 {
+                    return Ok(());
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "session socket connection failed before becoming ready",
+                ));
+            }
         }
 
         impl Listener {
