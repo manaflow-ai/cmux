@@ -5,11 +5,16 @@ import { stackIdentitySnapshots } from "../../db/schema";
 import type { AuthedTeam, AuthedUser } from "../vms/auth";
 
 /**
- * How long a stored identity snapshot may answer for Stack. A snapshot is
- * additionally capped by the expiry of the access token presenting it, so this
- * is an upper bound, not the effective staleness for any single request.
+ * How long a stored identity snapshot may answer for Stack.
+ *
+ * This is the window in which a user removed from a team keeps that team's
+ * device-registry access, so it is a security parameter, not just a cache
+ * tuning knob. Ten minutes trades a bounded exposure for one Stack call per
+ * active user per ten minutes: at ~4,000 active Macs that is under 7 calls a
+ * second, against ~125 a second before any of this existed. The access token
+ * itself is verified on every request regardless.
  */
-const DEFAULT_SNAPSHOT_TTL_MS = 60 * 60 * 1_000;
+const DEFAULT_SNAPSHOT_TTL_MS = 10 * 60 * 1_000;
 
 export function identitySnapshotTtlMs(
   raw = process.env.CMUX_STACK_IDENTITY_SNAPSHOT_TTL_MS,

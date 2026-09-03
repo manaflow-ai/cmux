@@ -133,9 +133,9 @@ describe("identity snapshot store", () => {
 });
 
 describe("identitySnapshotTtlMs", () => {
-  test("defaults to the Stack access token lifetime", () => {
-    expect(identitySnapshotTtlMs(undefined)).toBe(3_600_000);
-    expect(identitySnapshotTtlMs("   ")).toBe(3_600_000);
+  test("defaults to ten minutes", () => {
+    expect(identitySnapshotTtlMs(undefined)).toBe(600_000);
+    expect(identitySnapshotTtlMs("   ")).toBe(600_000);
   });
 
   test("honors an explicit override, including zero to disable", () => {
@@ -144,8 +144,8 @@ describe("identitySnapshotTtlMs", () => {
   });
 
   test("ignores values that are not whole non-negative milliseconds", () => {
-    expect(identitySnapshotTtlMs("-5")).toBe(3_600_000);
-    expect(identitySnapshotTtlMs("abc")).toBe(3_600_000);
-    expect(identitySnapshotTtlMs("1.5")).toBe(3_600_000);
+    expect(identitySnapshotTtlMs("-5")).toBe(600_000);
+    expect(identitySnapshotTtlMs("abc")).toBe(600_000);
+    expect(identitySnapshotTtlMs("1.5")).toBe(600_000);
   });
 });

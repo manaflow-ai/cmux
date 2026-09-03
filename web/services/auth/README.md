@@ -14,10 +14,15 @@ Three paths now answer without calling Stack:
 | `verifyRequest` | billing, VM mutations, account, admin, `/api/devices` DELETE | Live Stack session, no caching of the decision |
 
 A snapshot is refreshed from Stack at most once per `CMUX_STACK_IDENTITY_
-SNAPSHOT_TTL_MS` (default one hour, the Stack access-token lifetime) per user,
+SNAPSHOT_TTL_MS` (default ten minutes) per user,
 and is deleted on sign-out. Account deletion is enforced on read instead: the
 snapshot path checks the deletion tombstone directly on every request, so a
 tombstone takes effect immediately rather than after the TTL.
+
+The TTL is the security parameter here. A user removed from a team keeps that
+team's device-registry access until their snapshot refreshes, because Stack
+sends no webhook we could use to invalidate it. Ten minutes bounds that at one
+Stack call per active user per ten minutes, under 7 a second fleet-wide.
 
 ## Measuring it
 
@@ -53,10 +58,11 @@ The auth-provider fix above holds for every client version, because it changes
 what the server does with a request rather than what the client sends. Two more
 defenses exist for the same reason.
 
-**Redundant registrations cost nothing.** `POST /api/devices` compares the
-incoming registration against the stored rows and returns success without
-taking the per-team advisory lock or writing, when the only difference would be
-a presence timestamp refreshed within `CMUX_DEVICE_PRESENCE_TOUCH_INTERVAL_MS`
+**Redundant registrations skip the write.** `POST /api/devices` compares the
+incoming registration against the stored rows, under the per-team advisory
+lock so a concurrent registration cannot slip between the read and the answer,
+and returns success without either upsert when the only difference would be a
+presence timestamp refreshed within `CMUX_DEVICE_PRESENCE_TOUCH_INTERVAL_MS`
 (one minute). This matters because the Mac's own dedupe compares route hints
 carrying observation timestamps, which `sanitizeServerPublishedRoutes` strips
 before storing. A shipped Mac therefore re-registers identical rows for as long

@@ -553,10 +553,9 @@ export async function verifyRequest(
  *
  * Trade-off, stated: team membership can be up to the snapshot TTL stale, so a
  * user removed from a team keeps that team's device-registry access until the
- * row refreshes. The default TTL is the Stack access-token lifetime, which is
- * already how long a revoked session keeps working under local verification.
- * Routes that gate money, account mutation, or admin powers must keep calling
- * `verifyRequest`.
+ * row refreshes. Stack sends no membership webhook we could invalidate on, so
+ * the TTL (default ten minutes) is the bound. Routes that gate money, account
+ * mutation, or admin powers must keep calling `verifyRequest`.
  */
 export async function verifyRequestFromSnapshot(
   request: Request,

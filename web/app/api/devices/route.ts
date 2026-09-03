@@ -215,56 +215,59 @@ export async function POST(request: Request): Promise<Response> {
   const db = cloudDb();
   const now = new Date();
 
-  // A client that re-registers an unchanged route set costs a per-team
-  // advisory lock, two selects and two upserts. The Mac's own dedupe compares
-  // route hints that carry observation timestamps, which this route strips
-  // before storing, so it re-POSTs identical rows for as long as it runs. That
-  // behavior ships in builds we cannot update, so the server answers it here
-  // instead of paying for the write.
-  const [stored] = await db
-    .select({
-      userId: devices.userId,
-      platform: devices.platform,
-      displayName: devices.displayName,
-      labels: devices.labels,
-      instanceRoutes: deviceAppInstances.routes,
-      instanceLabels: deviceAppInstances.labels,
-      lastSeenAt: deviceAppInstances.lastSeenAt,
-    })
-    .from(devices)
-    .innerJoin(deviceAppInstances, eq(deviceAppInstances.deviceId, devices.id))
-    .where(and(
-      eq(devices.teamId, team.teamId),
-      eq(devices.deviceUuid, deviceUuid),
-      eq(deviceAppInstances.tag, tag),
-    ))
-    .limit(1);
-  if (
-    registrationIsUnchanged({
-      stored: stored ?? null,
-      incoming: {
-        userId: user.id,
-        platform,
-        displayName,
-        labels: deviceLabels,
-        instanceRoutes: routes,
-        instanceLabels,
-      },
-      now,
-      touchIntervalMs: presenceTouchIntervalMs(),
-    })
-  ) {
-    recordRegistrationNoOp();
-    return jsonResponse({ ok: true, deviceId: deviceUuid, teamId: team.teamId, tag });
-  }
-
-  let registered: { error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null };
+  let registered: {
+    error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null;
+    unchanged?: boolean;
+  };
   try {
     registered = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       // Serialize concurrent registrations for the same team so the per-team cap
       // is enforced without a race (mirrors the device-tokens advisory lock).
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
+
+      // A Mac re-registers whenever its advertised route set changes, and it
+      // compares route hints that carry observation timestamps. This route
+      // strips those before storing, so a shipped Mac re-POSTs byte-identical
+      // rows for as long as it runs, and no client update can change that.
+      // Answer it here, under the lock so the comparison is against the row a
+      // concurrent registration cannot be mid-way through changing, and skip
+      // the two upserts and their WAL.
+      const [stored] = await tx
+        .select({
+          userId: devices.userId,
+          platform: devices.platform,
+          displayName: devices.displayName,
+          labels: devices.labels,
+          instanceRoutes: deviceAppInstances.routes,
+          instanceLabels: deviceAppInstances.labels,
+          lastSeenAt: deviceAppInstances.lastSeenAt,
+        })
+        .from(devices)
+        .innerJoin(deviceAppInstances, eq(deviceAppInstances.deviceId, devices.id))
+        .where(and(
+          eq(devices.teamId, team.teamId),
+          eq(devices.deviceUuid, deviceUuid),
+          eq(deviceAppInstances.tag, tag),
+        ))
+        .limit(1);
+      if (
+        registrationIsUnchanged({
+          stored: stored ?? null,
+          incoming: {
+            userId: user.id,
+            platform,
+            displayName,
+            labels: deviceLabels,
+            instanceRoutes: routes,
+            instanceLabels,
+          },
+          now,
+          touchIntervalMs: presenceTouchIntervalMs(),
+        })
+      ) {
+        return { error: null, unchanged: true as const };
+      }
 
       // Device identity is per team: a row keyed by (teamId, deviceUuid). The
       // same cmux device UUID registering under a different team is a separate,
@@ -383,6 +386,7 @@ export async function POST(request: Request): Promise<Response> {
   if (registered.error === "too_many_instances") {
     return jsonResponse({ error: "too_many_instances" }, 429);
   }
+  if (registered.unchanged) recordRegistrationNoOp();
 
   return jsonResponse({ ok: true, deviceId: deviceUuid, teamId: team.teamId, tag });
 }

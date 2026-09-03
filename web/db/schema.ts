@@ -1395,10 +1395,9 @@ export const coderouterClaudeUpstreams = pgTable(
  * keys; this table supplies everything the token does not carry, so a Stack
  * call is needed only when no fresh snapshot exists.
  *
- * The default lifetime of a snapshot is the one-hour Stack access-token
- * lifetime, so answering from one adds no staleness beyond what accepting a
- * locally verified access token already does. Sign-out and account deletion
- * delete the row. Deletion is also enforced on read: the snapshot path checks
+ * The default lifetime of a snapshot is ten minutes. That is the window in
+ * which a user removed from a team keeps that team's registry access, since
+ * Stack sends no membership webhook to invalidate on. Sign-out deletes the row. Deletion is also enforced on read: the snapshot path checks
  * the account-deletion tombstone directly, so a tombstone takes effect on the
  * next request rather than waiting for the row to be cleared.
  */
