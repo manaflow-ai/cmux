@@ -1141,6 +1141,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    /// True only when it is safe to enumerate the window/tab tree for the v2
+    /// control pre-mint pass (#2751): the initial session-restore decision has
+    /// resolved (`didAttemptStartupSessionRestore`) AND no restore pass is
+    /// currently populating a tab manager in place (`!isApplyingSessionRestore`).
+    /// Deliberately FALSE during the pre-attempt window, the deferred
+    /// signing-secret window (where `didAttemptStartupSessionRestore` stays
+    /// false until the secret arrives), and while `restoreSessionSnapshot` runs
+    /// — the exact windows in which iterating a half-built tree faults. Refs
+    /// mint lazily meanwhile, so skipping the pre-mint is safe.
+    var didCompleteInitialSessionRestore: Bool {
+        didAttemptStartupSessionRestore && !isApplyingSessionRestore
+    }
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []

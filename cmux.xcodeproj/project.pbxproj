@@ -243,6 +243,7 @@
 		79380000000000000000000A /* AppDelegateOversizedFrameRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793800000000000000000009 /* AppDelegateOversizedFrameRestoreTests.swift */; };
 		D37777050000000000000001 /* AppDelegatePresentPreferencesWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777050000000000000002 /* AppDelegatePresentPreferencesWindowTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
+		89550000000000000000A751 /* AppDelegateSessionRestoreReadinessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89550000000000000000A752 /* AppDelegateSessionRestoreReadinessTests.swift */; };
 		D37777040000000000000001 /* AppDelegateSettingsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */; };
 		6419B0016419B0016419B001 /* AppDelegateShortcutRoutingRepairProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */; };
 		F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
@@ -3376,6 +3377,7 @@
 		793800000000000000000009 /* AppDelegateOversizedFrameRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateOversizedFrameRestoreTests.swift; sourceTree = "<group>"; };
 		D37777050000000000000002 /* AppDelegatePresentPreferencesWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegatePresentPreferencesWindowTests.swift; sourceTree = "<group>"; };
 		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
+		89550000000000000000A752 /* AppDelegateSessionRestoreReadinessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateSessionRestoreReadinessTests.swift; sourceTree = "<group>"; };
 		D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppDelegateSettingsPresentation.swift; sourceTree = "<group>"; };
 		6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingRepairProbe.swift; sourceTree = "<group>"; };
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
@@ -8587,6 +8589,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */,
 					FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */,
 					895500000000000000000002 /* AppDelegateFullScreenFrameRestoreTests.swift */,
+					89550000000000000000A752 /* AppDelegateSessionRestoreReadinessTests.swift */,
 					A1B2C3D4E5F600000000CF02 /* AppDelegateDisplayConfigRestoreTests.swift */,
 					793800000000000000000009 /* AppDelegateOversizedFrameRestoreTests.swift */,
 				B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
@@ -12070,6 +12073,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				79380000000000000000000A /* AppDelegateOversizedFrameRestoreTests.swift in Sources */,
 				D37777050000000000000001 /* AppDelegatePresentPreferencesWindowTests.swift in Sources */,
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
+				89550000000000000000A751 /* AppDelegateSessionRestoreReadinessTests.swift in Sources */,
 				6419B0016419B0016419B001 /* AppDelegateShortcutRoutingRepairProbe.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				C6711A030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift in Sources */,

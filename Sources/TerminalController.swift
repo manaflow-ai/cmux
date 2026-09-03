@@ -4120,6 +4120,14 @@ class TerminalController {
     func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
+        // #2751: skip the pre-mint pass until session restore has settled.
+        // Refreshing here is only an optimization (refs otherwise mint lazily
+        // on the first list/create); iterating the half-built window/tab tree
+        // while restore is pending or in flight faults (EXC_BAD_ACCESS / arm64e
+        // ptrauth). A v2 socket command arriving within ~1s of launch can
+        // re-enter this on the main actor mid-restore, so degrade gracefully.
+        guard app.didCompleteInitialSessionRestore else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
