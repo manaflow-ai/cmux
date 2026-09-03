@@ -1107,9 +1107,7 @@ impl WorkspaceRegistry {
             .optional()?
             .map(|value| {
                 value.parse::<u64>().with_context(|| {
-                    format!(
-                        "journal plugin generation {JOURNAL_PLUGIN_GENERATION_META_KEY} is not an unsigned integer"
-                    )
+                    format!("journal plugin generation {JOURNAL_PLUGIN_GENERATION_META_KEY} is not an unsigned integer")
                 })
             })
             .transpose()?
