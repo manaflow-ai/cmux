@@ -541,7 +541,7 @@
     },
     "coderouterAccounts": {
       "title": "Codex と OpenCode のサブスクリプション",
-      "description": "coderouter が Codex セッションを分散する ChatGPT Codex と OpenCode Go のアカウントです。各セッションは 1 つのアカウントに固定され、レート制限に達したアカウントはクールダウンに入り、新しいセッションは他のアカウントに割り当てられます。任意のマシンから `npx coderouter@latest add codex` または `cmux coderouter codex add` で追加できます。",
+      "description": "coderouter が Codex セッションを分散する ChatGPT Codex と OpenCode Go のアカウントです。各セッションは 1 つのアカウントに固定され、レート制限に達したアカウントはクールダウンに入り、新しいセッションは他のアカウントに割り当てられます。任意のマシンから `npx coderouter@latest add codex` または `cmux coderouter subscriptions add` で追加できます。",
       "emptyTitle": "サブスクリプションアカウントがありません",
       "emptyBody": "サブスクリプションを追加するまで、このチームの Cloud VM からの Codex リクエストは失敗します。次を実行してください:",
       "loadErrorTitle": "サブスクリプションアカウントを読み込めません",

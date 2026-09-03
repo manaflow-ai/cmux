@@ -541,7 +541,7 @@
     },
     "coderouterAccounts": {
       "title": "Codex and OpenCode subscriptions",
-      "description": "The ChatGPT Codex and OpenCode Go accounts coderouter spreads Codex sessions across. Each session sticks to one account; a rate limit cools that account down and new sessions land on the others. Add one from any machine with `npx coderouter@latest add codex` or `cmux coderouter codex add`.",
+      "description": "The ChatGPT Codex and OpenCode Go accounts coderouter spreads Codex sessions across. Each session sticks to one account; a rate limit cools that account down and new sessions land on the others. Add one from any machine with `npx coderouter@latest add codex` or `cmux coderouter subscriptions add`.",
       "emptyTitle": "No subscription accounts",
       "emptyBody": "Codex requests from this team's Cloud VMs fail until a subscription is added. Run:",
       "loadErrorTitle": "Subscription accounts could not load",
