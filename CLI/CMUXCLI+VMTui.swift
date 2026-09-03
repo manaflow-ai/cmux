@@ -746,8 +746,10 @@ extension CMUXCLI {
     ) -> VMOpenWorkspaceResolution {
         func workspaces(of terminal: [String: Any]) -> [[String: Any]] {
             if let views = terminal["remote_views"] as? [[String: Any]] {
-                let viewed = views.compactMap { $0["workspace"] as? [String: Any] }
-                if !viewed.isEmpty { return viewed }
+                // An explicit empty array is authoritative: the terminal has
+                // left every workspace layout. Fall back to the legacy field
+                // only for payloads that predate remote_views entirely.
+                return views.compactMap { $0["workspace"] as? [String: Any] }
             }
             return (terminal["remote_workspace"] as? [String: Any]).map { [$0] } ?? []
         }
@@ -1315,9 +1317,17 @@ extension CMUXCLI {
         // link is connecting/asleep/failed. The link-status line above explains
         // why workspace membership may be stale; hiding the terminals would
         // make an otherwise addressable resource disappear from the catalog.
-        lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
+        let terminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.terminals",
+            defaultValue: "terminals/"
+        )
+        let noTerminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.noTerminals",
+            defaultValue: "(no terminals)"
+        )
+        lines.append("  " + terminalsLabel)
         if terminals.isEmpty {
-            lines.append("    " + String(localized: "cli.vm.tree.noTerminals", defaultValue: "(no terminals)"))
+            lines.append("    " + noTerminalsLabel)
         } else {
             var attached: [[String: Any]] = []
             var detached: [[String: Any]] = []
