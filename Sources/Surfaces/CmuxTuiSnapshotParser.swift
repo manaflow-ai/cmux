@@ -342,13 +342,16 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     static func machineStats(fromLine line: String) -> MachineStatsLine {
         guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = object["stats"] else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .unrelated
         }
         if let event = object["event"] as? String, event != "machine-stats-changed" {
             return .unrelated
         }
+        // The follow command's initial sample is carried inside the response
+        // envelope. Later updates put the same payload at the event top level.
+        let raw = object["stats"] ?? (object["data"] as? [String: Any])?["stats"]
+        guard let raw else { return .unrelated }
         guard let stats = raw as? [String: Any], let sample = machineStats(fromObject: stats) else {
             return .unavailable
         }

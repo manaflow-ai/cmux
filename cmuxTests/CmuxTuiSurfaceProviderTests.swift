@@ -466,7 +466,7 @@ import Testing
     }
 
     @Test func responseAndEventLinesDecodeToTheSameSample() {
-        let response = #"{"stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}"#
+        let response = #"{"id":1,"ok":true,"data":{"stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}}"#
         let event = #"{"event":"machine-stats-changed","stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}"#
         guard case .sample(let sample) = CmuxTuiSnapshotParser.machineStats(fromLine: response) else {
             Issue.record("response line did not decode"); return

@@ -1409,7 +1409,7 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "machine-stats-v1";
-    stream: "subscribe";
+    stream: null;
   };
   "machine-usage": {
     request: MachineUsageRequest;
