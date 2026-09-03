@@ -414,10 +414,13 @@ Internal helper the SSH workspace pane runs; not for direct use.
 cmux vpn up          # enroll this Mac on first run, bring the WireGuard tunnel up (wg-quick, prompts for sudo; brew install wireguard-tools)
 cmux vpn down        # tunnel down; enrollment kept
 cmux vpn status      # tunnel state, config path, backend
-cmux vpn revoke      # tunnel down + unenroll (server deletes its side)
+cmux vpn revoke      # tunnel down + unenroll (server deletes its side); also clears the hosts block
+cmux vpn hosts       # write every machine's `<name>.internal` → private IP into a cmux-managed /etc/hosts block (sudo; idempotent)
 ```
 
 The tunnel between this Mac and the private Cloud VM network. Config lives at `~/.cmuxterm/wireguard/cmux.conf`; the private key is generated on this Mac and never leaves it. Run `up` once per boot before the attach/exec/port verbs.
+
+`hosts` reads `vm.list` and publishes `<machine>.internal` names (id slug, plus the display label when it differs) system-wide, so browsers and curl resolve them whenever the tunnel is up — a manual convenience for you and the user; the verbs themselves use raw addresses. `up` re-syncs the block quietly on success, so run `hosts` yourself mainly right after `cmux vm new`; `--json` answers `{hosts_changed, machine_count}`.
 
 ### `cmux auth`
 
@@ -488,6 +491,9 @@ Verbs that exist only in an open PR. They are **not** on this branch; do not run
   - `vm tree --json` gains a top-level `workspaces` array (this Mac's `{id, title, ref, selected}`) and `machines[].remote_workspaces`; the tree stops calling `workspace.list` separately.
   - Placement hardening: `--tabs`/`--tab` combined with a pane side becomes an error, and an explicit `--workspace`/`--pane`/`--surface` that resolves to nothing answers `invalid_params` instead of silently falling back to the selected workspace.
   - An empty machine workspace opens as `opened=0` with a `surface new-terminal --remote-workspace` hint; the `vm handoff` attach line switches from the ssh verb to the shell verb.
-  - Machine sizing moves to grow-only resize with the plan-machine preset (usage strings there read `--size <20g>`), and a `hosts` verb family appears alongside the guest CLI work.
+  - Machine sizing moves to the plan-machine preset: `--size <20g|<mb>>`, where 20g is the plan machine every plan sells and the backend resolves any other size to it (the `16g`-style preset list above goes away).
+  - A guest `cmux` shim is installed at `/usr/local/bin/cmux` inside every machine (a POSIX wrapper over the machine's cmux-tui): its `vm` namespace lists the peer verbs (`cmux vm help` there) and the links granted to that machine, and in-VM `cmux notify` reaches the user's Mac as data — shown on the pane displaying that terminal (128 B title / 1 KiB body caps, burst-limited; Mac selectors and `--reply` are ignored there).
+  - The Mac dispatcher gains a `vm help` sub-verb, and the surface catalog renames kind `screen` → `display` (`vm tree --json` resources and `surface open <m>/display/display:1` addresses; the `screen` form above is what runs today).
+  - `vm tree --refresh` becomes the sidebar's Refresh: it re-reads the fleet list first (a machine created since the last poll appears immediately, and naming an unknown machine re-reads once instead of answering "No cloud machines"), and the tree renders a detached-terminal pool line plus `ports/` rows.
 - **#11324** adds a top-level `cmux fork [--surface <id|ref>] <kind> <checkpoint-id>` that forks a persisted local **agent session** (the `cmux restore` family). It is not a cloud verb: the machine clone, `vm fork <id>`, is already in the reference above.
 - **#11347** tracks the live sidebar ↔ CLI parity loop (remaining gaps such as port rows in the tree and a socket method behind `vm route`). Check its state before assuming anything beyond this file. #11300 and #11301 were superseded by #11345, which is merged and reflected above (`vm terminal send|read|wait`, the single sidebar Close Workspace…).

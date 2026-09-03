@@ -48,6 +48,7 @@ CASE_RE = re.compile(r'^\s*case ((?:"[a-z][a-z-]*"(?:, )?)+):', re.M)
 QUOTED_RE = re.compile(r'"([a-z][a-z-]*)"')
 TOKEN_RE = re.compile(r"cmux (?:vm|cloud) ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?")
 SURFACE_TOKEN_RE = re.compile(r"cmux surface ([a-z][a-z-]*)")
+VPN_TOKEN_RE = re.compile(r"cmux vpn ([a-z][a-z-]*)")
 
 
 def case_groups(block: str) -> list[set[str]]:
@@ -225,6 +226,32 @@ def main() -> int:
                     "but it exists: move it into the reference"
                 )
 
+    # The vpn dispatcher (CLI/CMUXCLI+VPN.swift) and the reference must agree:
+    # machines are unreachable without the tunnel, so a vpn verb the skill
+    # misses (or invents) is a real gap.
+    vpn_source = (ROOT / "CLI" / "CMUXCLI+VPN.swift").read_text(encoding="utf-8")
+    vpn_verbs = {
+        verb
+        for group in case_groups(function_switch_block(vpn_source, "runVPNCommand"))
+        for verb in group
+    }
+    if not {"up", "down", "status"} <= vpn_verbs:
+        failures.append(f"vpn dispatcher parse looks wrong: {sorted(vpn_verbs)}")
+    documented_vpn = set(VPN_TOKEN_RE.findall(shipped))
+    for verb in sorted(vpn_verbs - documented_vpn):
+        failures.append(f"{COMMANDS_MD.relative_to(ROOT)} never shows `cmux vpn {verb}`")
+    for path in SKILL_FILES:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if path == COMMANDS_MD:
+            text = text.replace(in_flight_section(text), "")
+        if path.suffix == ".md":
+            text = code_text(text)
+        for verb in VPN_TOKEN_RE.findall(text):
+            if verb not in vpn_verbs:
+                failures.append(f"{path.relative_to(ROOT)} shows `cmux vpn {verb}`, which the CLI does not have")
+
     # Socket methods: the reference names every advertised vm.*/surface.* method
     # and no method the app does not advertise.
     advertised, every_method = advertised_methods(CONTROLLER.read_text(encoding="utf-8"))
@@ -241,7 +268,7 @@ def main() -> int:
         return 1
     print(
         f"PASS: {len(verbs)} vm verbs, {len(workspace_subs)} workspace and {len(terminal_subs)} terminal sub-verbs, "
-        f"{len(surface_subs)} surface sub-verbs, {len(advertised)} socket methods covered"
+        f"{len(surface_subs)} surface sub-verbs, {len(vpn_verbs)} vpn verbs, {len(advertised)} socket methods covered"
     )
     return 0
 
