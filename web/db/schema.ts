@@ -1398,7 +1398,9 @@ export const coderouterClaudeUpstreams = pgTable(
  * The default lifetime of a snapshot is the one-hour Stack access-token
  * lifetime, so answering from one adds no staleness beyond what accepting a
  * locally verified access token already does. Sign-out and account deletion
- * delete the row.
+ * delete the row. Deletion is also enforced on read: the snapshot path checks
+ * the account-deletion tombstone directly, so a tombstone takes effect on the
+ * next request rather than waiting for the row to be cleared.
  */
 export const stackIdentitySnapshots = pgTable(
   "stack_identity_snapshots",

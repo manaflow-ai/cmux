@@ -15,7 +15,9 @@ Three paths now answer without calling Stack:
 
 A snapshot is refreshed from Stack at most once per `CMUX_STACK_IDENTITY_
 SNAPSHOT_TTL_MS` (default one hour, the Stack access-token lifetime) per user,
-and is deleted on sign-out and on account deletion.
+and is deleted on sign-out. Account deletion is enforced on read instead: the
+snapshot path checks the deletion tombstone directly on every request, so a
+tombstone takes effect immediately rather than after the TTL.
 
 ## Measuring it
 

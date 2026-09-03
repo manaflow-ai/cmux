@@ -34,7 +34,6 @@ import {
   vaultUploadGrants,
   vaultUploadTombstones,
 } from "../../../db/schema";
-import { deleteIdentitySnapshot } from "../../../services/auth/identitySnapshot";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   type ProMetadataJson,
@@ -671,10 +670,6 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
           errorMessage: null,
         },
       });
-    // High-volume routes may answer from a stored identity snapshot without
-    // asking Stack. Drop it as soon as deletion is recorded so the tombstone
-    // takes effect on the next request rather than after the snapshot TTL.
-    await deleteIdentitySnapshot(userId);
     const legacySubrouterRetiredTenantIds = uniqueNonEmptyStrings(
       existing?.legacySubrouterRetiredTenantIds ?? [],
     );
