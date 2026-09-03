@@ -118,6 +118,17 @@ import Testing
         #expect(MobileMacCompatPolicy(decoding: badMax) == nil)
     }
 
+    @Test func decodeRejectsSemanticallyInvalidTierOrderingAndBounds() {
+        let inverted = Data(#"{"entries":[{"minIOSVersion":"1.0","maxIOSVersion":"0.9","stableMinVersion":"0.64.23"}]}"#.utf8)
+        #expect(MobileMacCompatPolicy(decoding: inverted) == nil)
+
+        let duplicateMin = Data(#"{"entries":[{"minIOSVersion":"1.0","stableMinVersion":"0.64.23"},{"minIOSVersion":"1.0","stableMinVersion":"0.65.0"}]}"#.utf8)
+        #expect(MobileMacCompatPolicy(decoding: duplicateMin) == nil)
+
+        let outOfOrder = Data(#"{"entries":[{"minIOSVersion":"1.1","stableMinVersion":"0.64.23"},{"minIOSVersion":"1.0","stableMinVersion":"0.65.0"}]}"#.utf8)
+        #expect(MobileMacCompatPolicy(decoding: outOfOrder) == nil)
+    }
+
     @Test func tierSelectionFailsOpenForUnparseableAppVersion() {
         // Test fixtures report an empty stamp; the gate must stay out of
         // their way rather than treating "" as version zero.

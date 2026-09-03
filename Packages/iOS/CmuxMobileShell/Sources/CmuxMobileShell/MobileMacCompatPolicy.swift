@@ -130,10 +130,17 @@ extension MobileMacCompatPolicy {
         }
         var tiers: [Tier] = []
         tiers.reserveCapacity(payload.entries.count)
+        var previousMinIOSVersion: MobileMacAppVersion?
         for entry in payload.entries {
             guard let minIOS = MobileMacAppVersion(parsing: entry.minIOSVersion),
                   let stableMin = MobileMacAppVersion(parsing: entry.stableMinVersion)
             else {
+                return nil
+            }
+            // The server publishes ascending, non-overwriting tiers. Reject
+            // malformed responses at the trust boundary rather than caching a
+            // range that could make an affected app version fail open.
+            if let previousMinIOSVersion, minIOS <= previousMinIOSVersion {
                 return nil
             }
             var maxIOS: MobileMacAppVersion?
@@ -141,6 +148,7 @@ extension MobileMacCompatPolicy {
                 guard let parsedMax = MobileMacAppVersion(parsing: remoteMax) else {
                     return nil
                 }
+                guard parsedMax >= minIOS else { return nil }
                 maxIOS = parsedMax
             }
             var nightly: NightlyRequirement?
@@ -158,6 +166,7 @@ extension MobileMacCompatPolicy {
                 stableMinVersion: stableMin,
                 nightly: nightly
             ))
+            previousMinIOSVersion = minIOS
         }
         self.init(tiers: tiers)
     }
