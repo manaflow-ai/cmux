@@ -23,7 +23,12 @@ struct SharedLiveAgentIndexLoader {
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
         processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            // Event-driven reloads are floored at 5s (minEventReloadInterval) and
+            // the autosave path captures on the same cache with maximumAge 5, so a
+            // 3s-fresh snapshot never skips a process change for longer than one
+            // reload cycle. An uncached capture here made every reload pay its own
+            // full libproc enumeration on top of the autosave and guardrail ones.
+            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: 3)
         },
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
