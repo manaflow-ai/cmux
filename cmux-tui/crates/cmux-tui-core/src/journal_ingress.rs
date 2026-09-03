@@ -169,7 +169,26 @@ pub(crate) enum JournalIngressEvent {
     },
 }
 
+/// Which bounded ingress lane an event travels on. Terminal bytes and their
+/// barriers never wait behind producers, and producers never wait behind a
+/// large output burst.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JournalLane {
+    Terminal,
+    Durable,
+}
+
 impl JournalIngressEvent {
+    pub(crate) fn lane(&self) -> JournalLane {
+        match self {
+            Self::TerminalBarrier
+            | Self::TerminalOutput { .. }
+            | Self::TerminalResize { .. }
+            | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
+            Self::Frontend { .. } | Self::Producer { .. } => JournalLane::Durable,
+        }
+    }
+
     fn estimated_bytes(&self) -> usize {
         match self {
             Self::TerminalBarrier => 0,
@@ -411,6 +430,7 @@ pub(crate) enum JournalIngressTrySendError {
 
 #[derive(Default)]
 struct JournalIngressState {
+    stats: crate::diagnostics::JournalWriterStats,
     failure: Mutex<Option<String>>,
     enqueue_admission: Mutex<()>,
     closed: AtomicBool,
@@ -602,6 +622,7 @@ impl JournalIngressSender {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
         let space_epoch = self.state.queue_space_epoch();
+        self.state.stats.enqueued(JournalLane::Terminal);
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
                 if let Some(wake) = &self.wake_sender {
@@ -613,12 +634,16 @@ impl JournalIngressSender {
                 Ok(())
             }
             Err(TrySendError::Full(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
                 Err(JournalIngressTrySendError::Full { event: Box::new(queued.event), space_epoch })
             }
-            Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
-                event: Box::new(queued.event),
-                error: self.writer_error(),
-            }),
+            Err(TrySendError::Disconnected(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
+                Err(JournalIngressTrySendError::Failed {
+                    event: Box::new(queued.event),
+                    error: self.writer_error(),
+                })
+            }
         }
     }
 
@@ -651,12 +676,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for session journal durability",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -697,12 +725,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for a session journal producer receipt",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) const fn enabled(&self) -> bool {
@@ -807,11 +838,16 @@ impl JournalIngressSender {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
     }
 
+    pub(crate) fn stats(&self) -> &crate::diagnostics::JournalWriterStats {
+        &self.state.stats
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             let space_epoch = self.state.queue_space_epoch();
@@ -820,6 +856,9 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
@@ -832,8 +871,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             #[cfg(test)]
             self.state.notify_enqueue_full_for_test();
@@ -847,6 +892,7 @@ impl JournalIngressSender {
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             if Instant::now() >= deadline {
@@ -867,6 +913,9 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
@@ -879,8 +928,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
@@ -977,6 +1032,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     // in a retry wait. Drain both ingress lanes so receipts
                     // for events that never entered the active batch cannot
                     // remain unresolved forever.
+                    let _admission = receivers.state.enqueue_admission.lock().unwrap();
                     complete_queued_error(&receivers, &error);
                     return;
                 };
@@ -998,10 +1054,17 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 ) {
                     Ok(commits) => {
+                        let terminal_events =
+                            events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
+                        receivers
+                            .state
+                            .stats
+                            .batch_committed(terminal_events, events.len() - terminal_events);
                         complete_batch_success(&batch, commits);
                         break;
                     }
                     Err(error) => {
+                        receivers.state.stats.commit_failed();
                         let summary = format!("{error:#}");
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
@@ -1040,6 +1103,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch[0].completion.is_none() {
+                            let _admission = receivers.state.enqueue_admission.lock().unwrap();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
@@ -1050,6 +1114,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             for pending_batch in pending {
                                 complete_batch_error(&pending_batch, failure.clone());
                             }
+                            complete_queued_error(&receivers, &failure);
                             return;
                         } else {
                             complete_batch_error(&batch, summary);
@@ -1114,6 +1179,8 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
+    let _admission = receivers.state.enqueue_admission.lock().unwrap();
+    receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
         JOURNAL_DURABLE_WAIT.as_millis()
@@ -1129,16 +1196,19 @@ fn stop_writer_after_retry_deadline(
 }
 
 fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
-    let mut drained = false;
+    let mut terminal_drained = 0;
     while let Ok(queued) = receivers.terminal.try_recv() {
-        drained = true;
+        terminal_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
+    let mut durable_drained = 0;
     while let Ok(queued) = receivers.durable.try_recv() {
-        drained = true;
+        durable_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
-    if drained {
+    receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+    receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+    if terminal_drained + durable_drained != 0 {
         receivers.state.publish_queue_space();
     }
 }
@@ -1154,15 +1224,17 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         while receivers.wake.try_recv().is_ok() {}
         let mut batch =
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
-        let mut drained =
+        let terminal_drained =
             drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
-        drained |= drain_lane(
+        let durable_drained = drain_lane(
             &receivers.durable,
             &mut batch,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
-        if drained {
+        receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+        receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+        if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
         if !batch.is_empty() {
@@ -1182,7 +1254,7 @@ fn drain_lane(
     batch: &mut Vec<QueuedJournalEvent>,
     limit: usize,
     byte_limit: usize,
-) -> bool {
+) -> usize {
     let mut drained = 0;
     let mut drained_bytes = 0_usize;
     while drained < limit && drained_bytes < byte_limit {
@@ -1200,7 +1272,7 @@ fn drain_lane(
             batch.push(next);
         }
     }
-    drained != 0
+    drained
 }
 
 fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
@@ -2694,12 +2766,49 @@ mod tests {
                 commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
             }),
         };
+        receivers.state.stats.enqueued(JournalLane::Terminal);
         sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
+        receivers.state.stats.enqueued(JournalLane::Durable);
+        sender
+            .durable_sender
+            .as_ref()
+            .unwrap()
+            .try_send(QueuedJournalEvent {
+                event: JournalIngressEvent::TerminalBarrier,
+                completion: None,
+            })
+            .unwrap();
 
         complete_queued_error(&receivers, "session journal stopped");
 
         let result = completion_receiver.recv_timeout(Duration::from_millis(100)).unwrap();
         assert!(result.is_err(), "shutdown must resolve queued durable receipts");
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
+    }
+
+    #[test]
+    fn failed_admission_fence_blocks_enqueue_after_shutdown_drain() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let _admission = receivers.state.enqueue_admission.lock().unwrap();
+        let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
+        let enqueue = std::thread::spawn(move || {
+            sender.try_send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("shutdown-fence"),
+                occurred_at_ms: 1,
+                bytes: b"must not enqueue".to_vec(),
+            })
+        });
+
+        let failure = receivers.state.fail("session journal stopped".into());
+        complete_queued_error(&receivers, &failure);
+        drop(_admission);
+        let result = enqueue.join().expect("admission sender must not panic");
+        assert!(matches!(result, Err(JournalIngressTrySendError::Failed { .. })));
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
     }
 
     #[test]

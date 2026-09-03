@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929'
+IR_SHA256 = '0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8'
 
 
 @dataclass(frozen=True)
@@ -1142,6 +1142,16 @@ COMMANDS = {
         {
             'keys': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'server-stats': CommandMetadata(
+        'server-stats',
+        'local-admin',
+        12,
+        'server-stats-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'set-cell-pixels': CommandMetadata(
