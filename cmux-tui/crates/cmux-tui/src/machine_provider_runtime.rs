@@ -2446,7 +2446,7 @@ fn connect_provider_machine(
     // Reserve this key under the registry and transition locks, then release
     // both before the provider RPC. Lease teardown takes the same locks when
     // marking a key closing, so reconnects cannot race the open handoff.
-    let mut connections = registry
+    let connections = registry
         .lock()
         .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?;
     let mut transitions = closing_connections
@@ -2518,7 +2518,7 @@ fn connect_provider_machine(
             open,
             key,
             registry: Arc::clone(&registry),
-            closing: closing_connections,
+            closing: Arc::clone(&closing_connections),
             close_worker,
         })),
     })
