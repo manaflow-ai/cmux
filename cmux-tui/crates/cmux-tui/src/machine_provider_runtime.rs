@@ -66,14 +66,14 @@ impl ProviderCloseWorker {
             let thread = std::thread::Builder::new()
                 .name(format!("provider-close-machine-{index}"))
                 .spawn(move || {
-                while let Ok(close) = receiver.recv() {
-                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
-                        crate::client_log::stderr_log!(
-                            "provider",
-                            "cmux-tui: provider machine close task panicked"
-                        );
+                    while let Ok(close) = receiver.recv() {
+                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
+                            crate::client_log::stderr_log!(
+                                "provider",
+                                "cmux-tui: provider machine close task panicked"
+                            );
+                        }
                     }
-                }
                 })?;
             threads.push(thread);
         }
