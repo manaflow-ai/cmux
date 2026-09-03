@@ -128,6 +128,7 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
+    @MainActor
     @Test func productionPresenceIgnoresStagingEnvironment() {
         let defaults = UserDefaults(suiteName: "presence-prod-origin-\(UUID().uuidString)")!
         #expect(PresenceHeartbeatClient.resolvedServiceURL(
