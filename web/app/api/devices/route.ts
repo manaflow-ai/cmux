@@ -18,6 +18,7 @@ import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   unauthorized,
   verifyRequest,
+  verifyRequestFromSnapshot,
   type AuthedUser,
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
@@ -141,9 +142,8 @@ export async function POST(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequest(request, {
+    user = await verifyRequestFromSnapshot(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
-      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.post.auth");
@@ -357,9 +357,8 @@ export async function GET(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequest(request, {
+    user = await verifyRequestFromSnapshot(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
-      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.get.auth");
@@ -434,9 +433,8 @@ export async function DELETE(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequest(request, {
+    user = await verifyRequestFromSnapshot(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
-      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.delete.auth");
