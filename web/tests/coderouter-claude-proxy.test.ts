@@ -7,7 +7,7 @@ import {
   createClaudeModelsProxy,
   type ClaudeProxyDependencies,
 } from "../services/coderouter/claudeProxy";
-import type { ClaudeUpstream } from "../services/coderouter/claudeUpstream";
+import type { ClaudeSelection, ClaudeUpstream } from "../services/coderouter/claudeUpstream";
 import type { RouteTokenAuthResult } from "../services/coderouter/routeTokenAuth";
 import {
   bedrockInvokeBody,
@@ -704,7 +704,7 @@ describe("claude proxy failover across accounts", () => {
       ...dependencies,
       select: async (_teamId, input) => {
         selectionSignal = input.signal;
-        await new Promise<never>(() => undefined);
+        return await new Promise<ClaudeSelection>(() => undefined);
       },
     }, {
       now: () => 0,
