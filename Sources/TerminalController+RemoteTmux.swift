@@ -56,10 +56,20 @@ extension TerminalController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let identityFile, identityFile.hasPrefix("-") { return nil }
         if let identityFile, Self.remoteTmuxValueHasHiddenCharacter(identityFile) { return nil }
+        // A closed set, so an unknown transport is refused here rather than producing a
+        // host nothing can spawn.
+        guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String) else {
+            return nil
+        }
+        // The transport's own port, kept apart from ssh's: one-shots still ride ssh.
+        let transportPort = params["transport_port"] as? Int
+        if let transportPort, !(1...65535).contains(transportPort) { return nil }
         return RemoteTmuxHost(
             destination: destination,
             port: port,
-            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil
+            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
+            transport: transport,
+            transportPort: transportPort
         )
     }
 
@@ -91,7 +101,7 @@ extension TerminalController {
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        guard let session = Self.remoteTmuxSessionName(from: params) else {
+        guard let session = Self.remoteTmuxSessionName(from: params, transport: host.transport) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
         }
         let createIfMissing = (params["create"] as? Bool) ?? false
@@ -435,11 +445,22 @@ extension TerminalController {
     }
 
     /// Extracts a required tmux session name from socket params.
-    nonisolated static func remoteTmuxSessionName(from params: [String: Any]) -> String? {
+    nonisolated static func remoteTmuxSessionName(
+        from params: [String: Any],
+        transport: RemoteTmuxTransportKind = .ssh
+    ) -> String? {
         guard let session = (params["session"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !session.isEmpty
         else { return nil }
+        // Rejected here rather than discovered as a timeout. et types its command into a pty, so a
+        // name long enough to push the line past MAX_CANON is never delivered: the shell runs
+        // nothing and the attach dies with nothing to explain it. tmux happily accepts names of
+        // ~1000 bytes, so this is reachable with a real session rather than only by abuse.
+        if transport == .et,
+           session.utf8.count > RemoteTmuxETTransportProfile.maxSessionNameBytes() {
+            return nil
+        }
         return session
     }
 

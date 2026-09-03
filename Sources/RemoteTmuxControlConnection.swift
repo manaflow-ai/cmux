@@ -123,7 +123,10 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
-    private var processGeneration: UInt64 = 0
+    /// Bumped on every spawn. Readable across the type's extensions so a completion that
+    /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
+    /// answer describes a stream that no longer exists. Writable only here.
+    private(set) var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
@@ -329,12 +332,19 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
+    /// How this connection is carried, derived from the host's transport unless a caller
+    /// overrides it (which tests do, to assert argv without spawning anything).
+    let transportProfile: RemoteTmuxTransportProfile
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false,
-        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
+        transportProfile: RemoteTmuxTransportProfile? = nil
     ) {
+        self.transportProfile = transportProfile
+            ?? host.transport.profile(port: host.transportPort, terminalPath: host.transportTerminalPath)
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
@@ -423,11 +433,25 @@ final class RemoteTmuxControlConnection {
         enterReceived = false
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
+        let transportExecutable = transportProfile.executablePath()
+        let transportArgv = transportProfile.controlStreamArgv(
+            host: host,
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
+        if transportProfile.requiresPseudoTerminal {
+            // A terminal client will not talk over pipes: measured against et 6.2.11, it
+            // emits nothing at all and aborts at session end, which reads as "the host
+            // produced no output" rather than "this was spawned without a tty". Give it one.
+            record("transport-pty")
+            proc.executableURL = URL(fileURLWithPath: RemoteTmuxPseudoTerminal.allocatorPath)
+            proc.arguments = RemoteTmuxPseudoTerminal.wrap(
+                executable: transportExecutable, arguments: transportArgv
+            )
+        } else {
+            proc.executableURL = URL(fileURLWithPath: transportExecutable)
+            proc.arguments = transportArgv
+        }
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -585,8 +609,76 @@ final class RemoteTmuxControlConnection {
         stderrPipeReader = nil
         stdinWriter?.close()
         stdinWriter = nil
-        process?.terminate()
+        terminateProcessTree(process)
         process = nil
+    }
+
+    /// Ends a spawned transport and everything it started.
+    ///
+    /// `Process.terminate()` signals one pid, and a transport is rarely one process: cmux may
+    /// launch a pty allocator that execs a broker that finally execs the client. Signalling only
+    /// the allocator leaves the broker and client running, and because the client holds the
+    /// remote end open they keep their session too — two such trees were found alive hours after
+    /// their respawns, each still holding a control client on the remote server.
+    ///
+    /// Signalling the allocator's process GROUP does not fix it either: `/usr/bin/script` puts
+    /// its command in a group of its own (measured — the allocator and its payload had different
+    /// pgids, and the payload survived a group kill). So the tree is walked instead, children
+    /// before parents, and each process that leads its own group takes that group with it.
+    ///
+    /// SIGTERM first because these clients close their remote end on it; anything still alive a
+    /// moment later is sent SIGKILL, so a client that ignores the polite signal cannot outlive
+    /// the stream that owns it.
+    private func terminateProcessTree(_ proc: Process?) {
+        guard let proc, proc.processIdentifier > 0 else { return }
+        let root = proc.processIdentifier
+        let tree = Self.processTree(root: root)
+        for pid in tree.reversed() { Self.signalProcess(pid, SIGTERM) }
+        proc.terminate()
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for pid in tree.reversed() where Darwin.kill(pid, 0) == 0 {
+                Self.signalProcess(pid, SIGKILL)
+            }
+        }
+    }
+
+    /// `root` and its descendants, parents before children, bounded in depth so a pathological
+    /// tree cannot make teardown expensive.
+    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
+        var out: [pid_t] = [root]
+        var frontier = [root]
+        for _ in 0..<4 {
+            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
+            if next.isEmpty { break }
+            out.append(contentsOf: next)
+            frontier = next
+        }
+        return out
+    }
+
+    /// Sends `signal` to `pid`, and to its process group when `pid` leads one. A leader's group
+    /// holds the processes it started that the walk cannot see (anything spawned between the
+    /// listing and the signal).
+    nonisolated private static func signalProcess(_ pid: pid_t, _ signal: Int32) {
+        guard pid > 1 else { return }
+        if getpgid(pid) == pid { _ = Darwin.kill(-pid, signal) }
+        _ = Darwin.kill(pid, signal)
+    }
+
+    /// Direct children of `pid`, via the kernel process table (no subprocess, so teardown does
+    /// not spawn anything while it is tearing down).
+    nonisolated static let childPIDs: (pid_t) -> [pid_t] = { parent in
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var length = 0
+        guard sysctl(&name, 4, nil, &length, nil, 0) == 0, length > 0 else { return [] }
+        let count = length / MemoryLayout<kinfo_proc>.stride
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        guard sysctl(&name, 4, &procs, &length, nil, 0) == 0 else { return [] }
+        let actual = length / MemoryLayout<kinfo_proc>.stride
+        return procs[0..<min(actual, count)].compactMap { entry in
+            entry.kp_eproc.e_ppid == parent ? entry.kp_proc.p_pid : nil
+        }
     }
 
     // MARK: - Internals
@@ -699,9 +791,34 @@ final class RemoteTmuxControlConnection {
         case .ended:
             return
         case .connecting, .connected:
-            // The control stream died without `%exit` — a transport loss. Keep the
-            // mirror frozen and reconnect.
-            beginReconnecting()
+            // The control stream died without `%exit`. What that means depends on who owns
+            // reconnection: for ssh it is a transport loss cmux recovers from, but a
+            // transport that reconnects internally does not end for a network drop, so its
+            // exit is the session genuinely ending.
+            // A transport that could not start will not start on the next try either, and
+            // retrying hides the reason: end-of-stream no longer implies the session is over, so
+            // without this the mirror waits out the attach timeout with nothing to explain it.
+            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+                record("stream-end-unrecoverable")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: enterReceived) {
+            case .reconnect:
+                // Keep the mirror frozen and reconnect.
+                beginReconnecting()
+            case .sessionOver:
+                // Either the session ended, or the transport never started — both are terminal, and
+                // both must report rather than retry.
+                record(enterReceived ? "stream-end-session-over" : "stream-end-before-connect")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+            }
         case .reconnecting:
             // A reconnect attempt's process exited before reaching control mode
             // (a successful attach would have moved us to `.connected` via `.enter`).
@@ -717,8 +834,12 @@ final class RemoteTmuxControlConnection {
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
                 || decoding.controlOutputIndicatesSessionGone(preControlOutputBuffer)
+            // Same rule on the retry path: a reconnect that failed because the transport cannot run
+            // is not transient, and looping on it burns the backoff forever.
+            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
             teardownProcessHandles()
-            if sessionGone {
+            if sessionGone || unrecoverable {
+                if unrecoverable { record("reconnect-unrecoverable") }
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
