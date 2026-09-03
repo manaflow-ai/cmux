@@ -1914,6 +1914,10 @@ pub(super) enum RemoteSurfaceAttach {
 pub(crate) enum PipeIoSurfaceAttach {
     Attached,
     Retired,
+    /// The server accepted the stream, but a surface-exit event retired it
+    /// before the attach response completed. The tap may contain committed
+    /// replay or output that the relay must drain before exiting.
+    RetiredAfterAttach,
     Deferred,
 }
 
@@ -3967,8 +3971,13 @@ impl RemoteSession {
         // a terminal that already emitted `surface-exited`; closing this
         // connection releases the server-side pending stream.
         if self.retired_surfaces.lock().unwrap().contains(&id) {
+            // A direct retirement can race this response without the normal
+            // event reader having signalled the tap yet. Publish the terminal
+            // lifecycle event before closing the transport so the relay's
+            // startup drain has a bounded completion signal.
+            self.signal_pipe_io_event(Some(id), None, PipeIoEvent::SurfaceExited);
             self.disconnect_transport();
-            return Ok(PipeIoSurfaceAttach::Retired);
+            return Ok(PipeIoSurfaceAttach::RetiredAfterAttach);
         }
         if let Some(lease) = attachment_lease {
             self.surface_leases.lock().unwrap().insert(id, lease);
@@ -5294,8 +5303,7 @@ mod tests {
 
     #[test]
     fn pipe_io_attach_reports_retirement_after_stream_open() {
-        let (session, attach_started_rx, release_attach_tx) =
-            super::test_session_with_deferred_attach();
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
         let (sender, receiver) = crossbeam_channel::bounded(8);
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let _token = session.install_pipe_io_tap(

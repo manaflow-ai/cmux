@@ -703,6 +703,17 @@ pub fn run(
         Ok(PipeIoSurfaceAttach::Retired) => {
             return Ok(PipeIoExitReason::TerminalEnded);
         }
+        Ok(PipeIoSurfaceAttach::RetiredAfterAttach) => {
+            let cancellation = PipeIoOutputCancellation::new()?;
+            let mut stdout = pipe_io_stdout(cancellation.clone())?;
+            return drain_retired_pipe_io(
+                &receiver,
+                lifecycle_receiver,
+                &byte_budget,
+                &mut stdout,
+                cancellation,
+            );
+        }
         Ok(PipeIoSurfaceAttach::Deferred) => return Ok(PipeIoExitReason::DaemonLost),
         Err(error) => return Ok(attach_failure_exit_reason(&error)),
     };
@@ -1227,6 +1238,24 @@ fn write_pipe_io_data(
     Ok(())
 }
 
+/// Completes a renderer-less attach that retired after the server opened its
+/// byte stream. The lifecycle monitor wakes a blocked writer and the normal
+/// pump drains every event committed before the retirement fence.
+fn drain_retired_pipe_io(
+    receiver: &Receiver<PipeIoEvent>,
+    lifecycle_receiver: Receiver<PipeIoEvent>,
+    byte_budget: &PipeIoByteBudget,
+    stdout: &mut impl PipeIoOutput,
+    cancellation: PipeIoOutputCancellation,
+) -> anyhow::Result<PipeIoExitReason> {
+    let (pump_lifecycle_sender, pump_lifecycle_receiver) = crossbeam_channel::bounded(1);
+    let lifecycle_monitor =
+        PipeIoLifecycleMonitor::spawn(lifecycle_receiver, pump_lifecycle_sender, cancellation)?;
+    let result = pump_events_to_stdout(receiver, &pump_lifecycle_receiver, byte_budget, stdout);
+    lifecycle_monitor.stop();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -1394,8 +1423,15 @@ mod tests {
         lifecycle_sender.send(PipeIoEvent::SurfaceExited).unwrap();
 
         let mut stdout = Vec::new();
-        let reason =
-            drain_retired_pipe_io(&receiver, lifecycle_receiver, &budget, &mut stdout).unwrap();
+        let cancellation = PipeIoOutputCancellation::new().unwrap();
+        let reason = drain_retired_pipe_io(
+            &receiver,
+            lifecycle_receiver,
+            &budget,
+            &mut stdout,
+            cancellation,
+        )
+        .unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         assert_eq!(stdout, b"last");
     }
