@@ -510,6 +510,10 @@ impl ChildLifecycle {
         state.termination_started = true;
         true
     }
+
+    fn termination_requested(&self) -> bool {
+        self.state.lock().expect("child lifecycle lock").termination_started
+    }
 }
 
 fn force_kill_process_group(pid: libc::pid_t) {
@@ -694,9 +698,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok());
         if observed_exit {
             wait_lifecycle.mark_exited_before_reap();
-        } else if wait_lifecycle.begin_termination() {
-            // The wait thread owns the only blocking child handle. If WNOWAIT
-            // is unavailable, it is also the only thread allowed to kill it.
+        } else if wait_lifecycle.termination_requested() {
+            // If exit observation failed after a caller requested
+            // termination, the wait owner retains the blocking fallback.
             let _ = child.kill();
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
