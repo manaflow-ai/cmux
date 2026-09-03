@@ -676,6 +676,100 @@ export async function isCmuxTuiDeviceEnrolled(
   );
 }
 
+/**
+ * Everything attach needs from the daemon in ONE guest exec instead of four:
+ * an optional readiness gate (exit 3 when it fails, so the caller can run the
+ * heal), the daemon build (`remote-probe`), the enrolled devices, and, unless
+ * the caller's fingerprint is already among them, a fresh invitation. Each
+ * section is fenced by a marker line so the outputs parse independently.
+ */
+export const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
+const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", invite: "__CMUX_INVITE__", end: "__CMUX_END__" } as const;
+
+export function cmuxTuiAttachBundleCommand(options: {
+  readonly readyGate?: string;
+  readonly deviceFingerprint?: string;
+  readonly binary?: string;
+}): string {
+  const bin = options.binary ?? CMUX_TUI_BINARY_PATH;
+  const run = `env HOME=/root ${bin}`;
+  const fingerprint = options.deviceFingerprint?.trim();
+  if (fingerprint !== undefined && fingerprint !== "" && !/^[A-Za-z0-9._:=+/-]+$/.test(fingerprint)) {
+    throw new Error("device fingerprint has an unexpected shape");
+  }
+  // The shell decides only whether to mint; the server re-derives "enrolled"
+  // from the devices JSON and mints separately if the two disagree.
+  const needle = fingerprint ? `"fingerprint":"${fingerprint}"` : "";
+  const mint = `${run} remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`;
+  const invite = needle
+    ? `case "$D" in *${shellQuote(needle)}*) ;; *) ${mint};; esac`
+    : mint;
+  return [
+    ...(options.readyGate ? [`{ ${options.readyGate}; } || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    `echo ${BUNDLE_MARKERS.probe}`,
+    `${run} remote-probe --json; echo`,
+    `echo ${BUNDLE_MARKERS.devices}`,
+    `D=$(${run} remote enroll devices --session ${CMUX_TUI_SESSION} --json); printf '%s\\n' "$D"`,
+    `echo ${BUNDLE_MARKERS.invite}`,
+    `${invite}; echo`,
+    `echo ${BUNDLE_MARKERS.end}`,
+  ].join("; ");
+}
+
+export type CmuxTuiAttachBundle = {
+  readonly daemonBuild: CmuxRemoteEndpoint["daemonBuild"] | null;
+  readonly enrolled: boolean;
+  readonly invitation: NonNullable<CmuxRemoteEndpoint["invitation"]> | null;
+};
+
+/** Parses the fenced stdout of {@link cmuxTuiAttachBundleCommand}. */
+export function parseCmuxTuiAttachBundle(
+  stdout: string,
+  provider: ProviderId,
+  vmId: string,
+  deviceFingerprint?: string,
+): CmuxTuiAttachBundle {
+  const section = (from: string, to: string): string => {
+    const start = stdout.indexOf(from);
+    const end = stdout.indexOf(to);
+    if (start === -1 || end === -1 || end < start) return "";
+    return stdout.slice(start + from.length, end).trim();
+  };
+  const probeText = section(BUNDLE_MARKERS.probe, BUNDLE_MARKERS.devices);
+  const devicesText = section(BUNDLE_MARKERS.devices, BUNDLE_MARKERS.invite);
+  const inviteText = section(BUNDLE_MARKERS.invite, BUNDLE_MARKERS.end);
+  let daemonBuild: CmuxTuiAttachBundle["daemonBuild"] = null;
+  try {
+    const record = parseJsonObject(probeText);
+    const commit = typeof record.build_identity === "string" ? record.build_identity : null;
+    const remoteProtocol = typeof record.remote_protocol === "number" ? record.remote_protocol : null;
+    const version = typeof record.version === "string" ? record.version : null;
+    if (commit || remoteProtocol !== null) daemonBuild = { commit, remoteProtocol, version };
+  } catch {
+    daemonBuild = null;
+  }
+  let enrolled = false;
+  if (deviceFingerprint) {
+    try {
+      enrolled = parseJsonArray(devicesText).some((device) =>
+        device.fingerprint === deviceFingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
+      );
+    } catch {
+      enrolled = false;
+    }
+  }
+  let invitation: CmuxTuiAttachBundle["invitation"] = null;
+  if (inviteText) {
+    const uri = parseJsonObject(inviteText).uri;
+    if (typeof uri !== "string" || !uri) {
+      throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
+    }
+    const parsed = parseEnrollmentInvitationUri(uri, provider);
+    invitation = { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
+  }
+  return { daemonBuild, enrolled, invitation };
+}
+
 export async function approveCmuxTuiEnrollment(
   invoke: CmuxTuiInvoke,
   provider: ProviderId,

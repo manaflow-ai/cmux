@@ -30,34 +30,30 @@ PLIST="$APP/Info.plist"
 read_plist() {
   local key="$1"
   if [[ -x /usr/libexec/PlistBuddy ]]; then
+    # Keep release verification tied to Apple's system tool. Do not honor an
+    # environment override here, because that would let a caller replace the
+    # verifier and bypass this gate.
     /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
-    return 0
+    return
   fi
 
-  # Linux CI has no PlistBuddy. Use the OS-owned Python interpreter as a
-  # read-only fallback; do not honor an arbitrary PLISTBUDDY/PATH override,
-  # because the verifier is a release security gate and its parser must not be
-  # replaceable by untrusted environment input.
-  if [[ -x /usr/bin/python3 ]]; then
-    /usr/bin/python3 - "$PLIST" "$key" <<'PY' || true
+  # Linux CI does not provide PlistBuddy. Use the fixed system Python parser
+  # only for that environment; production macOS always takes the branch above.
+  /usr/bin/python3 - "$PLIST" "$key" <<'PY' 2>/dev/null || true
 import plistlib
 import sys
 
-path, key = sys.argv[1:3]
-try:
-    with open(path, "rb") as handle:
-        value = plistlib.load(handle)[key]
-except (OSError, KeyError, TypeError, ValueError, plistlib.InvalidFileException):
-    raise SystemExit(1)
-
+with open(sys.argv[1], "rb") as stream:
+    value = plistlib.load(stream)
+for component in sys.argv[2].split(":"):
+    value = value[component]
 if isinstance(value, bool):
     print("true" if value else "false")
-elif isinstance(value, (int, float, str)):
-    print(value)
+elif isinstance(value, (dict, list)):
+    print(plistlib.dumps(value, fmt=plistlib.FMT_XML).decode(), end="")
 else:
-    raise SystemExit(1)
+    print(value)
 PY
-  fi
 }
 
 require_exact() {

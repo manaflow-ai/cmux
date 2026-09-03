@@ -39,6 +39,12 @@ PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXPresenceBaseURL": "https://presence.cmux.dev",
     "CMUXDevTag": "",
 }
+PRODUCTION_RUNTIME_BUILD_ARGS = (
+    "CMUX_IOS_AUTH_ENV=production",
+    "CMUX_API_BASE_URL=https://cmux.com",
+    "CMUX_IROH_BROKER_BASE_URL=https://cmux.com",
+    "CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev",
+)
 
 FAILURES: list[str] = []
 
@@ -341,11 +347,6 @@ if "archive" in args:
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
-    auth_environment = setting("CMUX_IOS_AUTH_ENV=") or "production"
-    api_base_url = setting("CMUX_API_BASE_URL=") or "https://cmux.com"
-    iroh_broker_base_url = setting("CMUX_IROH_BROKER_BASE_URL=") or "https://cmux.com"
-    presence_base_url = setting("CMUX_PRESENCE_BASE_URL=") or "https://presence.cmux.dev"
-    dev_tag = setting("CMUX_DEV_TAG=")
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -365,13 +366,11 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
-            # Release archives carry production authorities even for the beta
-            # TestFlight lane; the artifact gate validates the built plist.
-            "CMUXAuthEnvironment": auth_environment,
-            "CMUXApiBaseURL": api_base_url,
-            "CMUXIrohBrokerBaseURL": iroh_broker_base_url,
-            "CMUXPresenceBaseURL": presence_base_url,
-            "CMUXDevTag": dev_tag,
+            "CMUXAuthEnvironment": setting("CMUX_IOS_AUTH_ENV=") or "production",
+            "CMUXApiBaseURL": setting("CMUX_API_BASE_URL=") or "https://cmux.com",
+            "CMUXIrohBrokerBaseURL": setting("CMUX_IROH_BROKER_BASE_URL=") or "https://cmux.com",
+            "CMUXPresenceBaseURL": setting("CMUX_PRESENCE_BASE_URL=") or "https://presence.cmux.dev",
+            "CMUXDevTag": setting("CMUX_DEV_TAG="),
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -531,6 +530,56 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     return env
 
 
+def test_verify_ios_release_origins_does_not_trust_plistbuddy_override(
+    tmp: Path, fakebin: Path
+) -> None:
+    app = tmp / "app"
+    app.mkdir(parents=True, exist_ok=True)
+    (app / "Info.plist").write_bytes(
+        plistlib.dumps(
+            {
+                "CFBundleIdentifier": "com.cmux.app",
+                "CMUXAuthEnvironment": "production",
+                "CMUXApiBaseURL": "https://cmux.com",
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+                "CMUXPresenceBaseURL": "https://presence.cmux.dev",
+                "CMUXDevTag": "",
+            }
+        )
+    )
+    override = fakebin / "PlistBuddy-override"
+    _write_executable(
+        override,
+        """#!/bin/sh
+case "$2" in
+  "Print :CFBundleIdentifier") echo "com.cmux.app" ;;
+  "Print :CMUXAuthEnvironment") echo "production" ;;
+  "Print :CMUXApiBaseURL") echo "https://cmux.com" ;;
+  "Print :CMUXIrohBrokerBaseURL") echo "https://cmux.com" ;;
+  "Print :CMUXPresenceBaseURL") echo "https://presence.cmux.dev" ;;
+  "Print :CMUXDevTag") exit 1 ;;
+  *) exit 1 ;;
+esac
+""",
+    )
+    env = _base_env(tmp, fakebin)
+    env["PLISTBUDDY"] = str(override)
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "scripts" / "lib" / "verify-ios-release-origins.sh"),
+            "--app",
+            str(app),
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(
+        result.returncode != 0,
+        "production origin verifier ignores an untrusted PlistBuddy override",
+    )
+
+
 def _asc_upload_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env = _base_env(tmp, fakebin)
     env["ASC_APP_ID"] = ASC_APP_ID
@@ -618,7 +667,13 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    subprocess.run(["git", "tag", "ios-v1.0.0"], cwd=repo, check=True)
+    # CI runners may set tag.gpgSign globally. Disable signing explicitly so
+    # this fixture remains a lightweight tag and never opens an editor.
+    subprocess.run(
+        ["git", "-c", "tag.gpgSign=false", "tag", "ios-v1.0.0"],
+        cwd=repo,
+        check=True,
+    )
     return repo
 
 
@@ -689,6 +744,8 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
         "beta archive keeps crash reporting enabled",
     )
+    for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
+        _check(build_arg in archive_call, f"beta archive stamps {build_arg.split('=', 1)[0]}")
 
     export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
     profiles = export_options.get("provisioningProfiles", {})
@@ -713,6 +770,11 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
     )
+    for key, expected in PRODUCTION_RUNTIME_ORIGINS.items():
+        _check(
+            info.get(key, "") == expected,
+            f"final signed beta IPA carries {key}={expected or '<empty>'}",
+        )
 
 
 def test_upload_keychain_group_failure_does_not_dump_entitlements(
@@ -1018,6 +1080,8 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
         "App Store archive keeps crash reporting enabled",
     )
+    for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
+        _check(build_arg in archive_call, f"App Store archive stamps {build_arg.split('=', 1)[0]}")
     _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
         "archive command does not stamp the retired com.cmuxterm.app id",
@@ -1048,6 +1112,11 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         info.get("CMUXCrashReportingEnabled") == "YES",
         "final signed IPA keeps crash reporting enabled",
     )
+    for key, expected in PRODUCTION_RUNTIME_ORIGINS.items():
+        _check(
+            info.get(key, "") == expected,
+            f"final signed App Store IPA carries {key}={expected or '<empty>'}",
+        )
 
 
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
@@ -1502,6 +1571,9 @@ def main() -> None:
         tmp = Path(temp_dir)
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
+        test_verify_ios_release_origins_does_not_trust_plistbuddy_override(
+            tmp / "plistbuddy-override-test", fakebin
+        )
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
         test_upload_keychain_group_failure_does_not_dump_entitlements(
             tmp / "keychain-group-privacy-test", fakebin
