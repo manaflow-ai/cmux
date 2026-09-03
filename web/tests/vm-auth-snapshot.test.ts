@@ -33,27 +33,11 @@ mock.module("../services/auth/identitySnapshot", () => ({
   },
 }));
 
+// The tombstone lookup is injected rather than mocked at the module level:
+// `mock.module` on the database client leaks into every other test file that
+// runs in the same process.
 const tombstoneState = { blocked: false };
-
-mock.module("../services/account/deletionLock", () => ({
-  accountDeletionUserHash: (userId: string) => `hash:${userId}`,
-  isBlockingAccountDeletionTombstone: () => tombstoneState.blocked,
-}));
-
-mock.module("../db/client", () => ({
-  cloudDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => tombstoneState.blocked
-            ? [{ userIdHash: "hash:jwt-user-1", status: "pending", updatedAt: new Date() }]
-            : [],
-        }),
-      }),
-    }),
-  }),
-  closeCloudDbForTests: async () => {},
-}));
+const isAccountDeleted = async () => tombstoneState.blocked;
 
 const { verifyRequestFromSnapshot, clearNativeAuthCacheForTests, clearStackThrottleCircuitForTests } =
   await import("../services/vms/auth");
@@ -117,6 +101,7 @@ describe("verifyRequestFromSnapshot", () => {
     snapshotState.stored = { user: snapshotUser, ageMs: 60_000 };
     const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
     });
     expect(user).toEqual(snapshotUser);
     expect(getUser).toHaveBeenCalledTimes(0);
@@ -125,6 +110,7 @@ describe("verifyRequestFromSnapshot", () => {
   test("no snapshot falls back to Stack and stores the complete team list", async () => {
     const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
     });
     expect(user?.id).toBe("stack-user-1");
     expect(getUser).toHaveBeenCalledTimes(1);
@@ -137,6 +123,7 @@ describe("verifyRequestFromSnapshot", () => {
     snapshotState.stored = { user: snapshotUser, ageMs: 60_000 };
     const user = await verifyRequestFromSnapshot(nativeRequest("stale-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
     });
     expect(user?.id).toBe("stack-user-1");
     expect(getUser).toHaveBeenCalledTimes(1);
@@ -146,6 +133,7 @@ describe("verifyRequestFromSnapshot", () => {
     snapshotState.stored = { user: snapshotUser, ageMs: 120_000 };
     const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
       maxSnapshotAgeMs: 60_000,
     });
     expect(user?.id).toBe("stack-user-1");
@@ -157,6 +145,7 @@ describe("verifyRequestFromSnapshot", () => {
     tombstoneState.blocked = true;
     const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
     });
     expect(user).toBeNull();
     expect(snapshotState.deletes).toEqual(["jwt-user-1"]);
@@ -167,7 +156,7 @@ describe("verifyRequestFromSnapshot", () => {
     snapshotState.stored = { user: snapshotUser, ageMs: 1_000 };
     const user = await verifyRequestFromSnapshot(
       new Request("https://cmux.test/api/devices", { method: "POST" }),
-      { verifyAccessToken: localIdentity },
+      { verifyAccessToken: localIdentity, isAccountDeleted },
     );
     expect(user).toBeNull();
     expect(getUser).toHaveBeenCalledTimes(0);
@@ -176,6 +165,7 @@ describe("verifyRequestFromSnapshot", () => {
   test("the requested team id reaches the Stack fallback", async () => {
     await verifyRequestFromSnapshot(nativeRequest("stale-token"), {
       verifyAccessToken: localIdentity,
+      isAccountDeleted,
       requestedTeamId: "team-b",
     });
     const resolved = snapshotState.writes[0]?.user;

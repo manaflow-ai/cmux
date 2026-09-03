@@ -567,6 +567,8 @@ export async function verifyRequestFromSnapshot(
     readonly verifyAccessToken?: (
       accessToken: string,
     ) => Promise<StackAccessTokenIdentity | null>;
+    /** Test seam for the account-deletion tombstone lookup. */
+    readonly isAccountDeleted?: (userId: string) => Promise<boolean>;
   } = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) return null;
@@ -588,7 +590,8 @@ export async function verifyRequestFromSnapshot(
       if (snapshot) {
         // Stack's deletion metadata is not in the token, so the tombstone is
         // read directly rather than behind the usual metadata short-circuit.
-        if (await isAccountDeletionTombstoned(local.userId)) {
+        const isDeleted = options.isAccountDeleted ?? isAccountDeletionTombstoned;
+        if (await isDeleted(local.userId)) {
           await deleteIdentitySnapshot(local.userId);
           return null;
         }

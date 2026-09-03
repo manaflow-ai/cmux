@@ -433,8 +433,12 @@ export async function DELETE(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequestFromSnapshot(request, {
+    // Unregistering a device removes a row other members of the team can see,
+    // so it verifies live rather than trusting an identity snapshot that could
+    // be up to a TTL behind a team removal. It is user-initiated and rare.
+    user = await verifyRequest(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.delete.auth");

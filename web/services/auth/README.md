@@ -10,8 +10,8 @@ Three paths now answer without calling Stack:
 | Path | Used by | What it proves |
 | --- | --- | --- |
 | `verifyRequestIdentity` | iroh broker, `/api/relay/token` | The caller's user id, from a locally verified access token |
-| `verifyRequestFromSnapshot` | `/api/devices` | User id plus team membership, from `stack_identity_snapshots` |
-| `verifyRequest` | billing, VM mutations, account, admin | Live Stack session, no caching of the decision |
+| `verifyRequestFromSnapshot` | `/api/devices` GET and POST | User id plus team membership, from `stack_identity_snapshots` |
+| `verifyRequest` | billing, VM mutations, account, admin, `/api/devices` DELETE | Live Stack session, no caching of the decision |
 
 A snapshot is refreshed from Stack at most once per `CMUX_STACK_IDENTITY_
 SNAPSHOT_TTL_MS` (default one hour, the Stack access-token lifetime) per user,
