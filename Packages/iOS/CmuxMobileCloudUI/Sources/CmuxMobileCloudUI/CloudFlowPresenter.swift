@@ -16,14 +16,22 @@ private struct CloudFlowPresenter: ViewModifier {
 
     func body(content: Content) -> some View {
         if let controller {
-            content.fullScreenCover(isPresented: Binding(
-                get: { controller.isFlowPresented },
-                set: { controller.isFlowPresented = $0 }
-            )) {
-                CloudFlowView(controller: controller)
-            }
+            content.modifier(CloudFlowCover(controller: controller))
         } else {
             content
+        }
+    }
+}
+
+/// Split out so `@Bindable` produces a tracked binding: a hand-rolled
+/// `Binding(get:set:)` over an observable property is read outside body
+/// evaluation and never re-renders the cover.
+private struct CloudFlowCover: ViewModifier {
+    @Bindable var controller: CloudSessionController
+
+    func body(content: Content) -> some View {
+        content.fullScreenCover(isPresented: $controller.isFlowPresented) {
+            CloudFlowView(controller: controller)
         }
     }
 }
