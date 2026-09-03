@@ -35,6 +35,17 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: lhs, .. }, Self::Workspace { id: rhs, .. }) => lhs == rhs,
+            (Self::Pane { pane: lhs, .. }, Self::Pane { pane: rhs, .. }) => lhs == rhs,
+            (Self::Surface { surface: lhs, .. }, Self::Surface { surface: rhs, .. }) => lhs == rhs,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -53,6 +64,8 @@ pub(crate) struct ProjectionRailState {
     /// Selected resource-row index. Action selection is tracked separately so
     /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    /// Stable identity for the selected resource row across live reordering.
+    pub selected_target: Option<ProjectionTarget>,
     pub selected_action: Option<usize>,
     pub scroll: usize,
     pub footer_scroll: usize,
@@ -66,6 +79,7 @@ impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
             selected: 0,
+            selected_target: None,
             selected_action: None,
             scroll: 0,
             footer_scroll: 0,
@@ -73,6 +87,27 @@ impl Default for ProjectionRailState {
             collapsed: HashSet::new(),
             rows_generation: 0,
         }
+    }
+}
+
+impl ProjectionRailState {
+    /// Keep resource selection attached to its target when rows reorder.
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if self.selected_action.is_some() {
+            return;
+        }
+        if let Some(target) = self.selected_target {
+            if let Some(index) = rows
+                .iter()
+                .position(|row| row.target == target)
+                .or_else(|| rows.iter().position(|row| row.target.same_resource(target)))
+            {
+                self.selected = index;
+                return;
+            }
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
     }
 }
 
@@ -627,6 +662,48 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn projection_selection_follows_target_when_agent_rows_reorder() {
+        let mut tree = tree();
+        tree.workspaces[0].screens[0].panes[0].tabs.push(tab(6, "new blocked"));
+        let agents = |states: [(&str, u64); 3]| {
+            [4, 5, 6]
+                .into_iter()
+                .zip(states)
+                .map(|(surface, (state, updated_at_ms))| AgentInfo {
+                    surface,
+                    state: state.into(),
+                    source: "hook".into(),
+                    session: None,
+                    updated_at_ms,
+                })
+                .collect::<Vec<_>>()
+        };
+        let spec = spec(vec![SidebarResourceKind::Agents]);
+        let initial = rows(
+            &spec,
+            &tree,
+            &agents([("working", 30), ("working", 20), ("working", 10)]),
+            0,
+            &HashSet::new(),
+        );
+        let mut state = ProjectionRailState { selected: 1, ..Default::default() };
+        state.reconcile_selection(&initial);
+
+        let mut moved_tree = tree.clone();
+        moved_tree.workspaces[0].screens[0].panes[0].tabs.insert(0, tab(7, "moved before"));
+        let reordered = rows(
+            &spec,
+            &moved_tree,
+            &agents([("blocked", 1), ("working", 20), ("blocked", 40)]),
+            0,
+            &HashSet::new(),
+        );
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected, 2);
+        assert_eq!(reordered[state.selected].target, initial[1].target);
     }
 
     #[test]
