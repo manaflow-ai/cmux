@@ -64,8 +64,15 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
         .await
         .unwrap();
 
-    let LoopbackPair { client, server: network, client_socket, server_socket, server_v6, .. } =
-        loopback_pair().await.unwrap();
+    let LoopbackPair {
+        client,
+        server: network,
+        client_socket,
+        server_socket,
+        server_v4,
+        server_v6,
+        ..
+    } = loopback_pair().await.unwrap();
     let network = WgNet::start(network, server_socket).await.unwrap();
     bridge_to_daemon(&network, 1337, server.local_addr()).await;
     let tunnel = Arc::new(WgNet::start(client, client_socket).await.unwrap());
@@ -145,6 +152,64 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
         .await
         .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
+
+    // The same hub must carry an IPv4 route too: cloud attach routes are
+    // IPv4 today.
+    let endpoint_v4 =
+        Url::parse(&format!("ws://{}/v1/link", SocketAddr::new(server_v4, 1337))).unwrap();
+    let invitation_v4 = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+    let approver_v4 = tokio::spawn({
+        let auth = auth.clone();
+        async move {
+            let pending = auth.wait_for_pending(Duration::from_secs(5)).await.unwrap();
+            auth.approve(&pending[0].invitation_id).await.unwrap();
+        }
+    });
+    let session_v4 = SessionId([78; 16]);
+    let group_v4 = DirectWebSocketProvider::with_dialer(
+        65_535,
+        Arc::new(SocksDialer::new(socket_path.clone())),
+    )
+    .connect(ConnectRequest {
+        endpoint: endpoint_v4,
+        session: session_v4,
+        lane_policy: LanePolicy::Isolated,
+        routing: Default::default(),
+    })
+    .await
+    .unwrap();
+    let secret_v4 = invitation_v4.secret_bytes().unwrap();
+    let client_v4 = tokio::time::timeout(
+        TIMEOUT,
+        ClientConnection::connect(
+            group_v4,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: Some(auth.identity().public_key()),
+                auth: ClientAuthMode::Invitation {
+                    id: invitation_v4.id,
+                    secret: Zeroizing::new(secret_v4),
+                },
+                device_name: "hub-sidecar-v4".into(),
+                session: session_v4,
+                lane_policy: LanePolicy::Isolated,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy::default(),
+            },
+        ),
+    )
+    .await
+    .expect("IPv4 connect through the hub timed out")
+    .unwrap();
+    approver_v4.await.unwrap();
+    let daemon_client_v4 = tokio::time::timeout(TIMEOUT, accepted.recv()).await.unwrap().unwrap();
+    assert_eq!(client_v4.snapshot().await.state, ConnectionState::Connected);
+    client_v4
+        .send(Lane::Interactive, 1, Bytes::from_static(b"v4 keys"), FrameFlags::empty())
+        .await
+        .unwrap();
+    assert_eq!(daemon_client_v4.receive().await.unwrap().unwrap().payload, b"v4 keys".as_slice());
+    client_v4.close().await.unwrap();
 
     // Ruleset: outside the tunnel's routes -> 0x02.
     let mut outside = vec![0x01, 192, 0, 2, 1];
