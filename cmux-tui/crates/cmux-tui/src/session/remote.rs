@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -1509,21 +1509,15 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
                         worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
                     state.pending.append(&mut pending);
                 }
-                match receiver.recv_timeout(Duration::from_millis(50)) {
-                    Ok(()) => {}
-                    Err(RecvTimeoutError::Timeout) if !has_pending => {
-                        let mut state =
-                            worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
-                        if state.pending.is_empty() {
-                            state.sender = None;
-                            break;
-                        }
+                if has_pending {
+                    match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
                     }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => {
-                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner()).sender =
-                            None;
-                        break;
+                } else {
+                    match receiver.recv() {
+                        Ok(()) => {}
+                        Err(RecvError) => break,
                     }
                 }
             }
