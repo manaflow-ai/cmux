@@ -9,8 +9,37 @@ import SwiftUI
 /// HIG: Lists and tables, Loading, Navigation. The link opens lazily on first
 /// load, so the connecting state shows the same progress affordance.
 struct CloudTerminalCatalogView: View {
+    let machine: CloudMachine
+    let controller: CloudSessionController
+    /// Resolved in `.task`, after the push has settled, so no observable state
+    /// mutates while the navigation stack is evaluating its body.
+    @State private var connection: CloudMachineConnection?
+
+    var body: some View {
+        Group {
+            if let connection {
+                CloudTerminalCatalogContent(connection: connection)
+            } else if case .ready = controller.tunnel {
+                ProgressView()
+                    .accessibilityIdentifier("CloudCatalogResolving")
+            } else {
+                CloudTunnelUnavailableView()
+            }
+        }
+        .navigationTitle(machine.preferredName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: controller.tunnel) {
+            if connection == nil { connection = controller.connection(for: machine) }
+        }
+        // Hold the tunnel while pushed over the section (whose onDisappear fires).
+        .onAppear { controller.sectionDidAppear() }
+        .onDisappear { controller.sectionDidDisappear() }
+    }
+}
+
+/// The catalog list for a resolved connection.
+struct CloudTerminalCatalogContent: View {
     @State var connection: CloudMachineConnection
-    @Environment(\.cloudSessionController) private var controller
 
     var body: some View {
         List {
@@ -25,16 +54,11 @@ struct CloudTerminalCatalogView: View {
             createSection
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(connection.machine.preferredName)
-        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: CloudTerminalSummary.self) { terminal in
             CloudTerminalScreen(connection: connection, terminal: terminal)
         }
         .task { connection.refreshTerminals() }
         .refreshable { connection.refreshTerminals() }
-        // Hold the tunnel while pushed over the section (whose onDisappear fires).
-        .onAppear { controller?.sectionDidAppear() }
-        .onDisappear { controller?.sectionDidDisappear() }
     }
 
     private var terminalsSection: some View {
