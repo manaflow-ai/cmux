@@ -116,6 +116,7 @@ final class CloudVMActionLauncher {
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
             let result = outputCollector.finishResult()
+            outputDelivery?.finish()
             let output = result.output
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
@@ -166,6 +167,7 @@ final class CloudVMActionLauncher {
             return true
         } catch {
             outputCollector.cancel()
+            outputDelivery?.finish()
             if presentsFailureAlert {
                 presentStartFailure(
                     summary: String(
@@ -380,13 +382,20 @@ final class CloudVMActionLauncher {
 /// Delivers bounded stdout progress through one consumer task. `AsyncStream`
 /// owns synchronization and drops the oldest chunks when its finite buffer is
 /// full, so pipe callbacks never create an unbounded MainActor task fanout.
-private final class MainActorOutputCoalescer: @unchecked Sendable {
+final class MainActorOutputCoalescer: @unchecked Sendable {
     private let continuation: AsyncStream<Data>.Continuation
+    private let deliveryTask: Task<Void, Never>
 
-    init(handler: @escaping @MainActor (String) -> Void) {
+    init(
+        handler: @escaping @MainActor (String) -> Void,
+        onTermination: (@Sendable () -> Void)? = nil
+    ) {
         let pair = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(128))
         continuation = pair.continuation
-        Task {
+        pair.continuation.onTermination = { @Sendable _ in
+            onTermination?()
+        }
+        deliveryTask = Task {
             for await data in pair.stream {
                 var safeData = data
                 while !safeData.isEmpty && String(data: safeData, encoding: .utf8) == nil { safeData.removeLast() }
@@ -400,6 +409,17 @@ private final class MainActorOutputCoalescer: @unchecked Sendable {
     func enqueue(_ data: Data) {
         guard !data.isEmpty else { return }
         continuation.yield(data)
+    }
+
+    /// Finish the stream after the process has delivered its final output.
+    /// The delivery task then drains any buffered chunks and exits.
+    func finish() {
+        continuation.finish()
+    }
+
+    deinit {
+        continuation.finish()
+        deliveryTask.cancel()
     }
 }
 
