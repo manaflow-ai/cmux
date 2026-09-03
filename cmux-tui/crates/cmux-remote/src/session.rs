@@ -1052,7 +1052,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use async_trait::async_trait;
-    use tokio::sync::{Mutex as AsyncMutex, Semaphore, oneshot};
+    use tokio::sync::{Barrier, Mutex as AsyncMutex, Semaphore, oneshot};
 
     use super::*;
     use crate::link::{LaneMuxLink, LinkRoute, test_support};
@@ -1074,6 +1074,10 @@ mod tests {
     struct GatedAckLink {
         incoming: AsyncMutex<mpsc::UnboundedReceiver<Bytes>>,
         send_entered: Semaphore,
+    }
+
+    struct ConcurrentCloseLink {
+        close_barrier: Barrier,
     }
 
     #[async_trait]
@@ -1142,6 +1146,30 @@ mod tests {
         }
 
         async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for ConcurrentCloseLink {
+        fn description(&self) -> &str {
+            "concurrent-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.close_barrier.wait().await;
             Ok(())
         }
     }
@@ -1246,6 +1274,34 @@ mod tests {
         drop(session);
         drop(link);
         assert!(weak_link.upgrade().is_none(), "session tasks retained the link after close");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn concurrent_close_calls_all_observe_worker_shutdown() {
+        const CLOSE_CALLS: usize = 64;
+        const ROUNDS: usize = 256;
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for round in 0..ROUNDS {
+                let link =
+                    Arc::new(ConcurrentCloseLink { close_barrier: Barrier::new(CLOSE_CALLS) });
+                let session = ReliableSession::new(
+                    SessionId([(round % 256) as u8; 16]),
+                    link,
+                    SessionLimits::default(),
+                );
+                let mut closes = Vec::with_capacity(CLOSE_CALLS);
+                for _ in 0..CLOSE_CALLS {
+                    let session = session.clone();
+                    closes.push(tokio::spawn(async move { session.close().await }));
+                }
+                for close in closes {
+                    close.await.unwrap().unwrap();
+                }
+            }
+        })
+        .await
+        .expect("concurrent close calls missed scheduler completion");
     }
 
     #[tokio::test]
