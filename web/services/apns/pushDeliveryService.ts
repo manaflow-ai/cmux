@@ -31,10 +31,12 @@ import {
 } from "./response";
 import {
   claimDeviceDeliveryTargets,
+  type ClaimedApnsTarget,
   type DeviceDeliveryClaim,
   DeviceDeliveryBusyError,
   releaseDeviceDeliveryTargets,
 } from "./deviceDeliveryLease";
+import { isPushMutedByFilters, parsePushFilters } from "./pushFilters";
 
 type PushDatabase = ReturnType<typeof cloudDb>;
 
@@ -192,12 +194,12 @@ async function executePushDelivery(
 async function executePushDeliveryWithTargets(
   input: PushDeliveryInput,
   dependencies: PushDeliveryDependencies,
-  tokens: ApnsTarget[],
+  tokens: ClaimedApnsTarget[],
 ): Promise<DeliveryExecution> {
   const { db } = dependencies;
 
   let priorOutcomes: ApnsSendResult[] = [];
-  let sendTargets: ApnsTarget[] = tokens;
+  let sendTargets: ClaimedApnsTarget[] = tokens;
   let deliveryPayload = input.payload;
   let leaseToken: string | null = null;
   try {
@@ -370,18 +372,34 @@ async function executePushDeliveryWithTargets(
     };
   }
 
+  // Per-device mute filters partition the final send set (covering the retry
+  // path too): unmuted devices get the payload as-is, muted devices with a
+  // badge get the silent badge-only variant, and muted devices without a
+  // badge are resolved terminally with no APNs traffic at all.
+  const partition = partitionPushSendTargets(sendTargets, deliveryPayload);
+  const send = dependencies.send ?? sendApnsNotificationReliably;
+  const config = dependencies.config;
   // Deliberately not tied to the caller's request lifecycle: a client
   // disconnect mid-send would discard partial APNs outcomes and re-alert
   // already-delivered devices on the next same-correlation retry, and it
   // would strand the correlation lease until it times out. The send is
   // bounded (attempt cap x timeout), so it always finishes inside the lease.
-  const rawResults = await (
-    dependencies.send ?? sendApnsNotificationReliably
-  )(
-    dependencies.config,
-    sendTargets,
-    deliveryPayload,
-  );
+  const [alertResults, badgeOnlyResults] = await Promise.all([
+    partition.deliver.length === 0
+      ? Promise.resolve<ApnsSendResult[]>([])
+      : send(config, partition.deliver, deliveryPayload),
+    partition.badgeOnly.length === 0
+      ? Promise.resolve<ApnsSendResult[]>([])
+      : send(config, partition.badgeOnly, {
+          ...deliveryPayload,
+          filteredToBadgeOnly: true,
+        }),
+  ]);
+  const rawResults = [
+    ...alertResults,
+    ...badgeOnlyResults,
+    ...partition.suppressed,
+  ];
   const sentTargetByToken = new Map(
     sendTargets.map((target) => [target.deviceToken, target]),
   );
@@ -471,6 +489,54 @@ function summarizeExpiredRecord(
     permanentFailures:
       previous.permanentFailures + previous.transientFailures,
   };
+}
+
+export interface PushSendPartition {
+  /** Targets that receive the payload unchanged. */
+  readonly deliver: ClaimedApnsTarget[];
+  /** Muted targets that still get a silent badge-only push (badge sent). */
+  readonly badgeOnly: ClaimedApnsTarget[];
+  /** Muted targets with nothing to send: pre-resolved terminal outcomes. */
+  readonly suppressed: ApnsSendResult[];
+}
+
+/**
+ * Applies each claimed device's stored mute filters to the final send set.
+ * Muting never fails a device: with a badge to keep truthful the device gets
+ * the silent badge-only variant, without one it is finalized as status 200 /
+ * "filtered" — a success summarize counts as sent and `isTransientApnsResult`
+ * never retries. An unparseable stored document fails open (deliver).
+ */
+export function partitionPushSendTargets(
+  targets: readonly ClaimedApnsTarget[],
+  payload: PushDeliveryPayload,
+): PushSendPartition {
+  const deliver: ClaimedApnsTarget[] = [];
+  const badgeOnly: ClaimedApnsTarget[] = [];
+  const suppressed: ApnsSendResult[] = [];
+  for (const target of targets) {
+    const filters =
+      target.pushFilters == null ? null : parsePushFilters(target.pushFilters);
+    const muted =
+      filters != null
+      && filters.ok
+      && isPushMutedByFilters(filters.value, payload);
+    if (!muted) {
+      deliver.push(target);
+    } else if (payload.badgeCount != null) {
+      badgeOnly.push(target);
+    } else {
+      suppressed.push({
+        ...(target.targetId == null ? {} : { targetId: target.targetId }),
+        deviceToken: target.deviceToken,
+        bundleId: target.bundleId,
+        status: 200,
+        reason: "filtered",
+        prune: false,
+      });
+    }
+  }
+  return { deliver, badgeOnly, suppressed };
 }
 
 function targetIdentity(target: ApnsTarget): string {

@@ -128,6 +128,19 @@ describe("apns payload", () => {
     expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
   });
 
+  test("hideContent keeps the opaque workspace group id but never the group display name", () => {
+    const payload = buildApnsPayload({
+      title: "secret-host",
+      body: "secret",
+      workspaceGroupId: "group-1",
+      workspaceGroupName: "Secret Client Project",
+      hideContent: true,
+    }) as { cmux: Record<string, string> };
+
+    expect(payload.cmux.workspaceGroupId).toBe("group-1");
+    expect(payload.cmux.workspaceGroupName).toBeUndefined();
+  });
+
   test("preserves one opaque correlation id from Mac input through the provider body without content leakage", () => {
     const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
     const parsed = parsePushPayload({
@@ -169,6 +182,48 @@ describe("apns payload", () => {
   test("leaves the badge alone when no count was sent (older Macs)", () => {
     const payload = buildApnsPayload({ title: "t", body: "b" }) as { aps: Record<string, unknown> };
     expect("badge" in payload.aps).toBe(false);
+  });
+
+  test("notify push carries the workspace-group identity for mute filters", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      body: "Agent finished",
+      workspaceId: "ws-1",
+      workspaceGroupId: "grp-1",
+      workspaceGroupName: "Backend Work",
+    }) as { aps: Record<string, unknown>; cmux: Record<string, unknown> };
+
+    expect(payload.cmux.workspaceGroupId).toBe("grp-1");
+    expect(payload.cmux.workspaceGroupName).toBe("Backend Work");
+    // Still a normal visible alert.
+    expect(payload.aps.alert).toEqual({ title: "claude", body: "Agent finished" });
+  });
+
+  test("mute-filtered push degrades to a silent badge-only payload", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      subtitle: "issue-118",
+      body: "Agent finished",
+      workspaceId: "ws-1",
+      notificationId: "n-1",
+      macDeviceId: "mac-1",
+      macInstanceTag: "nightly",
+      correlationId: "4d02de48-a21d-4ba1-97b5-42e9400ee09b",
+      badgeCount: 5,
+      filteredToBadgeOnly: true,
+    }) as { aps: Record<string, unknown>; cmux: Record<string, unknown> };
+
+    // Nothing visible: no alert, no sound, no category, no time-sensitive level.
+    expect(payload.aps).toEqual({ "content-available": 1, badge: 5 });
+    expect(payload.cmux).toEqual({
+      filtered: true,
+      macDeviceId: "mac-1",
+      macInstanceTag: "nightly",
+      correlationId: "4d02de48-a21d-4ba1-97b5-42e9400ee09b",
+    });
+    // Unlike dismiss, nothing was cleared.
+    expect("dismissedIds" in payload.cmux).toBe(false);
+    expect(JSON.stringify(payload)).not.toContain("Agent finished");
   });
 
   test("dismiss push is banner-less and carries the exact Mac instance owner", () => {
@@ -525,6 +580,8 @@ describe("apns route policy", () => {
       surfaceId: " sf-1 ",
       macDeviceId: " mac-1 ",
       macInstanceTag: " nightly ",
+      workspaceGroupId: " grp-1 ",
+      workspaceGroupName: " Backend Work ",
       notificationId: " n-1 ",
       retargetsToLiveSurfaceOwner: false,
       hideContent: true,
@@ -541,6 +598,8 @@ describe("apns route policy", () => {
         surfaceId: "sf-1",
         macDeviceId: "mac-1",
         macInstanceTag: "nightly",
+        workspaceGroupId: "grp-1",
+        workspaceGroupName: "Backend Work",
         notificationId: "n-1",
         correlationId: null,
         expirationEpochSeconds: null,
@@ -574,6 +633,8 @@ describe("apns route policy", () => {
         surfaceId: null,
         macDeviceId: null,
         macInstanceTag: null,
+        workspaceGroupId: null,
+        workspaceGroupName: null,
         notificationId: null,
         correlationId: null,
         expirationEpochSeconds: null,
@@ -608,6 +669,36 @@ describe("apns route policy", () => {
     });
   });
 
+  test("bounds the optional workspace-group fields like the other ids", () => {
+    expect(
+      parsePushPayload({
+        title: "agent",
+        body: "done",
+        workspaceGroupId: "x".repeat(MAX_PUSH_ID_CHARS + 1),
+      }),
+    ).toEqual({ ok: false, error: "workspace_group_id_too_long" });
+    expect(
+      parsePushPayload({
+        title: "agent",
+        body: "done",
+        workspaceGroupName: "x".repeat(MAX_PUSH_ID_CHARS + 1),
+      }),
+    ).toEqual({ ok: false, error: "workspace_group_name_too_long" });
+
+    // Absent or empty parses to null, like the other optional ids.
+    const absent = parsePushPayload({ title: "agent", body: "done" });
+    expect(absent.ok && absent.value.workspaceGroupId).toBeNull();
+    expect(absent.ok && absent.value.workspaceGroupName).toBeNull();
+    const empty = parsePushPayload({
+      title: "agent",
+      body: "done",
+      workspaceGroupId: "  ",
+      workspaceGroupName: "",
+    });
+    expect(empty.ok && empty.value.workspaceGroupId).toBeNull();
+    expect(empty.ok && empty.value.workspaceGroupName).toBeNull();
+  });
+
   test("passes through known reply shapes and ignores unknown values", () => {
     const value = (replyShape: unknown) => {
       const parsed = parsePushPayload({ title: "agent", body: "done", replyShape });
@@ -639,6 +730,8 @@ describe("apns route policy", () => {
         surfaceId: null,
         macDeviceId: null,
         macInstanceTag: null,
+        workspaceGroupId: null,
+        workspaceGroupName: null,
         notificationId: null,
         correlationId: null,
         expirationEpochSeconds: null,
@@ -2218,6 +2311,60 @@ describe("apns sender transport", () => {
     expect(capturedHeaders).toHaveLength(1);
     expect("apns-collapse-id" in capturedHeaders[0]).toBe(false);
     expect(capturedHeaders[0]["apns-priority"]).toBe("5");
+  });
+
+  test("mute-filtered push: no collapse and priority 5, like dismiss", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-FILTERED", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
+      {
+        title: "agent",
+        body: "done",
+        notificationId: "n-7",
+        badgeCount: 3,
+        filteredToBadgeOnly: true,
+      },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    // Invisible payload: never collapse onto a visible banner, never demand
+    // immediate presentation. Push-type stays `alert` (badge = user-facing).
+    expect("apns-collapse-id" in capturedHeaders[0]).toBe(false);
+    expect(capturedHeaders[0]["apns-priority"]).toBe("5");
+    expect(capturedHeaders[0]["apns-push-type"]).toBe("alert");
   });
 
   test("notify push explicitly requests immediate priority", async () => {

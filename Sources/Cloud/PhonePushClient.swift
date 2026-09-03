@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import CmuxPhonePush
+import CmuxWorkspaces
 import Foundation
 import Observation
 import OSLog
@@ -87,6 +88,17 @@ final class PhonePushClient {
     let configurationState: PhonePushConfigurationState
     private var auth: AuthCoordinator?
     var presenceMonitor: MacPresenceMonitor = .live()
+    /// Resolves the sidebar group owning a workspace id, searching every
+    /// window's tab manager. Stored as an injectable seam so tests can
+    /// supply groups without constructing AppKit windows. Returns nil for
+    /// ungrouped workspaces and workspaces no window currently owns.
+    var workspaceGroupResolver: @MainActor (UUID) -> (id: UUID, name: String)? = { tabId in
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId),
+              let groupId = tabManager.workspacesById[tabId]?.groupId,
+              let group = tabManager.workspaceGroups
+                  .first(where: { $0.id == groupId }) else { return nil }
+        return (id: group.id, name: group.name)
+    }
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
     private var activeIdentity: AuthenticatedSessionIdentity?
@@ -253,7 +265,8 @@ final class PhonePushClient {
             macDeviceId: MobileHostIdentity.deviceID(),
             macInstanceTag: MobileHostIdentity.instanceTag(),
             badgeCount: badgeCount,
-            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
+            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey),
+            workspaceGroup: workspaceGroupResolver(notification.tabId)
         )
         return enqueue(payload)
     }
@@ -277,6 +290,8 @@ final class PhonePushClient {
             ),
             replyShape: "",
             workspaceId: nil,
+            workspaceGroupId: nil,
+            workspaceGroupName: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: MobileHostIdentity.deviceID(),
@@ -365,6 +380,8 @@ final class PhonePushClient {
                 body: "",
                 replyShape: "",
                 workspaceId: nil,
+                workspaceGroupId: nil,
+                workspaceGroupName: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
                 macDeviceId: MobileHostIdentity.deviceID(),

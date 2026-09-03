@@ -21,9 +21,18 @@ export class DeviceDeliveryBusyError extends Error {
   }
 }
 
+/**
+ * A claimed send target plus the row's device-authored mute filters, carried
+ * as `unknown` so the sender-facing `ApnsTarget` type is unchanged and the
+ * delivery service re-validates the stored document at send time.
+ */
+export type ClaimedApnsTarget = ApnsTarget & {
+  readonly pushFilters?: unknown;
+};
+
 export interface DeviceDeliveryClaim {
   readonly leaseToken: string | null;
-  readonly targets: readonly ApnsTarget[];
+  readonly targets: readonly ClaimedApnsTarget[];
 }
 
 /**
@@ -58,6 +67,7 @@ export async function claimDeviceDeliveryTargets(
         bundleId: deviceTokens.bundleId,
         environment: deviceTokens.environment,
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+        pushFilters: deviceTokens.pushFilters,
       })
       .from(deviceTokens)
       .where(tokenScope(targetBundleId))
@@ -101,6 +111,7 @@ export async function claimDeviceDeliveryTargets(
         deviceToken: row.deviceToken,
         bundleId: row.bundleId,
         environment: row.environment,
+        ...(row.pushFilters == null ? {} : { pushFilters: row.pushFilters }),
       })),
     };
   });

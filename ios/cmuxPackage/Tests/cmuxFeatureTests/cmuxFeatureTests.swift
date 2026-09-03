@@ -4124,6 +4124,7 @@ struct InertPushRegistration: PushRegistering {
     func register(deviceToken: Data) async {}
     func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}
+    func updateFilters(_ documentData: Data?) async {}
     func unregisterFromServer() async {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
     func unregisterFromServer(

@@ -56,6 +56,21 @@ public actor PushRegistrationService: PushRegistering {
     private var uploadTaskTokenHex: String?
     private var uploadTaskGeneration: UUID?
     private var operationGeneration = UUID()
+    /// One drain worker keeps filter PUTs ordered: rapid Settings mutations
+    /// must not race two PUTs whose server apply order is undefined.
+    private var filtersSyncTask: Task<Void, Never>?
+    /// Set when the caller cleared filters (`updateFilters(nil)`) and the
+    /// clearing PUT has not been acknowledged. In-memory only: a re-created
+    /// token row starts with no filters, so a lost clear self-repairs.
+    private var pendingFiltersClear = false
+    /// The document+token pair the server last acknowledged, so the drain and
+    /// the post-registration re-push can skip redundant PUTs.
+    private var acknowledgedFiltersDocument: Data?
+    private var acknowledgedFiltersTokenHex: String?
+    /// Detects an `updateFilters(_:)` overtaken while suspended on the
+    /// authoring-session snapshot, so an older document cannot overwrite a
+    /// newer document or clear that persisted during the await.
+    private var filtersAuthoringGeneration = UUID()
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -68,6 +83,18 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
     private static let pendingUnregisterAttemptBudget = 4
+    /// The latest caller-encoded filters document (opaque JSON bytes),
+    /// persisted so a relaunch can still re-push it after the next successful
+    /// token registration re-creates the server row.
+    private static let filtersDocumentKey =
+        "cmux.notifications.pushFilters.document.v1"
+    /// The account that authored ``filtersDocumentKey``, captured from the
+    /// same session source of truth the registration flow persists into
+    /// ``registeredAccountIDKey``. The document may only be PUT while that
+    /// account is the authenticated session; rules authored under account A
+    /// must never mute account B's pushes.
+    private static let filtersAccountIDKey =
+        "cmux.notifications.pushFilters.accountID.v1"
 
     private static func defaultPendingUnregisterStoreURL(
         suiteName: String?,
@@ -409,6 +436,211 @@ public actor PushRegistrationService: PushRegistering {
         if snapshotValue.backendState == .registered {
             await retryPendingUnregisterIfPossible()
         }
+        // Crash recovery: a document persisted before its PUT completed has
+        // no in-memory acknowledgement, and a launch whose registration never
+        // reaches the post-registration re-push would otherwise never re-send
+        // it. Every launch/foreground lifecycle validation lands here, so
+        // re-drive the single-flight drain; its authoring-account gate still
+        // applies.
+        if filtersSyncIsRequired {
+            scheduleFiltersSync()
+        }
+    }
+
+    public func updateFilters(_ documentData: Data?) async {
+        filtersAuthoringGeneration = UUID()
+        let generation = filtersAuthoringGeneration
+        if let documentData {
+            // Scope the document to its authoring account, resolved from the
+            // same provider session snapshot the registration flow records
+            // into `registeredAccountIDKey`. The provider is read directly
+            // (not through `boundedSessionSnapshot`) because the phase
+            // registry is exclusive per phase: a Settings save must not fail
+            // a concurrent registration snapshot, or be failed by one.
+            // Without an authenticated session there is no owner to scope to
+            // (and no credentials to PUT with), so drop the update rather
+            // than retain an unowned document that could later follow a
+            // different account's registration.
+            let authoringAccountID = try? await tokenProvider
+                .authenticatedSessionSnapshot().accountID
+            guard generation == filtersAuthoringGeneration else { return }
+            guard let authoringAccountID else {
+                pushLog.error("filters update dropped: no authenticated authoring session")
+                return
+            }
+            defaults.set(documentData, forKey: Self.filtersDocumentKey)
+            defaults.set(authoringAccountID, forKey: Self.filtersAccountIDKey)
+            pendingFiltersClear = false
+        } else {
+            defaults.removeObject(forKey: Self.filtersDocumentKey)
+            defaults.removeObject(forKey: Self.filtersAccountIDKey)
+            pendingFiltersClear = true
+        }
+        // The document changed: whatever the server acknowledged is stale.
+        acknowledgedFiltersDocument = nil
+        acknowledgedFiltersTokenHex = nil
+        // Await the ordered drain so callers observe a bounded attempt. An
+        // already-running drain re-reads the persisted document each loop, so
+        // it picks this change up; the second pass covers the window where it
+        // exited between our persist and its final condition check.
+        if let running = filtersSyncTask {
+            await running.value
+        }
+        if filtersSyncTask == nil, filtersSyncIsRequired {
+            scheduleFiltersSync()
+            await filtersSyncTask?.value
+        }
+    }
+
+    /// Whether the persisted filters intent differs from what the server last
+    /// acknowledged for the current token.
+    private var filtersSyncIsRequired: Bool {
+        guard let tokenHex = cachedTokenHex else { return false }
+        let pending = defaults.data(forKey: Self.filtersDocumentKey)
+        if pending == nil, !pendingFiltersClear { return false }
+        if acknowledgedFiltersTokenHex == tokenHex,
+           acknowledgedFiltersDocument == pending,
+           !(pending == nil && pendingFiltersClear) {
+            return false
+        }
+        return true
+    }
+
+    private func scheduleFiltersSync() {
+        guard filtersSyncTask == nil else { return }
+        filtersSyncTask = Task { [weak self] in
+            await self?.drainFiltersSync()
+        }
+    }
+
+    private func drainFiltersSync() async {
+        defer { filtersSyncTask = nil }
+        while filtersSyncIsRequired {
+            guard let tokenHex = cachedTokenHex else { return }
+            let document = defaults.data(forKey: Self.filtersDocumentKey)
+            let authoringAccountID = document == nil
+                ? nil
+                : defaults.string(forKey: Self.filtersAccountIDKey)
+            let clearing = document == nil
+            guard await sendFilters(
+                documentData: document,
+                authoringAccountID: authoringAccountID,
+                tokenHex: tokenHex,
+                allowRecovery: true
+            ) else { return }
+            acknowledgedFiltersDocument = document
+            acknowledgedFiltersTokenHex = tokenHex
+            if clearing, defaults.data(forKey: Self.filtersDocumentKey) == nil {
+                pendingFiltersClear = false
+            }
+        }
+    }
+
+    /// PUTs the current filters document (or an explicit `null` clear) for the
+    /// token, using the same auth headers as registration.
+    /// - Returns: Whether the server acknowledged the update.
+    private func sendFilters(
+        documentData: Data?,
+        authoringAccountID: String?,
+        tokenHex: String,
+        allowRecovery: Bool
+    ) async -> Bool {
+        var body: [String: Any] = [
+            "deviceToken": tokenHex,
+            "bundleId": bundleID,
+        ]
+        if let documentData {
+            // Fail closed on a corrupt retained document: encoding it as
+            // `null` would clear the server-side filters and unmute every
+            // notification the user silenced. Skip the PUT and leave the
+            // document pending so a later corrected `updateFilters(_:)`
+            // supersedes it; only an explicit `updateFilters(nil)` may clear
+            // server-side.
+            guard let document = try? JSONSerialization.jsonObject(
+                with: documentData
+            ) else {
+                pushLog.error("filters update skipped: retained document is undecodable")
+                return false
+            }
+            body["filters"] = document
+        } else {
+            body["filters"] = NSNull()
+        }
+        guard case let .success(context) = await makeRequest(
+            method: "PUT",
+            path: "/api/device-tokens/filters",
+            body: body,
+            authPhase: .pushRegistrationSession
+        ) else { return false }
+        if documentData != nil {
+            // A document may only follow its authoring account. Comparing
+            // against the exact session that authenticates this PUT means an
+            // account switch between drains cannot apply account A's rules to
+            // account B's registration.
+            guard let authoringAccountID,
+                  context.session?.accountID == authoringAccountID else {
+                pushLog.info("filters update skipped: session does not match the document's authoring account")
+                return false
+            }
+        }
+        switch await performFiltersUpdate(context.request) {
+        case .success:
+            return true
+        case .unknownDeviceToken:
+            // The token row is gone server-side (pruned, or re-created state
+            // was lost). Re-register once, then retry the PUT once.
+            guard allowRecovery else { return false }
+            await syncTokenIfPossible()
+            guard cachedTokenHex == tokenHex else { return false }
+            return await sendFilters(
+                documentData: documentData,
+                authoringAccountID: authoringAccountID,
+                tokenHex: tokenHex,
+                allowRecovery: false
+            )
+        case .failure:
+            return false
+        }
+    }
+
+    private func performFiltersUpdate(
+        _ request: URLRequest
+    ) async -> FiltersUpdateResult {
+        let redirectDelegate = RedirectMethodPreservingDelegate()
+        do {
+            let (data, response) = try await session.data(
+                for: request,
+                delegate: redirectDelegate
+            )
+            guard let http = response as? HTTPURLResponse else {
+                return .failure
+            }
+            if http.statusCode == 404 {
+                let body = try? JSONDecoder().decode(
+                    RegistrationErrorResponse.self,
+                    from: data
+                )
+                return body?.error == "unknown_device_token"
+                    ? .unknownDeviceToken
+                    : .failure
+            }
+            guard (200...299).contains(http.statusCode),
+                  let acknowledgement = try? JSONDecoder().decode(
+                      RegistrationAcknowledgement.self,
+                      from: data
+                  ),
+                  acknowledgement.ok
+            else {
+                pushLog.error(
+                    "filters update failed status=\(http.statusCode, privacy: .public)"
+                )
+                return .failure
+            }
+            return .success
+        } catch {
+            pushLog.error("filters update transport failure")
+            return .failure
+        }
     }
 
     public func unregisterFromServer() async {
@@ -691,6 +923,28 @@ public actor PushRegistrationService: PushRegistering {
             if previousOwnerID != nil || hasPendingUnregisters {
                 clearPendingUnregisterToken(tokenHex: tokenHex)
             }
+            // The upsert may have re-created the token row, which starts with
+            // no filters server-side. Re-push the retained document; the drain
+            // worker orders it after any in-flight filters PUT.
+            if defaults.data(forKey: Self.filtersDocumentKey) != nil {
+                acknowledgedFiltersDocument = nil
+                acknowledgedFiltersTokenHex = nil
+                if let requestSession,
+                   defaults.string(forKey: Self.filtersAccountIDKey)
+                       != requestSession.accountID {
+                    // The registration succeeded under a different account
+                    // than the one that authored the document. Drop it rather
+                    // than retain it: rules authored by the old account must
+                    // never mute the new account's pushes, and the Settings
+                    // store still holds the rules locally, so any edit
+                    // re-authors the document under the new account.
+                    pushLog.info("retained filters document dropped: registration succeeded under a different account")
+                    defaults.removeObject(forKey: Self.filtersDocumentKey)
+                    defaults.removeObject(forKey: Self.filtersAccountIDKey)
+                } else {
+                    scheduleFiltersSync()
+                }
+            }
             if pushServiceConfigured {
                 publish(PushRegistrationSnapshot(
                     isEnabled: true,
@@ -836,10 +1090,14 @@ public actor PushRegistrationService: PushRegistering {
         return true
     }
 
+    // Untyped body carve-out justification: the filters PUT splices a
+    // caller-encoded opaque JSON document (the mobile filter schema lives in
+    // CMUXMobileCore, which this package must not depend on) under typed
+    // sibling keys; every other call site passes plain string pairs.
     private func makeRequest(
         method: String,
         path: String,
-        body: [String: String],
+        body: [String: Any],
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
         sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
@@ -1420,6 +1678,12 @@ public actor PushRegistrationService: PushRegistering {
 private enum RegistrationResult {
     case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
+}
+
+private enum FiltersUpdateResult {
+    case success
+    case unknownDeviceToken
+    case failure
 }
 
 private struct PushRequest {
