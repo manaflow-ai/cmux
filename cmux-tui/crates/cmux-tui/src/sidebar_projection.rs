@@ -104,7 +104,7 @@ impl AgentOrderCache {
         }
 
         let tree_surfaces = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -148,7 +148,7 @@ impl AgentOrderCache {
 fn tree_surface_sequence_matches(tree: &TreeView, expected: &[SurfaceId]) -> bool {
     let mut expected = expected.iter();
     for surface in tree
-        .workspaces
+        .workspaces()
         .iter()
         .flat_map(|workspace| workspace.screens.iter())
         .flat_map(|screen| screen.panes.iter())

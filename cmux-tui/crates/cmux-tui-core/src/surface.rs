@@ -3382,9 +3382,9 @@ impl Surface {
                                 let pwd = replacement.pwd();
                                 let mut scroll_changed = None;
                                 let generation = pty.with_terminal_stream_update(|term| {
-                                    let before = terminal_scroll_position(&term);
+                                    let before = terminal_scroll_position(term);
                                     *term = replacement;
-                                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
@@ -3393,7 +3393,7 @@ impl Surface {
                                     applied_color_overrides = colors;
                                     applied_color_revision = term.color_revision();
                                     applied_cursor_activity = term.cursor_activity().ok();
-                                    let after = terminal_scroll_position(&term);
+                                    let after = terminal_scroll_position(term);
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
@@ -3408,7 +3408,7 @@ impl Surface {
                                         kitty_image_aliases,
                                         kitty_state,
                                         colors: Box::new(
-                                            pty.terminal_colors_locked(&term, defaults),
+                                            pty.terminal_colors_locked(term, defaults),
                                         ),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -4688,16 +4688,6 @@ impl Surface {
             revision,
             osc_progress,
         })
-    }
-
-    /// Return the latest bounded OSC 9 progress payload observed on this
-    /// terminal. This is generic terminal metadata. Agent plugins decide if
-    /// and how to interpret it.
-    pub(crate) fn terminal_osc_progress(&self) -> ghostty_vt::Result<String> {
-        let Some(pty) = self.as_pty() else {
-            return Err(ghostty_vt::Error::InvalidValue);
-        };
-        Ok(pty.terminal_osc_progress())
     }
 
     pub(crate) fn subscribe_terminal_stream_change(
@@ -9353,8 +9343,7 @@ mod tests {
         let revision_before = progress.revision();
         let (notify_started_tx, notify_started_rx) = sync_channel(1);
         let (release_notify_tx, release_notify_rx) = sync_channel(1);
-        let release_notify_rx = Arc::new(Mutex::new(release_notify_rx));
-        let release_notify = release_notify_rx.clone();
+        let release_notify = Arc::new(Mutex::new(release_notify_rx));
         progress.set_before_notify_hook(Some(Arc::new(move || {
             notify_started_tx.send(()).unwrap();
             release_notify
@@ -9421,8 +9410,7 @@ mod tests {
         let revision_before = progress.revision();
         let (notify_started_tx, notify_started_rx) = sync_channel(1);
         let (release_notify_tx, release_notify_rx) = sync_channel(1);
-        let release_notify = Arc::new(Mutex::new(release_notify_rx));
-        let release_notify_hook = release_notify.clone();
+        let release_notify_hook = Arc::new(Mutex::new(release_notify_rx));
         progress.set_before_notify_hook(Some(Arc::new(move || {
             notify_started_tx.send(()).unwrap();
             release_notify_hook

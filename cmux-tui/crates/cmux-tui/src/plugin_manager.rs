@@ -382,7 +382,6 @@ fn update_command(
         // The directory name is the user's install identity. It can be an
         // explicit `--name` alias, so an update must keep it even when it
         // differs from `[plugin].name` in the manifest.
-        let name = plugin.name.clone();
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
