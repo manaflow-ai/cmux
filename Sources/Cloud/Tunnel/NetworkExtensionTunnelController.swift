@@ -21,10 +21,18 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
     private let providerBundleIdentifier: String
     private let activator: SystemExtensionActivator
     private var manager: NETunnelProviderManager?
+    /// Reads the existing VPN configuration at launch. Loading preferences is
+    /// passive (no prompt, no network), and it is what lets quit, sign-out, and
+    /// `cmux vpn down` stop a tunnel the previous app instance left connected
+    /// before this instance has used Cloud at all.
+    private var initialLoad: Task<Void, Never>?
 
     init(providerBundleIdentifier: String, activator: SystemExtensionActivator = SystemExtensionActivator()) {
         self.providerBundleIdentifier = providerBundleIdentifier
         self.activator = activator
+        initialLoad = Task { [weak self] in
+            await self?.loadExistingManagerIfNeeded()
+        }
     }
 
     nonisolated var statusUpdates: AsyncStream<CloudTunnelLinkStatus> {
@@ -42,6 +50,7 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
     }
 
     func currentStatus() async -> CloudTunnelLinkStatus {
+        await loadExistingManagerIfNeeded()
         guard let manager else { return .disconnected }
         return CloudTunnelLinkStatus(manager.connection.status)
     }
@@ -81,11 +90,13 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
     }
 
     func stop() async throws {
+        await loadExistingManagerIfNeeded()
         guard let manager else { return }
         manager.connection.stopVPNTunnel()
     }
 
     func remove() async throws {
+        await loadExistingManagerIfNeeded()
         if let manager {
             try await manager.removeFromPreferences()
             self.manager = nil
@@ -102,6 +113,19 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
         MainActor.assumeIsolated {
             manager?.connection.stopVPNTunnel()
         }
+    }
+
+    /// Cache this app's existing configuration, if any, without creating one.
+    private func loadExistingManagerIfNeeded() async {
+        if manager != nil { return }
+        if let initialLoad, !Task.isCancelled {
+            // Let the launch-time load finish rather than racing a second one.
+            self.initialLoad = nil
+            _ = await initialLoad.value
+            if manager != nil { return }
+        }
+        guard let existing = try? await NETunnelProviderManager.loadAllFromPreferences() else { return }
+        manager = existing.first(where: isOurs)
     }
 
     /// The app's existing configuration when there is one (each app can only

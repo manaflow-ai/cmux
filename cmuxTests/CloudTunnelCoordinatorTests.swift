@@ -35,7 +35,8 @@ struct CloudTunnelCoordinatorTests {
                 idleGrace: .seconds(300),
                 readinessBudget: .seconds(20),
                 connectTimeout: .seconds(45),
-                stopTimeout: .seconds(10)
+                stopTimeout: .seconds(10),
+                failureBackoff: .seconds(30)
             )
             self.controller = controller
             self.enroller = enroller
@@ -205,8 +206,8 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.controller.calls == ["install", "start", "stop"])
     }
 
-    @Test("a failed start is reported, cleaned up, and retried on the next use")
-    func startFailureThenRetry() async {
+    @Test("a failed start is reported and cleaned up; uses back off, then retry from scratch")
+    func startFailureBackoffThenRetry() async {
         let harness = Harness()
         harness.controller.startError = FakeTunnelController.Failure.refused
         await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
@@ -214,10 +215,53 @@ struct CloudTunnelCoordinatorTests {
         #expect(failed.failureMessage?.isEmpty == false)
         #expect(harness.controller.calls == ["install", "start", "stop"])
 
+        // A burst of dials right after the failure does not re-run the start.
         harness.controller.startError = nil
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        #expect(harness.controller.calls == ["install", "start", "stop"])
+        #expect(await harness.coordinator.state == failed)
+
+        await harness.clock.waitUntilSleeping(for: harness.timing.failureBackoff)
+        harness.clock.advance(by: harness.timing.failureBackoff)
+        // The backoff task clears the flag on the actor after its sleep resumes;
+        // wait on that predicate (bounded by the suite's time limit), not on
+        // scheduling order.
+        while await harness.coordinator.isInFailureBackoff {
+            await Task.yield()
+        }
         await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
         #expect(await harness.coordinator.state == .up)
         #expect(harness.controller.calls == ["install", "start", "stop", "install", "start"])
+    }
+
+    @Test("`cmux vpn up` retries immediately, backoff or not")
+    func explicitUpBypassesBackoff() async throws {
+        let harness = Harness()
+        harness.controller.startError = FakeTunnelController.Failure.refused
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        harness.controller.startError = nil
+        try await harness.coordinator.requestUp(pin: false)
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == ["install", "start", "stop", "install", "start"])
+    }
+
+    @Test("a tunnel inherited from a previous app instance is stopped by down, sign-out, and quit")
+    func inheritedTunnelIsStoppable() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connected
+        // No Cloud use yet in this instance: state is off, but the link is up.
+        #expect(await harness.coordinator.state == .off)
+        await harness.coordinator.requestDown()
+        #expect(harness.controller.calls == ["stop"])
+        #expect(await harness.coordinator.state == .off)
+
+        harness.controller.currentStatusValue = .connected
+        await harness.coordinator.accessDidEnd()
+        #expect(harness.controller.calls == ["stop", "stop"])
+
+        harness.coordinator.appWillTerminate()
+        #expect(harness.controller.calls == ["stop", "stop", "stopForTermination"])
     }
 
     @Test("the readiness budget bounds how long a use waits, without giving up the start")
@@ -327,158 +371,5 @@ struct CloudTunnelCoordinatorTests {
         await harness.clock.waitUntilSleeping(for: .seconds(600))
         harness.controller.emit(.connected)
         #expect(await waiter.value == .up)
-    }
-}
-
-// MARK: - Fakes
-
-/// Records the coordinator's NetworkExtension requests and lets the test
-/// drive link status. Lock-protected because the coordinator calls it from
-/// its own actor and tests read it from the test's task.
-final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
-    enum Failure: Error { case refused }
-
-    private let lock = NSLock()
-    private var recorded: [String] = []
-    private var configurations: [CloudTunnelProviderConfiguration] = []
-    private var continuations: [AsyncStream<CloudTunnelLinkStatus>.Continuation] = []
-    private var approvalContinuations: [CheckedContinuation<Void, any Error>] = []
-    private var _startError: (any Error)?
-    private var _connectsOnStart = true
-    private var _holdInstallForApproval = false
-    private var _currentStatusValue: CloudTunnelLinkStatus = .disconnected
-
-    var calls: [String] { lock.withLock { recorded } }
-    var installedConfigurations: [CloudTunnelProviderConfiguration] { lock.withLock { configurations } }
-    var startError: (any Error)? {
-        get { lock.withLock { _startError } }
-        set { lock.withLock { _startError = newValue } }
-    }
-    /// Emit `.connecting` then `.connected` right after `start()` (the normal
-    /// NetworkExtension sequence). Off to hold the link in `.connecting`.
-    var connectsOnStart: Bool {
-        get { lock.withLock { _connectsOnStart } }
-        set { lock.withLock { _connectsOnStart = newValue } }
-    }
-    /// `install` reports "needs user approval" and blocks until `approve()`.
-    var holdInstallForApproval: Bool {
-        get { lock.withLock { _holdInstallForApproval } }
-        set { lock.withLock { _holdInstallForApproval = newValue } }
-    }
-    /// What `currentStatus()` answers: the link a previous app instance left behind.
-    var currentStatusValue: CloudTunnelLinkStatus {
-        get { lock.withLock { _currentStatusValue } }
-        set { lock.withLock { _currentStatusValue = newValue } }
-    }
-
-    var statusUpdates: AsyncStream<CloudTunnelLinkStatus> {
-        AsyncStream { continuation in
-            lock.withLock { continuations.append(continuation) }
-        }
-    }
-
-    func emit(_ status: CloudTunnelLinkStatus) {
-        for continuation in lock.withLock({ continuations }) {
-            continuation.yield(status)
-        }
-    }
-
-    /// Resolve every pending approval: the user allowed the extension, or
-    /// (with `error`) macOS refused it.
-    func approve(with error: (any Error)? = nil) {
-        let waiting = lock.withLock {
-            let pending = approvalContinuations
-            approvalContinuations.removeAll()
-            return pending
-        }
-        for continuation in waiting {
-            if let error {
-                continuation.resume(throwing: error)
-            } else {
-                continuation.resume()
-            }
-        }
-    }
-
-    func currentStatus() async -> CloudTunnelLinkStatus { currentStatusValue }
-
-    func install(
-        _ configuration: CloudTunnelProviderConfiguration,
-        onNeedsUserApproval: @escaping @Sendable () -> Void
-    ) async throws {
-        lock.withLock {
-            recorded.append("install")
-            configurations.append(configuration)
-        }
-        if holdInstallForApproval {
-            onNeedsUserApproval()
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                lock.withLock { approvalContinuations.append(continuation) }
-            }
-        }
-    }
-
-    func start() async throws {
-        lock.withLock { recorded.append("start") }
-        if let error = startError { throw error }
-        if connectsOnStart {
-            emit(.connecting)
-            emit(.connected)
-        }
-    }
-
-    func stop() async throws {
-        lock.withLock { recorded.append("stop") }
-        emit(.disconnecting)
-        emit(.disconnected)
-    }
-
-    func remove() async throws {
-        lock.withLock { recorded.append("remove") }
-    }
-
-    nonisolated func stopForTermination() {
-        lock.withLock { recorded.append("stopForTermination") }
-    }
-}
-
-final class FakeTunnelEnroller: CloudTunnelEnrolling, @unchecked Sendable {
-    static let config = """
-    [Interface]
-    PrivateKey = test
-    Address = 100.64.0.9/32
-
-    [Peer]
-    PublicKey = peer
-    Endpoint = vpn.example.com:51820
-    AllowedIPs = 10.0.0.0/8
-    """
-
-    private let lock = NSLock()
-    private var count = 0
-    var enrollCount: Int { lock.withLock { count } }
-
-    func enroll() async throws -> CloudTunnelEnrollment {
-        lock.withLock { count += 1 }
-        return CloudTunnelEnrollment(wgQuickConfig: Self.config, serverAddress: "vpn.example.com:51820")
-    }
-}
-
-final class FakeTunnelConsumers: CloudTunnelConsumerSource, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _count = 0
-    private var _queries = 0
-
-    var count: Int {
-        get { lock.withLock { _count } }
-        set { lock.withLock { _count = newValue } }
-    }
-    var queries: Int { lock.withLock { _queries } }
-
-    func liveConsumerCount() async -> Int {
-        lock.withLock {
-            _queries += 1
-            return _count
-        }
     }
 }

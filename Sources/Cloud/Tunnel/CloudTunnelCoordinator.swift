@@ -34,6 +34,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         /// Waiting for the user's one-time extension approval is not counted.
         var connectTimeout: Duration = .seconds(45)
         var stopTimeout: Duration = .seconds(10)
+        /// After a failed start, Cloud uses do not retry the start (enroll,
+        /// activate, save, connect) for this long; `cmux vpn up` always does.
+        var failureBackoff: Duration = .seconds(30)
     }
 
     let backend: CloudTunnelBackend
@@ -51,6 +54,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// approval is not cancellable) cannot clobber a newer start's state.
     private var startGeneration = 0
     private var idleTask: Task<Void, Never>?
+    private var failureBackoffTask: Task<Void, Never>?
+    /// True from a failed start until ``Timing/failureBackoff`` elapses (or an explicit up/down).
+    private(set) var isInFailureBackoff = false
     private var linkObservation: Task<Void, Never>?
     private var stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
     private var linkBroadcast = CloudTunnelBroadcast<CloudTunnelLinkStatus>()
@@ -79,6 +85,12 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             restartIdleTimer()
             return
         }
+        if isInFailureBackoff {
+            // The last start just failed; a burst of dials must not re-run
+            // enrollment, activation, and the configuration save each time.
+            logger.debug("Cloud use during the failure backoff; the dial proceeds without a retry")
+            return
+        }
         logger.info("Cloud use (\(use.purpose.rawValue, privacy: .public)) for \(use.machineID, privacy: .public): bringing the tunnel up")
         do {
             try await withDeadline(timing.readinessBudget) { try await self.ensureUp() }
@@ -95,12 +107,14 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
 
     // MARK: - Explicit control (`cmux vpn up|down|revoke`, sign-out, quit)
 
-    /// Start the tunnel and keep it up until ``requestDown()``.
+    /// Start the tunnel and keep it up until ``requestDown()``. An explicit
+    /// request always retries, backoff or not.
     func requestUp(pin: Bool) async throws {
         guard case .networkExtension = backend else {
             throw CloudTunnelError.backendUnavailable(backend.fallbackReason ?? .entitlementMissing)
         }
         if pin { isPinned = true }
+        clearFailureBackoff()
         try await ensureUp()
     }
 
@@ -108,6 +122,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     func beginUp(pin: Bool) {
         guard backend.isNetworkExtension else { return }
         if pin { isPinned = true }
+        clearFailureBackoff()
         _ = startTaskIfNeeded()
     }
 
@@ -253,6 +268,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             // Leave nothing half-started behind a failure — unless a newer start
             // has taken over in the meantime; its tunnel is not ours to stop.
             if startGeneration == generation {
+                beginFailureBackoff()
                 try? await controller.stop()
             }
             throw (error as? CloudTunnelError) ?? CloudTunnelError.startFailed(message)
@@ -265,10 +281,35 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         setState(.awaitingApproval)
     }
 
+    // MARK: - Failure backoff
+
+    private func beginFailureBackoff() {
+        failureBackoffTask?.cancel()
+        isInFailureBackoff = true
+        failureBackoffTask = Task { await self.runFailureBackoff() }
+    }
+
+    private func runFailureBackoff() async {
+        do {
+            try await clock.sleep(for: timing.failureBackoff)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        isInFailureBackoff = false
+    }
+
+    private func clearFailureBackoff() {
+        failureBackoffTask?.cancel()
+        failureBackoffTask = nil
+        isInFailureBackoff = false
+    }
+
     // MARK: - Stop
 
     private func tearDown() async {
         cancelIdleTimer()
+        clearFailureBackoff()
         if let startTask {
             // Not awaited: a start blocked on the user's extension approval
             // cannot be interrupted, and the generation guard keeps its late
@@ -277,7 +318,15 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             self.startTask = nil
             startGeneration += 1
         }
-        guard state != .off else { return }
+        if state == .off {
+            // Nothing this instance started — but a tunnel the previous app
+            // instance left connected (the extension outlives the app) is
+            // still ours to take down on quit, sign-out, or `cmux vpn down`.
+            let current = await controller.currentStatus()
+            guard current == .connected || current == .connecting || current == .reasserting else { return }
+            linkStatus = current
+        }
+        observeLinkIfNeeded()
         setState(.stopping)
         do {
             try await withDeadline(timing.stopTimeout) {
