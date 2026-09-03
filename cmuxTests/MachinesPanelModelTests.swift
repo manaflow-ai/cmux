@@ -1046,6 +1046,21 @@ struct MachineUsageReadoutTests {
         ))
     }
 
+    @Test("A finite number outside Int range decodes as zero, never a trap")
+    func hugeTokenCountsDoNotTrap() throws {
+        let payload = Data("""
+        { "teamId": "team_1", "periodDays": 30, "kind": "ready", "asOf": null,
+          "machines": [ { "vmId": "big", "displayName": null,
+            "totals": { "inputTokens": 1e100, "cachedInputTokens": -1e100, "outputTokens": 2.5, "totalTokens": 9007199254740993, "apiEquivalentUsd": 0.5 } } ] }
+        """.utf8)
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let totals = try #require(usage.machines.first?.totals)
+        #expect(totals.inputTokens == 0)
+        #expect(totals.cachedInputTokens == 0)
+        #expect(totals.outputTokens == 2)
+        #expect(totals.totalTokens == 9007199254740993)
+    }
+
     @Test("The team payload decodes into typed totals")
     func payloadDecodes() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
