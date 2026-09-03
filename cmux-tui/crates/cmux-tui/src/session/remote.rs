@@ -1336,15 +1336,28 @@ impl InteractiveWriter {
         Ok(Self { shared, abort })
     }
 
-    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+    /// Queue admission is fail-fast. It never waits for the queue mutex or
+    /// for capacity, so a caller's request deadline remains authoritative even
+    /// when the remote writer is stalled.
+    fn try_enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
         let mut write =
             InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
         let message_bytes = write.message.len();
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let mut state = match self.shared.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err(io::Error::other("interactive writer queue is poisoned"));
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if measure_latency {
+                    self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "interactive writer queue mutex is contended",
+                ));
+            }
+        };
         if let Some(failure) = &state.failure {
             return Err(failure.to_error());
         }
@@ -1373,6 +1386,11 @@ impl InteractiveWriter {
         drop(state);
         self.shared.changed.notify_one();
         Ok(sequence)
+    }
+
+    #[cfg(test)]
+    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        self.try_enqueue(message, measure_latency)
     }
 
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
@@ -3095,12 +3113,19 @@ impl RemoteSession {
             zeroize_string(authority);
         }
 
+        // Serialization and request construction can consume a shared probe
+        // deadline. Do not add a pending request or queue work after it has
+        // expired.
+        if let Err(error) = deadline.remaining() {
+            return Err(error.into());
+        }
+
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
         );
-        let sequence = match self.interactive_writer.enqueue(message, false) {
+        let sequence = match self.interactive_writer.try_enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
@@ -3219,7 +3244,7 @@ impl RemoteSession {
             .map_err(anyhow::Error::new)?;
         let sequence = self
             .interactive_writer
-            .enqueue(message, true)
+            .try_enqueue(message, true)
             .map_err(RemoteRequestError::Transport)?;
         if self.shutdown.load(Ordering::Acquire) {
             self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
