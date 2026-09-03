@@ -8,18 +8,17 @@ import Foundation
 /// Cloud machines live on one private network per account and open no public
 /// inbound port, so their session daemons are reachable only through this
 /// tunnel. The cmux app owns enrollment (keypair, device identity, the config
-/// file at `~/.cmuxterm/wireguard/cmux.conf`); this command owns the
-/// privileged bring-up, because creating a utun and installing routes needs
-/// root and `sudo` in the user's own terminal is the honest way to ask.
+/// file at `~/.cmuxterm/wireguard/cmux.conf`).
 ///
-/// Two backends, one command:
-/// - **wg-quick** (shipping): `up` runs `sudo wg-quick up` on the app-written
-///   config. Requires `brew install wireguard-tools`.
-/// - **NetworkExtension** (long-term, entitlement-gated): when a build carries
-///   the packet-tunnel entitlement, the app manages the tunnel itself and
-///   `cmux vpn up` will hand off to it instead of shelling out. The socket
-///   response advertises `network_extension_available` so this command steers
-///   without a new CLI release.
+/// Two backends, one command; the socket response's `backend` field picks:
+/// - **app-managed** (`network-extension`): the app runs the tunnel through its
+///   signed system extension and starts it on demand when a Cloud machine is
+///   opened, so these verbs are rarely needed. `up` pins it, `down` releases
+///   it, no sudo involved (`CMUXCLI+VPNAppManaged.swift`).
+/// - **wg-quick**: builds without that capability. `up` runs `sudo wg-quick up`
+///   on the app-written config, because creating a utun and installing routes
+///   needs root and `sudo` in the user's own terminal is the honest way to
+///   ask. Requires `brew install wireguard-tools`.
 extension CMUXCLI {
     private static let wgQuickCandidates = [
         "/opt/homebrew/bin/wg-quick",
@@ -52,6 +51,10 @@ extension CMUXCLI {
         let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
         guard let configPath = response["config_path"] as? String, !configPath.isEmpty else {
             throw CLIError(message: "The cmux app did not return a tunnel config. Update cmux and retry.")
+        }
+        if Self.tunnelBackendIsAppManaged(response) {
+            try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, config: response)
+            return
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
 
@@ -109,6 +112,10 @@ extension CMUXCLI {
 
     private func runVPNDown(client: SocketClient, jsonOutput: Bool) throws {
         let response = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
+        if Self.tunnelBackendIsAppManaged(response) {
+            try runAppManagedVPNDown(client: client, jsonOutput: jsonOutput, status: response)
+            return
+        }
         let configPath = (response["config_path"] as? String) ?? ""
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
         if !interfaceUp {
@@ -215,8 +222,10 @@ extension CMUXCLI {
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
         let configPresent = (response["config_present"] as? Bool) ?? false
-        let neAvailable = (response["network_extension_available"] as? Bool) ?? false
-        if interfaceUp {
+        let neAvailable = Self.tunnelBackendIsAppManaged(response)
+        if neAvailable {
+            printAppManagedVPNState(response)
+        } else if interfaceUp {
             print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up"))
         } else if configPresent {
             print(String(localized: "cli.vpn.status.down", defaultValue: "Tunnel: down (enrolled; run `cmux vpn up`)"))
@@ -229,6 +238,12 @@ extension CMUXCLI {
         }
         let backendFormat = String(localized: "cli.vpn.status.backend", defaultValue: "Backend: %@")
         print(String(format: backendFormat, neAvailable ? "app-managed (NetworkExtension)" : "wg-quick"))
+        if neAvailable {
+            print(String(
+                localized: "cli.vpn.status.autoManaged",
+                defaultValue: "The tunnel starts automatically when you open a Cloud machine and stops when no Cloud sessions remain."
+            ))
+        }
         if !neAvailable, Self.firstExecutable(Self.wgQuickCandidates) == nil {
             print(String(
                 localized: "cli.vpn.status.wgQuickMissing",
@@ -239,10 +254,13 @@ extension CMUXCLI {
 
     private func runVPNRevoke(client: SocketClient, jsonOutput: Bool) throws {
         // Best effort: take the interface down first so a revoked config isn't
-        // left routing traffic into a tunnel the server already deleted.
+        // left routing traffic into a tunnel the server already deleted. On the
+        // app-managed backend `vm.tunnel_revoke` stops the tunnel and deletes
+        // the VPN configuration itself.
         let status = try? client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
-        if (status?["interface_up"] as? Bool) == true,
-           let configPath = status?["config_path"] as? String,
+        if let status, !Self.tunnelBackendIsAppManaged(status),
+           (status["interface_up"] as? Bool) == true,
+           let configPath = status["config_path"] as? String,
            let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) {
             _ = runInteractiveProcess(
                 executablePath: "/usr/bin/sudo",
@@ -263,7 +281,7 @@ extension CMUXCLI {
         }
     }
 
-    private func printVPNAddresses(_ response: [String: Any]) {
+    func printVPNAddresses(_ response: [String: Any]) {
         let address = (response["address_v4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? (response["address_v6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if let address {

@@ -18579,8 +18579,14 @@ struct CMUXCLI {
             network. Cloud machines have no public ports, so `cmux vm` attach,
             exec, and port verbs need this tunnel up.
 
-            up      Enroll this Mac (first run), bring the tunnel up, and sync
-                    internal hostnames. Uses wg-quick and prompts for sudo;
+            On builds where the cmux app manages the tunnel (`cmux vpn status`
+            shows "Backend: app-managed"), nothing here is required: the app
+            brings the tunnel up when you open a Cloud machine and takes it
+            down when no Cloud sessions remain. No sudo, no wg-quick.
+
+            up      App-managed: start the tunnel now and keep it up until
+                    `cmux vpn down`. wg-quick: enroll this Mac (first run),
+                    run `sudo wg-quick up`, and sync internal hostnames;
                     install with `brew install wireguard-tools`.
             down    Take the tunnel down. Enrollment is kept.
             status  Show tunnel state, config path, and backend.
@@ -18589,9 +18595,10 @@ struct CMUXCLI {
                     saved config stops working.
             hosts   Write every machine's <name>.internal into /etc/hosts (a
                     managed block; your own entries are untouched), so
-                    http://<name>.internal:<port> resolves system-wide.
-                    `up` already runs this; call it again after `cmux vm new`
-                    to pick up a machine created since.
+                    http://<name>.internal:<port> resolves system-wide. Needs
+                    sudo on every backend. wg-quick `up` already runs this;
+                    call it again after `cmux vm new` to pick up a machine
+                    created since.
 
             The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
             with the private key generated on this Mac; the key never leaves it.
@@ -18621,8 +18628,9 @@ struct CMUXCLI {
             Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
-            Machines live on your private network with no public ports; run `cmux vpn up`
-            once per boot so this Mac can reach them (see `cmux help vpn`).
+            Machines live on your private network with no public ports. The cmux app
+            brings the tunnel up when you open one; on builds without the app-managed
+            tunnel, run `cmux vpn up` once per boot instead (see `cmux help vpn`).
 
             Subcommands:
               ls                        List your cloud VMs.
