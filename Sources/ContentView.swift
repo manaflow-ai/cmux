@@ -16649,28 +16649,24 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var iconView: AnyView? {
-        guard let iconRaw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !iconRaw.isEmpty else {
-            return nil
-        }
-        if iconRaw.hasPrefix("emoji:") {
-            let value = String(iconRaw.dropFirst("emoji:".count))
-            guard !value.isEmpty else { return nil }
+        guard let icon = entry.sidebarIcon else { return nil }
+        switch icon {
+        case .emoji(let value):
             return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
-        }
-        if iconRaw.hasPrefix("text:") {
-            let value = String(iconRaw.dropFirst("text:".count))
-            guard !value.isEmpty else { return nil }
+        case .text(let value):
             return AnyView(Text(value).cmuxFont(size: 8 * fontScale, weight: .semibold))
+        case .imageFile(let path):
+            guard let image = SidebarStatusIconImageLoader.image(at: path) else { return nil }
+            return AnyView(
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 10 * fontScale, height: 10 * fontScale)
+            )
+        case .systemSymbol(let name):
+            return AnyView(CmuxSystemSymbolImage(magnified: name, pointSize: 8 * fontScale, weight: .medium))
         }
-        let symbolName: String
-        if iconRaw.hasPrefix("sf:") {
-            symbolName = String(iconRaw.dropFirst("sf:".count))
-        } else {
-            symbolName = iconRaw
-        }
-        guard !symbolName.isEmpty else { return nil }
-        return AnyView(CmuxSystemSymbolImage(magnified: symbolName, pointSize: 8 * fontScale, weight: .medium))
     }
 
     @ViewBuilder

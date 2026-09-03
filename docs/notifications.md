@@ -294,9 +294,17 @@ cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|r
 cmux open-notification --id <uuid|notification:<uuid>>
 cmux jump-to-unread
 cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-cmux set-status <key> <value>
+cmux set-status <key> <value> [--icon <token>] [--color <#hex>] [--priority <n>]
 cmux clear-status <key>
 cmux ping
+```
+
+Status icons accept a bare SF Symbol name or an explicit `sf:`, `emoji:`,
+`text:`, or `image:` token. Image tokens use an absolute local path (a leading
+`~` is expanded), preserve the image's original colors, and are limited to 1 MB:
+
+```bash
+cmux set-status everyapi_codex "working" --icon "image:~/.config/cmux/icons/codex.png"
 ```
 
 ## Best Practices

@@ -20316,7 +20316,7 @@ struct CMUXCLI {
             (e.g. "claude_code", "build") can manage their own entries.
 
             Flags:
-              --icon <name>          Icon name (e.g. "sparkle", "hammer")
+              --icon <token>         SF Symbol name, emoji:<value>, text:<value>, or image:<absolute-path>
               --color <#hex>         Pill color (e.g. "#ff9500")
               --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -20324,6 +20324,7 @@ struct CMUXCLI {
 
             Example:
               cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
+              cmux set-status everyapi_codex "working" --icon "image:~/.config/cmux/icons/codex.png"
               cmux set-status deploy "v1.2.3" --workspace workspace:2
             """)
         case "clear-status":
@@ -41134,7 +41135,7 @@ export default CMUXSessionRestore;
           clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
-          set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
+          set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <token>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
           set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref|index>] [--window <id|ref|index>]
