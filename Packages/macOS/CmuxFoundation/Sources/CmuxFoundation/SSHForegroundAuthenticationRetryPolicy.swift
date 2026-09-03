@@ -261,6 +261,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
                   proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
                   proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
+                  # libproc.h's proc_bsdinfo layout places pbi_pgid after
+                  # pbi_nfiles (offset 100), then pbi_nice (offset 116), with
+                  # the two start-time uint64 values at offsets 120 and 128.
                   proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
                   proc_bsdinfo_start_tvsec_offset = proc_bsdinfo_pgid_offset + proc_bsdinfo_scalar_size * 5
                   proc_bsdinfo_start_tvusec_offset = proc_bsdinfo_start_tvsec_offset + 8
@@ -1165,10 +1168,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               proc_bsdinfo_status_offset = proc_bsdinfo_scalar_size
               proc_bsdinfo_pid_offset = proc_bsdinfo_scalar_size * 3
               proc_bsdinfo_ppid_offset = proc_bsdinfo_pid_offset + proc_bsdinfo_scalar_size
-              proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
-              proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
-              proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
-              proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
+                    proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
+                    proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
+                    proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
+                    # libproc.h's proc_bsdinfo layout places pbi_pgid after
+                    # pbi_nfiles (offset 100), then pbi_nice (offset 116), with
+                    # the two start-time uint64 values at offsets 120 and 128.
+                    proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
               proc_bsdinfo_start_tvsec_offset = proc_bsdinfo_pgid_offset + proc_bsdinfo_scalar_size * 5
               proc_bsdinfo_start_tvusec_offset = proc_bsdinfo_start_tvsec_offset + 8
               proc_bsdinfo_size = proc_bsdinfo_start_tvusec_offset + 8
