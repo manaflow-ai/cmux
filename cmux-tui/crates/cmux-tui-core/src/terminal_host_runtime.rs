@@ -5470,7 +5470,12 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref(), &host.owner_token, selected_version),
+                    cwd: snapshot_cwd(
+                        &term,
+                        host.cwd.as_deref(),
+                        &host.owner_token,
+                        selected_version,
+                    ),
                 },
                 colors,
                 snapshot_sequence,
@@ -9273,14 +9278,26 @@ mod unix {
                 crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
                 encode_hex(owner_token.as_bytes())
             );
-            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker.clone()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker.clone()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker));
-            assert_eq!(snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION), None);
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker)
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION),
+                None
+            );
         }
 
         #[test]
