@@ -130,6 +130,8 @@ struct DeviceTreeView: View {
             }
             .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
+            // The Cloud flow presents from this stable container, not the row.
+            .cloudFlowPresenter()
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {

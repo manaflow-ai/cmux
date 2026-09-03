@@ -24,6 +24,10 @@ public final class CloudSessionController {
     public var sectionIsVisible: Bool { visibleScreenCount > 0 }
     /// Whether the scene is in the foreground.
     public private(set) var isForeground = true
+    /// Whether the full-screen Cloud flow is presented. Set by the entry row,
+    /// read by the presenter hosted on a stable container view, because a
+    /// presentation modifier on a list row does not present reliably.
+    public var isFlowPresented = false
 
     private let service: any CloudVMServing
     private let identityResolver: CloudDeviceIdentityResolver
