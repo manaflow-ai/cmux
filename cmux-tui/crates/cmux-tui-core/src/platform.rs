@@ -877,6 +877,8 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
+    // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
         return None;
