@@ -165,7 +165,7 @@ impl EnsuredOwnerHandle {
 }
 
 fn owner_process_is_alive(pid: u64) -> bool {
-    std::process::Command::new("ps")
+    Command::new("ps")
         .args(["-p", &pid.to_string()])
         .output()
         .map(|output| output.status.success())
