@@ -89,7 +89,7 @@ final class CloudVMActionLauncher {
                     title: String(localized: "command.cloudVM.failed.title.delete", defaultValue: "Couldn't Delete Machine"),
                     action: String(
                         localized: "command.cloudVM.failed.action.delete",
-                        defaultValue: "Refresh the Machines list and retry. A machine the backend has already forgotten leaves the list on its own. To see the full output, run `cmux vm rm <id>` in a terminal."
+                        defaultValue: "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
                     ),
                     isSilent: { $0.indicatesCloudVMNotFound }
                 )
@@ -160,14 +160,18 @@ final class CloudVMActionLauncher {
             process.terminate()
         }
         processes.removeAll()
+        // A process that was cancelled before sign-out may report after the
+        // table is cleared. Do not let that old PID mark a later child as
+        // cancelled if the operating system reuses it.
+        cancelledProcessIDs.removeAll()
     }
 
     /// Stops one child launched by `start`. The termination callback remains
     /// authoritative: callers still receive its final output and can clean up
     /// a provider machine that was created just before cancellation.
     func cancel(processID: Int32) {
-        cancelledProcessIDs.insert(processID)
         guard let process = processes[processID] else { return }
+        cancelledProcessIDs.insert(processID)
         if process.isRunning {
             process.terminate()
         }

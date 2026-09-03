@@ -67236,13 +67236,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh the Machines list and retry. A machine the backend has already forgotten leaves the list on its own. To see the full output, run `cmux vm rm <id>` in a terminal."
+            "value": "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシン一覧を更新して再試行してください。バックエンドですでに削除されたマシンは一覧から自動的に消えます。完全な出力はターミナルで `cmux vm rm <id>` を実行して確認できます。"
+            "value": "マシン一覧を更新して再試行してください。存在しないマシンは一覧から自動的に削除されます。完全な出力はターミナルで `cmux vm rm <id>` を実行して確認できます。"
           }
         }
       }

@@ -109,10 +109,11 @@ final class CmuxTuiSurfaceProviderRegistry {
         // may have a machine row before the first fleet refresh). Reconcile
         // both stores against the authoritative list, otherwise a machine
         // deleted while cmux was closed survives as a ghost row forever.
-        let catalogMachineIDs = Set(
-            catalog.snapshot.machines.compactMap { $0.id.cloudMachineID }
-        )
-        let staleIDs = Set(providers.keys).union(catalogMachineIDs).subtracting(seen)
+        let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID))
+        let staleIDs = Set(providers.keys)
+            .union(catalogMachineIDs)
+            .union(catalog.pendingRestoredMachineIDs)
+            .subtracting(seen)
         for id in staleIDs {
             providers[id]?.stop()
             providers[id] = nil
@@ -218,7 +219,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func update(summary: VMSummary) {
         self.summary = summary
         info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: nil, remoteWorkspaces: info.remoteWorkspaces)
-        catalog.updateMachine(info)
+        catalog.updateMachine(info, from: self)
     }
 
     func stop() {
@@ -251,14 +252,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isAwake, let client = VMClient.shared else {
             info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
-            catalog.replaceResources(resources, on: machine, info: info)
+            catalog.replaceResources(resources, on: machine, info: info, from: self)
             return
         }
         // The display opens over the HTTPS preview and never needs the link, so a
         // machine with no resources yet gets it published before the link attempt —
         // a slow or hanging connect must not leave the desktop unopenable.
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
-            catalog.replaceResources(resources, on: machine, info: info)
+            catalog.replaceResources(resources, on: machine, info: info, from: self)
         }
         if summary.resolvedKind.hasDesktop {
             prefetchDesktopEndpoint()
@@ -334,7 +335,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             #endif
         }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
-        catalog.replaceResources(resources, on: machine, info: info)
+        catalog.replaceResources(resources, on: machine, info: info, from: self)
         reprojectRestoredPanes()
     }
 
@@ -422,7 +423,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
         closeLocalPanes(showing: [id])
-        catalog.remove(id)
+        catalog.remove(id, from: self)
         scheduleRefresh()
     }
 
@@ -444,7 +445,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func closeRemoteWorkspace(id: String) async throws {
         _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-        catalog.updateMachine(info)
+        catalog.updateMachine(info, from: self)
         scheduleRefresh()
     }
 
@@ -549,7 +550,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             port: nil,
             url: nil
         )
-        catalog.upsert(resource)
+        catalog.upsert(resource, from: self)
         scheduleRefresh()
         return resource
     }
@@ -572,7 +573,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let workspace = SurfaceRemoteWorkspace(id: id, name: workspaceName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
         // Optimistic: show the new (empty) workspace now; the next snapshot re-sync is authoritative.
         info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
-        catalog.updateMachine(info)
+        catalog.updateMachine(info, from: self)
         scheduleRefresh()
         return workspace
     }
@@ -586,7 +587,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if workspace.id == id { renamed.name = name }
             return renamed
         }
-        catalog.updateMachine(info)
+        catalog.updateMachine(info, from: self)
         scheduleRefresh()
     }
 

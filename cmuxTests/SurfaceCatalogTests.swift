@@ -826,6 +826,56 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.resources.contains(where: { $0.machine == machine }) == false)
     }
 
+    @Test func `A retired provider cannot write through its replacement`() {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("reused")
+        let retired = FakeProvider(machine: machine)
+        let replacement = FakeProvider(machine: machine)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")
+        let current = SurfaceResource(id: resourceID, title: "current", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
+        var stale = current
+        stale.title = "stale"
+
+        catalog.register(retired)
+        catalog.replaceResources([current], on: machine, from: retired)
+        catalog.register(replacement)
+        catalog.replaceResources([current], on: machine, from: replacement)
+
+        // A refresh that was already in flight on the retired provider must not
+        // overwrite either the replacement's resource or machine metadata.
+        catalog.replaceResources([stale], on: machine, from: retired)
+        catalog.upsert(stale, from: retired)
+        var retiredInfo = retired.info
+        retiredInfo.name = "retired"
+        catalog.updateMachine(retiredInfo, from: retired)
+
+        #expect(catalog.resources[resourceID]?.title == "current")
+        #expect(catalog.machines[machine]?.name == replacement.info.name)
+    }
+
+    @Test func `Unregister removes pending restores before a machine ID is reused`() {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("reused")
+        let original = FakeProvider(machine: machine)
+        let replacement = FakeProvider(machine: machine)
+        let panelID = UUID()
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_old")
+        let record = SurfaceProjectionRecord(panelID: panelID, resource: resourceID)
+
+        catalog.register(original)
+        catalog.restore([record], workspaceID: UUID())
+        #expect(catalog.pendingRestoredMachineIDs == Set(["reused"]))
+
+        catalog.unregister(machine: machine)
+        catalog.register(replacement)
+        catalog.replaceResources([terminal(machine, "term_old")], on: machine, from: replacement)
+
+        // The resource ID was reused, but the restored pane belonged to the
+        // deleted machine instance and must not attach to the replacement.
+        #expect(catalog.pendingRestoredMachineIDs.isEmpty)
+        #expect(catalog.projection(forPanel: panelID) == nil)
+    }
+
     @Test func `Unregistering a machine closes its display and browser panes but not terminals`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))

@@ -161,12 +161,21 @@ final class SurfaceCatalog {
         }
         let provider = providers[machine]
         for projection in urlBacked {
-            provider?.discardMaterialization(projection)
+            if let provider {
+                provider.discardMaterialization(projection)
+            } else {
+                // The registry removes its provider before calling us during a
+                // fleet prune. There is still a real browser/display pane to
+                // close, even though no provider remains to do it for us.
+                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+            }
         }
         providers[machine] = nil
         machines[machine] = nil
         let gone = resources.keys.filter { $0.machine == machine }
         for id in gone { resources[id] = nil }
+        let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
+        for record in pending { pendingRestoredProjections[record] = nil }
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -180,12 +189,26 @@ final class SurfaceCatalog {
     /// pruned can still finish an in-flight refresh and write its machine back;
     /// accepting that write brings a machine the backend already destroyed back
     /// as a sidebar row nothing can refresh or delete.
-    private func accepts(writeFor machine: SurfaceMachineID) -> Bool {
-        if machine.isLocal || providers[machine] != nil { return true }
+    private func accepts(writeFor machine: SurfaceMachineID, from source: (any SurfaceProvider)? = nil) -> Bool {
+        if machine.isLocal { return true }
+        guard let registered = providers[machine] else {
 #if DEBUG
-        cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=unregistered")
+            cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=unregistered")
 #endif
-        return false
+            return false
+        }
+        // Cloud providers refresh asynchronously. Once a replacement is
+        // registered, a late callback from the retired instance must not write
+        // through the replacement's catalog entry. Callers that do not have a
+        // provider (legacy socket paths) retain the current-provider behavior.
+        if let source,
+           (source.machine != machine || ObjectIdentifier(registered) != ObjectIdentifier(source)) {
+#if DEBUG
+            cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=retired-provider")
+#endif
+            return false
+        }
+        return true
     }
 
     func refreshAll() async {
@@ -199,8 +222,9 @@ final class SurfaceCatalog {
     /// Replace everything the catalog knows about one machine. Projections whose resource
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
-    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil) {
-        guard accepts(writeFor: machine) else { return }
+    /// `from` identifies the provider that produced the snapshot, when one is available.
+    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: machine, from: source) else { return }
         for id in resources.keys where id.machine == machine {
             resources[id] = nil
         }
@@ -213,20 +237,25 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    func upsert(_ resource: SurfaceResource) {
-        guard accepts(writeFor: resource.machine) else { return }
+    /// Insert or replace one resource. A cloud provider may identify itself with `from` so a
+    /// result from a retired provider cannot overwrite a replacement registration.
+    func upsert(_ resource: SurfaceResource, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: resource.machine, from: source) else { return }
         resources[resource.id] = resource
         resolvePendingRestoredProjections(on: resource.machine)
         notifyChange()
     }
 
-    func remove(_ id: SurfaceResourceID) {
+    /// Remove a resource, optionally validating the provider that requested the mutation.
+    func remove(_ id: SurfaceResourceID, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: id.machine, from: source) else { return }
         resources[id] = nil
         notifyChange()
     }
 
-    func updateMachine(_ info: SurfaceMachineInfo) {
-        guard accepts(writeFor: info.id) else { return }
+    /// Update machine metadata, optionally validating the provider registration that supplied it.
+    func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: info.id, from: source) else { return }
         machines[info.id] = info
         notifyChange()
     }
@@ -737,6 +766,14 @@ final class SurfaceCatalog {
             .filter { $0.workspaceID == workspaceID }
             .map { SurfaceProjectionRecord(panelID: $0.panelID, resource: $0.resource) }
             .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+    }
+
+    /// Cloud machine IDs referenced by restored panes that are waiting for a
+    /// provider to report their resources. The registry uses these IDs during
+    /// stale-machine reconciliation so a deleted ID cannot attach old panes
+    /// when a different machine later receives the same ID.
+    var pendingRestoredMachineIDs: Set<String> {
+        Set(pendingRestoredProjections.keys.compactMap { $0.resource.machine.cloudMachineID })
     }
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {

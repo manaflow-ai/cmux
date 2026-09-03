@@ -93,9 +93,15 @@ final class MachineCreateCoordinator {
 
     private struct CancelledCreate {
         let isBaseSetup: Bool
-        var output = ""
+        /// Only a bounded tail is retained so a cancelled CLI that continues
+        /// streaming logs cannot turn late-result reconciliation into an
+        /// unbounded buffer or an O(n²) rescan.
+        var markerCarry = ""
         var cleanedMachineID: String?
     }
+
+    private static let outputParseLimit = 32 * 1024
+    private static let cancelledMarkerCarryLimit = 512
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -319,7 +325,8 @@ final class MachineCreateCoordinator {
         { [weak self] chunk in
             guard let self else { return }
             if let index = self.operations.firstIndex(where: { $0.id == id }) {
-                self.progressOutput[id, default: ""].append(chunk)
+                let bounded = (self.progressOutput[id, default: ""] + chunk).suffix(Self.outputParseLimit)
+                self.progressOutput[id] = String(bounded)
                 if let machineID = Self.createdMachineID(fromOutput: self.progressOutput[id] ?? "") {
                     guard self.operations[index].createdMachineID != machineID else { return }
                     self.operations[index].createdMachineID = machineID
@@ -330,9 +337,11 @@ final class MachineCreateCoordinator {
             // The row is intentionally gone after Cancel, but the process can
             // still flush bytes. Keep parsing that tail for a provider id.
             guard var cancelled = self.cancelledCreates[id] else { return }
-            cancelled.output.append(chunk)
+            cancelled.markerCarry = String(
+                (cancelled.markerCarry + chunk).suffix(Self.cancelledMarkerCarryLimit)
+            )
             if !cancelled.isBaseSetup,
-               let machineID = Self.createdMachineID(fromOutput: cancelled.output),
+               let machineID = Self.createdMachineID(fromOutput: cancelled.markerCarry),
                cancelled.cleanedMachineID != machineID {
                 cancelled.cleanedMachineID = machineID
                 self.cleanupCancelledMachine(machineID)
