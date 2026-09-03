@@ -127010,6 +127010,23 @@
         }
       }
     },
+    "cloudVM.error.reference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reference: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照番号: %@"
+          }
+        }
+      }
+    },
     "cloudVM.error.requiresPro.action": {
       "extractionState": "manual",
       "localizations": {

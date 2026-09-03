@@ -3976,7 +3976,13 @@ class TerminalController {
               !code.isEmpty else {
             return nil
         }
-        return ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        // The server trace id (support reference) travels with the structured
+        // error so the CLI and scripts can log it without parsing display text.
+        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
+            payload["trace_id"] = traceId
+        }
+        return payload
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {

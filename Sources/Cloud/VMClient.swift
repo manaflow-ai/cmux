@@ -99,7 +99,20 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append("Details:")
         lines.append(contentsOf: details.map { "  \($0)" })
     }
+    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
+        // The support reference. Operators open the exact server trace,
+        // PostHog row and Sentry event from this one id.
+        lines.append("")
+        lines.append(cloudVMReferenceLine(traceId: traceId))
+    }
     return lines.joined(separator: "\n")
+}
+
+func cloudVMReferenceLine(traceId: String) -> String {
+    String(
+        format: String(localized: "cloudVM.error.reference", defaultValue: "Reference: %@"),
+        traceId
+    )
 }
 
 private func defaultCloudVMMessage(status: Int) -> String {
@@ -539,10 +552,12 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let telemetry: VMClientTelemetry
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(session: URLSession = .shared, auth: AuthCoordinator, telemetry: VMClientTelemetry = .shared) {
         self.session = session
         self.auth = auth
+        self.telemetry = telemetry
     }
 
     func list() async throws -> [VMSummary] {
@@ -1224,12 +1239,117 @@ actor VMClient {
 
     // MARK: - HTTP
 
+    /// Every Cloud VM API call goes through here. Mints the trace context,
+    /// sends the client identity headers, measures wall-clock latency and
+    /// records the outcome (success, HTTP error with the server's code and
+    /// trace id, or transport failure) with `VMClientTelemetry`.
     private func request(
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let trace = VMRequestTraceContext.mint()
+        let route = VMClientTelemetry.normalizedRoute(path: path)
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        var retryCount = 0
+        func elapsedMs() -> Double {
+            Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        }
+        func record(_ outcome: VMRequestOutcome) {
+            telemetry.record(VMRequestTelemetryRecord(
+                method: method,
+                route: route,
+                outcome: outcome,
+                durationMs: elapsedMs(),
+                retryCount: retryCount,
+                trace: trace
+            ))
+        }
+        var headers = VMClientTelemetry.clientIdentityHeaders()
+        headers.merge(trace.headers) { _, new in new }
+        headers.merge(extraHeaders) { _, new in new }
+        do {
+            let (data, http) = try await performRequest(
+                method,
+                path: path,
+                jsonBody: jsonBody,
+                extraHeaders: headers,
+                timeoutSeconds: timeoutSeconds,
+                onRetry: { retryCount += 1 }
+            )
+            record(.response(
+                status: http.statusCode,
+                errorCode: http.statusCode >= 400 ? Self.cloudVMErrorCode(http: http, data: data) : nil,
+                serverTraceId: Self.cloudVMServerTraceId(http: http, data: data)
+            ))
+            return (data, http)
+        } catch let error as VMClientError {
+            record(.transportFailure(kind: Self.transportFailureKind(error), detail: Self.transportFailureDetail(error)))
+            throw error
+        } catch is CancellationError {
+            record(.transportFailure(kind: .cancelled, detail: "cancelled"))
+            throw CancellationError()
+        } catch let error as URLError {
+            record(.transportFailure(kind: error.code == .cancelled ? .cancelled : .urlError, detail: "URLError \(error.code.rawValue): \(error.localizedDescription)"))
+            throw error
+        } catch {
+            record(.transportFailure(kind: .unknown, detail: String(describing: error).prefix(300).description))
+            throw error
+        }
+    }
+
+    private static func transportFailureKind(_ error: VMClientError) -> VMTransportFailureKind {
+        switch error {
+        case .notSignedIn: return .notSignedIn
+        case .sessionRefreshFailed: return .sessionRefreshFailed
+        case .backendUnreachable: return .backendUnreachable
+        case .malformedResponse: return .malformedResponse
+        case .httpStatus: return .unknown
+        }
+    }
+
+    private static func transportFailureDetail(_ error: VMClientError) -> String {
+        switch error {
+        case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
+        case .malformedResponse(let message): return message
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
+        }
+    }
+
+    /// The server's `x-cmux-vm-error` header, else the body's `error` field.
+    private static func cloudVMErrorCode(http: HTTPURLResponse, data: Data) -> String? {
+        if let header = http.value(forHTTPHeaderField: "x-cmux-vm-error"), !header.isEmpty {
+            return header
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String, !code.isEmpty else {
+            return nil
+        }
+        return code
+    }
+
+    /// The server's `x-cmux-trace-id` header, else the body's `traceId`.
+    private static func cloudVMServerTraceId(http: HTTPURLResponse, data: Data) -> String? {
+        if let header = http.value(forHTTPHeaderField: VMRequestTraceContext.serverTraceIdHeader), !header.isEmpty {
+            return header
+        }
+        guard http.statusCode >= 400,
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let traceId = object["traceId"] as? String, !traceId.isEmpty else {
+            return nil
+        }
+        return traceId
+    }
+
+    private func performRequest(
+        _ method: String,
+        path: String,
+        jsonBody: [String: Any]?,
+        extraHeaders: [String: String],
+        timeoutSeconds: TimeInterval?,
+        onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
         // session. A request that was already queued when sign-out began must
@@ -1302,6 +1422,7 @@ actor VMClient {
             }
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
+                onRetry()
                 let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
                 let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
                 try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
