@@ -2146,12 +2146,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
+        pairedMacLoadGeneration &+= 1
         hiddenComputers = []
         hasHiddenComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
+        registryDevicesLoadGeneration &+= 1
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -2268,10 +2270,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
+        pairedMacLoadGeneration &+= 1
         hiddenMacDeviceIDsByScope = [:]
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
+        registryDevicesLoadGeneration &+= 1
         teamScopeCleanupTask?.cancel()
         teamScopeCleanupTask = Task {
             if let refresher {
@@ -3390,6 +3394,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var hasStoredUsableTailscaleAuthorization = false
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
+    /// Monotonic token so overlapping same-scope loads cannot publish an older
+    /// snapshot after a newer refresh has started.
+    private var pairedMacLoadGeneration: UInt64 = 0
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
@@ -3506,6 +3513,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// known paired Macs, so the tree degrades to the same hosts the switcher
     /// shows rather than going blank.
     public internal(set) var registryDevices: [RegistryDevice] = []
+    /// Monotonic token so overlapping registry requests are latest-wins.
+    private var registryDevicesLoadGeneration: UInt64 = 0
 
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
@@ -3555,10 +3564,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
     /// out yields an empty list.
     public func loadRegistryDevices() async {
+        registryDevicesLoadGeneration &+= 1
+        let loadGeneration = registryDevicesLoadGeneration
         let startedAt = appDiagnosticNow()
         recordAppEvent(.deviceRegistryLoadStarted)
         guard let deviceRegistry,
               let scope = await currentScopeSnapshot() else {
+            guard loadGeneration == registryDevicesLoadGeneration else { return }
             registryDevices = []
             recordAppEvent(
                 .deviceRegistryLoadFailed,
@@ -3580,7 +3592,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // requesting user still being current (mirroring the `.ok` path):
             // a stale 401 from a signed-out session that lands after a
             // different user signed in must not blank the new user's tree.
-            if await isScopeCurrent(scope) {
+            if loadGeneration == registryDevicesLoadGeneration,
+               await isScopeCurrent(scope) {
                 registryDevices = []
             }
             recordAppEvent(
@@ -3603,10 +3616,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // are still in the same signed-in account/team scope, so a slow load can
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
-        guard await isScopeCurrent(scope) else { return }
+        guard loadGeneration == registryDevicesLoadGeneration,
+              await isScopeCurrent(scope) else { return }
         let connectedID = connectedMacDeviceID
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
-        guard await isScopeCurrent(scope) else { return }
+        guard loadGeneration == registryDevicesLoadGeneration,
+              await isScopeCurrent(scope) else { return }
         let compatible = compatibleRegistryDevices(loaded)
         registryDevices = compatible
             .compactMap { device in
@@ -3882,6 +3897,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// back to the unscoped all-users query, so a shared device never exposes
     /// another user's Macs in the switcher.
     public func loadPairedMacs() async {
+        pairedMacLoadGeneration &+= 1
+        let loadGeneration = pairedMacLoadGeneration
         // The demo-content paired-Mac decorator reads the account's
         // demonstration flag lazily on every load, so any load can reveal the
         // Demo Mac row. Re-evaluate activation at the same moment: the flag
@@ -3893,6 +3910,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         recordAppEvent(.computerListRefreshStarted)
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else {
+            guard loadGeneration == pairedMacLoadGeneration else { return }
             storedPairedMacs = []
             clearStoredPairedMacCache()
             pairedMacAliasIDsByRepresentativeID = [:]
@@ -3907,13 +3925,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        guard loadGeneration == pairedMacLoadGeneration else { return }
         pairedMacLoadState = .notLoaded
         let loaded: [MobilePairedMac]
         do {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
-            if await isScopeCurrent(scope) {
+            if loadGeneration == pairedMacLoadGeneration,
+               await isScopeCurrent(scope) {
                 pairedMacLoadState = .failed
                 hiddenComputers = []
                 hasHiddenComputers = false
@@ -3933,7 +3953,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The await above suspended the main actor; a sign-out, user switch, or
         // same-account team switch may have run meanwhile. Discard unless the
         // captured account/team scope is still current.
-        guard await isScopeCurrent(scope) else {
+        guard loadGeneration == pairedMacLoadGeneration,
+              await isScopeCurrent(scope) else {
             return
         }
         migrateLegacyWorkspaceComputerPriority(loadedMacs: loaded)
@@ -3947,7 +3968,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: loaded,
             hiddenIDs: hiddenIDs
         )
-        guard await isScopeCurrent(scope) else {
+        guard loadGeneration == pairedMacLoadGeneration,
+              await isScopeCurrent(scope) else {
             return
         }
         installStoredPairedMacCache(loaded, scope: scope)

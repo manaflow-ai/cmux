@@ -1761,6 +1761,20 @@ public final class MobileIrohRuntimeComposition:
             throw CmxIrohClientRuntimeError.inactive
         }
         let deviceID = cmxCanonicalDeviceID(durableDeviceID)
+        // The cached relay catalog is independent of the account-scoped
+        // identity and binding reads below. Start it immediately so a cold
+        // activation overlaps secure-storage work instead of adding another
+        // serial keychain read before the runtime can start.
+        async let cachedManagedRelayURLsTask: Set<String> = {
+            guard let relayPolicyTrustRoot,
+                  let cachedPolicy = try? await relayPolicyCache.load(
+                      trustRoot: relayPolicyTrustRoot,
+                      now: now()
+                  ) else {
+                return []
+            }
+            return Set(cachedPolicy.relays.map(\.url))
+        }()
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -1783,16 +1797,7 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: now()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
+        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID

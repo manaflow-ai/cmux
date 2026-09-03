@@ -105,15 +105,17 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    await store?.loadPairedMacs()
                     #if os(iOS)
+                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
+                    async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
+                    await pairedMacs
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
                     // Cancellation is wired to this `.task`'s lifecycle.
-                    await store?.loadRegistryDevices()
+                    await registryDevices
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }

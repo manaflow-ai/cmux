@@ -497,7 +497,10 @@ actor CmxConnectivityPeerSession {
         activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
         await activeConnection.session.close()
-        await activeConnection.pathEventObservationTask?.value
+        // Path-event diagnostics are observational. They can outlive the
+        // physical session close while Iroh drains its event stream, but
+        // control ownership must be released as soon as the session itself
+        // is closed so a foreground handoff can admit the next owner.
         await recordSessionClosure(
             reason,
             active: activeConnection,
