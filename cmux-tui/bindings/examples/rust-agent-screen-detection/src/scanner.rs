@@ -409,6 +409,8 @@ fn process_info_refresh_due(
 struct CachedProcessGroup {
     pid: u32,
     foreground_name: Option<String>,
+    executable: Option<String>,
+    argv: Vec<String>,
     checked_at: Instant,
     stream_revision: Option<u64>,
     job: process_discovery::ForegroundJob,
@@ -418,6 +420,18 @@ struct CachedProcessGroup {
     authoritative: bool,
     identified: bool,
     acquisition_started_at: Option<Instant>,
+}
+
+impl CachedProcessGroup {
+    fn matches_process(&self, process: &cmux::ProcessInfoResult) -> bool {
+        // These are the complete visible inputs used by fallback_job and
+        // identify_job. Comparing them avoids reusing a same-PID cache entry
+        // after an exec changes the runtime or its agent arguments.
+        self.pid == process.pid
+            && self.foreground_name.as_deref() == process.foreground_executable.as_deref()
+            && self.executable.as_deref() == process.executable.as_deref()
+            && self.argv == process.argv
+    }
 }
 
 impl ProcessGroupCache {
@@ -430,8 +444,7 @@ impl ProcessGroupCache {
     ) -> process_discovery::ForegroundJob {
         let foreground_name = process.foreground_executable.clone();
         if let Some(cached) = self.entries.get(terminal_id)
-            && cached.pid == process.pid
-            && cached.foreground_name == foreground_name
+            && cached.matches_process(process)
             && !process_group_refresh_due(cached, stream_revision, now)
         {
             return cached.job.clone();
@@ -449,6 +462,8 @@ impl ProcessGroupCache {
             CachedProcessGroup {
                 pid: process.pid,
                 foreground_name,
+                executable: process.executable.clone(),
+                argv: process.argv.clone(),
                 checked_at: now,
                 stream_revision,
                 job: job.clone(),
@@ -1026,6 +1041,8 @@ mod tests {
         CachedProcessGroup {
             pid: 42,
             foreground_name: Some("shell".into()),
+            executable: Some("shell".into()),
+            argv: vec!["shell".into()],
             checked_at,
             stream_revision,
             job: process_discovery::ForegroundJob { process_group_id: 42, processes: Vec::new() },
