@@ -242,6 +242,7 @@ fn collect_surface_ids(value: &Value, surfaces: &mut HashSet<u64>) {
 struct Conn {
     reader: BufReader<Box<dyn transport::Stream>>,
     next_id: u64,
+    read_buffer: Vec<u8>,
 }
 
 impl Conn {
@@ -249,7 +250,7 @@ impl Conn {
         let stream = transport::connect(socket).map_err(|e| format!("connect: {e}"))?;
         stream.set_read_timeout(Some(RPC_TIMEOUT)).map_err(|e| format!("timeout: {e}"))?;
         stream.set_write_timeout(Some(RPC_TIMEOUT)).map_err(|e| format!("timeout: {e}"))?;
-        Ok(Self { reader: BufReader::new(stream), next_id: 1 })
+        Ok(Self { reader: BufReader::new(stream), next_id: 1, read_buffer: Vec::new() })
     }
 
     fn send(&mut self, mut request: Value) -> Result<u64, String> {
@@ -264,21 +265,29 @@ impl Conn {
     }
 
     fn read_value(&mut self) -> Result<Value, String> {
-        let mut bytes = Vec::new();
-        let read = self
-            .reader
-            .by_ref()
-            .take((READ_LIMIT + 2) as u64)
-            .read_until(b'\n', &mut bytes)
-            .map_err(|e| format!("read: {e}"))?;
-        if read == 0 {
-            return Err("connection closed".into());
+        loop {
+            if let Some(end) = self.read_buffer.iter().position(|byte| *byte == b'\n') {
+                let mut line: Vec<u8> = self.read_buffer.drain(..=end).collect();
+                line.pop();
+                if line.len() > READ_LIMIT {
+                    return Err("line too long".into());
+                }
+                return serde_json::from_slice(&line).map_err(|e| format!("decode: {e}"));
+            }
+            if self.read_buffer.len() > READ_LIMIT {
+                return Err("line too long".into());
+            }
+            let mut chunk = [0u8; 1024];
+            let read = self.reader.read(&mut chunk).map_err(|e| format!("read: {e}"))?;
+            if read == 0 {
+                return Err(if self.read_buffer.is_empty() {
+                    "connection closed".into()
+                } else {
+                    "partial line".into()
+                });
+            }
+            self.read_buffer.extend_from_slice(&chunk[..read]);
         }
-        if !bytes.ends_with(b"\n") {
-            return Err("partial line".into());
-        }
-        bytes.pop();
-        serde_json::from_slice(&bytes).map_err(|e| format!("decode: {e}"))
     }
 
     fn read_value_until(&mut self, deadline: Instant) -> Result<Value, String> {
@@ -622,7 +631,7 @@ fn drain_separate_typing(
             report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
         }
     }
-    Ok(())
+    drain_error.map_or(Ok(()), Err)
 }
 
 fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -> Value {
@@ -820,8 +829,15 @@ fn drain_pending(
         pending.into_iter().map(|request| (request.id, request)).collect();
     let mut completed_creates = Vec::new();
 
+    let mut drain_error = None;
     while !pending_by_id.is_empty() {
-        let value = conn.read_value_until(deadline)?;
+        let value = match conn.read_value_until(deadline) {
+            Ok(value) => value,
+            Err(error) => {
+                drain_error = Some(error);
+                break;
+            }
+        };
         if value.get("event").is_some() {
             continue;
         }
@@ -1470,7 +1486,7 @@ mod tests {
         });
 
         let stream = transport::connect(&socket).unwrap();
-        let mut conn = Conn { reader: BufReader::new(stream), next_id: 1 };
+        let mut conn = Conn { reader: BufReader::new(stream), next_id: 1, read_buffer: Vec::new() };
         let report = Arc::new(Mutex::new(Report::new(&socket)));
         let events = Arc::new(Mutex::new(VisibilityIndex::default()));
         record_create_result(
