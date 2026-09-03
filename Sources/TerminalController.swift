@@ -564,14 +564,13 @@ class TerminalController {
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
+        ) { notification in
             guard let workspaceID = notification.userInfo?["workspaceId"] as? UUID,
                   let surfaceID = notification.userInfo?["surfaceId"] as? UUID else {
                 return
             }
             MainActor.assumeIsolated {
-                guard let self,
-                      let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) else {
+                guard let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) else {
                     return
                 }
                 workspace.drainAgentPromptQueueIfReady(panelId: surfaceID)
