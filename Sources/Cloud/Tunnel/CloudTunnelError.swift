@@ -17,6 +17,9 @@ enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
     case startFailed(String)
     /// A bounded wait ran out.
     case deadlineExceeded
+    /// `start` ran before a VPN configuration was saved; a programming error
+    /// in the coordinator's sequencing, surfaced rather than trapped.
+    case configurationNotInstalled
 
     var description: String {
         switch self {
@@ -50,6 +53,11 @@ enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
             return String(
                 localized: "cloudTunnel.error.deadlineExceeded",
                 defaultValue: "The tunnel did not come up in time."
+            )
+        case .configurationNotInstalled:
+            return String(
+                localized: "cloudTunnel.error.configurationNotInstalled",
+                defaultValue: "The VPN configuration was not saved before the tunnel was started."
             )
         }
     }

@@ -24,14 +24,14 @@ struct CloudTunnelCoordinatorTests {
         let enroller: FakeTunnelEnroller
         let consumers: FakeTunnelConsumers
         let clock: SidebarTestManualClock
-        let timing: CloudTunnelCoordinator.Timing
+        let timing: CloudTunnelTiming
 
         init(backend: CloudTunnelBackend = CloudTunnelCoordinatorTests.networkExtension) {
             let controller = FakeTunnelController()
             let enroller = FakeTunnelEnroller()
             let consumers = FakeTunnelConsumers()
             let clock = SidebarTestManualClock()
-            let timing = CloudTunnelCoordinator.Timing(
+            let timing = CloudTunnelTiming(
                 idleGrace: .seconds(300),
                 readinessBudget: .seconds(20),
                 connectTimeout: .seconds(45),

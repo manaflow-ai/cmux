@@ -13,11 +13,6 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category:
 /// have no isolation guarantees worth building on.
 @MainActor
 final class NetworkExtensionTunnelController: CloudTunnelControlling {
-    enum ControllerError: Error {
-        /// `start` before `install` saved a configuration.
-        case notInstalled
-    }
-
     private let providerBundleIdentifier: String
     private let activator: SystemExtensionActivator
     private var manager: NETunnelProviderManager?
@@ -85,7 +80,7 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
     }
 
     func start() async throws {
-        guard let manager else { throw ControllerError.notInstalled }
+        guard let manager else { throw CloudTunnelError.configurationNotInstalled }
         try manager.connection.startVPNTunnel()
     }
 

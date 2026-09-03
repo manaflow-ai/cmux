@@ -23,28 +23,12 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category:
 /// On the wg-quick backend every method is a no-op or a status read, so an
 /// unentitled build behaves exactly as before this coordinator existed.
 actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
-    struct Timing: Sendable {
-        /// Quiet time after the last Cloud use before an unpinned tunnel with
-        /// no live consumers stops.
-        var idleGrace: Duration = .seconds(300)
-        /// How long a private-network use waits for the tunnel before the
-        /// caller dials anyway.
-        var readinessBudget: Duration = .seconds(20)
-        /// Budget for the link to connect once the start request is accepted.
-        /// Waiting for the user's one-time extension approval is not counted.
-        var connectTimeout: Duration = .seconds(45)
-        var stopTimeout: Duration = .seconds(10)
-        /// After a failed start, Cloud uses do not retry the start (enroll,
-        /// activate, save, connect) for this long; `cmux vpn up` always does.
-        var failureBackoff: Duration = .seconds(30)
-    }
-
     let backend: CloudTunnelBackend
     private let controller: any CloudTunnelControlling
     private let enroller: any CloudTunnelEnrolling
     private let consumers: any CloudTunnelConsumerSource
     private let clock: any Clock<Duration>
-    private let timing: Timing
+    private let timing: CloudTunnelTiming
 
     private(set) var state: CloudTunnelState = .off
     private(set) var isPinned = false
@@ -55,7 +39,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private var startGeneration = 0
     private var idleTask: Task<Void, Never>?
     private var failureBackoffTask: Task<Void, Never>?
-    /// True from a failed start until ``Timing/failureBackoff`` elapses (or an explicit up/down).
+    /// True from a failed start until ``CloudTunnelTiming/failureBackoff`` elapses (or an explicit up/down).
     private(set) var isInFailureBackoff = false
     private var linkObservation: Task<Void, Never>?
     private var stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
@@ -67,7 +51,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         enroller: any CloudTunnelEnrolling,
         consumers: any CloudTunnelConsumerSource,
         clock: any Clock<Duration> = ContinuousClock(),
-        timing: Timing = Timing()
+        timing: CloudTunnelTiming = CloudTunnelTiming()
     ) {
         self.backend = backend
         self.controller = controller

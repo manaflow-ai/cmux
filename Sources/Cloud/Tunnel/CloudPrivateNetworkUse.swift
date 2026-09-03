@@ -1,16 +1,8 @@
 import Foundation
 
 struct CloudPrivateNetworkUse: Sendable, Equatable {
-    enum Purpose: String, Sendable {
-        case ssh
-        case attach
-        case cmuxRemote = "cmux-remote"
-        case sessionAttach = "session-attach"
-        case openPort = "open-port"
-    }
-
     let machineID: String
-    let purpose: Purpose
+    let purpose: CloudPrivateNetworkPurpose
 }
 
 /// The gate for builds and tests that do not manage a tunnel: dial straight

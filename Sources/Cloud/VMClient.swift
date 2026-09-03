@@ -581,7 +581,7 @@ actor VMClient {
     /// endpoint request and the tunnel start overlap instead of serializing.
     private func mintingPrivateNetworkEndpoint<T>(
         machineID: String,
-        purpose: CloudPrivateNetworkUse.Purpose,
+        purpose: CloudPrivateNetworkPurpose,
         _ mint: () async throws -> T
     ) async throws -> T {
         let gate = privateNetwork

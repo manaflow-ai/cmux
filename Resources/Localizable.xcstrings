@@ -273667,6 +273667,23 @@
           }
         }
       }
+    },
+    "cloudTunnel.error.configurationNotInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The VPN configuration was not saved before the tunnel was started."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルの開始前に VPN 構成が保存されていませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
