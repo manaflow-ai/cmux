@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use cmux_tui_core::{Mux, SurfaceOptions};
 use cmux_tui_machine_protocol as protocol;
+use crossbeam_channel::bounded;
 use zeroize::Zeroize;
 
 use crate::config::MachineConfig;
@@ -37,12 +38,13 @@ use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
+const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
 
 type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
 
 struct ProviderCloseWorker {
-    sender: Option<mpsc::SyncSender<ProviderCloseTask>>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
+    threads: Vec<std::thread::JoinHandle<()>>,
     available: Mutex<usize>,
 }
 
@@ -56,9 +58,14 @@ impl ProviderCloseWorker {
     }
 
     fn with_capacity(capacity: usize) -> anyhow::Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel::<ProviderCloseTask>(capacity);
-        let thread =
-            std::thread::Builder::new().name("provider-close-machine".into()).spawn(move || {
+        let (sender, receiver) = bounded::<ProviderCloseTask>(capacity);
+        let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(capacity.max(1));
+        let mut threads = Vec::with_capacity(worker_count);
+        for index in 0..worker_count {
+            let receiver = receiver.clone();
+            let thread = std::thread::Builder::new()
+                .name(format!("provider-close-machine-{index}"))
+                .spawn(move || {
                 while let Ok(close) = receiver.recv() {
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
                         crate::client_log::stderr_log!(
@@ -67,8 +74,11 @@ impl ProviderCloseWorker {
                         );
                     }
                 }
-            })?;
-        Ok(Self { sender: Some(sender), thread: Some(thread), available: Mutex::new(capacity) })
+                })?;
+            threads.push(thread);
+        }
+        drop(receiver);
+        Ok(Self { sender: Some(sender), threads, available: Mutex::new(capacity) })
     }
 
     fn try_reserve(self: &Arc<Self>) -> Option<ProviderClosePermit> {
@@ -84,7 +94,7 @@ impl ProviderCloseWorker {
         &self,
         permit: ProviderClosePermit,
         close: ProviderCloseTask,
-    ) -> Result<(), mpsc::TrySendError<ProviderCloseTask>> {
+    ) -> Result<(), crossbeam_channel::TrySendError<ProviderCloseTask>> {
         self.sender.as_ref().expect("provider close worker is active").try_send(Box::new(
             move || {
                 close();
@@ -107,7 +117,7 @@ impl Drop for ProviderClosePermit {
 impl Drop for ProviderCloseWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(thread) = self.thread.take() {
+        for thread in self.threads.drain(..) {
             // A close RPC has its own request deadline, but dropping the
             // runtime must not wait for that remote deadline. Reap a worker
             // that already finished; otherwise dropping the handle detaches
@@ -167,8 +177,10 @@ impl Drop for ProviderMachineConnectionLease {
             }),
         ) {
             let reason = match error {
-                mpsc::TrySendError::Full(_) => "reserved close queue capacity was unavailable",
-                mpsc::TrySendError::Disconnected(_) => "close worker disconnected",
+                crossbeam_channel::TrySendError::Full(_) => {
+                    "reserved close queue capacity was unavailable"
+                }
+                crossbeam_channel::TrySendError::Disconnected(_) => "close worker disconnected",
             };
             crate::client_log::stderr_log!(
                 "provider",
