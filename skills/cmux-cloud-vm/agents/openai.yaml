@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Cloud Machines"
-  short_description: "The complete cmux Cloud CLI (`cmux vm`, alias `cmux cloud`): route/run/agent pick a machine; exec, push/pull, wait and terminal send/read/wait work headlessly; tree/open and surface ls/open show workspaces, terminals, displays, and ports; domains publish protected or public HTTPS URLs; plus create, Base, checkpoints, forks, SSH, auth, and plan limits."
-  default_prompt: "Use this skill to run work on cmux Cloud through the plain `cmux vm` CLI: authenticate, inspect the plan and route, run or stage work headlessly, start detached agents, transfer files, and observe terminals without stealing focus. Use `cmux cloud domains publish/list/zones/verify/access/rm` for generated or custom HTTPS publications, choosing personal/team/public access deliberately. Use `vm tree`/`vm open`/`surface open` only when a human should see a pane, and read `cmux vm <verb> --help` plus references/commands.md for exact flags, JSON shapes, exit codes, and DNS steps."
+  short_description: "Drive cmux Cloud VMs safely from the CLI"
+  default_prompt: "Use $cmux-cloud-vm to route work, run detached agents, transfer files, inspect terminals, and publish protected or public VM URLs; read `cmux vm <verb> --help` before using a new flag."
