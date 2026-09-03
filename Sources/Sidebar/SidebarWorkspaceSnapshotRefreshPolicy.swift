@@ -66,6 +66,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
+            repositoryLink: repositoryLink,
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
             finderDirectoryPath: snapshot.finderDirectoryPath,

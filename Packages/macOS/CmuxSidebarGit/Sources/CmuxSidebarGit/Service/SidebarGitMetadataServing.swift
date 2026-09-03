@@ -38,6 +38,9 @@ public protocol SidebarGitMetadataServing: AnyObject {
     func sidebarGitMetadataWatchSettingsDidChange()
     /// Clears all probe state for a closing/detaching workspace.
     func clearWorkspaceGitProbes(workspaceId: UUID)
+    /// Clears probe and watcher state for one panel without changing the
+    /// host's projected repository-link value.
+    func clearWorkspaceGitProbeTracking(workspaceId: UUID, panelId: UUID)
     /// Clears every probe and tracked directory (session restore swap).
     func resetAllWorkspaceGitProbeTracking()
     /// Panel ids an explicit refresh would currently re-probe (test seam).

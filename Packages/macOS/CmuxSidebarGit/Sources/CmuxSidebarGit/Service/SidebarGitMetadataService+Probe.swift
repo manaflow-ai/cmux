@@ -99,7 +99,29 @@ extension SidebarGitMetadataService {
         isLastAttempt: Bool,
         reason: String
     ) {
-        guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
+        guard let host, host.workspaceExists(probeKey.workspaceId) else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard host.panelExists(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId) else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard !host.shouldSkipLocalGitMetadata(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        ) else {
+            clearWorkspaceGitProbeTracking(for: probeKey)
+            return
+        }
+        guard host.gitProbeDirectory(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )?.normalizedGitProbeDirectory == expectedDirectory else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspaceGitProbeStateByKey[probeKey] = .idle
             scheduleWorkspaceGitMetadataRefreshIfPossible(
                 workspaceId: probeKey.workspaceId,
@@ -107,7 +129,7 @@ extension SidebarGitMetadataService {
                 reason: "mobileHostDeferred",
                 delays: [max(
                     mobileHostDeferral.deferralInterval,
-                    host?.mobileHostQuietDelay(for: mobileHostDeferral.quietInterval) ?? 0
+                    host.mobileHostQuietDelay(for: mobileHostDeferral.quietInterval)
                 )]
             )
             return
@@ -318,7 +340,12 @@ extension SidebarGitMetadataService {
 
         if shouldTrackGitDirectory {
             workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+            updateWorkspaceGitMetadataWatcher(
+                for: probeKey,
+                directory: expectedDirectory,
+                forceDescriptorRefresh:
+                    workspaceGitHeadSignatureByKey[probeKey] != snapshot.headSignature
+            )
         } else {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             stopWorkspaceGitMetadataWatcher(for: probeKey)
@@ -328,6 +355,12 @@ extension SidebarGitMetadataService {
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
         )
+        let previousRepositoryLink = host.panelRepositoryLink(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )
+        let nextRepositoryLink = workspaceGitMetadataCreationWatchRegistrationIncompleteKeys
+            .contains(probeKey) ? nil : snapshot.repositoryLink
         let previousPullRequestBadge = host.panelPullRequestBadge(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
@@ -383,7 +416,43 @@ extension SidebarGitMetadataService {
             workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             didApplyMaterialSidebarGitChange = previousBranchState != nil
-            host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+            if nextRepositoryLink == nil {
+                host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+            } else {
+                host.clearPanelGitBranchPreservingRepositoryLink(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId
+                )
+            }
+        }
+
+        if let nextRepositoryLink {
+            let repositoryLinkChanged = previousRepositoryLink?.remoteName != nextRepositoryLink.remoteName
+                || previousRepositoryLink?.displayName != nextRepositoryLink.displayName
+                || previousRepositoryLink?.url != nextRepositoryLink.url
+            let currentRepositoryLink = host.panelRepositoryLink(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId
+            )
+            let repositoryLinkNeedsProjection = currentRepositoryLink?.remoteName != nextRepositoryLink.remoteName
+                || currentRepositoryLink?.displayName != nextRepositoryLink.displayName
+                || currentRepositoryLink?.url != nextRepositoryLink.url
+            didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange || repositoryLinkChanged
+            if repositoryLinkNeedsProjection {
+                host.updatePanelRepositoryLink(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId,
+                    remoteName: nextRepositoryLink.remoteName,
+                    displayName: nextRepositoryLink.displayName,
+                    url: nextRepositoryLink.url
+                )
+            }
+        } else if previousRepositoryLink != nil {
+            didApplyMaterialSidebarGitChange = true
+            host.clearPanelRepositoryLink(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId
+            )
         }
 
         switch snapshot.pullRequest {

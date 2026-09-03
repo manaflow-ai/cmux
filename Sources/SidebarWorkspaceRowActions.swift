@@ -45,6 +45,7 @@ struct SidebarWorkspaceRowActions {
     let openNotification: (TerminalNotification) -> Void
     let copyWorkspaceLinks: ([UUID]) -> Void
     let openPullRequest: (URL) -> Void
+    var openRepository: (URL) -> Void = { _ in }
     let openPort: (Int) -> Void
     let checklist: SidebarWorkspaceChecklistActions
     let onToggleChecklistExpansion: () -> Void
@@ -55,6 +56,17 @@ struct SidebarWorkspaceRowActions {
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
     let onPointerDragEligibilityChange: (Bool) -> Void
+
+    static func preferredBrowserOpenAction(
+        workspaceId: UUID,
+        openInWorkspace: @escaping (UUID, URL) -> Bool,
+        openExternally: @escaping (URL) -> Void
+    ) -> (URL) -> Void {
+        { url in
+            guard !openInWorkspace(workspaceId, url) else { return }
+            openExternally(url)
+        }
+    }
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.

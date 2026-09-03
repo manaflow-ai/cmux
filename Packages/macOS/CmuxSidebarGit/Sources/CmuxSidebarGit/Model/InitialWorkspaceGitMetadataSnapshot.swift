@@ -24,6 +24,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
     let indexSignature: String?
     let indexContentSignature: String?
     let headSignature: String?
+    let repositoryLink: GitRepositoryLink?
     let pullRequest: PullRequest
 
     /// Probes `directory` through `reader` and folds the result into a
@@ -45,6 +46,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
                 indexSignature: nil,
                 indexContentSignature: nil,
                 headSignature: nil,
+                repositoryLink: nil,
                 pullRequest: .notFound
             )
             return
@@ -58,6 +60,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
             indexSignature: metadata.indexSignature,
             indexContentSignature: metadata.indexContentSignature,
             headSignature: metadata.headSignature,
+            repositoryLink: metadata.repositoryLink,
             pullRequest: branch == nil ? .notFound : .deferred
         )
     }
@@ -69,6 +72,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
         indexSignature: String?,
         indexContentSignature: String?,
         headSignature: String?,
+        repositoryLink: GitRepositoryLink?,
         pullRequest: PullRequest
     ) {
         self.isRepository = isRepository
@@ -77,6 +81,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
         self.indexSignature = indexSignature
         self.indexContentSignature = indexContentSignature
         self.headSignature = headSignature
+        self.repositoryLink = repositoryLink
         self.pullRequest = pullRequest
     }
 }

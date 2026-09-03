@@ -1,55 +1,634 @@
 import Dispatch
+import Darwin
 import Foundation
 
+struct GitRemoteConfigSnapshot: Sendable {
+    let remoteVOutput: String?
+    let configURLs: [URL]
+    let globalConfigURLs: [URL]
+    let isComplete: Bool
+    let watchFallbackURLs: [URL]
+    let configStatuses: [String: GitFileStatus?]
+}
+
+struct GitRemoteURLRewrite: Sendable {
+    let replacement: String
+    let prefix: String
+}
+
 extension GitMetadataService {
+    private struct GitConfigTraversalBudget {
+        static let maximumFileCount = 512
+        static let maximumMissingPathCount = 512
+        static let maximumByteCount = 4 * 1024 * 1024
+        static let maximumIncludeDepth = 32
+        static let maximumDiscoveredRemoteURLCount = 4_096
+        static let maximumHasConfigConditionCount = 1_024
+        static let maximumHasConfigMatchOperationCount = 65_536
+        static let maximumURLRewriteCount = 4_096
+        static let maximumURLRewriteMatchOperationCount = 65_536
+
+        var fileCount = 0
+        var missingPathCount = 0
+        var byteCount = 0
+        var outputByteCount = 0
+        var exceeded = false
+        var fallbackURLs: [URL] = []
+        var urlRewrites: [GitRemoteURLRewrite] = []
+        var configStatuses: [String: GitFileStatus?] = [:]
+        var worktreeConfigEnabled = false
+        var discoveredRemoteURLs: Set<String> = []
+        var effectiveRemoteLineIndexByName: [String: Int] = [:]
+        var hasConfigConditionCount = 0
+        var hasConfigMatchOperationCount = 0
+        let commonConfigPaths: Set<String>
+        let fileStatusReader: any GitFileStatusReading
+        let filesystemLocalityReader: any GitFilesystemLocalityReading
+
+        init(
+            fileStatusReader: any GitFileStatusReading,
+            commonConfigURL: URL,
+            filesystemLocalityReader: any GitFilesystemLocalityReading
+        ) {
+            self.fileStatusReader = fileStatusReader
+            self.filesystemLocalityReader = filesystemLocalityReader
+            let standardized = commonConfigURL.standardizedFileURL
+            var commonPaths = Set([standardized.path])
+            if filesystemLocalityReader.isLocal(path: standardized.path) {
+                let resolved = standardized.resolvingSymlinksInPath().standardizedFileURL.path
+                if filesystemLocalityReader.isLocal(path: resolved) {
+                    commonPaths.insert(resolved)
+                }
+            }
+            self.commonConfigPaths = commonPaths
+        }
+
+        mutating func recordFallback(_ url: URL) {
+            guard fallbackURLs.count < 64 else { return }
+            let normalized = url.standardizedFileURL
+            guard !fallbackURLs.contains(normalized) else { return }
+            fallbackURLs.append(normalized)
+        }
+
+        mutating func read(_ url: URL) -> String? {
+            guard !exceeded else { return nil }
+            let standardizedURL = url.standardizedFileURL
+            guard standardizedURL.path == "/dev/null"
+                    || filesystemLocalityReader.isLocal(path: standardizedURL.path) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let readURL = url.resolvingSymlinksInPath()
+            guard readURL.standardizedFileURL.path != "/dev/null" else {
+                return ""
+            }
+            guard filesystemLocalityReader.isLocal(path: readURL.standardizedFileURL.path) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let dependencyPaths = Set([
+                url.standardizedFileURL.path,
+                readURL.path
+            ])
+            let statusesBefore = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
+                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            }
+            guard fileCount < Self.maximumFileCount else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
+            guard descriptor >= 0 else {
+                let openError = errno
+                for (path, fileStatus) in statusesBefore {
+                    configStatuses.updateValue(fileStatus, forKey: path)
+                }
+                if openError == ENOENT || openError == ENOTDIR {
+                    guard missingPathCount < Self.maximumMissingPathCount else {
+                        exceeded = true
+                        recordFallback(url)
+                        return nil
+                    }
+                    missingPathCount += 1
+                } else {
+                    exceeded = true
+                    recordFallback(url)
+                }
+                return nil
+            }
+            defer { Darwin.close(descriptor) }
+
+            var status = stat()
+            guard Darwin.fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_size >= 0,
+                  status.st_size <= Int64(Self.maximumByteCount - byteCount) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let remaining = Self.maximumByteCount - byteCount
+            var data = Data()
+            var readError: Int32?
+            while data.count < remaining {
+                let chunkSize = min(64 * 1024, remaining - data.count)
+                var buffer = [UInt8](repeating: 0, count: chunkSize)
+                let readCount = buffer.withUnsafeMutableBytes { buffer in
+                    Darwin.read(descriptor, buffer.baseAddress, buffer.count)
+                }
+                if readCount == 0 {
+                    break
+                }
+                if readCount < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    readError = errno
+                    break
+                }
+                data.append(contentsOf: buffer.prefix(readCount))
+            }
+            guard Darwin.fstat(descriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_size <= Int64(Self.maximumByteCount - byteCount),
+                  readError == nil,
+                  Int64(data.count) == status.st_size,
+                  data.count <= remaining,
+                  let config = String(data: data, encoding: .utf8) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            let statusesAfter = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
+                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            }
+            guard statusesBefore == statusesAfter else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            for (path, fileStatus) in statusesAfter {
+                configStatuses.updateValue(fileStatus, forKey: path)
+            }
+            fileCount += 1
+            byteCount += data.count
+            return config
+        }
+
+        mutating func recordWorktreeConfigSetting(_ value: String) {
+            if let enabled = GitMetadataService.gitConfigBooleanValue(value) {
+                worktreeConfigEnabled = enabled
+            }
+        }
+
+        func isCommonConfig(_ url: URL) -> Bool {
+            let standardized = url.standardizedFileURL
+            return commonConfigPaths.contains(standardized.path)
+                || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
+        }
+
+        mutating func recordDiscoveredRemoteURL(_ remoteURL: String) {
+            guard !remoteURL.isEmpty,
+                  !discoveredRemoteURLs.contains(remoteURL) else {
+                return
+            }
+            guard discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
+                exceeded = true
+                return
+            }
+            discoveredRemoteURLs.insert(remoteURL)
+        }
+
+        mutating func hasConfigMatches(pattern: String) -> Bool {
+            guard !pattern.isEmpty, !exceeded else { return false }
+            guard hasConfigConditionCount < Self.maximumHasConfigConditionCount else {
+                exceeded = true
+                return false
+            }
+            hasConfigConditionCount += 1
+            let operationCount = discoveredRemoteURLs.count
+            guard operationCount <= Self.maximumHasConfigMatchOperationCount
+                    - hasConfigMatchOperationCount else {
+                exceeded = true
+                return false
+            }
+            hasConfigMatchOperationCount += operationCount
+            let regexPattern = GitMetadataService.gitConfigGlobRegexPattern(pattern)
+            guard let regex = try? NSRegularExpression(pattern: regexPattern) else {
+                return discoveredRemoteURLs.contains {
+                    fnmatch(pattern, $0, 0) == 0
+                }
+            }
+            return discoveredRemoteURLs.contains { remoteURL in
+                let range = NSRange(
+                    remoteURL.startIndex..<remoteURL.endIndex,
+                    in: remoteURL
+                )
+                return regex.firstMatch(in: remoteURL, range: range) != nil
+            }
+        }
+
+        /// Collects raw remote URLs for Git's deferred hasconfig condition.
+        ///
+        /// Discovery follows matching non-hasconfig includes, so a hasconfig
+        /// include cannot satisfy itself with a URL from its own gated file.
+        mutating func discoverRemoteURLs(
+            from url: URL,
+            repository: ResolvedGitRepository,
+            seenConfigPaths: inout Set<String>,
+            depth: Int,
+            homeDirectory: URL,
+            isCommonConfigScope: Bool
+        ) {
+            guard depth <= Self.maximumIncludeDepth,
+                  !exceeded else {
+                return
+            }
+            let normalizedURL = url.standardizedFileURL
+            guard seenConfigPaths.insert(normalizedURL.path).inserted,
+                  let config = read(normalizedURL) else {
+                return
+            }
+
+            var currentRemoteName: String?
+            var allowsInclude = false
+            var currentSectionIsExtensions = false
+            for rawLine in GitConfigLogicalLineReader().lines(from: config) {
+                let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
+                    .trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("[") && line.hasSuffix("]") {
+                    currentRemoteName = GitMetadataService.gitConfigRemoteName(
+                        fromSectionHeader: line
+                    )
+                    currentSectionIsExtensions = isCommonConfigScope
+                        && line.lowercased() == "[extensions]"
+                    if line.lowercased() == "[include]" {
+                        allowsInclude = true
+                    } else if let condition = GitMetadataService.gitConfigIncludeIfCondition(
+                        fromSectionHeader: line
+                    ) {
+                        // The deferred hasconfig condition must not discover a
+                        // URL from its own include. Other conditions can be
+                        // evaluated normally during the bounded pre-scan.
+                        allowsInclude = !condition.lowercased().hasPrefix("hasconfig:")
+                            && GitMetadataService.gitConfigIncludeIfConditionMatches(
+                                condition,
+                                repository: repository,
+                                configURL: normalizedURL,
+                                discoveredRemoteURLs: discoveredRemoteURLs,
+                                homeDirectory: homeDirectory
+                            )
+                    } else {
+                        allowsInclude = false
+                    }
+                    continue
+                }
+
+                let parts = line.split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                ).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                if currentSectionIsExtensions,
+                   parts.first?.lowercased() == "worktreeconfig" {
+                    if let enabled = GitMetadataService.gitConfigBooleanValue(parts.count == 2 ? parts[1] : "true") {
+                        worktreeConfigEnabled = enabled
+                    }
+                }
+                if currentRemoteName != nil,
+                   parts.count == 2,
+                   parts[0].lowercased() == "url" {
+                    let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
+                    recordDiscoveredRemoteURL(remoteURL)
+                    continue
+                }
+
+                guard allowsInclude,
+                      parts.count == 2,
+                      parts[0].lowercased() == "path",
+                      let includeURL = GitMetadataService.gitConfigIncludeURL(
+                          fromPathValue: parts[1],
+                          relativeTo: normalizedURL,
+                          homeDirectory: homeDirectory
+                      ) else {
+                    continue
+                }
+                discoverRemoteURLs(
+                    from: includeURL,
+                    repository: repository,
+                    seenConfigPaths: &seenConfigPaths,
+                    depth: depth + 1,
+                    homeDirectory: homeDirectory,
+                    isCommonConfigScope: isCommonConfigScope
+                )
+            }
+        }
+
+        mutating func appendOutput(_ line: String) -> Bool {
+            let byteCount = line.utf8.count
+            guard outputByteCount <= Self.maximumByteCount - byteCount else {
+                exceeded = true
+                return false
+            }
+            outputByteCount += byteCount
+            return true
+        }
+
+        mutating func recordURLRewrite(
+            replacement: String,
+            prefix: String
+        ) {
+            guard !exceeded else { return }
+            guard urlRewrites.count < Self.maximumURLRewriteCount else {
+                exceeded = true
+                return
+            }
+            urlRewrites.append(
+                GitRemoteURLRewrite(replacement: replacement, prefix: prefix)
+            )
+        }
+
+        mutating func recordRemoteURL(
+            remoteName: String,
+            remoteURL: String,
+            lines: inout [String]
+        ) -> Bool {
+            if remoteURL.isEmpty {
+                if let index = effectiveRemoteLineIndexByName.removeValue(forKey: remoteName) {
+                    lines[index] = ""
+                }
+                return true
+            }
+            guard effectiveRemoteLineIndexByName[remoteName] == nil else {
+                return true
+            }
+            let line = "\(remoteName)\t\(remoteURL) (fetch)\n"
+            guard appendOutput(line) else { return false }
+            effectiveRemoteLineIndexByName[remoteName] = lines.endIndex
+            lines.append(line)
+            return true
+        }
+    }
+
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
     /// straight from the reachable config files (no `git` process). `nil` when
     /// no remote URL is found.
     nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+        let snapshot = gitRemoteConfigSnapshot(repository: repository)
+        return snapshot.isComplete ? snapshot.remoteVOutput : nil
+    }
+
+    nonisolated static func gitRemoteConfigSnapshot(
+        repository: ResolvedGitRepository,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader(),
+        filesystemLocalityReader: any GitFilesystemLocalityReading =
+            SystemGitFilesystemLocalityReader(),
+        configRootURLs: [URL]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
-        for configURL in gitRootConfigURLs(repository: repository) {
+        var configURLs: [URL] = []
+        let commonConfigURL = URL(fileURLWithPath: repository.commonDirectory)
+            .appendingPathComponent("config")
+        let homeDirectory = gitHomeDirectory(environment: environment)
+        let rootConfigURLs = configRootURLs ?? gitRootConfigURLs(
+            repository: repository,
+            environment: environment
+        )
+        let hasRuntimeConfigOverrides: Bool = {
+            let hasConfigParameters = environment["GIT_CONFIG_PARAMETERS"]?.isEmpty == false
+            guard let rawCount = environment["GIT_CONFIG_COUNT"] else {
+                return hasConfigParameters
+            }
+            guard !rawCount.isEmpty else {
+                return hasConfigParameters
+            }
+            guard let count = Int(rawCount), count >= 0 else {
+                return true
+            }
+            return count > 0 || hasConfigParameters
+        }()
+        if hasRuntimeConfigOverrides {
+            return GitRemoteConfigSnapshot(
+                remoteVOutput: nil,
+                configURLs: rootConfigURLs,
+                globalConfigURLs: [],
+                isComplete: false,
+                watchFallbackURLs: [],
+                configStatuses: [:]
+            )
+        }
+        var discoveryBudget = GitConfigTraversalBudget(
+            fileStatusReader: fileStatusReader,
+            commonConfigURL: commonConfigURL,
+            filesystemLocalityReader: filesystemLocalityReader
+        )
+        var discoverySeenConfigPaths: Set<String> = []
+        for configURL in rootConfigURLs {
+            let isCommonConfigScope = discoveryBudget.isCommonConfig(configURL)
+            discoveryBudget.discoverRemoteURLs(
+                from: configURL,
+                repository: repository,
+                seenConfigPaths: &discoverySeenConfigPaths,
+                depth: 0,
+                homeDirectory: homeDirectory,
+                isCommonConfigScope: isCommonConfigScope
+            )
+        }
+        if discoveryBudget.worktreeConfigEnabled {
+            discoveryBudget.discoverRemoteURLs(
+                from: gitWorktreeConfigURL(repository: repository),
+                repository: repository,
+                seenConfigPaths: &discoverySeenConfigPaths,
+                depth: 0,
+                homeDirectory: homeDirectory,
+                isCommonConfigScope: false
+            )
+        }
+        let discoveryIsComplete = !discoveryBudget.exceeded
+        let discoveredRemoteURLs = discoveryBudget.discoveredRemoteURLs
+        var budget = GitConfigTraversalBudget(
+            fileStatusReader: fileStatusReader,
+            commonConfigURL: commonConfigURL,
+            filesystemLocalityReader: filesystemLocalityReader
+        )
+        budget.discoveredRemoteURLs = discoveredRemoteURLs
+        var globalConfigURLs: [URL] = []
+        var globalConfigPathSet: Set<String> = []
+        let globalRootConfigPaths = Set(
+            gitGlobalConfigURLs(environment: environment).map {
+                $0.standardizedFileURL.path
+            }
+        )
+        for configURL in rootConfigURLs {
+            let isCommonConfigScope = budget.isCommonConfig(configURL)
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
-                lines: &lines
+                configURLs: &configURLs,
+                lines: &lines,
+                budget: &budget,
+                depth: 0,
+                isCommonConfigScope: isCommonConfigScope,
+                isGlobalConfigScope: globalRootConfigPaths.contains(
+                    configURL.standardizedFileURL.path
+                ),
+                homeDirectory: homeDirectory,
+                isHasConfigGated: false,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
             )
         }
-        return lines.isEmpty ? nil : lines.joined()
+        if budget.worktreeConfigEnabled {
+            appendGitRemoteVLines(
+                fromConfigURL: gitWorktreeConfigURL(repository: repository),
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                configURLs: &configURLs,
+                lines: &lines,
+                budget: &budget,
+                depth: 0,
+                isCommonConfigScope: false,
+                isGlobalConfigScope: false,
+                homeDirectory: homeDirectory,
+                isHasConfigGated: false,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
+            )
+        }
+        let effectiveLines = lines.filter { !$0.isEmpty }
+        let rawRemoteVOutput = effectiveLines.isEmpty ? nil : effectiveLines.joined()
+        let remoteVOutput = rawRemoteVOutput.flatMap {
+            rewrittenRemoteVOutput($0, rewrites: budget.urlRewrites)
+        }
+        return GitRemoteConfigSnapshot(
+            remoteVOutput: remoteVOutput,
+            configURLs: configURLs,
+            globalConfigURLs: globalConfigURLs,
+            isComplete: discoveryIsComplete
+                && !budget.exceeded
+                && (rawRemoteVOutput == nil || remoteVOutput != nil),
+            watchFallbackURLs: budget.fallbackURLs,
+            configStatuses: budget.configStatuses
+        )
     }
 
-    /// The repository's top-level config files, including a linked worktree's
-    /// `config.worktree` when that bounded regular file is present.
-    nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        GitWorktreeConfigEnablementReader().rootConfigURLs(repository: repository)
+    /// The Git config layers that can affect a repository's fetch remotes.
+    nonisolated static func gitRootConfigURLs(
+        repository: ResolvedGitRepository,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        var urls = gitGlobalConfigURLs(environment: environment)
+        urls.append(contentsOf: [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ])
+        return urls
+    }
+
+    /// Resolves standard system, global, and XDG Git config locations.
+    private nonisolated static func gitGlobalConfigURLs(
+        environment: [String: String]
+    ) -> [URL] {
+        var urls = gitSystemConfigURLs(environment: environment)
+        if let global = environment["GIT_CONFIG_GLOBAL"] {
+            if !global.isEmpty, global != "/dev/null" {
+                urls.append(URL(fileURLWithPath: global))
+            }
+        } else {
+            let home = gitHomeDirectory(environment: environment)
+            let xdgHome: URL
+            if let configuredXDGHome = environment["XDG_CONFIG_HOME"],
+               !configuredXDGHome.isEmpty {
+                xdgHome = URL(fileURLWithPath: configuredXDGHome)
+            } else {
+                xdgHome = home.appendingPathComponent(".config", isDirectory: true)
+            }
+            urls.append(xdgHome.appendingPathComponent("git/config"))
+            urls.append(home.appendingPathComponent(".gitconfig"))
+        }
+        return urls
+    }
+
+    /// Resolves the system config path using Git's installation prefix.
+    private nonisolated static func gitSystemConfigURLs(
+        environment: [String: String]
+    ) -> [URL] {
+        let noSystemConfig: Bool
+        if let rawValue = environment["GIT_CONFIG_NOSYSTEM"] {
+            noSystemConfig = gitConfigBooleanValue(rawValue) ?? true
+        } else {
+            noSystemConfig = false
+        }
+        guard !noSystemConfig else { return [] }
+
+        if let configured = environment["GIT_CONFIG_SYSTEM"] {
+            guard !configured.isEmpty, configured != "/dev/null" else { return [] }
+            return [URL(fileURLWithPath: configured)]
+        }
+
+        return [
+            GitSystemConfigPathResolver()
+                .automaticSystemConfigURL(environment: environment)
+        ]
+    }
+
+    /// Resolves Git's effective home directory for an environment snapshot.
+    private nonisolated static func gitHomeDirectory(
+        environment: [String: String]
+    ) -> URL {
+        if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
+            return URL(fileURLWithPath: configuredHome).standardizedFileURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+    }
+
+    /// The process home used by path planning when no HOME override exists.
+    nonisolated static var processHomeDirectory: URL {
+        gitHomeDirectory(environment: [:])
+    }
+
+    /// Parses Git's accepted boolean spellings, returning nil for invalid input.
+    private nonisolated static func gitConfigBooleanValue(_ value: String) -> Bool? {
+        switch gitConfigUnquotedValue(value).lowercased() {
+        case "", "false", "no", "off", "0":
+            return false
+        case "true", "yes", "on", "1":
+            return true
+        default:
+            return nil
+        }
+    }
+
+    /// Returns the per-worktree config path for a resolved checkout.
+    nonisolated static func gitWorktreeConfigURL(repository: ResolvedGitRepository) -> URL {
+        URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config.worktree")
     }
 
     /// Every config file reachable from the repository roots, following
     /// `include`/`includeIf` directives, de-duplicated by path.
-    nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        var urls: [URL] = []
-        var pendingURLs = gitRootConfigURLs(repository: repository)
-        var seenConfigPaths: Set<String> = []
-
-        while !pendingURLs.isEmpty {
-            let configURL = pendingURLs.removeFirst().standardizedFileURL
-            let path = configURL.path
-            guard seenConfigPaths.insert(path).inserted else { continue }
-            urls.append(configURL)
-            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
-                continue
-            }
-            pendingURLs.append(
-                contentsOf: gitIncludedConfigURLs(
-                    fromConfig: config,
-                    configURL: configURL,
-                    repository: repository
-                )
-            )
-        }
-
-        return urls
+    nonisolated static func gitConfigURLs(
+        repository: ResolvedGitRepository,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        configRootURLs: [URL]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        let snapshot = gitRemoteConfigSnapshot(
+            repository: repository,
+            safetyConfiguration: safetyConfiguration,
+            fileStatusReader: SystemGitFileStatusReader(),
+            configRootURLs: configRootURLs,
+            environment: environment
+        )
+        return snapshot.configURLs + snapshot.watchFallbackURLs
     }
 
     /// Parses a single config string into `git remote -v` fetch lines (used by
@@ -57,8 +636,9 @@ extension GitMetadataService {
     nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
         var currentRemoteName: String?
         var lines: [String] = []
+        var effectiveRemoteLineIndexByName: [String: Int] = [:]
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -67,71 +647,166 @@ extension GitMetadataService {
             }
 
             guard let currentRemoteName else { continue }
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
             guard parts.count == 2, parts[0].lowercased() == "url" else {
                 continue
             }
             let remoteURL = gitConfigUnquotedValue(parts[1])
-            guard !remoteURL.isEmpty else {
+            if remoteURL.isEmpty {
+                if let index = effectiveRemoteLineIndexByName.removeValue(
+                    forKey: currentRemoteName
+                ) {
+                    lines[index] = ""
+                }
                 continue
             }
+            guard effectiveRemoteLineIndexByName[currentRemoteName] == nil else {
+                continue
+            }
+            effectiveRemoteLineIndexByName[currentRemoteName] = lines.endIndex
             lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
         }
 
-        return lines
+        return lines.filter { !$0.isEmpty }
     }
 
     /// Appends `git remote -v` fetch lines from a config file (and its matching
     /// includes) into `lines`, guarding against include cycles via
     /// `seenConfigPaths`.
-    nonisolated static func appendGitRemoteVLines(
+    private nonisolated static func appendGitRemoteVLines(
         fromConfigURL configURL: URL,
         repository: ResolvedGitRepository,
         seenConfigPaths: inout Set<String>,
-        lines: inout [String]
+        configURLs: inout [URL],
+        lines: inout [String],
+        budget: inout GitConfigTraversalBudget,
+        depth: Int,
+        isCommonConfigScope: Bool,
+        isGlobalConfigScope: Bool,
+        homeDirectory: URL,
+        isHasConfigGated: Bool,
+        globalConfigURLs: inout [URL],
+        globalConfigPathSet: inout Set<String>
     ) {
+        guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
+              !budget.exceeded else {
+            budget.recordFallback(configURL)
+            budget.exceeded = true
+            return
+        }
         let configURL = configURL.standardizedFileURL
-        guard seenConfigPaths.insert(configURL.path).inserted,
-              let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+        guard configURL.path != "/dev/null" else { return }
+        if isGlobalConfigScope,
+           globalConfigPathSet.insert(configURL.path).inserted {
+            globalConfigURLs.append(configURL)
+        }
+        guard seenConfigPaths.insert(configURL.path).inserted else {
+            return
+        }
+        guard configURLs.count < GitConfigTraversalBudget.maximumFileCount else {
+            budget.recordFallback(configURL)
+            budget.exceeded = true
+            return
+        }
+        configURLs.append(configURL)
+        guard let config = budget.read(configURL) else {
             return
         }
 
         var currentRemoteName: String?
+        var currentURLRewriteReplacement: String?
         var currentSectionAllowsIncludePath = false
+        var currentSectionIsExtensions = false
+        var currentSectionIsHasConfig = false
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                currentURLRewriteReplacement = gitConfigURLRewriteReplacement(
+                    fromSectionHeader: line
+                )
+                currentSectionIsExtensions = isCommonConfigScope
+                    && line.lowercased() == "[extensions]"
                 if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
+                    currentSectionIsHasConfig = false
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
-                    currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
-                        condition,
-                        repository: repository,
-                        configURL: configURL
-                    )
+                    let hasConfigPrefix = "hasconfig:remote.*.url:"
+                    if condition.lowercased().hasPrefix(hasConfigPrefix) {
+                        let pattern = String(condition.dropFirst(hasConfigPrefix.count))
+                        currentSectionIsHasConfig = true
+                        currentSectionAllowsIncludePath = budget.hasConfigMatches(
+                            pattern: pattern
+                        )
+                    } else {
+                        currentSectionIsHasConfig = false
+                        currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
+                            condition,
+                            repository: repository,
+                            configURL: configURL,
+                            homeDirectory: homeDirectory
+                        )
+                    }
                 } else {
                     currentSectionAllowsIncludePath = false
+                    currentSectionIsHasConfig = false
                 }
                 continue
             }
 
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
+            }
+
+            if currentSectionIsExtensions,
+               parts.first?.lowercased() == "worktreeconfig" {
+                budget.recordWorktreeConfigSetting(parts.count == 2 ? parts[1] : "true")
+            }
+
+            if isHasConfigGated,
+               currentRemoteName != nil,
+               parts.count == 2,
+               parts[0].lowercased() == "url" {
+                // Git rejects remote URLs in files reached through hasconfig
+                // to prevent those files from satisfying their own condition.
+                budget.exceeded = true
+                return
             }
 
             if let currentRemoteName,
                parts.count == 2,
                parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
-                guard !remoteURL.isEmpty else {
-                    continue
+                guard budget.recordRemoteURL(
+                    remoteName: currentRemoteName,
+                    remoteURL: remoteURL,
+                    lines: &lines
+                ) else { return }
+                continue
+            }
+
+            if let replacement = currentURLRewriteReplacement,
+               parts.count == 2,
+               parts[0].lowercased() == "insteadof" {
+                let prefix = gitConfigUnquotedValue(parts[1])
+                if !prefix.isEmpty {
+                    budget.recordURLRewrite(
+                        replacement: replacement,
+                        prefix: prefix
+                    )
                 }
-                lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
                 continue
             }
 
@@ -140,7 +815,8 @@ extension GitMetadataService {
                   parts[0].lowercased() == "path",
                   let includeURL = gitConfigIncludeURL(
                       fromPathValue: parts[1],
-                      relativeTo: configURL
+                      relativeTo: configURL,
+                      homeDirectory: homeDirectory
                   ) else {
                 continue
             }
@@ -148,7 +824,16 @@ extension GitMetadataService {
                 fromConfigURL: includeURL,
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
-                lines: &lines
+                configURLs: &configURLs,
+                lines: &lines,
+                budget: &budget,
+                depth: depth + 1,
+                isCommonConfigScope: isCommonConfigScope,
+                isGlobalConfigScope: isGlobalConfigScope,
+                homeDirectory: homeDirectory,
+                isHasConfigGated: isHasConfigGated || currentSectionIsHasConfig,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
             )
         }
     }
@@ -163,7 +848,7 @@ extension GitMetadataService {
         var currentSectionAllowsPath = false
         var urls: [URL] = []
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -182,7 +867,11 @@ extension GitMetadataService {
             }
 
             guard currentSectionAllowsPath else { continue }
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
             guard parts.count == 2,
@@ -230,6 +919,54 @@ extension GitMetadataService {
             result.append("\\")
         }
         return result
+    }
+
+    /// Applies URL rewrites without allowing expanded output to exceed the
+    /// bounded config traversal budget.
+    private nonisolated static func rewrittenRemoteVOutput(
+        _ output: String,
+        rewrites: [GitRemoteURLRewrite]
+    ) -> String? {
+        guard !rewrites.isEmpty else { return output }
+        let lines = output.split(whereSeparator: \.isNewline)
+        guard lines.count <= GitConfigTraversalBudget.maximumURLRewriteMatchOperationCount
+                / rewrites.count else {
+            return nil
+        }
+        let orderedRewrites = rewrites.enumerated().sorted {
+            if $0.element.prefix.count != $1.element.prefix.count {
+                return $0.element.prefix.count > $1.element.prefix.count
+            }
+            return $0.offset < $1.offset
+        }.map { $0.element }
+        var rewrittenOutput = ""
+        var rewrittenByteCount = 0
+        for line in lines {
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            let rewrittenLine: String
+            guard parts.count >= 3, parts[2] == "(fetch)" else {
+                rewrittenLine = String(line) + "\n"
+                let lineByteCount = rewrittenLine.utf8.count
+                guard lineByteCount <= GitConfigTraversalBudget.maximumByteCount - rewrittenByteCount else {
+                    return nil
+                }
+                rewrittenOutput.append(rewrittenLine)
+                rewrittenByteCount += lineByteCount
+                continue
+            }
+            let rawURL = String(parts[1])
+            let rewrittenURL = orderedRewrites.first {
+                rawURL.hasPrefix($0.prefix)
+            }.map { $0.replacement + rawURL.dropFirst($0.prefix.count) } ?? rawURL
+            rewrittenLine = "\(parts[0])\t\(rewrittenURL) (fetch)\n"
+            let lineByteCount = rewrittenLine.utf8.count
+            guard lineByteCount <= GitConfigTraversalBudget.maximumByteCount - rewrittenByteCount else {
+                return nil
+            }
+            rewrittenOutput.append(rewrittenLine)
+            rewrittenByteCount += lineByteCount
+        }
+        return rewrittenOutput
     }
 
     /// Removes a trailing inline `#`/`;` comment from a config line, ignoring
@@ -290,6 +1027,21 @@ extension GitMetadataService {
         return name.isEmpty ? nil : String(name)
     }
 
+    /// The replacement prefix from a `[url "…"]` section header, or `nil`.
+    private nonisolated static func gitConfigURLRewriteReplacement(
+        fromSectionHeader header: String
+    ) -> String? {
+        let prefix = "[url \""
+        let suffix = "\"]"
+        guard header.count > prefix.count + suffix.count - 1,
+              header.lowercased().hasPrefix(prefix),
+              header.hasSuffix(suffix) else {
+            return nil
+        }
+        let replacement = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return replacement.isEmpty ? nil : String(replacement)
+    }
+
     /// The condition from an `[includeIf "<condition>"]` section header, or `nil`.
     /// The section name is case-insensitive per git; the condition is extracted
     /// verbatim (its own keyword prefixes are matched case-insensitively later).
@@ -309,16 +1061,17 @@ extension GitMetadataService {
     /// config-relative forms.
     nonisolated static func gitConfigIncludeURL(
         fromPathValue pathValue: String,
-        relativeTo configURL: URL
+        relativeTo configURL: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL? {
         let path = gitConfigUnquotedValue(pathValue)
         guard !path.isEmpty else { return nil }
         if path == "~" {
-            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+            return homeDirectory.standardizedFileURL
         }
         if path.hasPrefix("~/") {
             let relativePath = String(path.dropFirst(2))
-            return FileManager.default.homeDirectoryForCurrentUser
+            return homeDirectory
                 .appendingPathComponent(relativePath)
                 .standardizedFileURL
         }
@@ -339,19 +1092,47 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         configURL: URL,
         branchContext: GitConfigBranchContext = .fileBacked,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        discoveredRemoteURLs: Set<String> = [],
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
+        let hasConfigPrefix = "hasconfig:remote.*.url:"
+        if lowercasedCondition.hasPrefix(hasConfigPrefix) {
+            let pattern = String(condition.dropFirst(hasConfigPrefix.count))
+            guard !pattern.isEmpty else { return false }
+            let regexPattern = gitConfigGlobRegexPattern(pattern)
+            guard let regex = try? NSRegularExpression(pattern: regexPattern) else {
+                return discoveredRemoteURLs.contains {
+                    fnmatch(pattern, $0, 0) == 0
+                }
+            }
+            return discoveredRemoteURLs.contains { remoteURL in
+                let range = NSRange(
+                    remoteURL.startIndex..<remoteURL.endIndex,
+                    in: remoteURL
+                )
+                return regex.firstMatch(in: remoteURL, range: range) != nil
+            }
+        }
         if lowercasedCondition.hasPrefix("gitdir/i:") {
             let pattern = String(condition.dropFirst("gitdir/i:".count))
             return gitConfigGitdirPatternMatches(
-                pattern, repository: repository, caseInsensitive: true, configURL: configURL
+                pattern,
+                repository: repository,
+                caseInsensitive: true,
+                configURL: configURL,
+                homeDirectory: homeDirectory
             )
         }
         if lowercasedCondition.hasPrefix("gitdir:") {
             let pattern = String(condition.dropFirst("gitdir:".count))
             return gitConfigGitdirPatternMatches(
-                pattern, repository: repository, caseInsensitive: false, configURL: configURL
+                pattern,
+                repository: repository,
+                caseInsensitive: false,
+                configURL: configURL,
+                homeDirectory: homeDirectory
             )
         }
         if lowercasedCondition.hasPrefix("onbranch:") {
@@ -376,22 +1157,42 @@ extension GitMetadataService {
         _ pattern: String,
         repository: ResolvedGitRepository,
         caseInsensitive: Bool,
-        configURL: URL
+        configURL: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        let candidates = [
+            repository.gitDirectory,
+            repository.commonDirectory,
+            repository.workTreeRoot,
+        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        return gitConfigPathPatternMatches(
+            pattern,
+            candidates: candidates,
+            caseInsensitive: caseInsensitive,
+            configURL: configURL,
+            homeDirectory: homeDirectory
+        )
+    }
+
+    private nonisolated static func gitConfigPathPatternMatches(
+        _ pattern: String,
+        candidates: [String],
+        caseInsensitive: Bool,
+        configURL: URL,
+        homeDirectory: URL
     ) -> Bool {
         let isRecursiveDirectoryPattern = pattern.hasSuffix("/")
-        var expandedPattern = gitConfigExpandedPattern(pattern, configURL: configURL)
+        var expandedPattern = gitConfigExpandedPattern(
+            pattern,
+            configURL: configURL,
+            homeDirectory: homeDirectory
+        )
         if isRecursiveDirectoryPattern, !expandedPattern.hasSuffix("/") {
             expandedPattern.append("/")
         }
         if isRecursiveDirectoryPattern {
             expandedPattern.append("**")
         }
-        let candidates = [
-            repository.gitDirectory,
-            repository.commonDirectory,
-            repository.workTreeRoot,
-        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-
         for candidate in candidates {
             if gitConfigGlobMatches(candidate, pattern: expandedPattern, caseInsensitive: caseInsensitive) ||
                 gitConfigGlobMatches(candidate + "/", pattern: expandedPattern, caseInsensitive: caseInsensitive) {
@@ -405,13 +1206,17 @@ extension GitMetadataService {
     /// home directory, `./` relative to the config file's directory, absolute
     /// paths standardized, and anything else prefixed with `**/` so a relative
     /// pattern matches at any depth.
-    nonisolated static func gitConfigExpandedPattern(_ pattern: String, configURL: URL) -> String {
+    nonisolated static func gitConfigExpandedPattern(
+        _ pattern: String,
+        configURL: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String {
         if pattern == "~" {
-            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+            return homeDirectory.standardizedFileURL.path
         }
         if pattern.hasPrefix("~/") {
             let relativePath = String(pattern.dropFirst(2))
-            return FileManager.default.homeDirectoryForCurrentUser
+            return homeDirectory
                 .appendingPathComponent(relativePath)
                 .standardizedFileURL
                 .path
