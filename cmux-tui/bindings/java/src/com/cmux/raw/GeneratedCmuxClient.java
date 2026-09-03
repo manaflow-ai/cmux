@@ -228,6 +228,11 @@ public abstract class GeneratedCmuxClient {
         return Tree.fromWire(result);
     }
 
+    public final MachineStatsResult machineStats(MachineStatsRequest request) throws CmuxException {
+        Object result = execute(Commands.MACHINE_STATS, request.toWire());
+        return MachineStatsResult.fromWire(result);
+    }
+
     public final MachineUsageResult machineUsage() throws CmuxException {
         Object result = execute(Commands.MACHINE_USAGE, Map.of());
         return MachineUsageResult.fromWire(result);

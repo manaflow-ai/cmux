@@ -975,6 +975,9 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// The daemon's host resource sample changed. `None` means the daemon
+    /// has no sampler on this host and frontends must hide the readout.
+    MachineStatsChanged(Option<MachineStats>),
     /// Every workspace is gone.
     Empty,
 }
@@ -990,6 +993,31 @@ pub struct MachineUsage {
     pub api_equivalent_usd: f64,
     /// Server-side timestamp of the snapshot, when known.
     pub as_of: Option<String>,
+}
+
+/// One point-in-time reading of the host this daemon runs on: CPU, memory,
+/// and the disk that holds the daemon's home. Sampled by the daemon itself,
+/// so any client that reaches the daemon sees the same numbers without a
+/// second channel into the machine. Frontends show it beside the machine
+/// identity; the macOS app renders it on the Machines panel row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineStats {
+    /// Unix epoch milliseconds when the sample was taken on the host.
+    pub sampled_at_ms: u64,
+    /// Logical CPUs available to the daemon.
+    pub cpus: u32,
+    /// Whole-machine busy CPU over the previous sampling interval, 0..=100.
+    /// `None` on the first sample, which has no previous reading to diff.
+    pub cpu_percent: Option<f64>,
+    pub load_average_1m: f64,
+    pub memory_total_mb: u64,
+    /// `MemTotal - MemAvailable`: memory that is not reclaimable for new work.
+    pub memory_used_mb: u64,
+    /// Filesystem holding `disk_path`; `None` when it could not be read.
+    pub disk_total_mb: Option<u64>,
+    pub disk_used_mb: Option<u64>,
+    /// The directory whose filesystem `disk_*` describes (the daemon's home).
+    pub disk_path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2175,6 +2203,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     machine_usage: Mutex<Option<MachineUsage>>,
+    machine_stats: Mutex<Option<MachineStats>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
@@ -2566,6 +2595,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             machine_usage: Mutex::new(None),
+            machine_stats: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -6247,6 +6277,12 @@ impl Mux {
         self.subscribers.subscribe_config_reload()
     }
 
+    /// A receiver that sees only `MachineStatsChanged`, for clients that follow
+    /// the host sample without paying for the rest of the event stream.
+    pub fn subscribe_machine_stats(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_machine_stats()
+    }
+
     /// Request one owner config reload and wait until the owner applies it.
     pub fn request_config_reload(&self) -> Result<(), ConfigReloadError> {
         const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -9698,6 +9734,25 @@ impl Mux {
             *current = usage.clone();
         }
         self.emit(MuxEvent::MachineUsageChanged(usage));
+    }
+
+    /// The latest host resource sample, or `None` when this daemon runs no
+    /// sampler.
+    pub fn machine_stats(&self) -> Option<MachineStats> {
+        self.machine_stats.lock().unwrap().clone()
+    }
+
+    /// Replace the host resource sample. Every distinct sample is announced;
+    /// a repeated identical sample stays silent.
+    pub fn set_machine_stats(&self, stats: Option<MachineStats>) {
+        {
+            let mut current = self.machine_stats.lock().unwrap();
+            if *current == stats {
+                return;
+            }
+            *current = stats.clone();
+        }
+        self.emit(MuxEvent::MachineStatsChanged(stats));
     }
 
     pub fn configure_sidebar_plugin(&self, options: Option<SidebarPluginOptions>) {

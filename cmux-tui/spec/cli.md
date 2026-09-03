@@ -369,12 +369,16 @@ not a transported resource operation or cross-machine discovery API.
 cmux raw operation <dotted.name> [--params-json <object>]
   [--mutation --idempotency-key <value>] [--stream]
 
-cmux raw command --request-json <private-protocol-object>
+cmux raw command --request-json <private-protocol-object> [--stream]
 ```
 
 `raw operation` sends a generic `cmux.protocol/2` request. Known operations
 still use their catalog class. `raw command` sends a private protocol-v12
-object and has no compatibility promise.
+object and has no compatibility promise. With `--stream` (requires `--jsonl`,
+`--quiet`, or human output) it keeps the connection open after the response and
+prints every event line the daemon sends until the connection closes, for
+private commands that open a follow stream on the same connection such as
+`machine-stats` with `follow:true`.
 
 The old action-first commands are removed. They fail locally with exit code 2
 before opening a socket.

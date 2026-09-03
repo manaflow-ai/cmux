@@ -1660,7 +1660,8 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         if !request.is_object() {
             return Err(UsageError::new("--request-json must be a JSON object"));
         }
-        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request }));
+        let stream = flags.boolean("stream");
+        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request, stream }));
     }
     let operation = match refs.as_slice() {
         ["operation", operation] => *operation,

@@ -2234,6 +2234,184 @@ Result<LivePane> Codec<LivePane>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<MachineStats>::encode(const MachineStats& value) {
+    (void)value;
+    Json::Object object;
+    if (value.cpu_percent) {
+        auto encoded = encode_value(*value.cpu_percent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cpu_percent", std::move(encoded).value());
+    } else {
+        object.emplace("cpu_percent", Json(nullptr));
+    }
+    auto encoded_cpus = encode_value(value.cpus);
+    if (!encoded_cpus) return std::move(encoded_cpus).error();
+    object.emplace("cpus", std::move(encoded_cpus).value());
+    auto encoded_disk_path = encode_value(value.disk_path);
+    if (!encoded_disk_path) return std::move(encoded_disk_path).error();
+    object.emplace("disk_path", std::move(encoded_disk_path).value());
+    if (value.disk_total_mb) {
+        auto encoded = encode_value(*value.disk_total_mb);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("disk_total_mb", std::move(encoded).value());
+    } else {
+        object.emplace("disk_total_mb", Json(nullptr));
+    }
+    if (value.disk_used_mb) {
+        auto encoded = encode_value(*value.disk_used_mb);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("disk_used_mb", std::move(encoded).value());
+    } else {
+        object.emplace("disk_used_mb", Json(nullptr));
+    }
+    auto encoded_load_average_1m = encode_value(value.load_average_1m);
+    if (!encoded_load_average_1m) return std::move(encoded_load_average_1m).error();
+    object.emplace("load_average_1m", std::move(encoded_load_average_1m).value());
+    auto encoded_memory_total_mb = encode_value(value.memory_total_mb);
+    if (!encoded_memory_total_mb) return std::move(encoded_memory_total_mb).error();
+    object.emplace("memory_total_mb", std::move(encoded_memory_total_mb).value());
+    auto encoded_memory_used_mb = encode_value(value.memory_used_mb);
+    if (!encoded_memory_used_mb) return std::move(encoded_memory_used_mb).error();
+    object.emplace("memory_used_mb", std::move(encoded_memory_used_mb).value());
+    auto encoded_sampled_at_ms = encode_value(value.sampled_at_ms);
+    if (!encoded_sampled_at_ms) return std::move(encoded_sampled_at_ms).error();
+    object.emplace("sampled_at_ms", std::move(encoded_sampled_at_ms).value());
+    return Json(std::move(object));
+}
+
+Result<MachineStats> Codec<MachineStats>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachineStats result{};
+    const Json* field_cpu_percent = value.find("cpu_percent");
+    if (!field_cpu_percent) {
+        return make_error(ErrorCode::decode, "missing required field 'cpu_percent'");
+    }
+    if (field_cpu_percent) {
+        if (field_cpu_percent->is_null()) {
+            result.cpu_percent.reset();
+        } else {
+            auto decoded = decode_value<double>(*field_cpu_percent);
+            if (!decoded) return std::move(decoded).error();
+            result.cpu_percent = std::move(decoded).value();
+        }
+    }
+    const Json* field_cpus = value.find("cpus");
+    if (!field_cpus) {
+        return make_error(ErrorCode::decode, "missing required field 'cpus'");
+    }
+    if (field_cpus) {
+        auto decoded = decode_value<std::uint32_t>(*field_cpus);
+        if (!decoded) return std::move(decoded).error();
+        result.cpus = std::move(decoded).value();
+    }
+    const Json* field_disk_path = value.find("disk_path");
+    if (!field_disk_path) {
+        return make_error(ErrorCode::decode, "missing required field 'disk_path'");
+    }
+    if (field_disk_path) {
+        auto decoded = decode_value<std::string>(*field_disk_path);
+        if (!decoded) return std::move(decoded).error();
+        result.disk_path = std::move(decoded).value();
+    }
+    const Json* field_disk_total_mb = value.find("disk_total_mb");
+    if (!field_disk_total_mb) {
+        return make_error(ErrorCode::decode, "missing required field 'disk_total_mb'");
+    }
+    if (field_disk_total_mb) {
+        if (field_disk_total_mb->is_null()) {
+            result.disk_total_mb.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_disk_total_mb);
+            if (!decoded) return std::move(decoded).error();
+            result.disk_total_mb = std::move(decoded).value();
+        }
+    }
+    const Json* field_disk_used_mb = value.find("disk_used_mb");
+    if (!field_disk_used_mb) {
+        return make_error(ErrorCode::decode, "missing required field 'disk_used_mb'");
+    }
+    if (field_disk_used_mb) {
+        if (field_disk_used_mb->is_null()) {
+            result.disk_used_mb.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_disk_used_mb);
+            if (!decoded) return std::move(decoded).error();
+            result.disk_used_mb = std::move(decoded).value();
+        }
+    }
+    const Json* field_load_average_1m = value.find("load_average_1m");
+    if (!field_load_average_1m) {
+        return make_error(ErrorCode::decode, "missing required field 'load_average_1m'");
+    }
+    if (field_load_average_1m) {
+        auto decoded = decode_value<double>(*field_load_average_1m);
+        if (!decoded) return std::move(decoded).error();
+        result.load_average_1m = std::move(decoded).value();
+    }
+    const Json* field_memory_total_mb = value.find("memory_total_mb");
+    if (!field_memory_total_mb) {
+        return make_error(ErrorCode::decode, "missing required field 'memory_total_mb'");
+    }
+    if (field_memory_total_mb) {
+        auto decoded = decode_value<std::uint64_t>(*field_memory_total_mb);
+        if (!decoded) return std::move(decoded).error();
+        result.memory_total_mb = std::move(decoded).value();
+    }
+    const Json* field_memory_used_mb = value.find("memory_used_mb");
+    if (!field_memory_used_mb) {
+        return make_error(ErrorCode::decode, "missing required field 'memory_used_mb'");
+    }
+    if (field_memory_used_mb) {
+        auto decoded = decode_value<std::uint64_t>(*field_memory_used_mb);
+        if (!decoded) return std::move(decoded).error();
+        result.memory_used_mb = std::move(decoded).value();
+    }
+    const Json* field_sampled_at_ms = value.find("sampled_at_ms");
+    if (!field_sampled_at_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'sampled_at_ms'");
+    }
+    if (field_sampled_at_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_sampled_at_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.sampled_at_ms = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MachineStatsResult>::encode(const MachineStatsResult& value) {
+    (void)value;
+    Json::Object object;
+    if (value.stats) {
+        auto encoded = encode_value(*value.stats);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("stats", std::move(encoded).value());
+    } else {
+        object.emplace("stats", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<MachineStatsResult> Codec<MachineStatsResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachineStatsResult result{};
+    const Json* field_stats = value.find("stats");
+    if (!field_stats) {
+        return make_error(ErrorCode::decode, "missing required field 'stats'");
+    }
+    if (field_stats) {
+        if (field_stats->is_null()) {
+            result.stats.reset();
+        } else {
+            auto decoded = decode_value<MachineStats>(*field_stats);
+            if (!decoded) return std::move(decoded).error();
+            result.stats = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<MachineUsage>::encode(const MachineUsage& value) {
     (void)value;
     Json::Object object;
@@ -9882,6 +10060,30 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<MachineStatsRequest>::encode(const MachineStatsRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (value.follow) {
+        auto encoded = encode_value(*value.follow);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("follow", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<MachineStatsRequest> Codec<MachineStatsRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachineStatsRequest result{};
+    const Json* field_follow = value.find("follow");
+    if (field_follow) {
+        auto decoded = decode_value<bool>(*field_follow);
+        if (!decoded) return std::move(decoded).error();
+        result.follow = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<MachineUsageRequest>::encode(const MachineUsageRequest& value) {
     (void)value;
     Json::Object object;
@@ -14256,6 +14458,49 @@ Result<LayoutChangedEvent> Codec<LayoutChangedEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<MachineStatsChangedEvent>::encode(const MachineStatsChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("machine-stats-changed")));
+    if (value.stats) {
+        auto encoded = encode_value(*value.stats);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("stats", std::move(encoded).value());
+    } else {
+        object.emplace("stats", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<MachineStatsChangedEvent> Codec<MachineStatsChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachineStatsChangedEvent result{};
+    const Json* field_stats = value.find("stats");
+    if (!field_stats) {
+        return make_error(ErrorCode::decode, "missing required field 'stats'");
+    }
+    if (field_stats) {
+        if (field_stats->is_null()) {
+            result.stats.reset();
+        } else {
+            auto decoded = decode_value<MachineStats>(*field_stats);
+            if (!decoded) return std::move(decoded).error();
+            result.stats = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("machine-stats-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<MachineUsageChangedEvent>::encode(const MachineUsageChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -17887,6 +18132,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "machine-stats-changed") {
+        auto decoded = decode_value<MachineStatsChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "machine-usage-changed") {
         auto decoded = decode_value<MachineUsageChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -18073,24 +18323,24 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand25FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand26FieldRequirements{{
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand49FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand50FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand72FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand73FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand78FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand79FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand83FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand84FieldRequirements{{
     {"paste", 7U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 7> kCommand89FieldRequirements{{
@@ -18159,13 +18409,14 @@ constexpr std::array<CommandMetadata, 105> kCommands{{
     {"list-clients", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-terminals", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"machine-stats", "control", 12U, "machine-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"machine-usage", "control", 12U, "machine-usage-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mint-terminal-renderer-by-terminal", "frontend", 11U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand49FieldRequirements)},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand50FieldRequirements)},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -18188,18 +18439,18 @@ constexpr std::array<CommandMetadata, 105> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand72FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand73FieldRequirements)},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"report-focus", "control", 12U, "client-focus-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-attached-view", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand78FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand83FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand84FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -18222,7 +18473,7 @@ constexpr std::array<CommandMetadata, 105> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 47> kEvents{{
+constexpr std::array<EventMetadata, 48> kEvents{{
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
@@ -18238,6 +18489,7 @@ constexpr std::array<EventMetadata, 47> kEvents{{
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},
     {"layout-changed", 6U, "", "subscribe", "emitted"},
+    {"machine-stats-changed", 12U, "machine-stats-v1", "subscribe", "emitted"},
     {"machine-usage-changed", 12U, "machine-usage-v1", "subscribe", "emitted"},
     {"notification", 6U, "", "subscribe,attach-byte,attach-browser", "emitted"},
     {"output", 5U, "", "attach-byte", "emitted"},
@@ -18761,6 +19013,17 @@ Result<Tree> Client::list_workspaces(
     auto response = core_.request("list-workspaces", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<Tree>(response.value());
+}
+
+Result<MachineStatsResult> Client::machine_stats(
+    const MachineStatsRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("machine-stats", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<MachineStatsResult>(response.value());
 }
 
 Result<MachineUsageResult> Client::machine_usage(

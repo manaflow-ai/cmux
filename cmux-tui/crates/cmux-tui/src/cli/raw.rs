@@ -16,9 +16,18 @@ use super::{GlobalArgs, OutputMode};
 #[derive(Clone, Debug)]
 pub(super) struct RawCommandPlan {
     pub request: Value,
+    /// Keep the connection open after the response and print every event
+    /// line the daemon sends until it closes (`--stream`). For private
+    /// commands that open a follow stream on the same connection, such as
+    /// `machine-stats` with `follow:true`.
+    pub stream: bool,
 }
 
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
+    if plan.stream && global.output == OutputMode::Json {
+        eprintln!("cmux: --stream requires --jsonl, --quiet, or human output");
+        return 2;
+    }
     let expected_id = plan.request.get("id").cloned();
     let encoded = match serde_json::to_vec(&plan.request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
@@ -87,10 +96,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
-            return super::wire::print_local_success(
+            let code = super::wire::print_local_success(
                 value.get("data").unwrap_or(&Value::Null),
                 global.output,
             );
+            if code != 0 || !plan.stream {
+                return code;
+            }
+            return follow_events(&mut reader, global.output);
         }
         let error = json!({
             "code": value
@@ -105,6 +118,41 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             "retryable": false
         });
         return super::wire::print_local_error(&error, global.output, 1);
+    }
+}
+
+/// After a successful response, relay event lines until the daemon closes the
+/// connection or the process is asked to shut down. Idle gaps are expected on
+/// a follow stream, so the read timeout used for the response is lifted.
+fn follow_events(reader: &mut BufReader<Box<dyn transport::Stream>>, output: OutputMode) -> i32 {
+    let _ = reader.get_mut().set_read_timeout(None);
+    loop {
+        if crate::shutdown_requested() {
+            return 0;
+        }
+        let line = match read_line_limited(reader) {
+            Ok(None) => return 0,
+            Ok(Some(line)) => line,
+            Err(error) => {
+                eprintln!("{error}");
+                return 3;
+            }
+        };
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("protocol error: invalid raw JSON event: {error}");
+                return 3;
+            }
+        };
+        if value.get("event").is_none() {
+            continue;
+        }
+        if matches!(output, OutputMode::Json | OutputMode::JsonLines)
+            && super::wire::print_local_success(&value, output) != 0
+        {
+            return 3;
+        }
     }
 }
 
@@ -149,7 +197,7 @@ mod tests {
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
-        let plan = RawCommandPlan { request: request.clone() };
+        let plan = RawCommandPlan { request: request.clone(), stream: false };
         assert_eq!(plan.request, request);
     }
 

@@ -12,7 +12,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `machine-stats-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -52,6 +52,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `machine-stats-changed` | subscribe | session | protocol 12 additive extension; capability `machine-stats-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -772,6 +773,28 @@ Example:
 
 ```json
 {"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
+```
+
+### machine-stats-changed
+
+| Field | Value |
+| --- | --- |
+| event | `machine-stats-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-stats-v1` |
+
+Payload:
+
+```text
+object{event:"machine-stats-changed",stats:MachineStats|null}
+```
+
+Meaning: The daemon took a new host resource sample. `stats` carries the same object `machine-stats` returns; null means the sampler stopped producing readings and frontends must hide the readout. Emitted on every distinct sample, normally every 10 seconds, to `subscribe` clients and to `machine-stats` followers. Mailboxes coalesce it, so a slow subscriber sees only the newest sample.
+
+Example:
+
+```json
+{"event":"machine-stats-changed","stats":{"sampled_at_ms":1756800010000,"cpus":4,"cpu_percent":9.8,"load_average_1m":0.40,"memory_total_mb":7937,"memory_used_mb":2214,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}
 ```
 
 ### empty
