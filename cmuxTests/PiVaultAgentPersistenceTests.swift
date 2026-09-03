@@ -280,7 +280,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -309,7 +309,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -339,7 +339,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-123",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -371,7 +371,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             cwd: .preserve
         )
 
-        let command = AgentResumeCommandBuilder.resumeShellCommand(
+        let command = AgentResumeCommandBuilder().resumeShellCommand(
             kind: .custom("acme-agent"),
             sessionId: "session-{{cwd}}",
             launchCommand: AgentLaunchCommandSnapshot(

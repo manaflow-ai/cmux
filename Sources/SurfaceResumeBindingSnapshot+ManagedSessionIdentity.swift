@@ -75,14 +75,16 @@ extension SurfaceResumeBindingSnapshot {
 
     /// Whether an incoming hook refresh belongs to a claimed restore session.
     ///
-    /// A same-session refresh consumes the claim; a different checkpoint or
-    /// kind remains blocked until the claim expires or is explicitly cleared.
+    /// A same-session refresh from the same execution location consumes the
+    /// claim; a different checkpoint, kind, or location remains blocked until
+    /// the claim expires or is explicitly cleared.
     func acceptsRestoreBindingClaim(
         from incoming: SurfaceResumeBindingSnapshot
     ) -> Bool {
         isAgentHookBinding
             && incoming.isAgentHookBinding
             && isSameManagedSession(as: incoming)
+            && launchFlavor == incoming.launchFlavor
     }
 
     /// Projects an authoritative agent-hook binding into the structured
@@ -90,8 +92,11 @@ extension SurfaceResumeBindingSnapshot {
     /// checkpoint may reuse only kind-level registration metadata from the
     /// previous snapshot; cwd, launch capture, permission mode, and identity
     /// must come from the new binding so a fork cannot retain its parent.
+    /// - Parameter previousBinding: The prior binding, when available, used to
+    ///   ensure inherited session state stays within the same execution location.
     func managedRestorableAgentSnapshot(
-        replacing previous: SessionRestorableAgentSnapshot?
+        replacing previous: SessionRestorableAgentSnapshot?,
+        previousBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
         guard let identity = managedSessionIdentity else { return nil }
         let previousForKind = previous.flatMap {
@@ -110,17 +115,23 @@ extension SurfaceResumeBindingSnapshot {
                 rhs: identity.checkpointId
             )
         } == true
+        let canInheritPreviousSessionState = continuesPreviousSession &&
+            previousBinding?.launchFlavor.representsSameExecutionLocation(
+                as: launchFlavor
+            ) == true
         return SessionRestorableAgentSnapshot(
             kind: kind,
             sessionId: identity.checkpointId,
             workingDirectory: cwd
                 ?? launchCommand?.workingDirectory
-                ?? (continuesPreviousSession ? previousForKind?.workingDirectory : nil),
+                ?? (canInheritPreviousSessionState ? previousForKind?.workingDirectory : nil),
             launchCommand: launchCommand
-                ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
+                ?? (canInheritPreviousSessionState ? previousForKind?.launchCommand : nil),
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+                ?? (canInheritPreviousSessionState ? previousForKind?.permissionMode : nil),
+            restoreWorkingDirectorySelection: restoreWorkingDirectorySelection
+                ?? (canInheritPreviousSessionState ? previousForKind?.restoreWorkingDirectorySelection : nil)
         )
     }
 

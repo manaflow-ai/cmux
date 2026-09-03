@@ -6,6 +6,11 @@ struct SurfaceResumeRemoteContext: Codable, Equatable, Hashable, Sendable {
     let surfaceID: UUID
     let persistentPTYSessionID: String
 
+    /// Stable remote execution identity across workspace/surface retargeting.
+    var normalizedPersistentPTYSessionID: String? {
+        normalizedSessionID(persistentPTYSessionID)
+    }
+
     func retargeted(
         workspaceID: UUID,
         surfaceID: UUID,

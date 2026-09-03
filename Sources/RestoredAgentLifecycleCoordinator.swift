@@ -13,6 +13,8 @@ final class RestoredAgentLifecycleCoordinator {
         self.dateProvider = dateProvider
     }
 
+    /// Current restored snapshots. All mutations flow through lifecycle methods
+    /// so queued restore identity cannot drift from the mutable snapshot map.
     private(set) var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     /// Immutable session target retained until the staged startup command completes.
     private var queuedRestoreSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]

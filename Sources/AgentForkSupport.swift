@@ -109,7 +109,7 @@ enum AgentForkSupport {
             }
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
             let agentID = piFamilyProbeAgentID(snapshot)
-            let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
+            let probe = AgentResumeCommandBuilder().piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
             )
@@ -140,7 +140,7 @@ enum AgentForkSupport {
         if isRemoteContext {
             return true
         }
-        guard let probe = AgentResumeCommandBuilder.openCodeVersionProbe(
+        guard let probe = AgentResumeCommandBuilder().openCodeVersionProbe(
             launchCommand: snapshot.launchCommand
         ) else {
             return false
@@ -166,7 +166,7 @@ enum AgentForkSupport {
         if requiresLocalPiFamilyCapabilityProbe(snapshot) {
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
             let agentID = piFamilyProbeAgentID(snapshot)
-            let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
+            let probe = AgentResumeCommandBuilder().piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
             )
@@ -182,7 +182,7 @@ enum AgentForkSupport {
             parts.append("opencode")
             parts.append("launcher=\(normalized(snapshot.launchCommand?.launcher) ?? "")")
             if !isRemoteContext,
-               let probe = AgentResumeCommandBuilder.openCodeVersionProbe(
+               let probe = AgentResumeCommandBuilder().openCodeVersionProbe(
                 launchCommand: snapshot.launchCommand
                ) {
                 parts.append(
@@ -199,6 +199,9 @@ enum AgentForkSupport {
 
     private static func forkCommandIdentityParts(snapshot: SessionRestorableAgentSnapshot) -> [String]? {
         guard snapshot.kind.restoreMode == .resumeSession,
+              snapshot.effectiveRestoreWorkingDirectorySelection(
+                  .recordedFallback(preferred: nil)
+              ).permitsResume,
               forkCommandCanRenderWithoutFilesystem(snapshot),
               normalized(snapshot.sessionId) != nil else {
             return nil
@@ -686,7 +689,7 @@ enum AgentForkSupport {
         }
         return snapshot.kind == .opencode
             && snapshot.launchCommand?.launcher != "omo"
-            && AgentResumeCommandBuilder.openCodeVersionProbe(launchCommand: snapshot.launchCommand) != nil
+            && AgentResumeCommandBuilder().openCodeVersionProbe(launchCommand: snapshot.launchCommand) != nil
     }
 
     static func forkValidationExecutableResolution(
@@ -750,14 +753,14 @@ enum AgentForkSupport {
         let useDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool
         if requiresLocalPiFamilyCapabilityProbe(snapshot) {
             fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
-            probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
+            probe = AgentResumeCommandBuilder().piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
             )
             useDefaultDirectoryWhenWorkingDirectoryIsMissing = true
         } else if snapshot.kind == .opencode,
                   snapshot.launchCommand?.launcher != "omo",
-                  let openCodeProbe = AgentResumeCommandBuilder.openCodeVersionProbe(
+                  let openCodeProbe = AgentResumeCommandBuilder().openCodeVersionProbe(
                     launchCommand: snapshot.launchCommand
                   ) {
             probe = openCodeProbe

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CMUXAgentLaunch
 import CmuxBrowser
 import CmuxCore
 import Foundation
@@ -271,6 +272,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
         case launchCommand, permissionMode, launchFlavor, updatedAt
+        case restoreWorkingDirectorySelection
         case resumeEvidenceProvenance
     }
 
@@ -283,6 +285,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var environment: [String: String]?
     var launchCommand: AgentLaunchCommandSnapshot?
     var permissionMode: String?
+    /// Persisted cwd trust boundary for agent-hook restore bindings.
+    var restoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection?
     var autoResume: Bool?
     /// Verified Codex hook provenance carried into the app-owned atomic gate.
     /// Non-Codex and legacy bindings leave this unset.
@@ -304,6 +308,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         environment: [String: String]? = nil,
         launchCommand: AgentLaunchCommandSnapshot? = nil,
         permissionMode: String? = nil,
+        restoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = nil,
         autoResume: Bool? = nil,
         resumeEvidenceProvenance: String? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
@@ -319,7 +324,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.command = Self.sanitizedStartupCommand(
             command,
             cwd: normalizedCwd,
-            source: normalizedSource
+            source: normalizedSource,
+            agentKind: normalizedKind
         )
         self.cwd = normalizedCwd
         self.checkpointId = Self.normalized(checkpointId)
@@ -327,6 +333,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.environment = Self.normalizedEnvironment(environment)
         self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
         self.permissionMode = Self.normalized(permissionMode)
+        self.restoreWorkingDirectorySelection = restoreWorkingDirectorySelection
         self.autoResume = autoResume
         let retainsCodexEvidence = normalizedSource?.lowercased() == "agent-hook"
             && normalizedKind?.lowercased() == "codex"
@@ -355,6 +362,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                 forKey: .launchCommand
             ),
             permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            restoreWorkingDirectorySelection: try container.decodeIfPresent(
+                AgentRestoreWorkingDirectorySelection.self,
+                forKey: .restoreWorkingDirectorySelection
+            ),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             resumeEvidenceProvenance: try container.decodeIfPresent(String.self, forKey: .resumeEvidenceProvenance),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
@@ -410,17 +421,27 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
         guard isAgentHookBinding else { return self }
+        if case .unavailable = restoreWorkingDirectorySelection {
+            return self
+        }
         let normalizedCwd = Self.normalized(workingDirectory)
         var retargeted = self
+        let normalizedKind = Self.normalized(kind)
         retargeted.command = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: command,
             previousWorkingDirectory: cwd,
-            workingDirectory: normalizedCwd
+            workingDirectory: normalizedCwd,
+            agentKind: normalizedKind
         )
         retargeted.cwd = normalizedCwd
         if var launchCommand = retargeted.launchCommand {
             launchCommand.workingDirectory = normalizedCwd
             retargeted.launchCommand = launchCommand
+        }
+        // An id-keyed agent's live cwd is authoritative for the refreshed
+        // binding. Directory-keyed agents must retain their launch namespace.
+        if AgentResumeWorkingDirectory().cwdNamespacing(forKind: normalizedKind ?? "") == .cwdInFile {
+            retargeted.restoreWorkingDirectorySelection = .exact(normalizedCwd)
         }
         return retargeted
     }

@@ -46,8 +46,7 @@ struct CmxConnectivityPeerSessionTests {
         )
 
         // The gated builder parks every dial until released. Awaiting the
-        // dial before releasing the gate deadlocked this test (and the
-        // package CI job) permanently.
+        // dial before releasing the gate would deadlock this test.
         let dial = Task { try await peer.connectedSession(for: request) }
         try await Self.waitUntil { await builder.callCount() == 1 }
         await builder.release()

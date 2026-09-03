@@ -1,9 +1,12 @@
-import Darwin
-import Foundation
+import AppKit
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxCore
 import CmuxSidebar
+import Darwin
+import Foundation
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1817,5 +1820,1565 @@ struct AgentSessionAutoResumeSwiftTests {
         }
         #expect(script.contains("rm -f -- \"$0\""), Comment(rawValue: script))
         #expect(!script.contains("exec -l"), Comment(rawValue: script))
+    }
+}
+
+@Suite(.serialized)
+struct RemoteAgentRestoreWorkingDirectoryTests {
+    @Test func retainedExactSelectionSurvivesPersistenceAndEveryCommandEntrypoint() throws {
+        let capturedAgentDirectory = "/Users/alice/captured-agent-cwd"
+        let capturedLaunchDirectory = "/Users/alice/captured-launch-cwd"
+        let capturedArgumentDirectory = "/Users/alice/captured-argument-cwd"
+        let overrideDirectory = "/Users/alice/binding-override-cwd"
+        let trustedRemoteDirectory = "/home/remote/project"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "retained-exact-codex",
+            workingDirectory: capturedAgentDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "-C\(capturedArgumentDirectory)",
+                    "--model",
+                    "test-model",
+                ],
+                workingDirectory: capturedLaunchDirectory
+            )
+        )
+        let constrained = snapshot.applyingRestoreWorkingDirectorySelection(
+            .exact(trustedRemoteDirectory)
+        )
+
+        #expect(constrained.workingDirectory == trustedRemoteDirectory)
+        #expect(constrained.launchCommand?.workingDirectory == nil)
+        #expect(constrained.launchCommand?.arguments.contains { argument in
+            argument.contains(capturedArgumentDirectory)
+        } == false)
+
+        let encoded = try JSONEncoder().encode(constrained)
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: encoded
+        )
+        #expect(decoded.restoreWorkingDirectorySelection == .exact(trustedRemoteDirectory))
+
+        let resumeCommand = try #require(decoded.resumeCommand)
+        let forkCommand = try #require(decoded.forkCommand)
+        let explicitFallbackResume = try #require(decoded.resumeCommand(
+            includeWorkingDirectoryPrefix: true,
+            workingDirectorySelection: .recordedFallback(preferred: capturedAgentDirectory)
+        ))
+        let startupInput = try #require(decoded.resumeStartupInput(
+            useLocalRestoreVerb: false,
+            workingDirectorySelection: .recordedFallback(preferred: capturedLaunchDirectory)
+        ))
+        for command in [resumeCommand, forkCommand, explicitFallbackResume, startupInput] {
+            #expect(command.contains(trustedRemoteDirectory), Comment(rawValue: command))
+            #expect(!command.contains(capturedAgentDirectory), Comment(rawValue: command))
+            #expect(!command.contains(capturedLaunchDirectory), Comment(rawValue: command))
+            #expect(!command.contains(capturedArgumentDirectory), Comment(rawValue: command))
+        }
+
+        let override = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex", "-C", overrideDirectory, "--model", "override"],
+            workingDirectory: overrideDirectory
+        )
+        let preparedArguments = try #require(decoded.preparedResumeArguments(
+            launchCommand: override,
+            workingDirectorySelection: .recordedFallback(preferred: overrideDirectory),
+            observedPermissionMode: nil
+        ))
+        #expect(!preparedArguments.contains("-C"))
+        #expect(!preparedArguments.contains { $0.contains(overrideDirectory) })
+    }
+
+    @Test func retainedUnavailableSelectionDisablesEveryCommandEntrypoint() throws {
+        let capturedDirectory = "/Users/alice/captured-cwd"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "retained-unavailable-grok",
+            workingDirectory: capturedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--cwd", capturedDirectory],
+                workingDirectory: capturedDirectory
+            ),
+            registration: .builtInGrok
+        )
+        let unavailable = snapshot.applyingRestoreWorkingDirectorySelection(.unavailable)
+
+        #expect(unavailable.workingDirectory == nil)
+        #expect(unavailable.launchCommand?.workingDirectory == nil)
+        #expect(unavailable.launchCommand?.arguments.contains(capturedDirectory) == false)
+        #expect(unavailable.resumeCommand == nil)
+        #expect(unavailable.forkCommand == nil)
+        #expect(unavailable.resumeStartupInput(useLocalRestoreVerb: false) == nil)
+        #expect(unavailable.preparedResumeArguments(
+            launchCommand: snapshot.launchCommand,
+            workingDirectory: capturedDirectory,
+            observedPermissionMode: nil
+        ) == nil)
+
+        let encoded = try JSONEncoder().encode(unavailable)
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: encoded
+        )
+        #expect(decoded.restoreWorkingDirectorySelection == .unavailable)
+        #expect(decoded.resumeCommand == nil)
+        #expect(decoded.forkCommand == nil)
+        #expect(
+            TabManager.restorableAgentSnapshotFingerprint(snapshot) !=
+                TabManager.restorableAgentSnapshotFingerprint(decoded)
+        )
+    }
+
+    @Test func bindingExactSelectionRemainsAuthoritativeOverStaleAgentSelection() throws {
+        let capturedDirectory = "/Users/alice/captured-binding-cwd"
+        let sessionID = "binding-authority-session"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex", "-C", capturedDirectory, "resume", sessionID],
+            workingDirectory: capturedDirectory
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume " + sessionID,
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(nil),
+            autoResume: true
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(capturedDirectory)
+        )
+
+        let constrained = binding.applyingRestoreWorkingDirectorySelection(
+            .exact(capturedDirectory),
+            from: agent
+        )
+
+        #expect(constrained.restoreWorkingDirectorySelection == .exact(nil))
+        #expect(constrained.cwd == nil)
+        #expect(!constrained.command.contains(capturedDirectory))
+        #expect(constrained.launchCommand?.workingDirectory == nil)
+        #expect(constrained.launchCommand?.arguments.contains(capturedDirectory) == false)
+    }
+
+    @Test func legacySnapshotWithoutSelectionKeepsRecordedFallbackBehavior() throws {
+        let recordedDirectory = "/tmp/legacy-recorded-cwd"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "legacy-recorded-codex",
+            workingDirectory: recordedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex"]
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: encoded
+        )
+        #expect(decoded.restoreWorkingDirectorySelection == nil)
+        let command = try #require(decoded.resumeCommand)
+        #expect(command.contains(recordedDirectory), Comment(rawValue: command))
+    }
+
+    @Test func exactSelectionStripsRegisteredBuiltInRecordedCwdArguments() throws {
+        let recordedLocalDirectory = "/Users/alice/recorded-agent-cwd"
+        let trustedRemoteDirectory = "/repo-b"
+        let cases: [(
+            kind: RestorableAgentKind,
+            registration: CmuxVaultAgentRegistration,
+            executable: String,
+            cwdOption: String,
+            cwdArgument: String,
+            launchWorkingDirectory: String?
+        )] = [
+            (
+                .grok,
+                .builtInGrok,
+                "grok",
+                "--cwd",
+                "/Users/alice/grok-explicit-cwd",
+                "/tmp/grok-process-cwd"
+            ),
+            (
+                .kimi,
+                .builtInKimi,
+                "kimi",
+                "--work-dir",
+                "/Users/alice/kimi-explicit-cwd",
+                nil
+            ),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-\(testCase.executable)-session"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: testCase.kind,
+                sessionId: sessionId,
+                workingDirectory: recordedLocalDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: testCase.executable,
+                    executablePath: testCase.executable,
+                    arguments: [testCase.executable, testCase.cwdOption, testCase.cwdArgument],
+                    workingDirectory: testCase.launchWorkingDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: testCase.registration
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(recordedLocalDirectory), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdArgument), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdOption), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    @Test func exactSelectionStripsAttachedShortCwdArguments() throws {
+        let trustedRemoteDirectory = "/repo-b"
+        let cases: [(
+            kind: RestorableAgentKind,
+            registration: CmuxVaultAgentRegistration?,
+            executable: String,
+            attachedCwdOption: String
+        )] = [
+            (.codex, nil, "codex", "-C/Users/alice/codex-explicit-cwd"),
+            (.qoder, nil, "qodercli", "-w/Users/alice/qoder-explicit-cwd"),
+            (.kimi, .builtInKimi, "kimi", "-w/Users/alice/kimi-explicit-cwd"),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-\(testCase.executable)-attached-cwd"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: testCase.kind,
+                sessionId: sessionId,
+                workingDirectory: "/Users/alice/recorded-agent-cwd",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: testCase.executable,
+                    executablePath: testCase.executable,
+                    arguments: [testCase.executable, testCase.attachedCwdOption],
+                    workingDirectory: "/tmp/process-cwd",
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: testCase.registration
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(testCase.attachedCwdOption), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    @Test func exactSelectionPreservesClaudeTeamsWorktreeArguments() throws {
+        let worktree = "/tmp/team-worktree"
+        let worktreeArguments = [
+            ["-w", worktree],
+            ["-w\(worktree)"],
+        ]
+
+        for arguments in worktreeArguments {
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: "remote-claude-team",
+                workingDirectory: "/Users/alice/recorded-agent-cwd",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "claudeTeams",
+                    executablePath: "cmux",
+                    arguments: ["cmux", "claude-teams"] + arguments,
+                    workingDirectory: "/Users/alice/recorded-launch-cwd",
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
+            )
+
+            let input = try #require(snapshot.resumeStartupInput(
+                useLocalRestoreVerb: false,
+                workingDirectorySelection: .exact(nil)
+            ))
+            #expect(input.contains(worktree), Comment(rawValue: input))
+            #expect(input.contains("'-w"), Comment(rawValue: input))
+        }
+    }
+
+    @MainActor
+    @Test func genericDirectoryReportCannotSeedEmptyTrustRequiredRemotePanel() throws {
+        let localDirectory = "/Users/alice/development"
+        let genericDirectory = "/repo-a"
+        let remoteCommand = "ssh cmux-remote"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        workspace.panelDirectories.removeValue(forKey: panelId)
+
+        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
+        #expect(!workspace.updatePanelDirectory(panelId: panelId, directory: genericDirectory))
+        #expect(workspace.panelDirectories[panelId] == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == nil)
+    }
+
+    @MainActor
+    @Test func remoteAutoResumeUsesLatestAuthoritativeDirectoryReport() throws {
+        let defaultsName = "cmux-remote-latest-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let firstRemoteDirectory = "/repo-a"
+        let latestRemoteDirectory = "/repo-b"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "codex-remote-latest-cwd-\(UUID().uuidString)"
+        defer {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "codex",
+                sessionId: sessionId
+            )
+        }
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: firstRemoteDirectory))
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: latestRemoteDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            restorableCodexAgent(sessionId: sessionId, workingDirectory: firstRemoteDirectory),
+            panelId: sourcePanelId
+        )
+        let firstBindingAgent = restorableCodexAgent(
+            sessionId: sessionId,
+            workingDirectory: firstRemoteDirectory
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(sessionId)",
+                cwd: firstRemoteDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: firstBindingAgent.launchCommand,
+                restoreWorkingDirectorySelection: .exact(firstRemoteDirectory),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let startupInput = try #require(restoredPanel.surface.initialInput)
+
+        #expect(startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(firstRemoteDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        #expect(restoredPanel.requestedWorkingDirectory == latestRemoteDirectory)
+        let restoredBinding = try #require(
+            restored.surfaceResumeBinding(panelId: restoredPanelId)
+        )
+        #expect(restoredBinding.restoreWorkingDirectorySelection == .exact(latestRemoteDirectory))
+        #expect(restoredBinding.cwd == latestRemoteDirectory)
+
+        let newerRemoteDirectory = "/repo-c"
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        #expect(restored.updateRemotePanelDirectory(
+            panelId: restoredPanelId,
+            directory: newerRemoteDirectory
+        ))
+        let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        // The second snapshot models a relaunch after the first runtime has
+        // exited. Release the in-process duplicate-launch claim that the first
+        // restore intentionally held while its command was running.
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: sessionId
+        )
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { secondRestore.teardownAllPanels() }
+        let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
+        let secondPanelId = try #require(secondPanelIds[restoredPanelId])
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelId))
+        let secondStartupInput = try #require(secondPanel.surface.initialInput)
+        let secondAgent = try #require(secondRestore.restoredAgentSnapshotsByPanelId[secondPanelId])
+
+        #expect(secondAgent.restoreWorkingDirectorySelection == .exact(newerRemoteDirectory))
+        #expect(secondStartupInput.contains(newerRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(!secondStartupInput.contains(latestRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(
+            secondRestore.surfaceResumeBinding(panelId: secondPanelId)?.restoreWorkingDirectorySelection ==
+                .exact(newerRemoteDirectory)
+        )
+    }
+
+    @MainActor
+    @Test func remoteDirectoryNamespacedAutoResumeSkipsWithoutTrustedLaunchDirectory() throws {
+        let defaultsName = "cmux-remote-launch-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let staleAgentDirectory = "/repo-a"
+        let staleLaunchDirectory = "/repo-launch"
+        let latestRemoteDirectory = "/repo-b"
+        let savedScrollback = "last remote agent output\n"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "grok-remote-launch-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: staleAgentDirectory))
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: latestRemoteDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: sessionId,
+                workingDirectory: staleAgentDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", staleLaunchDirectory],
+                    workingDirectory: staleLaunchDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInGrok
+            ),
+            panelId: sourcePanelId
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "grok",
+                command: "grok --resume \(sessionId) --cwd '\(staleLaunchDirectory)'",
+                cwd: staleLaunchDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", staleLaunchDirectory],
+                    workingDirectory: staleLaunchDirectory
+                ),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
+        // The accepted hook binding promotes its captured launch cwd into the
+        // snapshot; the independent agent-only cwd is not retained.
+        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == staleLaunchDirectory)
+        #expect(snapshot.panels.first?.terminal?.agent?.launchCommand?.workingDirectory == staleLaunchDirectory)
+
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.scrollback = savedScrollback
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, restoredPanel, resumeSnapshot in
+            let startupInput = restoredPanel.surface.initialInput
+            #expect(startupInput == nil, Comment(rawValue: startupInput ?? "nil"))
+            #expect(restoredPanel.requestedWorkingDirectory == nil)
+            #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredTerminalScrollbackByPanelId[restoredPanelId] == savedScrollback)
+            #expect(restored.surfaceResumeBinding(panelId: restoredPanelId) == nil)
+            #expect(resumeSnapshot.binding == nil)
+            #expect(resumeSnapshot.restoreRecord == nil)
+        }
+
+        // A stale agent snapshot can coexist with an independent
+        // process-detected SSH binding. Rejecting the agent recipe must not
+        // erase that terminal-level binding.
+        var plainSSHSnapshot = snapshot
+        var plainSSHTerminal = try #require(plainSSHSnapshot.panels[panelIndex].terminal)
+        var plainSSHBinding = try #require(plainSSHTerminal.resumeBinding)
+        plainSSHBinding.source = "process-detected"
+        plainSSHTerminal.resumeBinding = plainSSHBinding
+        plainSSHSnapshot.panels[panelIndex].terminal = plainSSHTerminal
+        try withRestoredRemoteSurfaceSnapshot(
+            plainSSHSnapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, _, resumeSnapshot in
+            #expect(restored.surfaceResumeBinding(panelId: restoredPanelId) != nil)
+            #expect(resumeSnapshot.binding != nil)
+        }
+    }
+
+    @MainActor
+    @Test func remoteDirectoryNamespacedResumeKeepsAuthenticatedLaunchDirectory() throws {
+        let defaultsName = "cmux-remote-authenticated-launch-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let runtimeDirectory = "/repo-runtime"
+        let launchDirectory = "/repo-launch"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "grok-authenticated-launch-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: runtimeDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: sessionId,
+                workingDirectory: runtimeDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", launchDirectory],
+                    workingDirectory: launchDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInGrok
+            ),
+            panelId: sourcePanelId
+        )
+        let authenticatedBinding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume \(sessionId) --cwd '\(launchDirectory)'",
+            cwd: launchDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--cwd", launchDirectory],
+                workingDirectory: launchDirectory
+            ),
+            restoreWorkingDirectorySelection: .exact(launchDirectory),
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: source.id,
+                surfaceID: sourcePanelId,
+                persistentPTYSessionID: "grok-authenticated-pty"
+            ))
+        )
+        #expect(source.setSurfaceResumeBinding(authenticatedBinding, panelId: sourcePanelId))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == runtimeDirectory)
+        #expect(
+            snapshot.panels.first?.terminal?.resumeBinding?.restoreWorkingDirectorySelection ==
+                .exact(launchDirectory)
+        )
+
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, restoredPanel, resumeSnapshot in
+            let restoredAgent = try #require(
+                restored.restoredAgentSnapshotsByPanelId[restoredPanelId]
+            )
+            #expect(restoredAgent.restoreWorkingDirectorySelection == .exact(launchDirectory))
+            #expect(restoredAgent.workingDirectory == launchDirectory)
+            let restoredBinding = try #require(
+                restored.surfaceResumeBinding(panelId: restoredPanelId)
+            )
+            #expect(
+                restoredBinding.restoreWorkingDirectorySelection == .exact(launchDirectory)
+            )
+            #expect(restoredBinding.cwd == launchDirectory)
+            #expect(resumeSnapshot.binding?.cwd == launchDirectory)
+            let startupInput = try #require(restoredPanel.surface.initialInput)
+            #expect(startupInput.contains(launchDirectory), Comment(rawValue: startupInput))
+            #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        }
+    }
+
+    @MainActor
+    @Test func remoteAutoResumeWithoutTrustedDirectoryRejectsRecordedLocalCwd() throws {
+        let defaultsName = "cmux-remote-untrusted-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let untrustedRecordedDirectory = "/Users/alice/recorded-agent-cwd"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "codex-remote-untrusted-cwd-\(UUID().uuidString)"
+        defer {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "codex",
+                sessionId: sessionId
+            )
+        }
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            restorableCodexAgent(sessionId: sessionId, workingDirectory: untrustedRecordedDirectory),
+            panelId: sourcePanelId
+        )
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = untrustedRecordedDirectory
+        snapshot.panels[panelIndex].directoryIsTrustedRemoteReport = false
+        snapshot.panels[panelIndex].directoryRequiresRemoteTrust = true
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.workingDirectory = untrustedRecordedDirectory
+        terminalSnapshot.isRemoteTerminal = true
+        terminalSnapshot.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let startupInput = try #require(restoredPanel.surface.initialInput)
+
+        #expect(startupInput.contains(sessionId), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(untrustedRecordedDirectory), Comment(rawValue: startupInput))
+        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+
+        let newlyReportedRemoteDirectory = "/repo-b"
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        #expect(restored.updateRemotePanelDirectory(
+            panelId: restoredPanelId,
+            directory: newlyReportedRemoteDirectory
+        ))
+        let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: sessionId
+        )
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { secondRestore.teardownAllPanels() }
+        let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
+        let secondPanelId = try #require(secondPanelIds[restoredPanelId])
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelId))
+        let secondStartupInput = try #require(secondPanel.surface.initialInput)
+        let secondAgent = try #require(secondRestore.restoredAgentSnapshotsByPanelId[secondPanelId])
+
+        #expect(secondAgent.restoreWorkingDirectorySelection == .exact(newlyReportedRemoteDirectory))
+        #expect(secondStartupInput.contains(newlyReportedRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(!secondStartupInput.contains(untrustedRecordedDirectory), Comment(rawValue: secondStartupInput))
+    }
+
+    @MainActor
+    @Test func unavailableRemoteAgentRetainsOnlyPersistentSSHReattach() throws {
+        let defaultsName = "cmux-remote-persistent-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let capturedDirectory = "/Users/alice/persistent-agent-cwd"
+        let trustedRuntimeDirectory = "/home/remote/persistent-project"
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(
+                command: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "remote-cwd-policy"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let persistentSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: source.id,
+            panelId: sourcePanelId
+        )
+        #expect(source.updateRemotePanelDirectory(
+            panelId: sourcePanelId,
+            directory: trustedRuntimeDirectory
+        ))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: "persistent-grok-session",
+                workingDirectory: capturedDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", capturedDirectory],
+                    workingDirectory: capturedDirectory
+                ),
+                registration: .builtInGrok
+            ),
+            panelId: sourcePanelId
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume persistent-grok-session --cwd '\(capturedDirectory)'",
+            cwd: capturedDirectory,
+            checkpointId: "persistent-grok-session",
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--cwd", capturedDirectory],
+                workingDirectory: capturedDirectory
+            ),
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: source.id,
+                surfaceID: sourcePanelId,
+                persistentPTYSessionID: persistentSessionID
+            ))
+        )
+        #expect(source.setSurfaceResumeBinding(binding, panelId: sourcePanelId))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        let retained = try #require(restored.restoredAgentSnapshotsByPanelId[restoredPanelId])
+
+        #expect(retained.restoreWorkingDirectorySelection == .unavailable)
+        #expect(retained.resumeCommand == nil)
+        #expect(retained.forkCommand == nil)
+        #expect(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .manualResumeAvailable
+        )
+        #expect(restored.surfaceResumeBinding(panelId: restoredPanelId)?.launchFlavor.remoteContext != nil)
+
+        let attachCommand = try #require(restoredPanel.surface.debugInitialCommand())
+        #expect(attachCommand.contains("ssh-pty-attach"), Comment(rawValue: attachCommand))
+        #expect(attachCommand.contains("--require-existing"), Comment(rawValue: attachCommand))
+        #expect(!attachCommand.contains(capturedDirectory), Comment(rawValue: attachCommand))
+
+        // The attach launcher is itself `/bin/sh -c '<script>'`; unwrap that
+        // script before inspecting its nested `ssh-pty-attach` argv.
+        let outerWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand)
+        let script = if let shellIndex = outerWords.firstIndex(where: { $0.value == "-c" }),
+                        outerWords.indices.contains(outerWords.index(after: shellIndex)) {
+            outerWords[outerWords.index(after: shellIndex)].value
+        } else {
+            attachCommand
+        }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+        let commandIndex = try #require(words.firstIndex(of: "--command-b64"))
+        let commandPayloadIndex = words.index(after: commandIndex)
+        try #require(words.indices.contains(commandPayloadIndex))
+        let commandPayload = words[commandPayloadIndex]
+            .trimmingCharacters(in: CharacterSet(charactersIn: ";"))
+        let remoteCommandData = try #require(Data(base64Encoded: commandPayload))
+        let remoteCommand = try #require(String(data: remoteCommandData, encoding: .utf8))
+        let unsafeStartupInput = try #require(binding.remoteStartupInput())
+        let unsafeStartupPayload = Data(unsafeStartupInput.utf8).base64EncodedString()
+        #expect(!remoteCommand.contains(unsafeStartupPayload), Comment(rawValue: remoteCommand))
+        #expect(!remoteCommand.contains(capturedDirectory), Comment(rawValue: remoteCommand))
+    }
+
+    @MainActor
+    @Test func persistentSSHExactBindingDoesNotReplayWhenAutoResumeIsDisabled() throws {
+        let defaultsName = "cmux-remote-disabled-auto-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let capturedDirectory = "/Users/alice/persistent-agent-cwd"
+        let trustedRemoteDirectory = "/home/remote/persistent-project"
+        let agentSessionID = "persistent-codex-disabled-auto-resume"
+        let remoteCommand = SSHPTYAttachStartupCommandBuilder.command()
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(
+                command: remoteCommand,
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "remote-disabled-auto-resume"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let persistentSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: source.id,
+            panelId: sourcePanelID
+        )
+        #expect(source.updateRemotePanelDirectory(
+            panelId: sourcePanelID,
+            directory: trustedRemoteDirectory
+        ))
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "codex",
+            arguments: ["codex", "-C", capturedDirectory],
+            workingDirectory: capturedDirectory
+        )
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: agentSessionID,
+                workingDirectory: capturedDirectory,
+                launchCommand: launchCommand
+            ),
+            panelId: sourcePanelID
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(agentSessionID) -C '\(capturedDirectory)'",
+                cwd: capturedDirectory,
+                checkpointId: agentSessionID,
+                source: "agent-hook",
+                launchCommand: launchCommand,
+                restoreWorkingDirectorySelection: .exact(trustedRemoteDirectory),
+                autoResume: true,
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: source.id,
+                    surfaceID: sourcePanelID,
+                    persistentPTYSessionID: persistentSessionID
+                ))
+            ),
+            panelId: sourcePanelID
+        ))
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        // Simulate a clean shell at quit while keeping the exact binding and
+        // retained agent available for a later explicit manual restore.
+        terminalSnapshot.wasAgentRunning = false
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelID,
+            autoResumeAgentSessions: false
+        ) { restored, _, panel, _ in
+            let attachCommand = try #require(panel.surface.debugInitialCommand())
+            #expect(attachCommand.contains("--require-existing"), Comment(rawValue: attachCommand))
+
+            let outerWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand)
+            let script = if let shellIndex = outerWords.firstIndex(where: { $0.value == "-c" }),
+                            outerWords.indices.contains(outerWords.index(after: shellIndex)) {
+                outerWords[outerWords.index(after: shellIndex)].value
+            } else {
+                attachCommand
+            }
+            let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+            // Reattach the authenticated PTY, but do not resurrect the agent
+            // command after the auto-resume decision explicitly denied it.
+            if let commandIndex = words.firstIndex(of: "--command-b64") {
+                let commandPayloadIndex = words.index(after: commandIndex)
+                try #require(words.indices.contains(commandPayloadIndex))
+                let commandPayload = words[commandPayloadIndex]
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ";"))
+                let remoteCommandData = try #require(Data(base64Encoded: commandPayload))
+                let decodedRemoteCommand = try #require(String(data: remoteCommandData, encoding: .utf8))
+                #expect(!decodedRemoteCommand.contains(agentSessionID), Comment(rawValue: decodedRemoteCommand))
+                #expect(!decodedRemoteCommand.contains(capturedDirectory), Comment(rawValue: decodedRemoteCommand))
+                #expect(!decodedRemoteCommand.contains(trustedRemoteDirectory), Comment(rawValue: decodedRemoteCommand))
+            }
+            #expect(restored.restoredAgentSnapshotsByPanelId.values.contains { $0.sessionId == agentSessionID })
+        }
+    }
+
+    @MainActor
+    @Test func persistentSSHExactSelectionEmbedsOnlyConstrainedAgentStartupInput() throws {
+        let capturedDirectory = "/Users/alice/persistent-agent-cwd"
+        let trustedRemoteDirectory = "/home/remote/persistent-project"
+        let sessionId = "persistent-codex-session"
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.configureRemoteConnection(
+            remoteWorkspaceConfiguration(
+                command: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "remote-exact-cwd-policy"
+            ),
+            autoConnect: false
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let persistentSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panelId
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: capturedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-C", capturedDirectory],
+                workingDirectory: capturedDirectory
+            )
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionId) -C '\(capturedDirectory)'",
+            cwd: capturedDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            environment: ["CODEX_HOME": "/tmp/remote-codex-home"],
+            launchCommand: agent.launchCommand,
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: workspace.id,
+                surfaceID: panelId,
+                persistentPTYSessionID: persistentSessionID
+            ))
+        )
+        let constrainedBinding = binding.applyingRestoreWorkingDirectorySelection(
+            .exact(trustedRemoteDirectory),
+            from: agent
+        )
+        let constrainedStartupInput = try #require(constrainedBinding.remoteStartupInput())
+        let remoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: constrainedBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        let constrainedPayload = Data(constrainedStartupInput.utf8).base64EncodedString()
+        let unsafeStartupInput = try #require(binding.remoteStartupInput())
+        let unsafePayload = Data(unsafeStartupInput.utf8).base64EncodedString()
+
+        #expect(constrainedStartupInput.contains(trustedRemoteDirectory))
+        #expect(!constrainedStartupInput.contains(capturedDirectory))
+        #expect(constrainedStartupInput.contains("CODEX_HOME=/tmp/remote-codex-home"), Comment(rawValue: constrainedStartupInput))
+        #expect(remoteCommand.contains(constrainedPayload), Comment(rawValue: remoteCommand))
+        #expect(!remoteCommand.contains(unsafePayload), Comment(rawValue: remoteCommand))
+
+        var staleExactNilBinding = binding
+        staleExactNilBinding.restoreWorkingDirectorySelection = .exact(nil)
+        let exactNilRemoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: staleExactNilBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        #expect(!exactNilRemoteCommand.contains(capturedDirectory), Comment(rawValue: exactNilRemoteCommand))
+
+        var exactWithoutLaunchBinding = binding
+        exactWithoutLaunchBinding.launchCommand = nil
+        exactWithoutLaunchBinding.restoreWorkingDirectorySelection = .exact(trustedRemoteDirectory)
+        #expect(workspace.setSurfaceResumeBinding(exactWithoutLaunchBinding, panelId: panelId))
+        let exactWithoutLaunchRemoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: exactWithoutLaunchBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        #expect(!exactWithoutLaunchRemoteCommand.contains(capturedDirectory))
+        // `persistentSSHResumeCommand` is the remote shell bootstrap; the
+        // local attach wrapper is the layer that owns `--require-existing`.
+        let exactWithoutLaunchAttach = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: persistentSessionID,
+            remoteCommand: exactWithoutLaunchRemoteCommand,
+            requireExisting: true
+        )
+        #expect(exactWithoutLaunchAttach.contains("--require-existing"))
+    }
+
+    @Test func persistentSSHRegistrationWithoutCwdFailsClosedForDirectoryKeyedAgent() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: "persistent-grok-session"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok resume persistent-grok-session",
+            checkpointId: "persistent-grok-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let staleAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "persistent-grok-session",
+            workingDirectory: "/repo/stale"
+        )
+        let registered = binding.registeredForPersistentSSH(
+            context,
+            restorableAgent: staleAgent
+        )
+
+        #expect(registered.restoreWorkingDirectorySelection == .unavailable)
+    }
+
+    @Test func persistentSSHRegistrationHonorsCwdIgnoreWithReportedCwd() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "persistent-ignore-session"
+        let capturedDirectory = "/Users/alice/captured-project"
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: "persistent-ignore-pty"
+        )
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-ignore",
+            name: "Acme Ignore",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            forkCommand: "acme-agent --session {{sessionId}} --fork",
+            cwd: .ignore
+        )
+        let launchCommand = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: registration.id,
+            executablePath: "/usr/local/bin/acme-agent",
+            arguments: ["/usr/local/bin/acme-agent", "--session", sessionID],
+            workingDirectory: capturedDirectory,
+            environment: [:]
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: registration.id,
+            command: "acme-agent --session \(sessionID)",
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            autoResume: true
+        )
+        let matchingAgent = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand,
+            registration: registration
+        )
+
+        let registered = binding.registeredForPersistentSSH(
+            context,
+            restorableAgent: matchingAgent
+        )
+
+        #expect(
+            registered.restoreWorkingDirectorySelection ==
+                AgentRestoreWorkingDirectorySelection.exact(nil)
+        )
+    }
+
+    @Test func unavailableRestorePolicyDoesNotAdvertiseForkSupport() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "unavailable-fork-session",
+            workingDirectory: "/Users/alice/captured-project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: "/Users/alice/captured-project"
+            ),
+            restoreWorkingDirectorySelection: .unavailable
+        )
+
+        #expect(snapshot.forkCommand == nil)
+        #expect(AgentForkSupport.forkValidationIdentity(snapshot: snapshot) == nil)
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+    }
+
+    @Test func exactRemoteRebuildSupportsRegistryOwnedKindWithoutSnapshot() throws {
+        let sessionID = "snapshotless-grok-session"
+        let trustedDirectory = "/srv/remote-grok"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok -r \(sessionID)",
+            cwd: trustedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/usr/local/bin/grok",
+                arguments: ["/usr/local/bin/grok"],
+                workingDirectory: trustedDirectory
+            ),
+            restoreWorkingDirectorySelection: .exact(trustedDirectory),
+            autoResume: true
+        )
+
+        let input = try #require(binding.remoteStartupInput())
+
+        #expect(input.contains("grok"), Comment(rawValue: input))
+        #expect(input.contains(sessionID), Comment(rawValue: input))
+        #expect(input.contains(trustedDirectory), Comment(rawValue: input))
+    }
+
+    @MainActor
+    @Test(arguments: [RestorableAgentKind.codex, .opencode])
+    func remoteManualResumeRecordUsesOnlyTrustedReportedDirectory(
+        kind: RestorableAgentKind
+    ) throws {
+        let localWorkspaceDirectory = "/Users/alice/development"
+        let capturedAgentDirectory = "/Users/alice/captured-agent-cwd"
+        let capturedLaunchDirectory = "/Users/alice/captured-launch-cwd"
+        let capturedArgumentDirectory = "/Users/alice/captured-argument-cwd"
+        let trustedRemoteDirectory = "/home/remote/current-project"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "\(kind.rawValue)-remote-manual-\(UUID().uuidString)"
+        let executable = kind == .codex ? "codex" : "opencode"
+        let cwdOption = kind == .codex ? "-C" : "--cwd"
+        let source = Workspace(
+            workingDirectory: localWorkspaceDirectory,
+            initialTerminalCommand: remoteCommand
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(
+            panelId: sourcePanelId,
+            directory: trustedRemoteDirectory
+        ))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: sessionId,
+                workingDirectory: capturedAgentDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: executable,
+                    executablePath: "/usr/local/bin/\(executable)",
+                    arguments: [
+                        "/usr/local/bin/\(executable)",
+                        cwdOption,
+                        capturedArgumentDirectory,
+                        "--model",
+                        "test-model",
+                    ],
+                    workingDirectory: capturedLaunchDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
+            ),
+            panelId: sourcePanelId
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: kind.rawValue,
+                command: "\(executable) resume \(sessionId) \(cwdOption) '\(capturedArgumentDirectory)'",
+                cwd: capturedAgentDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: executable,
+                    executablePath: "/usr/local/bin/\(executable)",
+                    arguments: [
+                        "/usr/local/bin/\(executable)",
+                        cwdOption,
+                        capturedArgumentDirectory,
+                        "--model",
+                        "test-model",
+                    ],
+                    workingDirectory: capturedLaunchDirectory
+                ),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        try withRestoredRemoteSurface(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: false
+        ) { workspace, panelId, panel, restoreRecord in
+            #expect(panel.surface.initialInput == nil)
+            #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .manualResumeAvailable)
+            #expect(restoreRecord.kind == kind.rawValue)
+            #expect(restoreRecord.checkpointID == sessionId)
+            #expect(restoreRecord.workingDirectory == trustedRemoteDirectory)
+            #expect(restoreRecord.preparedArgumentsWorkingDirectory == trustedRemoteDirectory)
+
+            let launchCommand = try #require(restoreRecord.launchCommand)
+            #expect(launchCommand.workingDirectory == nil)
+            let launchArguments = launchCommand.arguments.joined(separator: " ")
+            #expect(!launchArguments.contains(capturedAgentDirectory))
+            #expect(!launchArguments.contains(capturedLaunchDirectory))
+            #expect(!launchArguments.contains(capturedArgumentDirectory))
+            #expect(!launchCommand.arguments.contains(cwdOption))
+
+            let preparedArguments = try #require(restoreRecord.preparedArguments)
+                .joined(separator: " ")
+            #expect(!preparedArguments.contains(capturedAgentDirectory))
+            #expect(!preparedArguments.contains(capturedLaunchDirectory))
+            #expect(!preparedArguments.contains(capturedArgumentDirectory))
+
+            let continuation = try #require(
+                workspace.restoredAgentSnapshotsByPanelId[panelId]
+            )
+            let resumeCommand = try #require(continuation.resumeCommand)
+            #expect(resumeCommand.contains(trustedRemoteDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedAgentDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedLaunchDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedArgumentDirectory), Comment(rawValue: resumeCommand))
+
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+            #expect(workspace.restoredAgentSnapshotsByPanelId[panelId] == nil)
+            let retainedBinding = try #require(
+                workspace.sessionSnapshot(includeScrollback: false)
+                    .panels.first(where: { $0.id == panelId })?
+                    .terminal?.resumeBinding
+            )
+            let retainedInput = try #require(
+                retainedBinding.inlineStartupInput(repairPortableAgentExecutable: false)
+            )
+            #expect(retainedBinding.restoreWorkingDirectorySelection == .exact(trustedRemoteDirectory))
+            #expect(retainedBinding.autoResume == false)
+            #expect(retainedInput.contains(trustedRemoteDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedAgentDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedLaunchDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedArgumentDirectory), Comment(rawValue: retainedInput))
+        }
+    }
+
+    @MainActor
+    @Test func hibernatedRemoteContinuationUsesOnlyTrustedReportedDirectory() throws {
+        let localWorkspaceDirectory = "/Users/alice/development"
+        let capturedAgentDirectory = "/Users/alice/hibernated-agent-cwd"
+        let capturedLaunchDirectory = "/Users/alice/hibernated-launch-cwd"
+        let capturedArgumentDirectory = "/Users/alice/hibernated-argument-cwd"
+        let trustedRemoteDirectory = "/home/remote/hibernated-project"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "codex-remote-hibernated-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localWorkspaceDirectory,
+            initialTerminalCommand: remoteCommand
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(
+            panelId: sourcePanelId,
+            directory: trustedRemoteDirectory
+        ))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionId,
+                workingDirectory: capturedAgentDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: [
+                        "/usr/local/bin/codex",
+                        "-C\(capturedArgumentDirectory)",
+                        "--model",
+                        "test-model",
+                    ],
+                    workingDirectory: capturedLaunchDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
+            ),
+            panelId: sourcePanelId
+        )
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.hibernation = SessionAgentHibernationSnapshot(
+            hibernatedAt: 1_777_777_777,
+            lastActivityAt: 1_777_777_700
+        )
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        try withRestoredRemoteSurface(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true,
+            agentHibernationPresentationVisible: false
+        ) { workspace, panelId, panel, restoreRecord in
+            #expect(panel.isAgentHibernated)
+            #expect(restoreRecord.workingDirectory == trustedRemoteDirectory)
+            #expect(restoreRecord.launchCommand?.workingDirectory == nil)
+
+            let structuredArguments = [
+                restoreRecord.launchCommand?.arguments.joined(separator: " "),
+                restoreRecord.preparedArguments?.joined(separator: " "),
+            ].compactMap { $0 }.joined(separator: " ")
+            #expect(!structuredArguments.contains(capturedAgentDirectory))
+            #expect(!structuredArguments.contains(capturedLaunchDirectory))
+            #expect(!structuredArguments.contains(capturedArgumentDirectory))
+
+            let hibernatedAgent = try #require(panel.agentHibernationState?.agent)
+            let resumeCommand = try #require(hibernatedAgent.resumeCommand)
+            #expect(resumeCommand.contains(trustedRemoteDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedAgentDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedLaunchDirectory), Comment(rawValue: resumeCommand))
+            #expect(!resumeCommand.contains(capturedArgumentDirectory), Comment(rawValue: resumeCommand))
+
+            #expect(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+            let queuedInput = try #require(
+                panel.surface.debugInitialInputForTesting()
+                    ?? panel.surface.nextRuntimeInitialInput
+            )
+            #expect(queuedInput.contains(sessionId), Comment(rawValue: queuedInput))
+            #expect(queuedInput.contains(trustedRemoteDirectory), Comment(rawValue: queuedInput))
+            #expect(!queuedInput.contains(capturedAgentDirectory), Comment(rawValue: queuedInput))
+            #expect(!queuedInput.contains(capturedLaunchDirectory), Comment(rawValue: queuedInput))
+            #expect(!queuedInput.contains(capturedArgumentDirectory), Comment(rawValue: queuedInput))
+        }
+    }
+
+    @MainActor
+    private func withRestoredRemoteSurface<T>(
+        _ snapshot: SessionWorkspaceSnapshot,
+        sourcePanelId: UUID,
+        autoResumeAgentSessions: Bool,
+        agentHibernationPresentationVisible: Bool = true,
+        body: (
+            _ workspace: Workspace,
+            _ panelId: UUID,
+            _ panel: TerminalPanel,
+            _ restoreRecord: ControlSurfaceRestoreRecord
+        ) throws -> T
+    ) throws -> T {
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: autoResumeAgentSessions,
+            agentHibernationPresentationVisible: agentHibernationPresentationVisible
+        ) { workspace, panelId, panel, resumeSnapshot in
+            let restoreRecord = try #require(resumeSnapshot.restoreRecord)
+            return try body(workspace, panelId, panel, restoreRecord)
+        }
+    }
+
+    @MainActor
+    private func withRestoredRemoteSurfaceSnapshot<T>(
+        _ snapshot: SessionWorkspaceSnapshot,
+        sourcePanelId: UUID,
+        autoResumeAgentSessions: Bool,
+        agentHibernationPresentationVisible: Bool = true,
+        body: (
+            _ workspace: Workspace,
+            _ panelId: UUID,
+            _ panel: TerminalPanel,
+            _ resumeSnapshot: ControlSurfaceResumeSnapshot
+        ) throws -> T
+    ) throws -> T {
+        let defaultsName = "cmux-remote-restore-helper-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(
+            autoResumeAgentSessions,
+            forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        )
+
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            window.orderOut(nil)
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.setAgentHibernationAutoResumePresentationVisible(
+            agentHibernationPresentationVisible
+        )
+        let restoredPanelIds = workspace.restoreSessionSnapshot(snapshot)
+        let panelId = try #require(restoredPanelIds[sourcePanelId])
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: windowId,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panelId,
+            paneID: nil
+        )
+        let resolution = TerminalController.shared.controlSurfaceResumeGet(
+            routing: routing,
+            explicitTargetID: panelId,
+            hasResolvedWindowID: true,
+            claimCheckpointID: nil,
+            claimSource: nil,
+            claimUpdatedAt: nil
+        )
+        guard case .result(let result) = resolution else {
+            Issue.record("surface.resume.get failed: \(resolution)")
+            throw RemoteSurfaceRestoreTestError.resumeRecordUnavailable
+        }
+        return try body(workspace, panelId, panel, result)
+    }
+
+    private enum RemoteSurfaceRestoreTestError: Error {
+        case resumeRecordUnavailable
+    }
+
+    private func remoteWorkspaceConfiguration(
+        command: String,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "cmux-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_000,
+            relayID: "relay-remote-cwd-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-remote-cwd-\(UUID().uuidString).sock",
+            terminalStartupCommand: command,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+    }
+
+    private func restorableCodexAgent(
+        sessionId: String,
+        workingDirectory: String
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: workingDirectory,
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
     }
 }

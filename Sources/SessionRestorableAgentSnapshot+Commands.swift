@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension SessionRestorableAgentSnapshot {
@@ -8,6 +9,7 @@ extension SessionRestorableAgentSnapshot {
         case launchCommand
         case registration
         case permissionMode
+        case restoreWorkingDirectorySelection
     }
 
     init(from decoder: Decoder) throws {
@@ -37,7 +39,11 @@ extension SessionRestorableAgentSnapshot {
             ),
             registration: registration,
             // Optional so snapshots persisted before the field decode unchanged.
-            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            restoreWorkingDirectorySelection: try container.decodeIfPresent(
+                AgentRestoreWorkingDirectorySelection.self,
+                forKey: .restoreWorkingDirectorySelection
+            )
         )
     }
 
@@ -45,24 +51,174 @@ extension SessionRestorableAgentSnapshot {
         resumeCommand(includeWorkingDirectoryPrefix: true)
     }
 
+    /// Returns the cwd-option policy identity only when the snapshot carries
+    /// cmux's exact built-in registration (or no Vault registration at all).
+    /// A user registration may reuse a registry-owned id such as `kimi`, so its
+    /// raw kind must not enable built-in-only option removal.
+    var workingDirectoryOptionPolicyBuiltInKind: String? {
+        if case .custom = kind {
+            return registration?.registeredResumeKind?.rawValue
+        }
+        return registration == nil || registration?.registeredResumeKind != nil
+            ? kind.rawValue
+            : nil
+    }
+
+    /// Returns a copy whose persisted cwd state cannot outlive the supplied trust decision.
+    func applyingRestoreWorkingDirectorySelection(
+        _ proposedSelection: AgentRestoreWorkingDirectorySelection
+    ) -> SessionRestorableAgentSnapshot {
+        let selection = effectiveRestoreWorkingDirectorySelection(proposedSelection)
+        var constrained = self
+        switch selection {
+        case .recordedFallback:
+            constrained.restoreWorkingDirectorySelection = selection
+        case .exact:
+            let workingDirectory = selection.resolved(
+                snapshotWorkingDirectory: nil,
+                launchWorkingDirectory: nil
+            )
+            constrained.workingDirectory = workingDirectory
+            constrained.restoreWorkingDirectorySelection = .exact(workingDirectory)
+            constrained.launchCommand = constrainedLaunchCommand(
+                launchCommand,
+                selection: .exact(workingDirectory)
+            )
+        case .unavailable:
+            constrained.workingDirectory = nil
+            constrained.restoreWorkingDirectorySelection = .unavailable
+            constrained.launchCommand = constrainedLaunchCommand(
+                launchCommand,
+                selection: .unavailable
+            )
+        }
+        return constrained
+    }
+
+    /// Returns a copy refreshed from a provenance-validated remote snapshot selection.
+    func refreshingAuthoritativeRestoreWorkingDirectorySelection(
+        _ proposedSelection: AgentRestoreWorkingDirectorySelection
+    ) -> SessionRestorableAgentSnapshot {
+        let selection = restoreWorkingDirectorySelection?.refreshedByAuthoritativeRemoteSelection(
+            proposedSelection
+        ) ?? proposedSelection
+        var refreshable = self
+        refreshable.restoreWorkingDirectorySelection = nil
+        return refreshable.applyingRestoreWorkingDirectorySelection(selection)
+    }
+
+    /// Applies a binding's explicit cwd policy over stale snapshot state.
+    func applyingAuthoritativeBindingSelection(
+        _ selection: AgentRestoreWorkingDirectorySelection
+    ) -> SessionRestorableAgentSnapshot {
+        var unscoped = self
+        unscoped.restoreWorkingDirectorySelection = nil
+        return unscoped.applyingRestoreWorkingDirectorySelection(selection)
+    }
+
+    /// Resolves an entrypoint request against the stricter policy retained on the snapshot.
+    func effectiveRestoreWorkingDirectorySelection(
+        _ proposedSelection: AgentRestoreWorkingDirectorySelection
+    ) -> AgentRestoreWorkingDirectorySelection {
+        let selected = restoreWorkingDirectorySelection?.restricted(by: proposedSelection)
+            ?? proposedSelection
+        guard registration?.cwd == .ignore else { return selected }
+        return selected.permitsResume ? .exact(nil) : .unavailable
+    }
+
+    /// Removes captured cwd state from a launch override when the retained policy requires it.
+    func constrainedLaunchCommand(
+        _ candidate: AgentLaunchCommandSnapshot?,
+        selection: AgentRestoreWorkingDirectorySelection
+    ) -> AgentLaunchCommandSnapshot? {
+        guard selection.discardsRecordedCwdOptions, var candidate else {
+            return candidate
+        }
+        candidate.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: candidate.arguments,
+            workingDirectory: nil,
+            agentKind: workingDirectoryOptionPolicyBuiltInKind,
+            removeAllWorkingDirectoryOptions: true
+        )
+        candidate.workingDirectory = nil
+        return candidate
+    }
+
+    func preparedResumeArguments(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        observedPermissionMode: String?
+    ) -> [String]? {
+        preparedResumeArguments(
+            launchCommand: launchCommand,
+            workingDirectorySelection: .recordedFallback(preferred: workingDirectory),
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
+    func preparedResumeArguments(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectorySelection: AgentRestoreWorkingDirectorySelection,
+        observedPermissionMode: String?
+    ) -> [String]? {
+        let selection = effectiveRestoreWorkingDirectorySelection(workingDirectorySelection)
+        guard selection.permitsResume else { return nil }
+        let effectiveLaunchCommand = constrainedLaunchCommand(
+            launchCommand,
+            selection: selection
+        )
+        let workingDirectory = selection.resolved(
+            snapshotWorkingDirectory: self.workingDirectory,
+            launchWorkingDirectory: effectiveLaunchCommand?.workingDirectory
+        )
+        return AgentResumeCommandBuilder().resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: effectiveLaunchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registration,
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
     func resumeCommand(
         includeWorkingDirectoryPrefix: Bool,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
-        let effectiveWorkingDirectory = restoringWorkingDirectory ?? workingDirectory
+        resumeCommand(
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+        )
+    }
+
+    func resumeCommand(
+        includeWorkingDirectoryPrefix: Bool,
+        workingDirectorySelection: AgentRestoreWorkingDirectorySelection
+    ) -> String? {
+        let selection = effectiveRestoreWorkingDirectorySelection(workingDirectorySelection)
+        guard selection.permitsResume else { return nil }
+        let effectiveLaunchCommand = constrainedLaunchCommand(
+            launchCommand,
+            selection: selection
+        )
+        let effectiveWorkingDirectory = selection.resolved(
+            snapshotWorkingDirectory: workingDirectory,
+            launchWorkingDirectory: effectiveLaunchCommand?.workingDirectory
+        )
         if kind.restoreMode == .relaunchCommand {
             return AgentRelaunchCommandBuilder().shellCommand(
                 kind: kind,
-                launchCommand: launchCommand,
-                workingDirectory: effectiveWorkingDirectory,
+                launchCommand: effectiveLaunchCommand,
+                resolvedWorkingDirectory: effectiveWorkingDirectory,
                 includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
             )
         }
-        return AgentResumeCommandBuilder.resumeShellCommand(
+        return AgentResumeCommandBuilder().resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: effectiveWorkingDirectory,
+            launchCommand: effectiveLaunchCommand,
+            resolvedWorkingDirectory: effectiveWorkingDirectory,
+            discardRecordedCwdOptions: selection.discardsRecordedCwdOptions,
             registrationOverride: registration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: permissionMode
@@ -71,11 +227,24 @@ extension SessionRestorableAgentSnapshot {
 
     var forkCommand: String? {
         guard kind.restoreMode == .resumeSession else { return nil }
-        return AgentResumeCommandBuilder.forkShellCommand(
+        let selection = effectiveRestoreWorkingDirectorySelection(
+            .recordedFallback(preferred: nil)
+        )
+        guard selection.permitsResume else { return nil }
+        let effectiveLaunchCommand = constrainedLaunchCommand(
+            launchCommand,
+            selection: selection
+        )
+        let effectiveWorkingDirectory = selection.resolved(
+            snapshotWorkingDirectory: workingDirectory,
+            launchWorkingDirectory: effectiveLaunchCommand?.workingDirectory
+        )
+        return AgentResumeCommandBuilder().forkShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            launchCommand: effectiveLaunchCommand,
+            resolvedWorkingDirectory: effectiveWorkingDirectory,
+            discardRecordedCwdOptions: selection.discardsRecordedCwdOptions,
             registrationOverride: registration,
             observedPermissionMode: permissionMode
         )
@@ -87,5 +256,133 @@ extension SessionRestorableAgentSnapshot {
             return name
         }
         return kind.displayName
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Rebuilds an explicit restore command from structured launch data, or fails closed.
+    func constrainedRestoreCommand(
+        selection: AgentRestoreWorkingDirectorySelection,
+        includeWorkingDirectoryPrefix: Bool,
+        registration: CmuxVaultAgentRegistration?,
+        repairPortableAgentExecutable: Bool
+    ) -> String? {
+        guard case .exact = selection,
+              let rawKind = kind,
+              let agentKind = RestorableAgentKind(
+                  persistedRawValue: rawKind,
+                  registration: registration
+              ),
+              let sessionId = checkpointId,
+              registration != nil || agentKind.customAgentID == nil else {
+            return nil
+        }
+        var structuredLaunchCommand = launchCommand
+        if let bindingEnvironment = environment, !bindingEnvironment.isEmpty {
+            // Keep binding-only environment captures on the same builder path even when the
+            // hook did not provide structured argv; an empty argv lets the agent kind supply
+            // its normal executable while preserving the replay-safe environment.
+            var launch = structuredLaunchCommand ?? AgentLaunchCommandSnapshot(arguments: [])
+            var mergedEnvironment = launch.environment ?? [:]
+            mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
+            launch.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
+            structuredLaunchCommand = launch
+        }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: agentKind,
+            sessionId: sessionId,
+            workingDirectory: cwd,
+            launchCommand: structuredLaunchCommand,
+            registration: registration,
+            permissionMode: permissionMode
+        ).applyingAuthoritativeBindingSelection(selection)
+        guard let command = agent.resumeCommand(
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            workingDirectorySelection: selection
+        ) else {
+            return nil
+        }
+        let repairedCommand = repairPortableAgentExecutable
+            ? SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: command,
+                kind: agentKind.rawValue
+            )
+            : command
+        return AgentRestoreLaunch(kind: agentKind.rawValue, sessionID: sessionId)?
+            .applying(toStoredCommand: repairedCommand) ?? repairedCommand
+    }
+
+    /// Carries an agent snapshot's cwd trust boundary onto its persisted hook binding.
+    func applyingRestoreWorkingDirectorySelection(
+        _ selection: AgentRestoreWorkingDirectorySelection,
+        from agent: SessionRestorableAgentSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        let effectiveSelection: AgentRestoreWorkingDirectorySelection
+        switch restoreWorkingDirectorySelection {
+        case .exact(let workingDirectory):
+            effectiveSelection = .exact(workingDirectory)
+        case .unavailable:
+            effectiveSelection = .unavailable
+        case .recordedFallback, nil:
+            effectiveSelection = selection
+        }
+        var constrained = self
+        constrained.restoreWorkingDirectorySelection = effectiveSelection
+
+        guard effectiveSelection.permitsResume else {
+            return constrained.invalidatingAgentRestoreRecipe()
+        }
+
+        var bindingAgent = agent
+        bindingAgent.launchCommand = launchCommand ?? agent.launchCommand
+        bindingAgent.permissionMode = permissionMode ?? agent.permissionMode
+        let constrainedAgent = bindingAgent.applyingAuthoritativeBindingSelection(effectiveSelection)
+        guard let command = constrainedAgent.resumeCommand(
+            includeWorkingDirectoryPrefix: true,
+            workingDirectorySelection: effectiveSelection
+        ) else {
+            return constrained.invalidatingAgentRestoreRecipe()
+        }
+
+        constrained.command = command
+        constrained.cwd = effectiveSelection.resolved(
+            snapshotWorkingDirectory: constrainedAgent.workingDirectory,
+            launchWorkingDirectory: constrainedAgent.launchCommand?.workingDirectory
+        )
+        constrained.launchCommand = constrainedAgent.launchCommand
+        return constrained
+    }
+
+    /// Refreshes a persisted binding from a provenance-validated remote report.
+    func applyingAuthoritativeRemoteRestoreWorkingDirectorySelection(
+        _ selection: AgentRestoreWorkingDirectorySelection,
+        from agent: SessionRestorableAgentSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        var refreshed = self
+        refreshed.restoreWorkingDirectorySelection = nil
+        return refreshed.applyingRestoreWorkingDirectorySelection(selection, from: agent)
+    }
+
+    /// Removes every persisted field that could reconstruct an unavailable agent restore.
+    func invalidatingAgentRestoreRecipe() -> SurfaceResumeBindingSnapshot {
+        var invalidated = self
+        invalidated.restoreWorkingDirectorySelection = .unavailable
+        invalidated.command = ""
+        invalidated.cwd = nil
+        invalidated.launchCommand = nil
+        return invalidated
+    }
+
+    /// Preserves a same-session binding's already-constrained restart recipe.
+    func inheritingRestoreWorkingDirectorySelection(
+        from previous: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        guard let selection = previous.restoreWorkingDirectorySelection else { return self }
+        var constrained = self
+        constrained.restoreWorkingDirectorySelection = selection
+        constrained.command = previous.command
+        constrained.cwd = previous.cwd
+        constrained.launchCommand = previous.launchCommand
+        return constrained
     }
 }

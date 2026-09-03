@@ -3,9 +3,12 @@ import Foundation
 extension DockSplitStore {
     @discardableResult
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard panels[panelId] is TerminalPanel else {
+            return false
+        }
+        let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false)
+        guard startupInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+                binding.permitsTransportOnlyPersistentSSHRestore else {
             return false
         }
         let activeRestoreClaim = surfaceResumeRestoreClaim(for: panelId)
@@ -101,7 +104,8 @@ extension DockSplitStore {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
         if let restorableAgent = binding.managedRestorableAgentSnapshot(
-            replacing: previousRestorableAgent
+            replacing: previousRestorableAgent,
+            previousBinding: effectivePreviousBinding
         ) {
             restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -178,7 +182,8 @@ extension DockSplitStore {
         guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
               currentBinding.checkpointId == claim.binding.checkpointId,
               currentBinding.source == claim.binding.source,
-              currentBinding.updatedAt == claim.binding.updatedAt else {
+              currentBinding.updatedAt == claim.binding.updatedAt,
+              currentBinding.launchFlavor == claim.binding.launchFlavor else {
             // A direct lifecycle mutation replaced the claimed generation
             // without going through the hook setter. Do not let that old claim
             // block a later, legitimate binding.

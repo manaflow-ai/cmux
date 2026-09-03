@@ -49,6 +49,49 @@ struct SurfaceResumeRestoreClaimTests {
     }
 
     @Test
+    func workspaceRestoreClaimRejectsExecutionLocationChange() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let remoteContext = SurfaceResumeRemoteContext(
+            workspaceID: workspace.id,
+            surfaceID: panelID,
+            persistentPTYSessionID: "remote-claim-session"
+        )
+        let remoteParent = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume shared-session",
+            cwd: "/remote/project",
+            checkpointId: "shared-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            launchFlavor: .persistentSSH(remoteContext),
+            updatedAt: 12
+        )
+        let localRefresh = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume shared-session",
+            checkpointId: "shared-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            launchFlavor: .local,
+            updatedAt: 13
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(remoteParent, panelId: panelID))
+        #expect(workspace.claimSurfaceResumeBinding(
+            panelId: panelID,
+            expectedCheckpointID: "shared-session",
+            expectedSource: "agent-hook",
+            expectedUpdatedAt: 12
+        ))
+        #expect(!workspace.setSurfaceResumeBinding(localRefresh, panelId: panelID))
+        #expect(workspace.surfaceResumeBinding(panelId: panelID) == remoteParent)
+    }
+
+    @Test
     func dockRestoreClaimConsumesOnSameSessionRefresh() throws {
         let store = DockSplitStore(
             workspaceId: UUID(),
@@ -87,6 +130,52 @@ struct SurfaceResumeRestoreClaimTests {
         #expect(store.setSurfaceResumeBinding(refresh, panelId: panel.id))
         #expect(store.surfaceResumeBinding(panelId: panel.id) == refresh)
         #expect(store.surfaceResumeRestoreClaimsByPanelId[panel.id] == nil)
+    }
+
+    @Test
+    func dockRestoreClaimRejectsExecutionLocationChange() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+        let remoteParent = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume shared-session",
+            cwd: "/remote/project",
+            checkpointId: "shared-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: store.workspaceId,
+                surfaceID: panel.id,
+                persistentPTYSessionID: "remote-claim-session"
+            )),
+            updatedAt: 22
+        )
+        let localRefresh = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume shared-session",
+            checkpointId: "shared-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            launchFlavor: .local,
+            updatedAt: 23
+        )
+
+        #expect(store.setSurfaceResumeBinding(remoteParent, panelId: panel.id))
+        #expect(store.claimSurfaceResumeBinding(
+            panelId: panel.id,
+            expectedCheckpointID: "shared-session",
+            expectedSource: "agent-hook",
+            expectedUpdatedAt: 22
+        ))
+        #expect(!store.setSurfaceResumeBinding(localRefresh, panelId: panel.id))
+        #expect(store.surfaceResumeBinding(panelId: panel.id) == remoteParent)
     }
 
     @Test

@@ -10,23 +10,43 @@ extension SurfaceResumeBindingSnapshot {
     static func sanitizedStartupCommand(
         _ command: String,
         cwd: String?,
-        source: String?
+        source: String?,
+        agentKind: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard source == "agent-hook" else { return trimmed }
         return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: trimmed,
-            workingDirectory: cwd
+            workingDirectory: cwd,
+            agentKind: agentKind
         )
     }
 
     func inlineStartupInput(
         repairPortableAgentExecutable: Bool,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        registration: CmuxVaultAgentRegistration? = nil
     ) -> String? {
-        let resolvedCommand = resolvedStartupCommand(
-            repairPortableAgentExecutable: repairPortableAgentExecutable
-        )
+        guard restoreWorkingDirectorySelection?.permitsResume != false else {
+            return nil
+        }
+        let resolvedCommand: String
+        if let selection = restoreWorkingDirectorySelection,
+           selection.discardsRecordedCwdOptions {
+            guard let constrainedCommand = constrainedRestoreCommand(
+                selection: selection,
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+                registration: registration,
+                repairPortableAgentExecutable: repairPortableAgentExecutable
+            ) else {
+                return nil
+            }
+            resolvedCommand = constrainedCommand
+        } else {
+            resolvedCommand = resolvedStartupCommand(
+                repairPortableAgentExecutable: repairPortableAgentExecutable
+            )
+        }
         let command = includeWorkingDirectoryPrefix
             ? resolvedCommand
             : TerminalStartupWorkingDirectoryPrefix.removingRequiredChangeDirectoryPrefix(
@@ -71,8 +91,13 @@ extension SurfaceResumeBindingSnapshot {
         return TerminalStartupTypedShellCommand().typedInput(posixCommand: command) + "\n"
     }
 
-    func remoteStartupInput() -> String? {
-        inlineStartupInput(repairPortableAgentExecutable: false)
+    func remoteStartupInput(
+        registration: CmuxVaultAgentRegistration? = nil
+    ) -> String? {
+        inlineStartupInput(
+            repairPortableAgentExecutable: false,
+            registration: registration
+        )
     }
 
     private var localRestoreCLIInput: String {

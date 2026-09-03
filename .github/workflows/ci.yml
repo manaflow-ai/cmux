@@ -722,12 +722,12 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
-      - name: Run bundled command PATH regression
+      - name: Run remote restore and bundled command regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step accepts ordinary Swift Testing failures.
-          # Keep the shell-resolution integration test non-tolerant so losing
-          # cmux's bundled commands from PATH cannot pass a shard.
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep these focused correctness boundaries
+          # non-tolerant so a local cwd or missing bundled command cannot pass.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           if ! command -v fish >/dev/null 2>&1; then
@@ -742,6 +742,12 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteAgentRestoreWorkingDirectoryTests \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/surfaceRestoreRecordExactNilCwdDoesNotUseCapturedFallbacks \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/legacyPersistentAgentHookBindingWithoutCwdPolicyReattachesWithoutReplayingStartupInput \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/authenticatedPersistentSSHRefreshOverridesStaleUnavailablePolicy \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/unavailableSelectionErasesPersistedAgentRestoreRecipe \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/resumeBindingSelectionChangesAutosaveFingerprint \
             -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
             test
 

@@ -325,6 +325,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// This keeps interactive prompts visible and terminal-aware without
     /// allowing a noisy remote command to grow memory or a diagnostic file.
     /// Temporary state is removed on normal completion and signals.
+    /// Cleanup signal handlers use the shell builtin so user-defined `kill`
+    /// functions cannot intercept termination and no cleanup-path fork is needed.
     ///
     /// The command must contain only the foreground authentication attempt and
     /// its required preflight, lock, and cleanup work. Callers execute unrelated
@@ -370,7 +372,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  fi",
             "  for cmux_ssh_auth_capture_pid in \"${cmux_ssh_auth_command_pid:-}\" \"${cmux_ssh_auth_classifier_pid:-}\"; do",
             "    if [ -n \"$cmux_ssh_auth_capture_pid\" ]; then",
-            "      /bin/kill \"$cmux_ssh_auth_capture_pid\" >/dev/null 2>&1 || true",
+            "      builtin kill \"$cmux_ssh_auth_capture_pid\" >/dev/null 2>&1 || true",
             "      wait \"$cmux_ssh_auth_capture_pid\" 2>/dev/null || true",
             "    fi",
             "  done",
@@ -381,7 +383,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  cmux_ssh_auth_capture_signal_name=\"$2\"",
             "  trap - EXIT HUP INT TERM",
             "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
-            "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
+            "    builtin kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
             "    cmux_ssh_auth_command_pid=",
             "  fi",

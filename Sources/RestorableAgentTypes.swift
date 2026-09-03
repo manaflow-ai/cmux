@@ -184,7 +184,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
+        AgentResumeCommandBuilder().resumeShellCommand(
             kind: self,
             sessionId: sessionId,
             launchCommand: launchCommand,

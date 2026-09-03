@@ -465,6 +465,7 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
+    let agentSessionAutoResumeDefaults: UserDefaults
     let tabDragTransferRegistry: TabDragTransferRegistry
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
@@ -529,8 +530,9 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
@@ -549,6 +551,7 @@ class TabManager: ObservableObject {
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.windowTitleWriter = windowTitleWriter ?? WindowTitleWriter()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.tabDragTransferRegistry = tabDragTransferRegistry
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -1104,6 +1107,7 @@ class TabManager: ObservableObject {
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
@@ -1124,6 +1128,7 @@ class TabManager: ObservableObject {
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -1138,6 +1143,7 @@ class TabManager: ObservableObject {
             remoteBrowserSettingsProvider: { .local },
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         windowDockTitleRoutingStores.setObject(
@@ -6281,6 +6287,7 @@ extension TabManager {
         hasher.combine(snapshot.sessionId)
         hashOptionalString(snapshot.workingDirectory, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
+        hasher.combine(snapshot.restoreWorkingDirectorySelection)
     }
 
     nonisolated private static func hashAgentLaunchCommand(
@@ -6349,6 +6356,7 @@ extension TabManager {
         hashOptionalString(snapshot.resumeEvidenceProvenance, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
+        hasher.combine(snapshot.restoreWorkingDirectorySelection)
         if snapshot.isProcessDetected {
             hasher.combine(false)
         } else {
@@ -6613,6 +6621,7 @@ extension TabManager {
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
@@ -6648,6 +6657,7 @@ extension TabManager {
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )

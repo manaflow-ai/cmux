@@ -1,14 +1,50 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
-    /// Assigns trusted persistent-SSH ownership only to a legacy decoded binding.
-    func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        guard wasDecodedWithoutLaunchFlavor else { return self }
-        return registeredForPersistentSSH(context)
+    /// Allows a persistent-SSH transport reattach when exact policy intentionally omits input.
+    var permitsTransportOnlyPersistentSSHRestore: Bool {
+        isAgentHookBinding &&
+            launchFlavor.remoteContext != nil &&
+            restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true &&
+            hasCompleteManagedSessionIdentity
     }
 
-    func registeredForPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        replacingLaunchFlavor(.persistentSSH(context))
+    /// Assigns persistent-SSH ownership and fails closed for legacy agent-hook cwd policy.
+    func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
+        let migrated = wasDecodedWithoutLaunchFlavor
+            ? replacingLaunchFlavor(.persistentSSH(context))
+            : self
+        guard migrated.isAgentHookBinding,
+              migrated.restoreWorkingDirectorySelection == nil,
+              migrated.launchFlavor.remoteContext != nil else {
+            return migrated
+        }
+        return migrated.invalidatingAgentRestoreRecipe()
+    }
+
+    /// Persists authenticated relay ownership and the relay-reported cwd trust boundary.
+    func registeredForPersistentSSH(
+        _ context: SurfaceResumeRemoteContext,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        var registered = replacingLaunchFlavor(.persistentSSH(context))
+        if registered.isAgentHookBinding {
+            let matchingRestorableAgent = restorableAgent.flatMap {
+                Workspace.restorableAgentForSessionRestore($0, resumeBinding: registered)
+            }
+            let kind = matchingRestorableAgent?.kind.rawValue ?? registered.kind ?? ""
+            if matchingRestorableAgent?.registration?.cwd == .ignore {
+                registered.restoreWorkingDirectorySelection = .exact(nil)
+            } else if registered.cwd != nil {
+                registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
+            } else if AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile {
+                registered.restoreWorkingDirectorySelection = .exact(nil)
+            } else {
+                registered.restoreWorkingDirectorySelection = .unavailable
+            }
+        }
+        return registered
     }
 
     func retargetingRemoteOwner(
