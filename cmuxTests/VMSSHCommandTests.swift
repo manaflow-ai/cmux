@@ -411,4 +411,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "remote-workspace"
         )
     }
+
+    func testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-provider-failure")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-freestyle-provider-failure"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.ssh_info" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: [
+                    "code": "vm_error",
+                    "message": "Freestyle SSH gateway rejected this credential as not supported.",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh", vmID],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("rejected this credential"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info"]
+        )
+    }
 }
