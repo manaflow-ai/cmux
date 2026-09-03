@@ -9927,6 +9927,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sent_request_timeout_reconciles_transport_before_returning() {
+        struct RecordingAbort(AtomicBool);
+
+        impl RemoteTransportAbort for RecordingAbort {
+            fn abort(&self) -> io::Result<()> {
+                self.0.store(true, Ordering::Release);
+                Ok(())
+            }
+        }
+
+        let abort = Arc::new(RecordingAbort(AtomicBool::new(false)));
+        let session = test_session_with_abort_and_context(
+            Box::new(SilentWriter),
+            abort.clone(),
+            HashSet::new(),
+            None,
+        );
+        let result = session.request_with_deadline(
+            json!({"cmd": "sent-timeout"}),
+            RequestDeadline::Fixed(Duration::from_millis(20)),
+        );
+
+        assert!(result.is_err(), "a request without a response unexpectedly succeeded");
+        assert!(
+            abort.0.load(Ordering::Acquire),
+            "a request that was already written did not reconcile the transport"
+        );
+    }
+
     fn blocked_request_write_timeout(
         deadline: RequestDeadline,
         command: Value,
