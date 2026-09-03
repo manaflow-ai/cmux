@@ -27,6 +27,29 @@ private final class ProcessOutputResultStore: @unchecked Sendable {
     }
 }
 
+private final class ConcurrentOutputCallbackCoordinator: @unchecked Sendable {
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let reentrantReturned = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var callbackCount = 0
+    var collector: ProcessOutputCollector?
+
+    func handle(_ data: Data) {
+        lock.lock()
+        callbackCount += 1
+        let index = callbackCount
+        lock.unlock()
+        if index == 1 {
+            _ = collector?.finishResult()
+            reentrantReturned.signal()
+        }
+        entered.signal()
+        release.wait()
+        _ = data
+    }
+}
+
 // The descriptor-level read regressions (would-block on an open writer,
 // end-of-file on a closed writer, partial data preserved on a failing read)
 // are covered in CmuxFoundation's FileHandleProcessPipeReadingTests, next to
@@ -228,5 +251,28 @@ struct ProcessPipeReadCrashRegressionTests {
         resultLock.unlock()
         #expect(nestedResult == result)
         #expect(result.stdout == "reentrant")
+    }
+
+    @Test
+    func testProcessOutputCollectorDefersReentrantFinishUntilConcurrentReadsReturn() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let callbacks = ConcurrentOutputCallbackCoordinator()
+        callbacks.collector = ProcessOutputCollector(stdout: stdout, stderr: stderr, onOutput: callbacks.handle)
+        callbacks.collector?.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data("stdout\n".utf8))
+        try? stderr.fileHandleForWriting.write(contentsOf: Data("stderr\n".utf8))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        #expect(callbacks.entered.wait(timeout: .now() + 1) == .success)
+        #expect(callbacks.entered.wait(timeout: .now() + 1) == .success)
+        #expect(callbacks.reentrantReturned.wait(timeout: .now() + 1) == .success)
+        callbacks.release.signal()
+        callbacks.release.signal()
+
+        let result = callbacks.collector?.finishResult()
+        #expect(result?.stdout.contains("stdout") == true)
+        #expect(result?.output.contains("stderr") == true)
     }
 }

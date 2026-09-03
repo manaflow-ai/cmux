@@ -498,6 +498,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     func finishResult() -> ProcessOutputResult {
+        if callbackDepthOnCurrentThread() > 0 {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            return requestReentrantFinish(drain: true)
+        }
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
         stopAcceptingAndWaitForReads()
@@ -533,6 +538,12 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     func cancel() {
+        if callbackDepthOnCurrentThread() > 0 {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            requestReentrantFinish(drain: false)
+            return
+        }
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
         stopAcceptingAndWaitForReads()
@@ -582,6 +593,40 @@ final class ProcessOutputCollector: @unchecked Sendable {
         try? stdoutHandle.close()
         try? stderrHandle.close()
         return result
+    }
+
+    private func requestReentrantFinish(drain: Bool) -> ProcessOutputResult {
+        finishCondition.lock()
+        let shouldStartOwner: Bool
+        switch finishState {
+        case .open:
+            finishState = .finishing
+            shouldStartOwner = true
+        case .finishing:
+            shouldStartOwner = false
+        case .finished(let result):
+            finishCondition.unlock()
+            return result
+        }
+        finishCondition.unlock()
+
+        if shouldStartOwner {
+            DispatchQueue.global().async { [self] in
+                // The callback cannot wait for itself. This owner waits on a
+                // separate thread until every read callback has returned.
+                stopAcceptingAndWaitForReads()
+                let result = finalize(drain: drain)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+            }
+        }
+
+        lock.lock()
+        let snapshot = formattedResultLocked()
+        lock.unlock()
+        return snapshot
     }
 
     private func append(_ data: Data, to stream: Stream) {
@@ -639,15 +684,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private func stopAcceptingAndWaitForReads() {
         readCondition.lock()
         acceptingReads = false
-        let ownReadDepth = callbackDepthOnCurrentThread()
-        if ownReadDepth > 0 {
-            // The callback has already committed its bytes before re-entering.
-            // Waiting for another callback on this thread could deadlock if
-            // callbacks finish each other. Finalization is serialized below.
-            readCondition.unlock()
-            return
-        }
-        while activeReads > ownReadDepth { readCondition.wait() }
+        while activeReads > 0 { readCondition.wait() }
         readCondition.unlock()
     }
 
