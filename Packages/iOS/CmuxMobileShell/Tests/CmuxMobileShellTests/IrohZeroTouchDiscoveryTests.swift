@@ -820,6 +820,11 @@ struct IrohZeroTouchDiscoveryTests {
             stackUserID: "user-1",
             teamID: nil
         )
+        let storedRows = try await fixture.store.loadAll(
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        #expect(storedRows.first?.connectionMethodRawValue == MobileConnectionMethod.lan.rawValue)
         await fixture.shell.loadPairedMacs()
 
         #expect(!fixture.shell.zeroTouchIrohDiscoveryDisabled)
