@@ -443,19 +443,6 @@ pub fn tree_row(
     disclosure
 }
 
-/// One-line view header: a title on the left, a dim mode label on the
-/// right (herdr's "agents ... priority" bar).
-pub fn view_header(
-    frame: &mut Frame,
-    area: Rect,
-    y: u16,
-    title: &str,
-    mode: &str,
-    palette: RailPalette,
-) {
-    view_header_with_filter(frame, area, y, title, mode, None, palette);
-}
-
 /// One-line view header with an optional filter disclosure. The full marker
 /// text is preferred, but a compact bullet remains visible when a narrow rail
 /// cannot fit both the title and the localized marker.
