@@ -1045,7 +1045,7 @@ impl Drop for RenderAttachFrameReceiver {
 pub struct RenderAttachStream {
     pub initial: Arc<SurfaceRenderFrame>,
     pub stream: RenderAttachFrameReceiver,
-    _permit: crate::mux::RenderAttachmentPermit,
+    _permit: Option<crate::mux::RenderAttachmentPermit>,
 }
 
 struct RenderHub {
@@ -5550,12 +5550,13 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
+        let dead = pty.dead.load(Ordering::Acquire);
+        let exited = dead
+            && pty.host_connection_state.load(Ordering::Acquire)
+                == TerminalHostConnectionState::Exited as u8;
         // An exited terminal has no live tap, but its final replay remains
         // useful. Other dead states can represent an incomplete host loss.
-        if pty.dead.load(Ordering::Acquire)
-            && pty.host_connection_state.load(Ordering::Acquire)
-                != TerminalHostConnectionState::Exited as u8
-        {
+        if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
         let (tap, stream) =
@@ -5568,7 +5569,9 @@ impl Surface {
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
-        if !pty.dead.load(Ordering::Acquire) {
+        if exited || pty.dead.load(Ordering::Acquire) {
+            drop(tap);
+        } else {
             let mut taps = pty.taps.lock().unwrap();
             if taps.is_empty() {
                 *pty.last_attach_colors.lock().unwrap() =
@@ -5594,22 +5597,28 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let permit = pty
-            .mux
-            .upgrade()
-            .and_then(|mux| mux.claim_render_attachment())
-            .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire)
+        let dead = pty.dead.load(Ordering::Acquire);
+        let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
-                != TerminalHostConnectionState::Exited as u8
-        {
+                == TerminalHostConnectionState::Exited as u8;
+        if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
+        let permit = if exited {
+            None
+        } else {
+            Some(
+                pty.mux
+                    .upgrade()
+                    .and_then(|mux| mux.claim_render_attachment())
+                    .ok_or(ghostty_vt::Error::OutOfSpace)?,
+            )
+        };
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);
-        let initial = {
+        let (initial, registered) = {
             let mut render = pty.render.lock().unwrap();
             let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
             let initial_graphics = match render.initial_graphics.as_ref() {
@@ -5627,10 +5636,20 @@ impl Surface {
             };
             let mut initial = (*shared).clone();
             initial.frame.kitty_graphics = initial_graphics;
-            if !pty.dead.load(Ordering::Acquire) {
+            let registered = if exited || pty.dead.load(Ordering::Acquire) {
+                drop(tap);
+                false
+            } else {
                 render.taps.push(tap);
-            }
-            Arc::new(initial)
+                true
+            };
+            (Arc::new(initial), registered)
+        };
+        let permit = if registered {
+            permit
+        } else {
+            drop(permit);
+            None
         };
         Ok(RenderAttachStream { initial, stream, _permit: permit })
     }
