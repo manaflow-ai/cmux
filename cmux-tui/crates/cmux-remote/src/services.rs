@@ -330,8 +330,7 @@ impl DaemonServices {
             }
         }
         self.workspace.shutdown().await;
-        handlers.abort_all();
-        while handlers.join_next().await.is_some() {}
+        handlers.shutdown().await;
         self.workspace.shutdown().await;
     }
 

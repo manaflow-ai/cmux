@@ -1060,3 +1060,18 @@ function normalizedOptionalString(value: string | null | undefined): string | nu
   const normalized = value?.trim();
   return normalized ? normalized : null;
 }
+
+/**
+ * Run best-effort work once the response has been sent. Vercel keeps the
+ * function alive for `after` callbacks; outside a request scope (tests, a
+ * plain Node server) `after` throws, and the work runs detached instead.
+ * Failures are logged, never surfaced to the response that already left.
+ */
+export function runAfterResponse(work: () => Promise<void>): void {
+  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  try {
+    after(guarded);
+  } catch {
+    void guarded();
+  }
+}

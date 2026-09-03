@@ -752,7 +752,7 @@ export class FreestyleProvider implements VMProvider {
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
             if (options.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            await this.probeEdgeRules(vm, vmId, options.edgeRules);
+            await this.verifyEdgeRules(vm, vmId, options.edgeRules, options.afterResponse);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -976,7 +976,7 @@ export class FreestyleProvider implements VMProvider {
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
           try {
             if (options?.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            await this.probeEdgeRules(vm, vmId, options?.edgeRules);
+            await this.verifyEdgeRules(vm, vmId, options?.edgeRules, options?.afterResponse);
           } catch (err) {
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
@@ -1124,6 +1124,45 @@ export class FreestyleProvider implements VMProvider {
    * inside the guest before handing the machine out; an inactive rule means
    * the machine can never reach a model, so the caller rolls it back.
    */
+  /**
+   * The edge rule is written inline by vms.create, but Freestyle activates it
+   * asynchronously (seconds; measured 3 to 11 s in production). Blocking the
+   * create on that activation made the whole request wait for the edge, so
+   * with a scheduler the probe runs after the response and reports on its own
+   * span (`cmux.vm.provider.edge_probe`): success as an attribute, failure as
+   * a recorded span error plus a log line. Without a scheduler the probe is
+   * awaited and a failure rolls the machine back, as before.
+   */
+  private async verifyEdgeRules(
+    vm: Vm,
+    vmId: string,
+    edgeRules: readonly VmEdgeRule[] | undefined,
+    afterResponse: CreateOptions["afterResponse"],
+  ): Promise<void> {
+    if (!edgeRules || edgeRules.length === 0) return;
+    if (!afterResponse) {
+      await this.probeEdgeRules(vm, vmId, edgeRules);
+      return;
+    }
+    afterResponse(() =>
+      withVmSpan(
+        "cmux.vm.provider.edge_probe",
+        { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "edge_probe", "cmux.vm.id": vmId, "cmux.vm.edge_rules": edgeRules.length },
+        async (span) => {
+          const startedAt = performance.now();
+          try {
+            await this.probeEdgeRules(vm, vmId, edgeRules);
+            setSpanAttributes(span, { "cmux.vm.edge_probe.ok": true, "cmux.vm.edge_probe.ms": Math.round(performance.now() - startedAt) });
+          } catch (err) {
+            setSpanAttributes(span, { "cmux.vm.edge_probe.ok": false, "cmux.vm.edge_probe.ms": Math.round(performance.now() - startedAt) });
+            recordSpanError(span, err);
+            console.error(`[freestyle] edge rule probe failed for ${vmId} after the response`, err);
+          }
+        },
+      ),
+    );
+  }
+
   private async probeEdgeRules(vm: Vm, vmId: string, edgeRules: readonly VmEdgeRule[] | undefined): Promise<void> {
     if (!edgeRules || edgeRules.length === 0) return;
     for (const rule of edgeRules) {
