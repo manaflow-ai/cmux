@@ -159,7 +159,7 @@ EOF
 chmod 0755 "$fake_mv"
 
 make_root() {
-  test_root="$(mktemp -d "$tmp/root.XXXXXX")"
+  test_root="$(cd "$(mktemp -d "$tmp/root.XXXXXX")" && pwd -P)"
 }
 
 make_artifact() {
