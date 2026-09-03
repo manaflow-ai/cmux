@@ -3,6 +3,7 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { invalidateNativeAuthCacheForTokens } from "../../../../../services/vms/auth";
+import { deleteIdentitySnapshot } from "../../../../../services/auth/identitySnapshot";
 import {
   revokeUserVmAccess,
   runVmWorkflow,
@@ -33,6 +34,11 @@ export async function POST(request: Request): Promise<Response> {
         // Auth revocation is still in flight.
         invalidateNativeAuthCacheForTokens({ accessToken, refreshToken });
       }
+      // The device registry can answer from a shared identity snapshot without
+      // asking Stack at all, so sign-out must drop that row too. Otherwise the
+      // signed-out account keeps team-scoped registry access on every instance
+      // until the snapshot ages out.
+      await deleteIdentitySnapshot(user.id);
       const result = await runVmWorkflow(revokeUserVmAccess({ userId: user.id }));
       return jsonResponse({
         ok: true,

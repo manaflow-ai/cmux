@@ -318,7 +318,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
-            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            var text = status?.error ?? CloudMachineLink.errorText(error)
+            // A machine on the private network is reachable only through this
+            // Mac's tunnel: when that is down, or up for another enrollment, say
+            // so first — the raw connect timeout explains nothing on its own.
+            if summary.preferredPrivateAddress != nil, let blocker = await Self.privateRouteBlocker() {
+                text = "\(blocker) (\(text))"
+            }
+            linkError = text
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -333,6 +340,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the whole client run). Safe here because every close verb is idempotent — a
     /// second attempt against an already-closed target is `selector.not_found`, which
     /// the callers already tolerate. Non-idempotent verbs (create, run) must not use it.
+    /// The tunnel-side reason a private route failed, from whichever backend
+    /// owns the tunnel on this build: the app-managed coordinator's state, or
+    /// wg-quick's interface and applied-enrollment record.
+    private static func privateRouteBlocker() async -> String? {
+        let coordinator = await MainActor.run { TerminalController.shared.cloudTunnel }
+        if let coordinator, coordinator.backend.isNetworkExtension {
+            return await coordinator.status().privateRouteBlocker
+        }
+        return VMTunnelManager().privateRouteBlocker()
+    }
+
     private func runCloseCommand(_ arguments: (_ socketPath: String) -> [String]) async throws -> Data {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }

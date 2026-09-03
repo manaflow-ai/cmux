@@ -70,6 +70,7 @@ describe("CodeRouter usage ledger rows", () => {
         vm_id: vmId,
         provider: "codex",
         upstream_kind: "",
+        upstream_account_id: "",
         agent: "codex",
         model: "gpt-5.2-codex",
         input_tokens: 1_200_000,
@@ -216,6 +217,7 @@ describe("CodeRouter usage ledger rows", () => {
         duration_ms: 13,
         response_streamed: 0,
         request_id: requestId,
+        upstream_account_id: "",
       }],
     }]);
     expect(routeEventRow({
@@ -286,6 +288,8 @@ describe("CodeRouter usage ledger wiring", () => {
     const insert = spyOn(clickhouse, "insertRows");
     try {
       const upstream: ClaudeUpstream = {
+        accountId: "11111111-2222-4333-8444-555555555555",
+        label: "",
         teamId: "team-1",
         kind: "anthropic_api_key",
         secret: { kind: "anthropic_api_key", apiKey: "sk-ant-api03-test-key" },
@@ -297,7 +301,9 @@ describe("CodeRouter usage ledger wiring", () => {
           ok: true,
           identity: { teamId: "team-1", stackUserId: "stack-user-1", vmId, token: "crt_x" },
         }),
-        upstream: async () => upstream,
+        select: async () => ({ kind: "selected", upstream, total: 1, healthy: 1 }),
+        cooldown: async () => undefined,
+        touchUsed: async () => undefined,
         fetch: (async () =>
           Response.json({
             id: "msg_1",

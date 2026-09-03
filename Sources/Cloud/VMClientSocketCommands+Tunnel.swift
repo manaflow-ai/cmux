@@ -77,6 +77,24 @@ extension TerminalController {
                 }
                 return await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
+        case "vm.tunnel_applied":
+            // wg-quick only: `cmux vpn up` reports which config it brought up
+            // (`applied: true`) and `vpn down` that none is (`applied: false`).
+            // The app keeps the digest, so a later enrollment on disk reads as
+            // stale instead of as "already up". The app-managed backend saves
+            // the current config into the VPN configuration on every start, so
+            // it never has a stale interface to record.
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let applied = (params["applied"] as? Bool) ?? true
+                let expectedDigest = Self.socketWorkerString(params["config_digest"])
+                try manager.recordApplied(applied, expectedDigest: expectedDigest)
+                return [
+                    "applied": applied,
+                    "digest": manager.appliedDigest() ?? NSNull(),
+                    "stale": manager.isStale(),
+                ]
+            }
         case "vm.tunnel_revoke":
             // Unenrolls this Mac server-side, deletes the VPN configuration on
             // app-managed builds, and removes the local config so a later start
@@ -102,17 +120,26 @@ extension TerminalController {
 
     /// The shared shape of every tunnel verb's answer: on-disk enrollment
     /// state, the live interface, and the app-managed tunnel's backend/state.
+    ///
+    /// `interface_up` is backend-specific ground truth: the app-managed tunnel
+    /// reports through `NEVPNStatus` (there is no wg-quick name file to find),
+    /// wg-quick through ``VMTunnelManager/wgQuickInterfaceUp()``. `stale` only
+    /// exists for wg-quick, whose interface can outlive the enrollment it was
+    /// brought up for.
     nonisolated static func cloudTunnelStatusPayload(manager: VMTunnelManager) async -> [String: Any] {
         let fingerprint = (try? manager.deviceFingerprint()) ?? ""
         let config = manager.writtenConfig()
         let coordinator = await cloudTunnelCoordinator()
         let status = await coordinator?.status()
         let backend = status?.backend ?? CloudTunnelBackendSelector.live().select()
+        let interfaceUp = backend.isNetworkExtension ? (status?.state == .up) : manager.wgQuickInterfaceUp()
         var payload: [String: Any] = [
             "config_path": manager.configURL.path,
             "config_present": config != nil,
-            "interface_name": VMTunnelManager.interfaceName,
-            "interface_up": manager.wgQuickInterfaceUp(),
+            "config_digest": manager.configDigest() ?? NSNull(),
+            "interface_name": manager.interfaceName,
+            "interface_up": interfaceUp,
+            "stale": backend.isNetworkExtension ? false : manager.isStale(),
             "device_fingerprint": fingerprint,
             "network_extension_available": backend.isNetworkExtension,
             "backend": backend.wireName,

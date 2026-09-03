@@ -47,6 +47,28 @@ DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
+# Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
+# lags the notarytool "Accepted" status by up to a few minutes. A stapled,
+# valid helper can therefore still assess as "Unnotarized Developer ID" right
+# after stapling. Poll until it is accepted or the budget runs out.
+GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-20}"
+GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
+
+assess_with_gatekeeper() {
+  local target="$1" attempt=1
+  while :; do
+    if "$SPCTL_TOOL" -a -vv --type execute "$target"; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then
+      echo "Gatekeeper still rejects $target after $attempt attempts" >&2
+      return 3
+    fi
+    echo "Gatekeeper rejected $target (attempt $attempt/$GATEKEEPER_ASSESS_ATTEMPTS); ticket may not have propagated yet, retrying in ${GATEKEEPER_ASSESS_DELAY_SECONDS}s"
+    attempt=$((attempt + 1))
+    sleep "$GATEKEEPER_ASSESS_DELAY_SECONDS"
+  done
+}
 SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
@@ -203,7 +225,7 @@ finish_submission() {
   "$DITTO_TOOL" "$HELPER_PATH" "$STANDALONE_HELPER"
   "$XCRUN_TOOL" stapler validate "$STANDALONE_HELPER"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$STANDALONE_HELPER"
-  "$SPCTL_TOOL" -a -vv --type execute "$STANDALONE_HELPER"
+  assess_with_gatekeeper "$STANDALONE_HELPER"
 
   # Stapling the nested app changes the host's resource seal. Re-sign only the
   # outer app: re-signing nested code here would discard the helper's ticket.

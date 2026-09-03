@@ -81,6 +81,13 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
+   */
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
    * Machine-level environment delivered at create time (the coderouter
    * model-plane env: OPENAI_BASE_URL plus placeholder keys). Treat values as
    * secrets anyway: drivers pass them to the provider's create call or write
@@ -97,6 +104,13 @@ export type CreateOptions = {
    * Providers without an injecting edge must refuse them rather than drop them.
    */
   edgeRules?: readonly VmEdgeRule[];
+  /**
+   * Scheduler for work that must not delay the create response: the guest
+   * probe that waits for the provider's TLS edge to activate the coderouter
+   * rule (Freestyle takes seconds). The route passes its after-response hook;
+   * a caller without one (scripts, tests) gets the work awaited inline.
+   */
+  afterResponse?: (work: () => Promise<void>) => void;
   /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
@@ -121,7 +135,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata" | "afterResponse"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };

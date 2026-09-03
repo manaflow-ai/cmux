@@ -32,6 +32,9 @@ describe("native ingress rate-limit boundary", () => {
 
     expect(response?.status).toBe(429);
     expect(await response?.json()).toEqual({ error: "rate_limited" });
+    // The shipped iroh broker client only backs off when the 429 names a
+    // delay, and that client ships in builds we cannot update.
+    expect(response?.headers.get("retry-after")).toBe("60");
   });
 
   test("fails closed when the firewall is unavailable", async () => {
