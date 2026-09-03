@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -3462,6 +3462,7 @@ impl RemoteSession {
     /// transport: the relay's reader stalled, and silently dropping bytes
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
+    #[cfg(test)]
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
         use crossbeam_channel::TrySendError;
         let stalled_token = {
@@ -4784,7 +4785,7 @@ fn test_session_with_deferred_attach_control(
     capabilities: HashSet<String>,
 ) -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
     let session_slot = Arc::new(Mutex::new(None));
-    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (attach_started_tx, attach_started_rx) = sync_channel(1);
     let (release_attach_tx, release_attach_rx) = channel();
     let session = test_session_with_writer(
         Box::new(DeferredAttachTestWriter {
@@ -4809,7 +4810,7 @@ fn test_session_with_deferred_attach_control(
 fn test_session_with_deferred_leased_attach()
 -> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<Value>) {
     let session_slot = Arc::new(Mutex::new(None));
-    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (attach_started_tx, attach_started_rx) = sync_channel(1);
     let (release_attach_tx, release_attach_rx) = channel();
     let (request_tx, request_rx) = channel();
     let session = test_session_with_writer(
@@ -4844,7 +4845,7 @@ pub(super) struct DeferredAttachResizeFailureFixture {
 #[cfg(test)]
 pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
 -> DeferredAttachResizeFailureFixture {
-    let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (resize_started_tx, resize_started_rx) = sync_channel(1);
     let (release_resize_tx, release_resize_rx) = channel();
     let (session, attach_started, release_attach) = test_session_with_deferred_attach_control(
         Some((resize_started_tx, release_resize_rx)),
@@ -5130,10 +5131,10 @@ mod tests {
 
     #[test]
     fn pipe_io_initial_size_requires_atomic_attach_capability() {
-        let without = test_session_with_provider_context(None, HashSet::new());
+        let without = super::test_session_with_provider_context(None, HashSet::new());
         assert!(!without.supports_pipe_io_initial_size());
 
-        let with = test_session_with_provider_context(
+        let with = super::test_session_with_provider_context(
             None,
             HashSet::from([cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY.to_string()]),
         );

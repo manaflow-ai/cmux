@@ -24,6 +24,8 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Write};
 use std::path::Path;
+#[cfg(test)]
+use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -924,7 +926,7 @@ mod tests {
     #[test]
     fn stderr_gate_waits_for_in_flight_diagnostic_before_closing() {
         let gate = Arc::new(StderrGate::default());
-        let (entered_sender, entered_receiver) = std::sync::mpsc::sync_channel(0);
+        let (entered_sender, entered_receiver) = sync_channel(0);
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
 

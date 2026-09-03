@@ -1668,7 +1668,7 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 /// carries the respawn decision.
 fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
     {
-        let mut stderr = std::io::stderr().lock();
+        let mut stderr = io::stderr().lock();
         let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
         let _ = stderr.flush();
     }
@@ -1768,7 +1768,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
             args.pipe_io_rows.unwrap_or(24),
         )
         .unwrap_or_else(|error| {
-            crate::client_log::error("pipe-io", &format!("relay failed: {error}"));
+            client_log::error("pipe-io", &format!("relay failed: {error}"));
             pipe_io_startup_exit_reason(&error)
         });
         exit_pipe_io(reason);
