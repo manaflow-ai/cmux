@@ -191,14 +191,24 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               [1-9][0-9]*) ;;
               *) return 1 ;;
             esac
-            cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_fallback_pid" || return 1
-            [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_fallback_parent" ] || return 1
-            [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_fallback_group" ] || return 1
-            [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_fallback_start" ] || return 1
-            case "$cmux_ssh_auth_proc_state" in Z) return 0 ;; esac
-            /bin/kill -CONT "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
-            /bin/kill -TERM "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
-            /bin/kill -KILL "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
+            for cmux_ssh_auth_fallback_signal in CONT TERM KILL; do
+              if ! cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_fallback_pid"; then
+                [ -e "/proc/$cmux_ssh_auth_fallback_pid/stat" ] && return 1
+                return 0
+              fi
+              [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_fallback_parent" ] || return 1
+              [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_fallback_group" ] || return 1
+              [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_fallback_start" ] || return 1
+              case "$cmux_ssh_auth_proc_state" in Z) return 0 ;; esac
+              if ! kill "-$cmux_ssh_auth_fallback_signal" \
+                "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1; then
+                if ! cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_fallback_pid"; then
+                  [ -e "/proc/$cmux_ssh_auth_fallback_pid/stat" ] && return 1
+                  return 0
+                fi
+                return 1
+              fi
+            done
           }
           cmux_ssh_auth_force_root_darwin_perl_fallback() {
             [ -x /usr/bin/perl ] || return 1
@@ -213,33 +223,43 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 $group =~ /\A[1-9][0-9]*\z/ && $seconds =~ /\A[1-9][0-9]*\z/ &&
                 $microseconds =~ /\A[0-9]+\z/ && $microseconds < 1_000_000;
               my $pid_number = int($pid);
-              my $matched = 0;
-              for my $size (136, 184) {
-                my $buffer = "\0" x $size;
-                my $written = syscall(336, 2, $pid_number, 3, 0, $buffer, $size);
-                next unless defined $written && $written == $size;
-                my ($group_offset, $seconds_offset, $microseconds_offset) =
-                  $size == 136 ? (100, 120, 128) : (148, 168, 176);
-                my $status = unpack("L<", substr($buffer, 4, 4));
-                my $observed_pid = unpack("L<", substr($buffer, 12, 4));
-                my $observed_parent = unpack("L<", substr($buffer, 16, 4));
-                my $observed_group = unpack("L<", substr($buffer, $group_offset, 4));
-                my $observed_seconds = unpack("Q<", substr($buffer, $seconds_offset, 8));
-                my $observed_microseconds = unpack("Q<", substr($buffer, $microseconds_offset, 8));
-                if ($observed_pid == $pid_number && $observed_parent == $parent &&
-                    $observed_group == $group && $status != 5 &&
-                    $observed_seconds == $seconds && $observed_microseconds == $microseconds) {
-                  $matched = 1;
-                  last;
+              sub read_identity {
+                for my $size (136, 184) {
+                  my $buffer = "\0" x $size;
+                  my $written = syscall(336, 2, $pid_number, 3, 0, $buffer, $size);
+                  next unless defined $written && $written == $size;
+                  my ($group_offset, $seconds_offset, $microseconds_offset) =
+                    $size == 136 ? (100, 120, 128) : (148, 168, 176);
+                  return [
+                    unpack("L<", substr($buffer, 12, 4)),
+                    unpack("L<", substr($buffer, 16, 4)),
+                    unpack("L<", substr($buffer, $group_offset, 4)),
+                    unpack("L<", substr($buffer, 4, 4)),
+                    unpack("Q<", substr($buffer, $seconds_offset, 8)),
+                    unpack("Q<", substr($buffer, $microseconds_offset, 8))
+                  ];
+                }
+                return;
+              }
+              sub matches {
+                my ($identity) = @_;
+                return defined $identity && $identity->[0] == $pid_number &&
+                  $identity->[1] == $parent && $identity->[2] == $group &&
+                  $identity->[4] == $seconds && $identity->[5] == $microseconds;
+              }
+              for my $signal_number (18, 15, 9) {
+                my $before = read_identity();
+                exit 1 unless defined $before;
+                exit 0 if $before->[3] == 5;
+                exit 1 unless matches($before);
+                if (!kill($signal_number, $pid_number)) {
+                  my $after = read_identity();
+                  exit 1 unless defined $after;
+                  exit 0 if $after->[3] == 5;
+                  exit 1;
                 }
               }
-              exit 1 unless $matched;
-              my $failed = 0;
-              for my $signal_number (18, 15, 9) {
-                next if kill($signal_number, $pid_number);
-                $failed = 1 if kill(0, $pid_number);
-              }
-              exit $failed;
+              exit 0;
             ' "$1" >/dev/null 2>&1
           }
           cmux_ssh_auth_capture_root_termination_identity() {
@@ -1413,7 +1433,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       continue
                       ;;
                   esac
-                  if /bin/kill -STOP "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                  if kill -STOP "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
                     printf '%s\n' "$cmux_ssh_auth_procfs_depth $cmux_ssh_auth_procfs_pid $cmux_ssh_auth_procfs_parent $cmux_ssh_auth_procfs_group $cmux_ssh_auth_procfs_original_state $cmux_ssh_auth_procfs_started" >> "$cmux_ssh_auth_procfs_signal_output"
                   else
                     cmux_ssh_auth_procfs_failed=1
@@ -1421,7 +1441,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   ;;
                 CONT)
                   [ "$cmux_ssh_auth_procfs_original_state" = T ] && continue
-                  if ! /bin/kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                  if ! kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
                     if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
                        [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_procfs_parent" ] &&
                        [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_procfs_group" ] &&
@@ -1435,8 +1455,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   [ "$cmux_ssh_auth_proc_state" = T ] || continue
                   cmux_ssh_auth_procfs_term_status=0
                   cmux_ssh_auth_procfs_cont_status=0
-                  /bin/kill -TERM "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_term_status=$?
-                  /bin/kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_cont_status=$?
+                  kill -TERM "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_term_status=$?
+                  kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_cont_status=$?
                   if [ "$cmux_ssh_auth_procfs_term_status" -ne 0 ] ||
                      [ "$cmux_ssh_auth_procfs_cont_status" -ne 0 ]; then
                     if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
@@ -1450,7 +1470,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   ;;
                 KILL)
                   [ "$cmux_ssh_auth_proc_state" = T ] || continue
-                  if ! /bin/kill -KILL "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                  if ! kill -KILL "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
                     if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
                        [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_procfs_parent" ] &&
                        [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_procfs_group" ] &&
