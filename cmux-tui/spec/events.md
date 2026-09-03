@@ -12,7 +12,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -60,7 +60,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
 | `status` | subscribe | session | protocol 5 internal status line |
 | `empty` | subscribe | session | protocol 5 |
-| `agent-state-changed` | subscribe | `surface` | proposed vNext |
+| `agent-changed` | subscribe | `surface` | protocol 11; `agent` is optional since protocol 12 |
 | `vt-state` | byte attach | `surface` | protocol 5 |
 | `resized` | byte attach | `surface` | protocol 6 |
 | `output` | byte attach | `surface` | protocol 5 |
@@ -1012,37 +1012,42 @@ Example:
 {"event":"detached","surface":1}
 ```
 
-## Proposed Events
-
-### agent-state-changed
+### agent-changed
 
 | Field | Value |
 | --- | --- |
-| event | `agent-state-changed` |
-| status | proposed |
-| since | proposed protocol 10 |
+| event | `agent-changed` |
+| status | implemented |
+| since | protocol 11; `agent` is optional since protocol 12 |
 
 Payload:
 
 ```text
 object{
-  event:"agent-state-changed",
+  event:"agent-changed",
   surface:Id,
-  previous:"working"|"blocked"|"idle"|"done"|"unknown"|null,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
+  agent?:string|null,
   updated_at_ms:uint64
 }
 ```
 
-Meaning: The authoritative agent state for a surface changed. Hook-authority and socket reports override detection as described in `commands.md`.
+Meaning: The current agent state for a surface changed. `agent` is the
+adapter identity when the producer knows it. Hook authority and source
+precedence follow `commands.md`.
 
 Example:
 
 ```json
-{"event":"agent-state-changed","surface":1,"previous":"working","state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000}
 ```
+
+The earlier draft name `agent-state-changed` is not emitted. Clients must
+subscribe to `agent-changed`.
+
+## Proposed Events
 
 ### notification vNext extension
 
@@ -1090,7 +1095,7 @@ Params:
 Request:
 
 ```json
-{"id":1,"cmd":"subscribe","events":["bell","agent-state-changed"],"surfaces":[1,"a8f3k2"]}
+{"id":1,"cmd":"subscribe","events":["bell","agent-changed"],"surfaces":[1,"a8f3k2"]}
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.

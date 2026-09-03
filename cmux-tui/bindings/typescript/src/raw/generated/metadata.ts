@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875. */
+/* cmux-tui mux protocol 12, IR 364872e5f19289eb031ea457c12c2de5d90ac7ab988ef23f002cddaacd1cc1c2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875" as const;
+export const SDK_IR_SHA256 = "364872e5f19289eb031ea457c12c2de5d90ac7ab988ef23f002cddaacd1cc1c2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10607,6 +10607,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "agent-changed": {
     "additional_properties": false,
     "fields": {
+      "agent": {
+        "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",

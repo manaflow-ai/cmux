@@ -9760,6 +9760,16 @@
    "payload": {
     "kind": "object",
     "fields": {
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified."
+     },
      "event": {
       "type": {
        "kind": "literal",

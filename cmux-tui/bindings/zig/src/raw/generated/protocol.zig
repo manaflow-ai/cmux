@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875";
+pub const ir_sha256 = "364872e5f19289eb031ea457c12c2de5d90ac7ab988ef23f002cddaacd1cc1c2";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4122,6 +4122,8 @@ pub fn zoomPane(client: anytype, request: ZoomPaneRequest) !wire.Decoded(ZoomPan
 }
 
 pub const AgentChangedEvent = struct {
+    /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
+    agent: wire.Field([]const u8) = .absent,
     event: []const u8,
     session: wire.Nullable([]const u8),
     source: AgentSource,
