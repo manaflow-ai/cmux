@@ -403,7 +403,13 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
 """#
 
     static func resolvedOmpAgentDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let agentRoot = nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: environment) {
+        // OMP_AGENT_DIR is OMP's own override and wins over PI_CODING_AGENT_DIR.
+        // Both agents read the Pi variable, so someone who runs the two side by
+        // side and points Pi at a directory would otherwise send OMP there too.
+        // https://github.com/manaflow-ai/cmux/issues/4955
+        let agentRootOverride = nonEmptyEnvironmentValue("OMP_AGENT_DIR", in: environment)
+            ?? nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: environment)
+        if let agentRoot = agentRootOverride {
             return URL(
                 fileURLWithPath: NSString(string: agentRoot).expandingTildeInPath,
                 isDirectory: true
