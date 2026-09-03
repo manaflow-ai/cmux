@@ -59,6 +59,34 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }
 
+    /// `terminal <term_id> project --workspace <ws> --screen <screen> --pane <pane> --index <n>`:
+    /// creates a daemon tab view for a live terminal that currently has no placement. The
+    /// operation is deliberately separate from the native pane destination: the remote view
+    /// only makes the daemon's process-local surface attachable; local rendering remains in
+    /// Ghostty.
+    static func projectTerminalArguments(
+        socketPath: String,
+        terminalID: String,
+        target: CloudTuiTerminalProjectionTarget,
+        expectedRevision: String? = nil,
+        idempotencyKey: String? = nil
+    ) -> [String] {
+        var arguments = [
+            "--socket", socketPath, "--json", "terminal", terminalID, "project",
+            "--workspace", target.workspaceID,
+            "--screen", target.screenID,
+            "--pane", target.paneID,
+            "--index", String(target.index),
+        ]
+        if let expectedRevision, !expectedRevision.isEmpty {
+            arguments += ["--expected-revision", expectedRevision]
+        }
+        if let idempotencyKey, !idempotencyKey.isEmpty {
+            arguments += ["--idempotency-key", idempotencyKey]
+        }
+        return arguments
+    }
+
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
     static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
@@ -97,6 +125,74 @@ struct CloudTuiCommandLine: Sendable {
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
+    }
+
+    /// The compatibility tree used to translate a public `term_…` id to the
+    /// numeric surface id required by `attach-surface` byte streams. Each tab
+    /// in it carries `terminal_resource_id` (the public id the app holds) next
+    /// to `surface`, which is the join the resolver needs.
+    ///
+    /// This rides the raw command bridge rather than a top-level
+    /// `list-workspaces` subcommand: the resource CLI reads that leading word
+    /// as a resource scope and rejects it with `unknown resource scope
+    /// "list-workspaces"`, so the tree was unreachable from the CLI even though
+    /// the daemon still serves the command over the wire.
+    static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
+        // A fixed literal, so this cannot fail to encode and the request stays
+        // byte-stable across runs.
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"id":1,"cmd":"list-workspaces"}"#,
+        ]
+    }
+
+    /// Resolves a stable terminal resource ID to the current generation's
+    /// numeric surface handle. This is preferred over walking the legacy tree
+    /// because it also works while a terminal has no visible tab placement.
+    /// The private command accepts the 32-character payload without the
+    /// public `term_` prefix.
+    static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
+        let payload = terminalID.hasPrefix("term_")
+            ? String(terminalID.dropFirst("term_".count))
+            : terminalID
+        guard payload.count == 32,
+              payload.unicodeScalars.allSatisfy({
+                  (48...57).contains($0.value) || (97...102).contains($0.value)
+              }) else {
+            return nil
+        }
+        let request: [String: Any] = [
+            "id": 1,
+            "cmd": "resolve-terminal",
+            "terminal_id": payload,
+        ]
+        return rawCommandArguments(socketPath: socketPath, request: request)
+    }
+
+    /// Returns the raw `identify` command used to negotiate the daemon protocol
+    /// before selecting a compatibility-only resolver path.
+    static func identifyArguments(socketPath: String) -> [String]? {
+        rawCommandArguments(
+            socketPath: socketPath,
+            request: ["id": 1, "cmd": "identify"]
+        )
+    }
+
+    /// Encodes one private JSON command through the CLI's raw command bridge.
+    private static func rawCommandArguments(
+        socketPath: String,
+        request: [String: Any]
+    ) -> [String]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", encoded,
+        ]
     }
 
     /// `session current terminal defaults set [--foreground #rrggbb] [--background #rrggbb]`

@@ -489,7 +489,9 @@ jobs:
           ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
           cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
           grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
-          if [[ -s "$normal_names" && -s "$ignored_names" ]] && cmp -s "$normal_names" "$ignored_names"; then
+          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
+          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
+          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
             echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
             exit 1
           fi
