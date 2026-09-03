@@ -440,9 +440,11 @@ public struct CMUXMobileRootScene: View {
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
         } else if MobileDebugEntryPoint().localLinuxEnabled() {
-            LocalLinuxDebugView(
-                runtime: localLinuxComputerProvider.controller.runtime
-            )
+            // The harness drives the production destination directly, so the
+            // DEBUG switch and the Computers row share one lifecycle path.
+            NavigationStack {
+                LocalLinuxComputerView(controller: localLinuxComputerProvider.controller)
+            }
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {

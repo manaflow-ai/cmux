@@ -3,16 +3,105 @@ import CMUXMobileCore
 import CmuxLocalLinux
 import CmuxMobileShellUI
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import Foundation
 import OSLog
 import SwiftUI
 import UIKit
 
-nonisolated private let localLinuxProductionLog = Logger(
-    subsystem: cmuxIOSLogSubsystem,
-    category: "local-linux.production"
-)
+/// Every user-facing string of the local Linux feature, in one place.
+enum LocalLinuxStrings {
+    static var computerTitle: String {
+        L10n.string("mobile.localLinux.computer.title", defaultValue: "This iPhone")
+    }
+
+    static var computerSubtitle: String {
+        L10n.string("mobile.localLinux.computer.subtitle", defaultValue: "Local Alpine Linux")
+    }
+
+    static var title: String {
+        L10n.string("mobile.localLinux.title", defaultValue: "Local Linux")
+    }
+
+    static var starting: String {
+        L10n.string("mobile.localLinux.starting", defaultValue: "Starting local Linux…")
+    }
+
+    static var startingDetail: String {
+        L10n.string(
+            "mobile.localLinux.starting.detail",
+            defaultValue: "Preparing an Alpine shell on this device."
+        )
+    }
+
+    static var progress: String {
+        L10n.string("mobile.localLinux.progress", defaultValue: "Loading local Linux")
+    }
+
+    static var ended: String {
+        L10n.string("mobile.localLinux.ended", defaultValue: "The local Linux session ended")
+    }
+
+    static var endedDetail: String {
+        L10n.string("mobile.localLinux.ended.detail", defaultValue: "Start a new shell to continue.")
+    }
+
+    static var errorTitle: String {
+        L10n.string("mobile.localLinux.error.title", defaultValue: "Local Linux is unavailable")
+    }
+
+    static var retry: String {
+        L10n.string("mobile.localLinux.retry", defaultValue: "Try Again")
+    }
+
+    static var retryHint: String {
+        L10n.string(
+            "mobile.localLinux.retry.hint",
+            defaultValue: "Activate Try Again to restart the local shell."
+        )
+    }
+
+    /// One sentence per failure class so a missing image, a kernel fault, a
+    /// dead renderer, and a broken pty are distinguishable without logs.
+    static func detail(for error: LocalLinuxError?) -> String {
+        switch error {
+        case .rootfsAssetMissing:
+            L10n.string(
+                "mobile.localLinux.error.rootfsMissing",
+                defaultValue: "This build does not include the Linux system image."
+            )
+        case .rootfsImportFailed, .rootfsActivationFailed, .rootfsPersistenceFailed:
+            L10n.string(
+                "mobile.localLinux.error.rootfsInstall",
+                defaultValue: "The Linux system image could not be installed on this device."
+            )
+        case .bootFailed, .kernelUnavailable, .notBooted:
+            L10n.string(
+                "mobile.localLinux.error.boot",
+                defaultValue: "The Linux kernel could not start."
+            )
+        case .sessionOpenFailed, .invalidCommand, .invalidDimensions:
+            L10n.string(
+                "mobile.localLinux.error.session",
+                defaultValue: "A shell could not be opened."
+            )
+        case .rendererUnavailable:
+            L10n.string(
+                "mobile.localLinux.error.renderer",
+                defaultValue: "The terminal renderer is unavailable."
+            )
+        case .inputFailed, .inputByteCountInvalid:
+            L10n.string(
+                "mobile.localLinux.error.input",
+                defaultValue: "The shell stopped accepting input."
+            )
+        default:
+            L10n.string(
+                "mobile.localLinux.error.linux",
+                defaultValue: "The local Linux environment could not start."
+            )
+        }
+    }
+}
 
 /// The phone-owned computer advertised by the Computers screen.
 ///
@@ -38,19 +127,9 @@ public final class LocalLinuxComputerProvider: MobileLocalComputerProviding {
         self.init(controller: LocalLinuxComputerController(runtime: runtime))
     }
 
-    public var title: String {
-        L10n.string(
-            "mobile.localLinux.computer.title",
-            defaultValue: "This iPhone"
-        )
-    }
+    public var title: String { LocalLinuxStrings.computerTitle }
 
-    public var subtitle: String {
-        L10n.string(
-            "mobile.localLinux.computer.subtitle",
-            defaultValue: "Local Alpine Linux"
-        )
-    }
+    public var subtitle: String { LocalLinuxStrings.computerSubtitle }
 
     public var symbolName: String { "iphone" }
 
@@ -66,7 +145,8 @@ public final class LocalLinuxComputerProvider: MobileLocalComputerProviding {
     }
 }
 
-/// Production destination for the phone-owned Linux computer.
+/// Production destination for the phone-owned Linux computer. The DEBUG
+/// launch switch mounts this same view, so there is one lifecycle path.
 public struct LocalLinuxComputerView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var controller: LocalLinuxComputerController
@@ -85,11 +165,12 @@ public struct LocalLinuxComputerView: View {
             .id(retryGeneration)
             .ignoresSafeArea(.container, edges: .all)
             .background(Color.black)
-            .accessibilityIdentifier("cmux.local-linux.terminal")
+            .accessibilityIdentifier(LocalLinuxAccessibilityIdentifier.terminal)
 
             if controller.state != .running {
                 LocalLinuxComputerStatusOverlay(
                     state: controller.state,
+                    error: controller.lastError,
                     canRetry: controller.canRetry,
                     retry: retry
                 )
@@ -103,9 +184,7 @@ public struct LocalLinuxComputerView: View {
             }
         }
         .background(Color.black)
-        .navigationTitle(
-            L10n.string("mobile.localLinux.title", defaultValue: "Local Linux")
-        )
+        .navigationTitle(LocalLinuxStrings.title)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -117,41 +196,33 @@ public struct LocalLinuxComputerView: View {
 
 private struct LocalLinuxComputerStatusOverlay: View {
     let state: LocalLinuxComputerController.State
+    let error: LocalLinuxError?
     let canRetry: Bool
     let retry: () -> Void
 
     private var title: String {
         switch state {
         case .idle, .starting:
-            L10n.string("mobile.localLinux.starting", defaultValue: "Starting local Linux…")
+            LocalLinuxStrings.starting
         case .running:
-            L10n.string("mobile.localLinux.title", defaultValue: "Local Linux")
+            LocalLinuxStrings.title
         case .ended:
-            L10n.string("mobile.localLinux.ended", defaultValue: "The local Linux session ended")
+            LocalLinuxStrings.ended
         case .failed:
-            L10n.string("mobile.localLinux.error.title", defaultValue: "Local Linux is unavailable")
+            LocalLinuxStrings.errorTitle
         }
     }
 
     private var detail: String? {
         switch state {
         case .idle, .starting:
-            L10n.string(
-                "mobile.localLinux.starting.detail",
-                defaultValue: "Preparing an Alpine shell on this device."
-            )
+            LocalLinuxStrings.startingDetail
         case .running:
             nil
         case .ended:
-            L10n.string(
-                "mobile.localLinux.ended.detail",
-                defaultValue: "Start a new shell to continue."
-            )
+            LocalLinuxStrings.endedDetail
         case .failed:
-            L10n.string(
-                "mobile.localLinux.error.linux",
-                defaultValue: "The local Linux environment could not start."
-            )
+            LocalLinuxStrings.detail(for: error)
         }
     }
 
@@ -160,12 +231,7 @@ private struct LocalLinuxComputerStatusOverlay: View {
             if state == .idle || state == .starting {
                 ProgressView()
                     .tint(.white)
-                    .accessibilityLabel(
-                        L10n.string(
-                            "mobile.localLinux.progress",
-                            defaultValue: "Loading local Linux"
-                        )
-                    )
+                    .accessibilityLabel(LocalLinuxStrings.progress)
             } else {
                 Image(systemName: state == .failed ? "exclamationmark.triangle" : "pause.circle")
                     .font(.title2)
@@ -191,20 +257,12 @@ private struct LocalLinuxComputerStatusOverlay: View {
             // cannot be safely reinitialized in place.
             if canRetry {
                 Button(action: retry) {
-                    Label(
-                        L10n.string("mobile.localLinux.retry", defaultValue: "Try Again"),
-                        systemImage: "arrow.clockwise"
-                    )
+                    Label(LocalLinuxStrings.retry, systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.white)
                 .foregroundStyle(.black)
-                .accessibilityHint(
-                    L10n.string(
-                        "mobile.localLinux.retry.hint",
-                        defaultValue: "Activate Try Again to restart the local shell."
-                    )
-                )
+                .accessibilityHint(LocalLinuxStrings.retryHint)
             }
         }
         .padding(.horizontal, 24)
@@ -224,11 +282,11 @@ private struct LocalLinuxComputerStatusOverlay: View {
 /// Placeholder returned when the shared Ghostty renderer cannot be created.
 ///
 /// SwiftUI calls ``UIViewRepresentable.makeUIView`` during reconciliation.
-/// Publishing the failure from that method can mutate the parent observable
-/// during the update transaction. UIKit calls these lifecycle hooks after the
-/// placeholder is installed, so the coordinator can publish safely there.
+/// Publishing the failure from that method would mutate the parent observable
+/// during the update transaction. UIKit calls these lifecycle hooks once the
+/// placeholder is installed, and the coordinator publishes on the next turn.
 @MainActor
-private final class LocalLinuxProductionRendererFailurePlaceholderView: UIView {
+private final class LocalLinuxRendererFailurePlaceholderView: UIView {
     var onInstall: (@MainActor () -> Void)?
 
     private var didReportInstallation = false
@@ -282,7 +340,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             view.prepareForDismantle()
             return makeRendererFailurePlaceholder(context: context)
         }
-        view.accessibilityIdentifier = "cmux.local-linux.surface"
+        view.accessibilityIdentifier = LocalLinuxAccessibilityIdentifier.surface
         context.coordinator.surfaceView = view
         context.coordinator.startIfNeeded()
         // Keep the production terminal on the same host wrapper as paired-Mac
@@ -298,7 +356,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
     }
 
     private func makeRendererFailurePlaceholder(context: Context) -> UIView {
-        let placeholder = LocalLinuxProductionRendererFailurePlaceholderView()
+        let placeholder = LocalLinuxRendererFailurePlaceholderView()
         placeholder.onInstall = { [weak coordinator = context.coordinator] in
             coordinator?.rendererFailurePlaceholderDidInstall()
         }
@@ -320,6 +378,10 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         coordinator.stop()
     }
 
+    /// Bridges one Ghostty surface to the controller: attaches for output,
+    /// forwards input with the attachment's generation, and detaches when the
+    /// surface leaves the window or the scene goes inactive. It never decides
+    /// whether the shell has ended; the controller owns that.
     @MainActor
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         weak var surfaceView: GhosttySurfaceView?
@@ -330,24 +392,22 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         private var isWindowAttached = false
         private var outputTask: Task<Void, Never>?
         private var outputGeneration: UInt64 = 0
-        private var lane: LocalLinuxTerminalLane?
+        private var attachment: LocalLinuxAttachment?
         private var lastGrid: TerminalGridSize?
-        private var inputGeneration: UInt64
         private var rendererFailureTask: Task<Void, Never>?
         private var isStopped = false
 
         init(controller: LocalLinuxComputerController, sceneIsActive: Bool) {
             self.controller = controller
             self.sceneIsActive = sceneIsActive
-            self.inputGeneration = controller.currentInputGeneration
             super.init()
         }
 
         deinit {
             rendererFailureTask?.cancel()
             outputTask?.cancel()
-            if let lane {
-                Task { await lane.close() }
+            if let attachment {
+                Task { await attachment.lane.close() }
             }
         }
 
@@ -357,7 +417,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             if active {
                 startIfNeeded()
             } else {
-                stopLane()
+                detach()
             }
         }
 
@@ -376,50 +436,41 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             outputGeneration &+= 1
             let generation = outputGeneration
             // Snapshot the request before entering the asynchronous startup.
-            // The coordinator owns this task, so capturing `self` across the
-            // await would form a cycle and delay teardown if the C bridge open
-            // is slow or cancellation cannot interrupt it.
+            // The coordinator owns this task, so capturing `self` strongly
+            // across the await would form a cycle and delay teardown if the C
+            // bridge open is slow or cancellation cannot interrupt it.
             let controller = self.controller
-            let columns = lastGrid?.columns ?? 80
-            let rows = lastGrid?.rows ?? 24
+            let columns = lastGrid?.columns ?? LocalLinuxComputerController.fallbackGrid.columns
+            let rows = lastGrid?.rows ?? LocalLinuxComputerController.fallbackGrid.rows
             outputTask = Task { @MainActor [weak self, controller, generation, columns, rows] in
-                let ready = await controller.startIfNeeded(
-                    columns: columns,
-                    rows: rows
-                )
-                guard let self else { return }
+                let attachment = await controller.attach(columns: columns, rows: rows)
+                guard let self else {
+                    if let attachment {
+                        await attachment.lane.close()
+                    }
+                    return
+                }
                 guard !Task.isCancelled, self.outputGeneration == generation else {
-                    if self.outputGeneration == generation {
-                        self.outputTask = nil
-                    }
-                    return
-                }
-                guard ready,
-                      let lane = controller.makeLane(),
-                      let session = controller.currentSession else {
-                    if !ready, !Task.isCancelled, self.outputGeneration == generation {
-                        showFailure()
+                    if let attachment {
+                        await attachment.lane.close()
                     }
                     if self.outputGeneration == generation {
                         self.outputTask = nil
                     }
                     return
                 }
-
-                guard self.outputGeneration == generation else {
-                    await lane.close()
+                guard let attachment else {
+                    // The overlay shows `controller.lastError`; nothing is
+                    // written into the terminal so there is one message path.
+                    self.outputTask = nil
                     return
                 }
 
-                self.inputGeneration = controller.currentInputGeneration
-                self.lane = lane
-                var outputStreamEnded = false
+                self.attachment = attachment
+                let lane = attachment.lane
                 while !Task.isCancelled, self.outputGeneration == generation {
                     do {
-                        guard let frame = try await lane.receiveOutput() else {
-                            outputStreamEnded = true
-                            break
-                        }
+                        guard let frame = try await lane.receiveOutput() else { break }
                         // Re-check attachment ownership after the receive
                         // suspension. A detach or renderer recovery can
                         // cancel this task while a frame is already queued;
@@ -427,7 +478,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                         // lane has started its authoritative replay.
                         guard !Task.isCancelled,
                               self.outputGeneration == generation,
-                              self.lane === lane,
+                              self.attachment?.lane === lane,
                               self.isWindowAttached,
                               self.sceneIsActive,
                               let surfaceView = self.surfaceView else { break }
@@ -442,28 +493,17 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                         } else {
                             surfaceView.processOutput(frame.bytes)
                         }
-                        controller.notifyOutputActivity()
                     } catch {
-                        localLinuxProductionLog.error(
+                        LocalLinuxLog.logger.error(
                             "local Linux output lane failed: \(String(describing: error), privacy: .public)"
                         )
                         break
                     }
                 }
                 await lane.close()
-                // A lane can end because its source process exited, or because
-                // this surface detached and cancelled its consumer. Only clear
-                // the retained shell for a confirmed natural session end.
-                if outputStreamEnded,
-                   !Task.isCancelled,
-                   self.outputGeneration == generation,
-                   sceneIsActive,
-                   await session.isEnded {
-                    controller.sessionDidEnd(session)
-                }
                 guard self.outputGeneration == generation else { return }
-                self.lane = nil
-                outputTask = nil
+                self.attachment = nil
+                self.outputTask = nil
             }
         }
 
@@ -472,39 +512,45 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             rendererFailureTask?.cancel()
             rendererFailureTask = nil
             isWindowAttached = false
-            stopLane()
+            detach()
             surfaceView = nil
         }
 
+        /// Publishes the renderer failure on the next MainActor turn. This is
+        /// reachable synchronously from `makeUIView` (a surface without a
+        /// renderer) and from the placeholder's UIKit insertion hooks, both of
+        /// which can run inside SwiftUI's update transaction. One task hop is
+        /// enough to leave that transaction; no yield or delay is involved.
         func rendererFailurePlaceholderDidInstall() {
             guard !isStopped, rendererFailureTask == nil else { return }
             rendererFailureTask = Task { @MainActor [weak self] in
-                // Give UIKit a full turn after insertion before publishing the
-                // observable failure. This keeps the write outside SwiftUI's
-                // representable creation transaction.
-                await Task.yield()
                 guard let self, !Task.isCancelled, !self.isStopped else { return }
                 self.controller.markRendererFailure()
                 self.rendererFailureTask = nil
             }
         }
 
-        private func stopLane() {
+        private func detach() {
             outputGeneration &+= 1
             outputTask?.cancel()
             outputTask = nil
-            if let lane {
-                self.lane = nil
-                Task { await lane.close() }
+            if let attachment {
+                self.attachment = nil
+                Task { await attachment.lane.close() }
             }
         }
 
-        private func showFailure() {
-            let text = L10n.string(
-                "mobile.localLinux.error.linux",
-                defaultValue: "The local Linux environment could not start."
-            )
-            surfaceView?.processOutput(Data("\r\n\(text)\r\n".utf8))
+        /// Attached surfaces send with their generation so a replaced surface
+        /// cannot write into a replacement pty. Before the attachment exists,
+        /// typeahead is queued against the current generation and flushed
+        /// when the pty opens.
+        private func forwardInput(_ data: Data) {
+            guard !isStopped else { return }
+            if let attachment {
+                controller.send(data, generation: attachment.generation)
+            } else {
+                controller.send(data)
+            }
         }
 
         // MARK: GhosttySurfaceViewDelegate
@@ -518,13 +564,13 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             if isAttached {
                 startIfNeeded()
             } else {
-                stopLane()
+                detach()
             }
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             guard self.surfaceView === surfaceView else { return }
-            controller.send(data, generation: inputGeneration)
+            forwardInput(data)
         }
 
         /// Routes terminal-protocol replies generated by Ghostty back to the
@@ -536,7 +582,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             didProduceTerminalOutput data: Data
         ) {
             guard self.surfaceView === surfaceView else { return }
-            controller.send(data, generation: inputGeneration)
+            forwardInput(data)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
@@ -561,7 +607,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             // Render recovery creates a fresh Ghostty surface but keeps the
             // local iSH session alive. Reopen the attachment so its replay
             // restores the terminal model on the replacement surface.
-            stopLane()
+            detach()
             startIfNeeded()
         }
 
