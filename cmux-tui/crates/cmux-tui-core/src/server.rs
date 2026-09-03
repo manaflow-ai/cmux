@@ -10065,11 +10065,11 @@ fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
 
 fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
-        "plugin" => Ok(AgentSource::Plugin),
-        "detected" => Ok(AgentSource::Detected),
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!(
+            "bad source {other}; raw report-agent accepts only socket or hook"
+        ),
     }
 }
 
