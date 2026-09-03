@@ -31,10 +31,18 @@ enum MobileCloudComposition {
                 refreshToken: { await coordinator.refreshToken() }
             )
         )
-        let identityStore = KeychainCloudDeviceIdentityStore(
+        // Unsigned simulator apps cannot use the data-protection Keychain (no
+        // application-identifier entitlement), mirroring DeviceIdentityStore's
+        // simulator split. Physical devices always use the Keychain.
+        #if targetEnvironment(simulator)
+        let identityStore: any CloudDeviceIdentityStoring = UserDefaultsCloudDeviceIdentityStore(defaults: .standard)
+        _ = appNamespace
+        #else
+        let identityStore: any CloudDeviceIdentityStoring = KeychainCloudDeviceIdentityStore(
             service: appNamespace.keychainService(base: keychainServiceBase),
             accessGroup: auth.keychainAccessGroup
         )
+        #endif
         return CloudSessionController(
             service: service,
             identityStore: identityStore,
