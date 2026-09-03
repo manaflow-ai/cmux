@@ -4163,6 +4163,18 @@ pub enum FocusTarget {
     ProjectionRail(usize),
 }
 
+impl FocusTarget {
+    fn frontend_journal_target(self) -> FrontendFocusTarget {
+        match self {
+            Self::Pane => FrontendFocusTarget::Pane,
+            Self::MachineRail => FrontendFocusTarget::MachineRail,
+            Self::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            Self::TabsRail => FrontendFocusTarget::TabsRail,
+            Self::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendFocusSnapshot {
     target: FrontendFocusTarget,
@@ -12111,13 +12123,7 @@ impl App {
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
         let focus = FrontendFocusSnapshot {
-            target: match self.focus {
-                FocusTarget::Pane => FrontendFocusTarget::Pane,
-                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-            },
+            target: self.focus.frontend_journal_target(),
             workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
             screen_id: screen.and_then(|screen| screen.resource_id.clone()),
             pane_id: pane.and_then(|pane| pane.resource_id.clone()),
@@ -12150,13 +12156,7 @@ impl App {
         let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
-        let target = match self.focus {
-            FocusTarget::Pane => FrontendFocusTarget::Pane,
-            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-        };
+        let target = self.focus.frontend_journal_target();
         if previous.focus.target != target
             || previous.focus.workspace_id.as_ref()
                 != workspace.and_then(|workspace| workspace.resource_id.as_ref())
