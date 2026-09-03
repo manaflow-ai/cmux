@@ -1155,4 +1155,53 @@ mod tests {
         assert!(is_first_frame_for_surface(&json!({"event":"render-state","surface":42}), 42));
         assert!(!is_first_frame_for_surface(&json!({"event":"render-delta","surface":42}), 42));
     }
+
+    #[test]
+    fn close_terminal_rpc_error_fails_benchmark() {
+        let socket = std::env::temp_dir().join(format!(
+            "cmux-bench-close-error-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket);
+        let listener = transport::listen(&socket).unwrap();
+        let server = thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            let mut request = Vec::new();
+            BufReader::new(&mut stream).read_until(b'\n', &mut request).unwrap();
+            let request: Value = serde_json::from_slice(&request).unwrap();
+            let response = json!({
+                "id": request["id"],
+                "ok": false,
+                "error": "injected close failure"
+            });
+            let mut bytes = serde_json::to_vec(&response).unwrap();
+            bytes.push(b'\n');
+            stream.write_all(&bytes).unwrap();
+            stream.flush().unwrap();
+        });
+
+        let stream = transport::connect(&socket).unwrap();
+        let mut conn = Conn { reader: BufReader::new(stream), next_id: 1 };
+        let report = Arc::new(Mutex::new(Report::new(&socket)));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        record_create_result(
+            &mut conn,
+            Instant::now(),
+            Duration::from_millis(1),
+            json!({"terminal_id":"term-1","lifecycle":"running"}),
+            &socket,
+            &events,
+            &report,
+        );
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&socket);
+
+        let report = report.lock().unwrap();
+        assert!(
+            report.errors.iter().any(|error| error.contains("injected close failure")),
+            "close-terminal RPC errors must be benchmark failures, report: {:?}",
+            report.to_json()
+        );
+        assert!(report.warnings.is_empty(), "close-terminal failures must not be warnings");
+    }
 }
