@@ -16,9 +16,7 @@ public struct CloudEntryRow: View {
 
     public var body: some View {
         if let controller {
-            NavigationLink {
-                CloudSectionView(controller: controller)
-            } label: {
+            NavigationLink(value: CloudSectionRoute()) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
