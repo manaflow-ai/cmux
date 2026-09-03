@@ -292,6 +292,8 @@ struct WorkspaceMacTitlePicker: View, Equatable {
 }
 
 private struct WorkspaceMacTitlePickerLabel: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     let title: String
     let isLoading: Bool
     let width: CGFloat
@@ -301,27 +303,32 @@ private struct WorkspaceMacTitlePickerLabel: View {
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                Text(title)
-                    .font(.headline.weight(.bold))
-                    .lineLimit(1)
-                    .truncationMode(truncationMode)
-                    .allowsTightening(false)
-                    // Leave the text as the flexible item. A high layout
-                    // priority makes a narrow toolbar item ask UIKit to hide
-                    // the entire principal item before SwiftUI can insert an
-                    // ellipsis.
-                    .frame(maxWidth: .infinity, alignment: .center)
-                ZStack {
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .opacity(isLoading ? 0 : 1)
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.primary)
-                        .opacity(isLoading ? 1 : 0)
+                if horizontalSizeClass == .compact {
+                    // The iPhone keeps its long-standing treatment: the title
+                    // tightens and shrinks (down to 0.75) before truncating,
+                    // and the chevron hugs the text between centering
+                    // spacers. The full-size ellipsis treatment below reads
+                    // as the picker growing on a phone toolbar.
+                    Spacer(minLength: 0)
+                    titleText
+                        .truncationMode(.tail)
+                        .allowsTightening(true)
+                        .minimumScaleFactor(0.75)
+                        .layoutPriority(1)
+                    accessory
+                    Spacer(minLength: 0)
+                } else {
+                    // iPad split toolbar: full-size text on one line with an
+                    // ellipsis. The text stays the flexible item because a
+                    // high layout priority makes a narrow toolbar item ask
+                    // UIKit to hide the entire principal item before SwiftUI
+                    // can insert the ellipsis.
+                    titleText
+                        .truncationMode(truncationMode)
+                        .allowsTightening(false)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    accessory
                 }
-                .frame(width: 12, height: 12)
-                .accessibilityHidden(true)
             }
             if let statusLine {
                 WorkspaceConnectionStatusLineView(line: statusLine)
@@ -331,6 +338,26 @@ private struct WorkspaceMacTitlePickerLabel: View {
         .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.headline.weight(.bold))
+            .lineLimit(1)
+    }
+
+    private var accessory: some View {
+        ZStack {
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .opacity(isLoading ? 0 : 1)
+            ProgressView()
+                .controlSize(.mini)
+                .tint(.primary)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(width: 12, height: 12)
+        .accessibilityHidden(true)
     }
 }
 #endif
