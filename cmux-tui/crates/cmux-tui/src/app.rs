@@ -6421,9 +6421,7 @@ const VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET: usize = PTY_OPERATION_QUEUE_CAPA
 
 #[cfg(test)]
 thread_local! {
-    static PANE_AREA_PROJECTION_WORK: std::cell::Cell<usize> = const {
-        std::cell::Cell::new(0)
-    };
+    static PANE_AREA_PROJECTION_WORK: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -25112,7 +25110,7 @@ mod tests {
 
     #[test]
     fn host_input_runtime_shutdown_joins_reader_before_returning() {
-        let mut runtime = HostInputRuntime::new();
+        let runtime = HostInputRuntime::new();
         let ingress = runtime.ingress.clone();
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
@@ -25139,7 +25137,7 @@ mod tests {
 
     #[test]
     fn host_input_runtime_shutdown_serializes_concurrent_callers() {
-        let mut runtime = HostInputRuntime::new();
+        let runtime = HostInputRuntime::new();
         let ingress = runtime.ingress.clone();
         let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
@@ -25161,7 +25159,7 @@ mod tests {
         });
         closed_rx.recv().unwrap();
 
-        let second_shutdown = shutdown.clone();
+        let second_shutdown = shutdown;
         let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
         let second = std::thread::spawn(move || {
             second_shutdown.shutdown();
@@ -32894,7 +32892,7 @@ mod tests {
     #[test]
     fn graphics_changed_rect_bound_stays_within_linear_comparison_budget() {
         let mux = Mux::new("graphics-diff-complexity-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
+        let app = test_app(Session::Local(mux));
         let count = 512usize;
         let previous = (0..count)
             .map(|index| GraphicIdentity {
@@ -34933,7 +34931,7 @@ mod tests {
             surface_filter: None,
             cancellation: cancellation.clone(),
         };
-        let forwarder_recovery_generation = recovery_generation.clone();
+        let forwarder_recovery_generation = recovery_generation;
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
                 event_source,
