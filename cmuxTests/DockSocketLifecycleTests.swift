@@ -63,7 +63,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let envelope = try v2Envelope(method: method, params: params)
         if envelope["ok"] as? Bool != true {
             Issue.record("Expected \(method) to succeed: \(envelope)")
@@ -159,7 +159,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
+    func withDockEnabled(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let key = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previous = defaults.object(forKey: key)
@@ -240,7 +240,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withSocketAppContext(
+    func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
@@ -392,38 +392,6 @@ struct DockSocketLifecycleTests {
                 #expect(fileExplorerState.mode == .dock)
                 #expect(windowDock.focusedPanelId == dockSurfaceId)
                 #expect(workspace._dockSplit?.containsPanel(dockSurfaceId) != true)
-            }
-        }
-    }
-
-    @Test(
-        "Dock terminal creation injects input into an interactive shell",
-        arguments: ["surface.create", "pane.create"]
-    )
-    @MainActor
-    func dockTerminalCreationInjectsInitialInput(method: String) throws {
-        try withDockEnabled {
-            try withSocketAppContext { _, _, windowID in
-                let initialInput = " printf '  preserved  '\t\r"
-                var params: [String: Any] = [
-                    "placement": "dock",
-                    "type": "terminal",
-                    "initial_input": initialInput,
-                    "focus": false,
-                ]
-                if method == "pane.create" {
-                    params["direction"] = "right"
-                }
-
-                let result = try v2Result(method: method, params: params)
-                let surfaceID = try #require(
-                    (result["dock_surface_id"] as? String).flatMap(UUID.init(uuidString:))
-                )
-                let dock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowID))
-                let panel = try #require(dock.panels[surfaceID] as? TerminalPanel)
-                #expect(panel.surface.debugInitialInputForTesting() == initialInput)
-                #expect(panel.surface.debugInitialCommand() == nil)
-                #expect(panel.surface.debugWaitAfterCommand() == false)
             }
         }
     }
