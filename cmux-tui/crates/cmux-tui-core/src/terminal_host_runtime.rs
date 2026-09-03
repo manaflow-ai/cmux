@@ -34,7 +34,7 @@ use crate::terminal_host_protocol::{
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
     encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap, write_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -566,7 +566,7 @@ mod unix {
         }
 
         fn wait_and_disarm(&mut self) -> TerminalExit {
-            let (exit, reaped) = wait_for_native_child_status_with_reap(self.child_mut());
+            let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child_mut());
             if reaped {
                 self.disarm();
             }
