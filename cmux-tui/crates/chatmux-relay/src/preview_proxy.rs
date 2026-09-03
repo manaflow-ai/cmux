@@ -54,6 +54,8 @@ const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 /// reading must not make the relay retain an unbounded stream of CDP data.
 const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
 const PREVIEW_WS_QUEUE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum number of live client connections retained by one preview proxy.
+pub const PREVIEW_PROXY_CONNECTION_CAP: usize = 128;
 /// Maximum number of target-port listeners retained by one relay.
 /// Opening another target evicts the least-recently-used listener.
 pub const PREVIEW_PROXY_CAP: usize = 32;
@@ -996,6 +998,8 @@ mod tests {
     use super::*;
     use futures_util::{SinkExt as _, StreamExt as _};
     use serde_json::Value;
+    use std::io;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message;
 
     #[test]
@@ -1135,6 +1139,47 @@ mod tests {
         assert_eq!(open_proxy(&registry, target).await, proxy);
         registry.shutdown().await;
         assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_preview_connections_after_the_active_connection_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_CONNECTION_CAP);
+        for _ in 0..PREVIEW_PROXY_CONNECTION_CAP {
+            let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+                .await
+                .expect("connect preview proxy");
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+                .await
+                .expect("hold preview request open");
+            held.push(stream);
+        }
+        tokio::task::yield_now().await;
+
+        let mut rejected = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap preview client");
+        rejected
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write over-cap preview request");
+        let mut response = [0_u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(1), rejected.read(&mut response))
+            .await
+            .expect("over-cap preview client did not close");
+        match read {
+            Ok(0) => {}
+            Err(error) => assert!(matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+            )),
+            Ok(bytes) => panic!("over-cap preview client received {bytes} bytes"),
+        }
+        drop(held);
+        registry.shutdown().await;
     }
 
     #[tokio::test]
