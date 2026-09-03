@@ -520,6 +520,9 @@ impl RemoteTreeCache {
                             .position(|screen| Some(screen.id) == screen_id)
                         {
                             Some(position) => {
+                                if workspace.active_screen == usize::MAX {
+                                    return TreeDeltaApply::Resync;
+                                }
                                 workspace.screens.remove(position);
                                 if position < workspace.active_screen {
                                     workspace.active_screen -= 1;
@@ -582,6 +585,9 @@ impl RemoteTreeCache {
                     K::TabClosed => {
                         match pane.tabs.iter().position(|tab| Some(tab.surface) == surface_id) {
                             Some(position) => {
+                                if pane.active_tab == usize::MAX {
+                                    return TreeDeltaApply::Resync;
+                                }
                                 pane.tabs.remove(position);
                                 if position < pane.active_tab {
                                     pane.active_tab -= 1;
@@ -8213,6 +8219,60 @@ mod tests {
         assert_eq!(tree.workspaces()[0].active_screen, 0);
         assert!(!session.tree_is_stale());
         assert!(events.try_iter().all(|event| matches!(event, MuxEvent::TreeDelta(_))));
+    }
+
+    #[test]
+    fn close_deltas_resync_when_active_child_is_the_fail_closed_sentinel() {
+        let (session, _requests) = recording_acknowledging_session();
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [
+                    {"id": 2, "active": true, "layout": {"type": "invalid"}},
+                    {"id": 9, "layout": {"type": "leaf", "pane": 10},
+                     "panes": [{"id": 10, "tabs": [{"surface": 11, "title": "b"}]}]}
+                ]
+            }]
+        }));
+        assert_eq!(tree.workspaces()[0].active_screen, usize::MAX);
+        session.tree.lock().unwrap().replace(tree, 0);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "screen-closed", "workspace": 1, "screen": 9,
+            "entity": {"id": 9}
+        }));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces()[0].active_screen, usize::MAX);
+        assert_eq!(tree.workspaces()[0].screens.len(), 2);
+
+        let (session, _requests) = recording_acknowledging_session();
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1, "screens": [{
+                    "id": 2, "active": true, "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "active_tab": 9,
+                               "tabs": [{"surface": 7, "title": "a"}]}]
+                }]
+            }]
+        }));
+        assert_eq!(tree.workspaces()[0].screens[0].panes[0].active_tab, usize::MAX);
+        session.tree.lock().unwrap().replace(tree, 0);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "tab-closed", "workspace": 1, "screen": 2, "pane": 3,
+            "surface": 7, "entity": {"surface": 7}
+        }));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces()[0].screens[0].panes[0].active_tab, usize::MAX);
+        assert_eq!(tree.workspaces()[0].screens[0].panes[0].tabs.len(), 1);
     }
 
     #[test]

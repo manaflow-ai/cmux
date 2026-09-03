@@ -24145,6 +24145,8 @@ impl App {
         if expired.is_empty() {
             return false;
         }
+        let retired =
+            expired.iter().map(|(intent, _)| placeholder_id(*intent)).collect::<HashSet<_>>();
         for (intent, prior_focus) in expired {
             self.create_placeholders.retain(|placeholder| placeholder.intent != intent);
             if let Some(prior) = prior_focus
@@ -24153,8 +24155,9 @@ impl App {
                 self.pane_focus_history.record(prior);
             }
         }
-        self.deferred_input
-            .retain(|input| !input.admission.destination.is_some_and(is_placeholder_id));
+        self.deferred_input.retain(|input| {
+            !input.admission.destination.is_some_and(|surface| retired.contains(&surface))
+        });
         self.rebuild_tab_locations();
         true
     }
@@ -24191,6 +24194,11 @@ impl App {
         for placeholder in placeholders {
             let pane_id = placeholder.pane();
             let surface = placeholder.surface();
+            // The overlay persists in `self.tree` until the next adoption, so
+            // redraws must not insert the same placeholder more than once.
+            if self.tree.pane(pane_id).is_some() || self.tree.surface(surface).is_some() {
+                continue;
+            }
             let split_id: SplitId = placeholder_id(placeholder.intent);
             let focus_follows = self.active_pane() == placeholder.prior_focus;
             let mut placed = false;
@@ -30756,6 +30764,10 @@ mod tests {
         app.sync_layout((200, 40));
         assert!(app.pane_areas.iter().any(|area| area.pane == placeholder));
         assert_eq!(app.pane_areas.len(), 2);
+        // A second frame must not insert the client-local placeholder again.
+        app.sync_layout((200, 40));
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+        assert_eq!(app.pane_areas.len(), 2);
 
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
@@ -30833,6 +30845,25 @@ mod tests {
         .unwrap();
         assert!(!app.deferred_input.is_empty(), "input to the placeholder must be deferred");
 
+        // Keep a second create pending with its own deferred input. Expiring
+        // the first placeholder must not discard input for the second one.
+        let second_intent = 2;
+        let second_surface = placeholder_id(second_intent);
+        app.create_placeholders.push(CreatePlaceholder {
+            intent: second_intent,
+            kind: CreatePlaceholderKind::Tab { pane: 3 },
+            workspace: Some(1),
+            screen: Some(2),
+            prior_focus: Some(3),
+            state: CreatePlaceholderState::Pending,
+            timed_out_cause: None,
+        });
+        app.deferred_input.push_back(queued_input(
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+            Some(second_surface),
+            2,
+        ));
+
         let mut failed = false;
         while !failed {
             let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -30864,7 +30895,11 @@ mod tests {
             *since = Instant::now() - super::DURABLE_NOTICE_DISPLAY_DURATION;
         }
         assert!(app.expire_failed_create_placeholders());
-        assert!(app.create_placeholders.is_empty());
+        assert_eq!(app.create_placeholders.len(), 1);
+        assert_eq!(app.deferred_input.len(), 1);
+        assert_eq!(app.deferred_input.front().unwrap().admission.destination, Some(second_surface));
+        app.create_placeholders.clear();
+        app.deferred_input.clear();
         app.sync_layout((200, 40));
         assert_eq!(app.active_pane(), Some(3));
         assert_eq!(app.pane_areas.len(), 1);
