@@ -22,6 +22,14 @@ export type StripeBillingAnalyticsSubject =
       readonly status?: string;
     };
 
+export type TeamSeatDriftAnalyticsInput = {
+  readonly subscriptionId: string;
+  readonly teamId: string;
+  readonly memberCount: number;
+  readonly stripeQuantity: number | null;
+  readonly storedSeats: number | null;
+};
+
 /**
  * Best-effort analytics after the billing mutation succeeds. Billing remains
  * authoritative in Stripe, Postgres, and Stack; an analytics outage must never
@@ -61,6 +69,33 @@ export async function captureBillingCheckoutStarted(
       billing_scope: input.subject.scope,
       plan: input.plan,
       billing_interval: input.billingInterval,
+    },
+  }, postHogFetch);
+}
+
+/**
+ * Records a best-effort billing-reconcile team seat drift observation. The
+ * event is intentionally separate from Stripe webhook lifecycle events because
+ * membership is observed by Stack rather than delivered by Stripe.
+ */
+export async function captureBillingTeamSeatDrift(
+  input: TeamSeatDriftAnalyticsInput,
+  postHogFetch?: typeof fetch,
+): Promise<void> {
+  await captureBillingPayload({
+    name: "cmux_billing_team_seat_drift_detected",
+    // Each observation gets a unique id so repeated detections are retained;
+    // transport retries inside this call reuse the payload and insert id.
+    insertId: `team-seat-drift:${input.subscriptionId}:${globalThis.crypto.randomUUID()}`,
+    subject: { scope: "team", stackTeamId: input.teamId },
+    properties: {
+      source: "billing_reconcile",
+      billing_scope: "team",
+      stack_team_id: input.teamId,
+      stripe_subscription_id: input.subscriptionId,
+      member_count: input.memberCount,
+      stripe_quantity: input.stripeQuantity,
+      stored_seats: input.storedSeats,
     },
   }, postHogFetch);
 }

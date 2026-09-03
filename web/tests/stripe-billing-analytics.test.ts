@@ -3,10 +3,65 @@ import type Stripe from "stripe";
 
 import {
   captureBillingCheckoutStarted,
+  captureBillingTeamSeatDrift,
   captureStripeBillingEvent,
 } from "../services/analytics/stripeBilling";
 
 describe("Stripe billing analytics", () => {
+  test("captures team seat drift counts with the Stack team identity", async () => {
+    let payload: Record<string, unknown> = {};
+    await captureBillingTeamSeatDrift({
+      subscriptionId: "sub_team_drift",
+      teamId: "team_drift",
+      memberCount: 4,
+      stripeQuantity: 1,
+      storedSeats: 2,
+    }, (async (_input, init) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_team_seat_drift_detected",
+      properties: {
+        distinct_id: "stack-team:team_drift",
+        stack_team_id: "team_drift",
+        stripe_subscription_id: "sub_team_drift",
+        member_count: 4,
+        stripe_quantity: 1,
+        stored_seats: 2,
+      },
+    });
+    // The insert id is unique per detection so PostHog never deduplicates a
+    // repeated observation; only the prefix and shape are stable.
+    const properties = payload.properties as Record<string, unknown>;
+    expect(String(properties.$insert_id)).toMatch(
+      /^team-seat-drift:sub_team_drift:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  test("reuses one insert id across transport retries", async () => {
+    const insertIds: unknown[] = [];
+    let attempts = 0;
+    await captureBillingTeamSeatDrift({
+      subscriptionId: "sub_retry",
+      teamId: "team_retry",
+      memberCount: 3,
+      stripeQuantity: 1,
+      storedSeats: 1,
+    }, (async (_input, init) => {
+      attempts += 1;
+      const body = JSON.parse(String(init?.body)) as { properties: Record<string, unknown> };
+      insertIds.push(body.properties.$insert_id);
+      if (attempts === 1) throw new Error("temporary PostHog failure");
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(attempts).toBe(2);
+    expect(insertIds).toHaveLength(2);
+    expect(insertIds[0]).toBe(insertIds[1]);
+  });
+
   test("does not use the real transport in a test process", async () => {
     const originalFetch = globalThis.fetch;
     let calls = 0;
