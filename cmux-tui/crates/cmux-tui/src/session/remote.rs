@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -1405,14 +1405,22 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
                         completion.mark_joined();
                     }
                 }
+                let has_pending = !pending.is_empty();
                 {
                     let mut state =
                         worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
                     state.pending.append(&mut pending);
                 }
-                match receiver.recv_timeout(Duration::from_millis(50)) {
-                    Ok(()) | Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
+                if has_pending {
+                    match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match receiver.recv() {
+                        Ok(()) => {}
+                        Err(RecvError) => break,
+                    }
                 }
             }
         })
@@ -4718,6 +4726,12 @@ mod tests {
 
     use super::*;
 
+    static REAPER_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn reaper_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        REAPER_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
     fn attached_surface(outcome: RemoteSurfaceAttach) -> Arc<RemoteSurface> {
         let RemoteSurfaceAttach::Attached(surface) = outcome else {
             panic!("surface attach did not produce a mirror");
@@ -6773,6 +6787,7 @@ mod tests {
 
     #[test]
     fn transport_disconnect_cancels_and_joins_reader_and_writer_workers() {
+        let _reaper_guard = reaper_test_guard();
         let (responses, response_rx) = channel();
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         let (reader_exited, reader_exited_rx) = channel();
@@ -6805,6 +6820,7 @@ mod tests {
 
     #[test]
     fn dropping_session_waits_for_blocked_reader_worker() {
+        let _reaper_guard = reaper_test_guard();
         let (responses, response_rx) = channel();
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         let (reader_entered, reader_entered_rx) = channel();
@@ -6849,6 +6865,7 @@ mod tests {
 
     #[test]
     fn reader_self_disconnect_keeps_its_join_handle_owned() {
+        let _reaper_guard = reaper_test_guard();
         let (responses, response_rx) = channel();
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         let (reader_exited, reader_exited_rx) = channel();
@@ -6881,6 +6898,7 @@ mod tests {
 
     #[test]
     fn reaper_does_not_block_completed_workers_behind_a_stalled_worker() {
+        let _reaper_guard = reaper_test_guard();
         let first_release = Arc::new((Mutex::new(false), Condvar::new()));
         let first_completion = Arc::new(WorkerCompletion::new());
         let second_completion = Arc::new(WorkerCompletion::new());
@@ -6912,6 +6930,7 @@ mod tests {
 
     #[test]
     fn reaper_restarts_after_sender_disconnect_and_drains_pending_workers() {
+        let _reaper_guard = reaper_test_guard();
         let state = reaper_state().clone();
         state.lock().unwrap().sender = None;
         let completion = Arc::new(WorkerCompletion::new());
@@ -6924,6 +6943,7 @@ mod tests {
 
     #[test]
     fn concurrent_reaper_enqueue_starts_one_owned_worker() {
+        let _reaper_guard = reaper_test_guard();
         let state = reaper_state().clone();
         state.lock().unwrap().sender = None;
 
@@ -7792,6 +7812,7 @@ mod tests {
 
     #[test]
     fn write_timeout_aborts_the_blocked_writer_and_discards_queued_mutations() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let output = stream.output.clone();
         let session = blocking_test_session(stream);
@@ -7827,6 +7848,7 @@ mod tests {
 
     #[test]
     fn dropping_a_session_aborts_a_blocked_writer() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"blocked").unwrap();
@@ -7848,6 +7870,7 @@ mod tests {
 
     #[test]
     fn closing_a_session_aborts_a_writer_that_cannot_drain() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"blocked").unwrap();
@@ -7870,6 +7893,7 @@ mod tests {
 
     #[test]
     fn disconnect_uses_one_total_shutdown_deadline() {
+        let _reaper_guard = reaper_test_guard();
         let (writer, control) = BlockingWriteStream::new();
         let session = test_session_with_provider_context(Box::new(writer), HashSet::new(), None);
         session.send_bytes(7, b"blocked").unwrap();
