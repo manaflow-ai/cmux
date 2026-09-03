@@ -48,6 +48,10 @@ struct ControlCommandExecutionPolicyTests {
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            // Vault session-index verbs scan transcript stores on disk and
+            // must never hold the main actor (see socketWorkerMethods).
+            "vault.sessions", "vault.search", "vault.checkpoints",
+            "vault.checkpoint", "vault.fork",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",

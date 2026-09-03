@@ -29,6 +29,7 @@ struct VaultNativeDragSourceTests {
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
+            onOpen: nil,
             search: { _, _, _, _ in .init(entries: [], errors: []) },
             loadSnapshot: { cwd in
                 .init(cwd: cwd ?? "", entries: [], errors: [])
