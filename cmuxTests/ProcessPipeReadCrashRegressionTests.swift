@@ -142,4 +142,82 @@ struct ProcessPipeReadCrashRegressionTests {
         try? stdout.fileHandleForWriting.close()
         try? stderr.fileHandleForWriting.close()
     }
+
+    @Test
+    func testProcessOutputCollectorConcurrentFinishersShareDrainedResult() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let drainEntered = DispatchSemaphore(value: 0)
+        let releaseDrain = DispatchSemaphore(value: 0)
+        let firstFinished = DispatchSemaphore(value: 0)
+        let secondFinished = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
+        var firstResult: ProcessOutputResult?
+        var secondResult: ProcessOutputResult?
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { data in
+            guard data == Data("tail\n".utf8) else { return }
+            drainEntered.signal()
+            releaseDrain.wait()
+        }
+
+        try? stdout.fileHandleForWriting.write(contentsOf: Data("tail\n".utf8))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        DispatchQueue.global().async {
+            let result = collector.finishResult()
+            resultLock.lock()
+            firstResult = result
+            resultLock.unlock()
+            firstFinished.signal()
+        }
+        #expect(drainEntered.wait(timeout: .now() + 1) == .success)
+
+        DispatchQueue.global().async {
+            let result = collector.finishResult()
+            resultLock.lock()
+            secondResult = result
+            resultLock.unlock()
+            secondFinished.signal()
+        }
+        #expect(secondFinished.wait(timeout: .now() + 0.05) == .timedOut)
+
+        releaseDrain.signal()
+        #expect(firstFinished.wait(timeout: .now() + 1) == .success)
+        #expect(secondFinished.wait(timeout: .now() + 1) == .success)
+        resultLock.lock()
+        let results = (firstResult, secondResult)
+        resultLock.unlock()
+        #expect(results.0 == results.1)
+        #expect(results.0?.stdout == "tail")
+    }
+
+    @Test
+    func testProcessOutputCollectorAllowsReentrantFinishFromOutputCallback() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let callbackFinished = DispatchSemaphore(value: 0)
+        var collector: ProcessOutputCollector!
+        var callbackResult: ProcessOutputResult?
+        let resultLock = NSLock()
+        collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { _ in
+            let result = collector.finishResult()
+            resultLock.lock()
+            callbackResult = result
+            resultLock.unlock()
+            callbackFinished.signal()
+        }
+        collector.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data("reentrant\n".utf8))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        #expect(callbackFinished.wait(timeout: .now() + 1) == .success)
+        let result = collector.finishResult()
+        resultLock.lock()
+        let nestedResult = callbackResult
+        resultLock.unlock()
+        #expect(nestedResult == result)
+        #expect(result.stdout == "reentrant")
+    }
 }
