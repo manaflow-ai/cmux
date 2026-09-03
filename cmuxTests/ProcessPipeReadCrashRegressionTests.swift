@@ -240,6 +240,7 @@ struct ProcessPipeReadCrashRegressionTests {
             resultLock.unlock()
             callbackFinished.signal()
         }
+        collector.start()
         try? stdout.fileHandleForWriting.write(contentsOf: Data("reentrant\n".utf8))
         try? stdout.fileHandleForWriting.close()
         try? stderr.fileHandleForWriting.close()
