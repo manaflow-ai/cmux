@@ -6,7 +6,10 @@ import {
   type MobileMacCompatList,
 } from "../../../data/mobile-mac-compat";
 
-const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=86400";
+// This is admission policy, and an empty list is an emergency kill switch.
+// Do not allow a shared cache to serve yesterday's blocking policy after the
+// five-minute freshness window expires.
+const CACHE_CONTROL = "public, s-maxage=300";
 const ALLOW_METHODS = "GET, OPTIONS";
 const ALLOW_HEADERS = "If-None-Match, Content-Type";
 /**

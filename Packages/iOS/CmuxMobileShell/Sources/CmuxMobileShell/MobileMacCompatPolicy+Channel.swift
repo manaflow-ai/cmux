@@ -1,3 +1,5 @@
+import Foundation
+
 /// The release lane to which a Mac version floor applies.
 extension MobileMacCompatPolicy {
     /// The Mac release channel a version constraint applies to.

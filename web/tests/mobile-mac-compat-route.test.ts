@@ -44,7 +44,7 @@ describe("mobile-mac-compat route", () => {
       "application/json; charset=utf-8",
     );
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, s-maxage=300, stale-while-revalidate=86400",
+      "public, s-maxage=300",
     );
     expect(response.headers.get("ETag")).toMatch(/^".+"$/);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
