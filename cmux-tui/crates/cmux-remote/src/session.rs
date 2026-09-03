@@ -18,6 +18,7 @@ use crate::link::{FrameLink, LinkError};
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const SCHEDULER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const SCHEDULER_ABORT_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
@@ -936,13 +937,13 @@ impl ScheduledSender {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
         {
-            let tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
+            let mut tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
             let shutdown_complete = self.inner.shutdown_complete.clone();
             let abort_handles = self.inner.task_abort_handles.lock().unwrap().clone();
             let shutdown_forced = self.inner.shutdown_forced.clone();
             let join = tokio::spawn(async move {
                 let timed_out = tokio::time::timeout(SCHEDULER_SHUTDOWN_TIMEOUT, async {
-                    for task in tasks {
+                    for task in &mut tasks {
                         let _ = task.await;
                     }
                 })
@@ -953,6 +954,12 @@ impl ScheduledSender {
                     for abort_handle in abort_handles {
                         abort_handle.abort();
                     }
+                    let _ = tokio::time::timeout(SCHEDULER_ABORT_WAIT_TIMEOUT, async {
+                        for task in tasks {
+                            let _ = task.await;
+                        }
+                    })
+                    .await;
                 }
                 shutdown_complete.cancel();
             });
