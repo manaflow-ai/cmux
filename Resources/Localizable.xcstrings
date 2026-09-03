@@ -82861,6 +82861,12 @@
             "value": "OK"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -99274,6 +99280,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "要結束 cmux 嗎？"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتمكن cmux من بدء جلسة tmux جديدة على المضيف البعيد، لذلك لم يتم إنشاء أي مساحة عمل. تحقق من أن المضيف لا يزال قابلاً للوصول ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pokrenuti novu tmux sesiju na udaljenom hostu, pa nijedan radni prostor nije kreiran. Provjerite je li host još dostupan i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte en ny tmux-session på den eksterne vært, så der blev ikke oprettet noget arbejdsområde. Kontrollér, at værten stadig kan nås, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte auf dem Remote-Host keine neue tmux-Sitzung starten, daher wurde kein Arbeitsbereich erstellt. Prüfen Sie, ob der Host noch erreichbar ist, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar una nueva sesión tmux en el host remoto, por lo que no se creó ningún espacio de trabajo. Comprueba que el host siga siendo accesible e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu démarrer une nouvelle session tmux sur l’hôte distant, donc aucun espace de travail n’a été créé. Vérifiez que l’hôte est toujours accessible, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito ad avviare una nuova sessione tmux sull'host remoto, quindi non è stata creata alcuna area di lavoro. Verifica che l'host sia ancora raggiungibile e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はリモートホストで新しい tmux セッションを開始できなかったため、ワークスペースは作成されませんでした。ホストに到達できるか確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើម tmux session ថ្មីនៅលើម៉ាស៊ីនពីចម្ងាយបានទេ ដូច្នេះគ្មាន workspace ត្រូវបានបង្កើតទេ។ សូមពិនិត្យមើលថាម៉ាស៊ីននៅតែអាចចូលដល់បាន ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 원격 호스트에서 새 tmux 세션을 시작할 수 없어 작업 공간이 만들어지지 않았습니다. 호스트에 아직 연결할 수 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte en ny tmux-økt på den eksterne verten, så det ble ikke opprettet noe arbeidsområde. Kontroller at verten fortsatt kan nås, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł uruchomić nowej sesji tmux na zdalnym hoście, więc nie utworzono żadnej przestrzeni roboczej. Sprawdź, czy host jest nadal osiągalny, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux não conseguiu iniciar uma nova sessão tmux no host remoto, então nenhuma área de trabalho foi criada. Verifique se o host ainda está acessível e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось запустить новый сеанс tmux на удалённом хосте, поэтому рабочее пространство не создано. Проверьте, доступен ли хост, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่ม tmux session ใหม่บนโฮสต์ระยะไกลได้ จึงไม่มีการสร้างเวิร์กสเปซ ตรวจสอบว่าโฮสต์ยังเข้าถึงได้และลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uzak ana makinede yeni bir tmux oturumu başlatamadı, bu nedenle hiçbir çalışma alanı oluşturulmadı. Ana makineye hâlâ erişilebildiğini doğrulayın ve yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося запустити новий сеанс tmux на віддаленому хості, тому робочу область не створено. Перевірте, чи хост усе ще доступний, і спробуйте ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法在远程主机上启动新的 tmux 会话，因此没有创建工作区。请确认主机仍可访问，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法在遠端主機上啟動新的 tmux 工作階段，因此沒有建立工作區。請確認主機仍可連線，然後再試一次。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إنشاء جلسة tmux على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kreirati tmux sesiju na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oprette en tmux-session på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzung auf %@ konnte nicht erstellt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Create a tmux Session on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear una sesión tmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer une session tmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare una sessione tmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で tmux セッションを作成できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត tmux session នៅលើ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 tmux 세션을 만들 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette en tmux-økt på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć sesji tmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar uma sessão tmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать сеанс tmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้าง tmux session บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerinde tmux oturumu oluşturulamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити сеанс tmux на %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在 %@ 上创建 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在 %@ 上建立 tmux 工作階段"
           }
         }
       }
@@ -244613,6 +244869,131 @@
         }
       }
     },
+    "socket.remoteTmux.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي الاسم على أحرف غير مسموح بها في اسم الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ime sadrži znakove koji nisu dozvoljeni u imenu sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "navnet indeholder tegn, der ikke er tilladt i et sessionsnavn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Name enthält Zeichen, die in einem Sitzungsnamen nicht erlaubt sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "name contains characters that are not allowed in a session name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el nombre contiene caracteres que no se permiten en un nombre de sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le nom contient des caractères non autorisés dans un nom de session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il nome contiene caratteri non consentiti in un nome di sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前にセッション名で使用できない文字が含まれています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះមានតួអក្សរដែលមិនអនុញ្ញាតក្នុងឈ្មោះ session"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름에 세션 이름으로 사용할 수 없는 문자가 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "navnet inneholder tegn som ikke er tillatt i et øktnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nazwa zawiera znaki, które nie są dozwolone w nazwie sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o nome contém caracteres não permitidos em um nome de sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "имя содержит символы, недопустимые в имени сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อมีอักขระที่ไม่อนุญาตในชื่อ session"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ad, oturum adında kullanılamayan karakterler içeriyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "назва містить символи, недопустимі в назві сеансу"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称包含会话名称中不允许的字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱包含工作階段名稱中不允許的字元"
+          }
+        }
+      }
+    },
     "socket.remoteTmux.sessionRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -244626,6 +245007,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションが必要です"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.workspaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id مطلوب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id je obavezan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id er påkrævet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id ist erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id is required"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id es obligatorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id est requis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id è obbligatorio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ workspace_id"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id er påkrevd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id jest wymagany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id é obrigatório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "требуется workspace_id"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องระบุ workspace_id"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id gereklidir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "потрібен workspace_id"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 workspace_id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 workspace_id"
           }
         }
       }

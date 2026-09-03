@@ -35,5 +35,25 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// keys a completion that fires `true` on `%end`, `false` on `%error` or
     /// when the stream resets before the block arrives.
     case tracked(UUID)
+    /// A command whose raw reply lines the sender awaits (see
+    /// ``RemoteTmuxControlConnection/queryOutcomeWithTimeout(_:timeout:reconnectOnTimeout:)``):
+    /// the token keys a completion fired with the `%end` reply lines, the `%error`
+    /// text, or `.unanswered` on a timeout or a stream reset before the block arrives.
+    case rawQuery(UUID)
     case other
+}
+
+/// How a raw-line query ended.
+enum RemoteTmuxRawQueryOutcome {
+    /// The command's `%end` block, which may legitimately be empty.
+    case lines([String])
+    /// The server rejected the command and sent `%error` with this text.
+    case error([String])
+    /// No reply arrived before the timeout, or the stream reset first.
+    case unanswered
+
+    var lines: [String]? {
+        if case let .lines(lines) = self { return lines }
+        return nil
+    }
 }
