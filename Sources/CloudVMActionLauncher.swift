@@ -562,11 +562,20 @@ final class ProcessOutputCollector: @unchecked Sendable {
         if !stdoutPendingUTF8.isEmpty {
             stdout.append(String(decoding: stdoutPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
             stdoutPendingUTF8.removeAll(keepingCapacity: false)
+            trimToByteLimit(&stdout)
         }
         if !stderrPendingUTF8.isEmpty {
             stderr.append(String(decoding: stderrPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
             stderrPendingUTF8.removeAll(keepingCapacity: false)
+            trimToByteLimit(&stderr)
         }
+    }
+
+    private func trimToByteLimit(_ buffer: inout Data) {
+        let overflow = buffer.count - byteLimit
+        guard overflow > 0 else { return }
+        buffer.removeSubrange(0..<overflow)
+        while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
     }
 
     private func finishProtocolObservation() {
