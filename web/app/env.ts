@@ -248,8 +248,10 @@ export const env = createEnv({
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
-    CMUX_VM_ALERT_CREATE_FAILURES_15M: positiveSafeIntegerEnv("CMUX_VM_ALERT_CREATE_FAILURES_15M").optional(),
-    CMUX_VM_ALERT_EXPIRED_LEASES: positiveSafeIntegerEnv("CMUX_VM_ALERT_EXPIRED_LEASES").optional(),
+    // Preserve the legacy VM alert range. The VM consumers already apply
+    // their compatibility fallback for zero and unsafe values.
+    CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
+    CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
     // Coderouter alert thresholds (per five-minute window) and the bound on
     // time-to-headers for upstream model calls. Defaults live next to the code.
     CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M").optional(),
