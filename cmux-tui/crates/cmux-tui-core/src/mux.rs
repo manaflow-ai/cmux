@@ -24097,6 +24097,97 @@ mod tests {
     }
 
     #[test]
+    fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-ahead-cursor-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-ahead-cursor";
+        let (terminal_id, journal_head) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "ahead-cursor-1").unwrap();
+            let journal_head = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1)
+                .unwrap()
+                .head_sequence;
+            assert!(journal_head > 0);
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, journal_head)
+        };
+
+        // Keep a valid snapshot, but move its cursor beyond the retained
+        // journal. Startup must reject that checkpoint and replay the journal
+        // instead of returning a cursor.invalid error.
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                journal_head + 1,
+                &crate::journal_reducers::AgentRoster::default().snapshot().to_string(),
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("an ahead cursor must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        reopened.shutdown();
+        drop(reopened);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let (_, cursor, snapshot) = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .expect("startup must repair the rejected cursor");
+        assert_eq!(cursor, journal_head);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
