@@ -897,6 +897,51 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Empty-pane New Terminal keeps subsequent browser creation in the Dock")
+    @MainActor
+    func emptyPaneNewTerminalKeepsSubsequentBrowserCreationInDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let mainPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let mainPanelIdsBefore = Set(harness.mainWorkspace.panels.keys)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) == nil
+                )
+
+                let dockPanelIdsBefore = Set(harness.dock.panels.keys)
+                harness.dock.newInFocusedPane(kind: .terminal)
+                #expect(
+                    Set(harness.dock.panels.keys).subtracting(dockPanelIdsBefore).count == 1
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+
+                let dockBrowserId = harness.appDelegate.routeCreateToFocusedDock(
+                    .browser,
+                    focusAddressBar: false,
+                    preferredWindow: harness.window
+                )
+                if dockBrowserId == nil {
+                    _ = harness.appDelegate.openBrowserAndFocusAddressBar(insertAtEnd: true)
+                }
+
+                let routedBrowserId = try #require(dockBrowserId)
+                #expect(harness.dock.browserPanel(for: routedBrowserId) != nil)
+                #expect(Set(harness.mainWorkspace.panels.keys) == mainPanelIdsBefore)
+            }
+        }
+    }
+
     @Test("Customized zoom and flash shortcuts target the focused Dock")
     @MainActor
     func customizedZoomAndFlashTargetFocusedDock() async throws {

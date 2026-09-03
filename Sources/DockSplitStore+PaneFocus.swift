@@ -79,6 +79,25 @@ extension DockSplitStore {
         )
     }
 
+    /// Applies the window-scoped focus intent before a pointer interaction
+    /// focuses an otherwise empty Dock pane.
+    func focusPaneFromDockInteraction(_ paneId: PaneID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
+        bonsplitController.focusPane(paneId)
+    }
+
+    /// Creates a surface from a Dock UI affordance while keeping subsequent
+    /// keyboard shortcuts routed to this window's Dock.
+    @discardableResult
+    func newSurfaceFromDockAffordance(
+        kind: DockSurfaceKind,
+        inPane paneId: PaneID,
+        window: NSWindow?
+    ) -> UUID? {
+        noteKeyboardFocusIntent(window: window)
+        return newSurface(kind: kind, inPane: paneId, focus: true)
+    }
+
     /// Resolves both workspace and per-window Docks through their shared live
     /// registry before applying pointer focus. The terminal portal can outlive a
     /// SwiftUI host callback briefly, so pointer activation cannot depend on that
@@ -159,7 +178,11 @@ extension DockSplitStore {
     func newInFocusedPane(kind: DockSurfaceKind) {
         ensureLoaded()
         guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else { return }
-        _ = newSurface(kind: kind, inPane: paneId, focus: true)
+        newSurfaceFromDockAffordance(
+            kind: kind,
+            inPane: paneId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 
     func collapseToSingleEmptyPane() {
