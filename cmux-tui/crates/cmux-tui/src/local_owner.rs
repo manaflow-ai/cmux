@@ -132,8 +132,12 @@ impl EnsuredOwnerHandle {
                         break;
                     }
                     let mut bytes = Vec::new();
-                    match connection.by_ref().take(4096).read_until(b'\n', &mut bytes) {
+                    match connection.read_until(b'\n', &mut bytes) {
                         Ok(0) => {
+                            exited = true;
+                            break;
+                        }
+                        Ok(_) if bytes.len() > 4096 => {
                             exited = true;
                             break;
                         }
