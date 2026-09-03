@@ -132,6 +132,9 @@ impl From<io::Error> for WgError {
     }
 }
 
+/// Mutates an outbound IP packet before encryption. Test-only seam.
+pub type TransmitHook = Box<dyn FnMut(&mut Vec<u8>) + Send>;
+
 /// A running tunnel. Dropping it stops the driver; every stream then reads
 /// EOF and fails writes.
 pub struct WgNet {
@@ -198,11 +201,46 @@ impl WgNet {
         socket: UdpSocket,
         peer: Option<SocketAddr>,
     ) -> Result<Self, WgError> {
+        Self::start_resolved_with_hook(config, socket, peer, None)
+    }
+
+    /// Test seam: like [`WgNet::start`] but every IP packet leaving the stack
+    /// passes through `hook` before encryption, so a test can stand in for a
+    /// misbehaving router (mangled checksums, for instance).
+    #[doc(hidden)]
+    pub async fn start_with_transmit_hook(
+        config: WgConfig,
+        socket: UdpSocket,
+        hook: TransmitHook,
+    ) -> Result<Self, WgError> {
+        let local = socket.local_addr()?;
+        let peer = match &config.endpoint {
+            Some(endpoint) => Some(
+                endpoint
+                    .resolve()
+                    .await
+                    .map_err(|_| WgError::EndpointUnresolved(endpoint.host.clone()))?
+                    .into_iter()
+                    .find(|candidate| candidate.is_ipv4() == local.is_ipv4())
+                    .ok_or(WgError::EndpointFamilyMismatch)?,
+            ),
+            None => None,
+        };
+        Self::start_resolved_with_hook(config, socket, peer, Some(hook))
+    }
+
+    fn start_resolved_with_hook(
+        config: WgConfig,
+        socket: UdpSocket,
+        peer: Option<SocketAddr>,
+        transmit_hook: Option<TransmitHook>,
+    ) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
-        let driver = Driver::new(config, socket, peer, commands_rx, Arc::clone(&wake))?;
+        let mut driver = Driver::new(config, socket, peer, commands_rx, Arc::clone(&wake))?;
+        driver.transmit_hook = transmit_hook;
         let handle = tokio::spawn(driver.run());
         Ok(Self { commands: commands_tx, wake, routes, addresses, driver: Some(handle) })
     }
@@ -501,6 +539,7 @@ struct Driver {
     epoch: std::time::Instant,
     ports: PortAllocator,
     scratch: Vec<u8>,
+    transmit_hook: Option<TransmitHook>,
 }
 
 enum Event {
@@ -574,6 +613,7 @@ impl Driver {
             epoch,
             ports: PortAllocator::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            transmit_hook: None,
         })
     }
 
@@ -694,7 +734,10 @@ impl Driver {
     }
 
     fn flush_tx(&mut self) {
-        while let Some(packet) = self.device.pop_tx() {
+        while let Some(mut packet) = self.device.pop_tx() {
+            if let Some(hook) = self.transmit_hook.as_mut() {
+                hook(&mut packet);
+            }
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {

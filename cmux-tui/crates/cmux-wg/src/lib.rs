@@ -33,4 +33,4 @@ pub mod testing;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
-pub use net::{WgError, WgListener, WgNet, WgStream};
+pub use net::{TransmitHook, WgError, WgListener, WgNet, WgStream};

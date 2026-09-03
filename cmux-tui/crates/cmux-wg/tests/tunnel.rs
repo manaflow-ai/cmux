@@ -161,3 +161,48 @@ async fn dropping_the_tunnel_ends_its_streams() {
     assert!(matches!(read, Ok(0) | Err(_)), "stream should end after its tunnel is dropped");
     server.shutdown().await;
 }
+
+/// Zero the IPv4 header checksum and the TCP checksum of an outbound packet,
+/// standing in for a private-network router that rewrites headers without
+/// fixing checksums. A Linux WireGuard peer accepts such packets because the
+/// AEAD already authenticated them; so must we, or IPv6 works while IPv4
+/// silently times out.
+fn corrupt_checksums(packet: &mut Vec<u8>) {
+    match packet.first().map(|byte| byte >> 4) {
+        Some(4) if packet.len() >= 20 => {
+            packet[10] = 0;
+            packet[11] = 0;
+            let header_len = usize::from(packet[0] & 0x0f) * 4;
+            if packet[9] == 6 && packet.len() >= header_len + 18 {
+                packet[header_len + 16] = 0;
+                packet[header_len + 17] = 0;
+            }
+        }
+        Some(6) if packet.len() >= 40 + 18 && packet[6] == 6 => {
+            packet[40 + 16] = 0;
+            packet[40 + 17] = 0;
+        }
+        _ => {}
+    }
+}
+
+#[tokio::test]
+async fn authenticated_packets_with_bad_checksums_are_still_accepted() {
+    let LoopbackPair { client, server, client_socket, server_socket, server_v4, server_v6, .. } =
+        loopback_pair().await.unwrap();
+    let server =
+        WgNet::start_with_transmit_hook(server, server_socket, Box::new(corrupt_checksums))
+            .await
+            .unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+    let _echo = spawn_echo(&server, 1337).await;
+
+    let mut v4 = within(client.connect(SocketAddr::new(server_v4, 1337))).await.unwrap();
+    round_trip(&mut v4, &payload(1200)).await;
+    round_trip(&mut v4, &payload(64 * 1024)).await;
+    let mut v6 = within(client.connect(SocketAddr::new(server_v6, 1337))).await.unwrap();
+    round_trip(&mut v6, &payload(1200)).await;
+
+    client.shutdown().await;
+    server.shutdown().await;
+}
