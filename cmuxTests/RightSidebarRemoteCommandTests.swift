@@ -118,7 +118,11 @@ struct RightSidebarRemoteCommandTests {
             fileExplorerState.setVisible(false)
             fileExplorerState.mode = .files
 
-            #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus") == "OK")
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "right_sidebar set custom \(name) --no-focus"
+                ) == "OK"
+            )
             #expect(fileExplorerState.isVisible)
             #expect(fileExplorerState.mode == .customSidebar)
             #expect(fileExplorerState.customSidebarName == name)
