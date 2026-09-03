@@ -147,7 +147,9 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
-        if (exited || !owner_process_is_alive(self.pid)) && let Some(root) = self.state_root {
+        if (exited || !owner_process_is_alive(self.pid))
+            && let Some(root) = self.state_root
+        {
             let _ = std::fs::remove_dir_all(root);
             // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
             // place for durable sessions, because unlinking it reopens the
@@ -181,8 +183,8 @@ pub(crate) fn ensure_owner_for_bench(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| format!("state dir: {error}"))?
         .as_nanos();
-    let state_root = std::env::temp_dir()
-        .join(format!("cmux-bench-state-{}-{nonce}", std::process::id()));
+    let state_root =
+        std::env::temp_dir().join(format!("cmux-bench-state-{}-{nonce}", std::process::id()));
     std::fs::create_dir(&state_root).map_err(|error| format!("state dir: {error}"))?;
     let spec = OwnerSpec {
         session: session.to_string(),
@@ -545,7 +547,10 @@ mod tests {
         let owner = ensure_owner_for_bench(&session, &socket).unwrap();
         assert_eq!(owner.pid(), 4242);
         assert!(!owner.should_stop(), "adopted owners must remain running after the bench");
-        assert!(!state_root.exists(), "adopting an owner must remove its unused temporary state root");
+        assert!(
+            !state_root.exists(),
+            "adopting an owner must remove its unused temporary state root"
+        );
 
         server.join().unwrap();
         let _ = std::fs::remove_file(&socket);

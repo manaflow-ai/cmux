@@ -507,11 +507,8 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let _ = subscriber_thread.join();
 
     close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
-    if let Some(owner_pid) = guard
-        .owner
-        .as_ref()
-        .filter(|owner| owner.should_stop())
-        .map(|owner| owner.pid())
+    if let Some(owner_pid) =
+        guard.owner.as_ref().filter(|owner| owner.should_stop()).map(|owner| owner.pid())
     {
         // A close-terminal response can precede the host process's own exit
         // by a few milliseconds, so poll briefly before calling a host leaked.
@@ -574,8 +571,7 @@ fn run_separate_typing_probe(
     let _ = gates.release_workers.wait();
 
     if let Some(Err(error)) =
-        conn.as_mut()
-            .map(|connection| drain_separate_typing(connection, pending, report, deadline))
+        conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report, deadline))
     {
         setup_error = Some(match setup_error {
             Some(previous) => format!("{previous}; {error}"),
@@ -666,14 +662,15 @@ fn close_created_terminals(
     let created = &report.lock().unwrap().created_terminals;
     let plan = current
         .iter()
-        .filter(|(id, life)| created.contains(id) && !matches!(life.as_str(), "tombstoned" | "exited"))
+        .filter(|(id, life)| {
+            created.contains(id) && !matches!(life.as_str(), "tombstoned" | "exited")
+        })
         .map(|(id, _)| id.to_string())
         .collect::<Vec<_>>();
     for terminal_id in plan {
-        match conn.request_until(
-            json!({"cmd":"close-terminal","terminal_id":&terminal_id}),
-            deadline,
-        ) {
+        match conn
+            .request_until(json!({"cmd":"close-terminal","terminal_id":&terminal_id}), deadline)
+        {
             Ok(_) => report.lock().unwrap().terminals_closed_at_teardown += 1,
             Err(error) => report
                 .lock()
@@ -915,10 +912,9 @@ fn record_create_result(
     // close, which blocks on host exit escalation (terminal.close_wait).
     if let Some(terminal_id) = terminal_id {
         let close_start = Instant::now();
-        match conn.request_until(
-            json!({"cmd":"close-terminal","terminal_id":&terminal_id}),
-            deadline,
-        ) {
+        match conn
+            .request_until(json!({"cmd":"close-terminal","terminal_id":&terminal_id}), deadline)
+        {
             Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
             Err(error) => {
                 // A partial benchmark is not a valid measurement. Record the
@@ -967,7 +963,11 @@ fn is_first_frame_for_surface(value: &Value, surface_id: u64) -> bool {
         && value.get("surface").and_then(Value::as_u64) == Some(surface_id)
 }
 
-fn measure_first_frame(socket: &std::path::Path, surface_id: u64, deadline: Instant) -> Option<Duration> {
+fn measure_first_frame(
+    socket: &std::path::Path,
+    surface_id: u64,
+    deadline: Instant,
+) -> Option<Duration> {
     let mut conn = Conn::open(socket).ok()?;
     conn.identify().ok()?;
     let start = Instant::now();
@@ -999,19 +999,14 @@ fn fetch_active_pane(conn: &mut Conn) -> Result<u64, String> {
         .find(|ws| ws["active"].as_bool() == Some(true))
         .ok_or("no active workspace")?;
     let screens = workspace["screens"].as_array().ok_or("no screens")?;
-    let screen = screens
-        .iter()
-        .find(|s| s["active"].as_bool() == Some(true))
-        .ok_or("no screen")?;
+    let screen = screens.iter().find(|s| s["active"].as_bool() == Some(true)).ok_or("no screen")?;
     screen["active_pane"].as_u64().ok_or_else(|| "no active pane".into())
 }
 
 fn cleanup_baseline_terminal(conn: &mut Conn, baseline: &Value, deadline: Instant) {
     if let Some(terminal_id) = baseline.get("terminal_id").and_then(Value::as_str) {
-        let _ = conn.request_until(
-            json!({"cmd":"close-terminal","terminal_id":terminal_id}),
-            deadline,
-        );
+        let _ =
+            conn.request_until(json!({"cmd":"close-terminal","terminal_id":terminal_id}), deadline);
     }
 }
 
