@@ -984,6 +984,16 @@ struct RemoteResumeBindingTests {
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
 
+        // Restore parks the panel awaiting its auto-resume command; the shell
+        // reporting .commandRunning is what advances it to running.
+        #expect(
+            restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID]
+                == .awaitingAutoResumeCommand
+        )
+        restoredWorkspace.updatePanelShellActivityState(
+            panelId: restoredSurfaceID,
+            state: .commandRunning
+        )
         #expect(
             restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID]
                 == .autoResumeCommandRunning
