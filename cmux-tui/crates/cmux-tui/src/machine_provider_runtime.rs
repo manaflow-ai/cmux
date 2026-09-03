@@ -5658,7 +5658,6 @@ mod tests {
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         let server_catalog = catalog.clone();
-        let (close_received, wait_for_close) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
@@ -5736,6 +5735,7 @@ mod tests {
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         let server_catalog = catalog.clone();
+        let (close_received, wait_for_close) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
