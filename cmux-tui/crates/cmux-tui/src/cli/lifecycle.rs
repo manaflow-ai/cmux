@@ -199,14 +199,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 });
             match exchange(&mut connection, json!({"id":2,"cmd":"server-stats"}), deadline) {
                 Ok(stats) => print_success(stats, global.output),
-                Err(ExchangeError::Rejected(_error)) if !supports_stats => {
-                    local_error(
-                        "server.stats_unsupported",
-                        crate::localization::catalog().local_server.stats_unsupported,
-                        global.output,
-                        1,
-                    )
-                }
+                Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
+                    "server.stats_unsupported",
+                    crate::localization::catalog().local_server.stats_unsupported,
+                    global.output,
+                    1,
+                ),
                 Err(ExchangeError::Rejected(error)) => local_error_with_details(
                     "server.stats_rejected",
                     &error,
@@ -421,11 +419,8 @@ fn exchange(
         if response["ok"] == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
-        let error = response
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("request rejected")
-            .to_string();
+        let error =
+            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
         return Err(ExchangeError::Rejected(error));
     }
 }
@@ -769,8 +764,11 @@ mod tests {
     #[test]
     fn exchange_preserves_daemon_rejection_details() {
         let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
-            response: Cursor::new(br#"{"id":2,"ok":false,"error":"trusted local connection required"}
-"#.to_vec()),
+            response: Cursor::new(
+                br#"{"id":2,"ok":false,"error":"trusted local connection required"}
+"#
+                .to_vec(),
+            ),
         });
         let mut connection = BufReader::new(stream);
         let error = exchange(

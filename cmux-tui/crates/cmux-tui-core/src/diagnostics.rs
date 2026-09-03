@@ -401,7 +401,8 @@ impl JournalWriterStats {
             WRITER_COMMITTING => WriterPhase::Committing,
             _ => WriterPhase::Idle,
         };
-        let phase_for_us = u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let phase_for_us =
+            u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
         drop(phase_state);
         JournalWriterSnapshot {
             batches: self.batches.load(Ordering::Relaxed),

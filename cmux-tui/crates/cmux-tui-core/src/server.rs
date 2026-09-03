@@ -18059,7 +18059,8 @@ mod tests {
         );
         // Any registry use records a hold at its call site.
         let _ = mux.registry_identity();
-        let stats = handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        let stats =
+            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
         assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
         assert!(stats["uptime_ms"].is_u64());
         let lock = &stats["registry_lock"];
