@@ -279,6 +279,33 @@ export const cloudVmTunnels = pgTable(
   ],
 );
 
+/**
+ * A short-lived cross-instance lease for provider-side tunnel enrollment.
+ *
+ * Freestyle tunnel creation is keyed by a deterministic slug, but the provider
+ * call and the control-plane insert are separate operations. This lease makes
+ * that boundary single-owner across Vercel instances, while expiry recovers a
+ * request whose process died before it could release the lease.
+ */
+export const cloudVmTunnelEnrollmentLocks = pgTable(
+  "cloud_vm_tunnel_enrollment_locks",
+  {
+    userId: text("user_id").notNull(),
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    ownerToken: text("owner_token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "cloud_vm_tunnel_enrollment_locks_pkey",
+      columns: [table.userId, table.deviceFingerprint],
+    }),
+    index("cloud_vm_tunnel_enrollment_locks_expiry_idx").on(table.expiresAt),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

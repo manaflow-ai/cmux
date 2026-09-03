@@ -56,10 +56,10 @@ import {
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
-// freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
-// (SSH gateway, cmuxd-remote WebSocket PTY on 7777) has been removed,
-// so every Freestyle machine now attaches the same way every other cmux Cloud
-// machine does.
+// freestyle@0.2.x). This is the only Freestyle arm. The platform also exposes
+// a scoped SSH proxy (`beta-ssh.freestyle.sh`), but SSH is an unmanaged provider
+// session and cannot carry cmux's workspace graph or revision protocol. Every
+// cmux Cloud session therefore uses the cmux-tui daemon below.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
 // docs/cloud-cmux-tui-daemon.md). The API has
@@ -67,15 +67,14 @@ import {
 // customer-verified domain), so the route addresses the daemon directly.
 //
 // Every machine joins the one VPC that belongs to its owner, and the owner's
-// Mac joins the same VPC over a WireGuard tunnel, so the route is the VM's
-// *private* address: `ws://[<vpc ipv6>]:1337/v1/link`. Nothing on that path is
-// public — the machine opens no inbound port at all, and a caller with no
-// tunnel up simply cannot reach it. Machines created before private networking
-// (and any created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls it back) keep
-// the older posture: inbound 1337 open to the Internet and the route pointed at
-// the stable public IPv6. Which posture a machine has is read from the machine
-// itself, never from the flag, so a rollback cannot strand a machine that is
-// already on a network.
+// Mac joins the same VPC over a WireGuard tunnel. The route prefers the VM's
+// private IPv4 address, then private IPv6. Nothing on that path is public, the
+// machine opens no inbound port, and a caller with no tunnel up cannot reach it.
+// Machines created before private networking (and any created while
+// CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls it back) keep the older posture:
+// inbound 1337 open to the Internet and the route pointed at the stable public
+// IPv6. Which posture a machine has is read from the machine itself, never from
+// the flag, so a rollback cannot strand a machine that is already on a network.
 //
 // The daemon's Noise handshake encrypts and authenticates the session end to
 // end either way (carrier TLS is not required and the route token only feeds
@@ -346,6 +345,34 @@ function hasVPCAttachment(data: TunnelData, networkId: string): boolean {
 }
 
 /**
+ * A process-local queue for one provider slug. The durable database lease is
+ * the cross-instance fence; this queue closes the smaller window between two
+ * requests in one warm server process and makes the helper linearizable in
+ * unit tests and local development. The queue promise never rejects, so one
+ * failed provider call cannot strand later work behind it.
+ */
+const freestyleTunnelMutationTails = new Map<string, Promise<void>>();
+
+async function withFreestyleTunnelMutation<T>(slug: string, operation: () => Promise<T>): Promise<T> {
+  const previous = freestyleTunnelMutationTails.get(slug) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  freestyleTunnelMutationTails.set(slug, tail);
+  try {
+    await previous.catch(() => undefined);
+    return await operation();
+  } finally {
+    release();
+    if (freestyleTunnelMutationTails.get(slug) === tail) {
+      freestyleTunnelMutationTails.delete(slug);
+    }
+  }
+}
+
+/**
  * Create one device tunnel, or recover the provider resource when a previous
  * request committed it before the control-plane row did. Freestyle addresses
  * tunnels by slug, so a conflict is a durable idempotency signal, not a reason
@@ -360,47 +387,59 @@ export async function createOrReuseFreestyleTunnel(
   if (!slug) throw new Error("createOrReuseFreestyleTunnel requires a slug");
   if (!clientPublicKey) throw new Error("createOrReuseFreestyleTunnel requires a client public key");
 
-  try {
-    const data = await tunnels.create({
-      slug,
-      displayName: options.displayName,
-      clientPublicKey,
-      vpcs: [{ vpcId: options.networkId }],
-    });
-    return {
-      tunnel: mapFreestyleTunnel(data, options.networkId),
-      created: true,
-      rotated: false,
-    };
-  } catch (error) {
-    if (!isTunnelSlugConflict(error)) throw error;
+  return withFreestyleTunnelMutation(slug, async () => {
+    try {
+      const data = await tunnels.create({
+        slug,
+        displayName: options.displayName,
+        clientPublicKey,
+        vpcs: [{ vpcId: options.networkId }],
+      });
+      return {
+        tunnel: mapFreestyleTunnel(data, options.networkId),
+        created: true,
+        rotated: false,
+      };
+    } catch (error) {
+      if (!isTunnelSlugConflict(error)) throw error;
 
-    // The create may have succeeded in an earlier request whose DB write was
-    // interrupted. Read by the deterministic slug, repair the requested
-    // attachment, then rotate only when this installation's key changed.
-    let data = await tunnels.get(slug);
-    if (!hasVPCAttachment(data, options.networkId)) {
-      data = await tunnels.attachVpc(slug, options.networkId);
-    }
-    let rotated = false;
-    if (data.clientPublicKey.trim() !== clientPublicKey) {
-      data = await tunnels.rotateKey(slug, { clientPublicKey });
-      rotated = true;
-      // Freestyle preserves attachments during rotation. Keep the invariant
-      // explicit in case an older API response omits one from the result.
+      // The create may have succeeded in an earlier request whose DB write was
+      // interrupted. Read by the deterministic slug, repair the requested
+      // attachment, then rotate only when this installation's key changed.
+      let data = await tunnels.get(slug);
       if (!hasVPCAttachment(data, options.networkId)) {
         data = await tunnels.attachVpc(slug, options.networkId);
       }
+      let rotated = false;
+      if (data.clientPublicKey.trim() !== clientPublicKey) {
+        data = await tunnels.rotateKey(slug, { clientPublicKey });
+        rotated = true;
+        // Freestyle preserves attachments during rotation. Keep the invariant
+        // explicit in case an older API response omits one from the result.
+        if (!hasVPCAttachment(data, options.networkId)) {
+          data = await tunnels.attachVpc(slug, options.networkId);
+        }
+      }
+
+      // A mutation response is not the provider's concurrency fence. Read the
+      // slug once more before returning so a stale or partial response cannot
+      // be persisted as the device's current key or network attachment. If a
+      // different process changed the key after our durable lease expired,
+      // fail closed and let the caller retry instead of writing a false row.
+      const verified = await tunnels.get(slug);
+      if (!hasVPCAttachment(verified, options.networkId)) {
+        throw new Error(`Freestyle tunnel ${slug} could not attach VPC ${options.networkId}`);
+      }
+      if (verified.clientPublicKey.trim() !== clientPublicKey) {
+        throw new Error(`Freestyle tunnel ${slug} changed concurrently; retry enrollment`);
+      }
+      return {
+        tunnel: mapFreestyleTunnel(verified, options.networkId),
+        created: false,
+        rotated,
+      };
     }
-    if (!hasVPCAttachment(data, options.networkId)) {
-      throw new Error(`Freestyle tunnel ${slug} could not attach VPC ${options.networkId}`);
-    }
-    return {
-      tunnel: mapFreestyleTunnel(data, options.networkId),
-      created: false,
-      rotated,
-    };
-  }
+  });
 }
 
 /**
@@ -507,12 +546,6 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 }
 
 /**
- * Healthy = the daemon process is up AND something listens on 1337 in the v6
- * table (a dual-stack `[::]` bind; 0x0539 = 1337). A daemon bound 0.0.0.0 only
- * appears in /proc/net/tcp, is unreachable at the public IPv6, and must be
- * restarted under the dual-stack override.
- */
-/**
  * Is the installed binary the machine's pinned build? A baked image records
  * the pin it was built with in /etc/cmux/cmux-tui-pin (`<sha256> <commit>`),
  * and that is the version contract for every machine from that snapshot: the
@@ -573,6 +606,15 @@ function isNotFound(err: unknown): boolean {
 }
 
 /**
+ * A VPC slug conflict is the only provider failure that means another request
+ * won the create race. Status and code are both checked because a 409 also
+ * represents unrelated provider conflicts, which must remain visible.
+ */
+function isVpcSlugConflict(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT";
+}
+
+/**
  * The Freestyle-side half of cmux private networking: one VPC per owner, and
  * one WireGuard tunnel per owner's computer attached to it.
  *
@@ -614,14 +656,21 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           return mapFreestyleNetwork(data);
         } catch (err) {
           // Two machines created at once both miss the read and both create.
-          // The slug is unique per account, so the loser is told the name is
-          // taken — and the winner's network is the right answer for both.
-          const raced = await this.readNetworkBySlug(fs, slug);
-          if (raced) {
-            setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
-            return raced;
+          // Reconcile only the documented slug conflict. A 401, 403, 429, or
+          // 5xx must not be hidden by a coincidental stale network lookup.
+          if (!isVpcSlugConflict(err)) {
+            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
           }
-          throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          const raced = await this.readNetworkBySlug(fs, slug);
+          if (!raced) {
+            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          }
+          // The winner may have created the VPC without its rule, or an
+          // operator may have removed it between create and this read. Heal the
+          // winner before returning it, otherwise the next VM is unreachable.
+          await this.ensureMembersRule(fs, raced.id);
+          setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
+          return raced;
         }
       },
     );
@@ -714,9 +763,9 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   /**
    * Guarantee the network's members-reach-each-other rule (all ports, all
-   * protocols — the rule created with the network). Missing means someone
-   * removed it; re-create rather than fail, because nothing on the network
-   * works without it.
+   * protocols, the rule created with the network). Missing means someone removed
+   * it, so re-create it. A provider error is fatal: continuing would create a
+   * machine that the owner's tunnel cannot reach.
    */
   private async ensureMembersRule(fs: Freestyle, networkId: string): Promise<void> {
     try {
@@ -735,10 +784,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         description: "cmux: members reach each other (healed)",
       });
     } catch (err) {
-      // Heal is best-effort on the reuse path: a transient listing failure
-      // must not block machine creation on a network that is almost always
-      // already correct.
-      console.error(`[freestyle] members-rule heal failed for ${networkId}`, err);
+      throw new ProviderError("freestyle", `ensureMembersRule(${networkId})`, err);
     }
   }
 
@@ -1157,8 +1203,8 @@ export class FreestyleProvider implements VMProvider {
       async () => {
         throw new ProviderError(
           "freestyle",
-          "Freestyle machines have no SSH gateway on the public platform. " +
-            "They attach through the cmux-tui remote daemon (transport cmux-remote).",
+          "Freestyle provides scoped SSH for unmanaged access, but managed Cloud VM sessions " +
+            "use the cmux-tui remote daemon (transport cmux-remote).",
         );
       },
     );

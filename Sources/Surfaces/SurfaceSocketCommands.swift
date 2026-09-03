@@ -480,7 +480,7 @@ extension TerminalController {
                 "renamed": true,
             ])
         } catch {
-            return v2Error(id: id, code: "vm_error", message: String(describing: error))
+            return cloudRenameSocketError(id: id, operation: "terminal", error: error)
         }
     }
 
@@ -531,8 +531,25 @@ extension TerminalController {
                 "renamed": true,
             ])
         } catch {
-            return v2Error(id: id, code: "vm_error", message: String(describing: error))
+            return cloudRenameSocketError(id: id, operation: "tab", error: error)
         }
+    }
+
+    /// Socket callers need a stable, actionable message. Provider and catalog
+    /// errors can contain machine, workspace, or tunnel identifiers, so keep
+    /// those details in the local debug log only.
+    private nonisolated func cloudRenameSocketError(id: Any?, operation: String, error: Error) -> String {
+        #if DEBUG
+        cmuxDebugLog("cloud.socket.rename.failed operation=\(operation) error=\(String(reflecting: error))")
+        #endif
+        return v2Error(
+            id: id,
+            code: "vm_error",
+            message: String(
+                localized: "socket.vm.renameFailed",
+                defaultValue: "The remote name could not be changed. Refresh and try again."
+            )
+        )
     }
 
     /// `vm.terminal_close {id, terminal_id}` → ends that terminal on the machine.

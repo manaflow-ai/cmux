@@ -504,7 +504,7 @@ final class SurfaceCatalog {
             resources[id] = nil
         }
         for resource in list {
-            precondition(resource.machine == machine, "resource (resource.id) reported by the wrong machine")
+            precondition(resource.machine == machine, "resource \(resource.id) reported by the wrong machine")
             resources[resource.id] = resource
         }
         machines[machine] = info

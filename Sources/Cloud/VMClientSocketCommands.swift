@@ -326,6 +326,12 @@ extension TerminalController {
                         "expires_at_unix": invitation.expiresAtUnix,
                     ]
                 }
+                if let addresses = endpoint.networkAddresses {
+                    payload["network_addresses"] = [
+                        "ipv4": addresses.ipv4 ?? NSNull(),
+                        "ipv6": addresses.ipv6 ?? NSNull(),
+                    ]
+                }
                 return payload
             }
         case "vm.cmux_remote_approve":

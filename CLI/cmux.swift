@@ -13042,9 +13042,9 @@ struct CMUXCLI {
         )
     }
 
-    /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
-    /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
-    /// use the same session primitive. SSH remains an explicit manual fallback.
+    /// Open an interactive cmux-managed shell on a cloud VM. Freestyle uses the
+    /// cmux-tui remote daemon; the forced-SSH branch remains only as a compatibility
+    /// probe for older deployments that still expose an SSH endpoint.
     func logVMTiming(
         _ stage: String,
         vmID: String,
@@ -13094,41 +13094,49 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws -> VMOpenedWorkspace? {
         if forceSSH {
-            let sshInfoStartedAt = Date()
-            let response = try client.sendV2(
-                method: "vm.ssh_info",
-                params: ["id": id],
-                responseTimeout: Self.vmAttachResponseTimeoutSeconds
-            )
-            logVMTiming("ssh_info", vmID: id, transport: "ssh", startedAt: sshInfoStartedAt)
-            let options = try vmSSHOptions(
-                fromAttachInfo: response,
-                workspaceName: workspaceName,
-                windowRaw: windowRaw,
-                client: client,
-                remoteRelayPort: generateRemoteRelayPort(),
-                pinWorkspaceToTop: shouldPinWorkspaceToTop,
-                focus: focus
-            )
-            let relayID = UUID().uuidString.lowercased()
-            let relayToken = try randomHex(byteCount: 32)
-            try runSSHWithOptions(
-                options,
-                relayID: relayID,
-                relayToken: relayToken,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                vmIDForSplitAttach: id
-            )
-            return nil
+            do {
+                let sshInfoStartedAt = Date()
+                let response = try client.sendV2(
+                    method: "vm.ssh_info",
+                    params: ["id": id],
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+                logVMTiming("ssh_info", vmID: id, transport: "ssh", startedAt: sshInfoStartedAt)
+                let options = try vmSSHOptions(
+                    fromAttachInfo: response,
+                    workspaceName: workspaceName,
+                    windowRaw: windowRaw,
+                    client: client,
+                    remoteRelayPort: generateRemoteRelayPort(),
+                    pinWorkspaceToTop: shouldPinWorkspaceToTop,
+                    focus: focus
+                )
+                let relayID = UUID().uuidString.lowercased()
+                let relayToken = try randomHex(byteCount: 32)
+                try runSSHWithOptions(
+                    options,
+                    relayID: relayID,
+                    relayToken: relayToken,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    vmIDForSplitAttach: id
+                )
+                return nil
+            } catch let error as CLIError where Self.shouldFallbackFromForcedSSH(error) {
+                // `vm ssh` predates the cmux-tui route. A provider may expose
+                // scoped SSH, but the managed alias must continue through the
+                // shared cmux-remote path when the legacy endpoint is unsupported.
+                cliDebugLog("cli.vm.ssh.alias_fallback vm=\(String(id.prefix(8))) reason=cmux-remote")
+            }
         }
 
-        // Every cloud entrypoint lands here, and the machine's cmux-tui remote daemon is
-        // the session for all of them: `vm new`, `vm shell`, `vm fork`, `vm restore`,
-        // Base (sidebar cloud button, `vm base open|reset`), and the Machines panel.
-        // The websocket/SSH transports below remain only for deployments whose control
-        // plane reports no cmux-tui at all; a cmux-tui-only machine never reaches them.
+        // Every current Freestyle entrypoint lands here, and the machine's cmux-tui
+        // remote daemon is the session for all of them: `vm new`, `vm shell`,
+        // `vm ssh`, `vm fork`, `vm restore`, Base, and the Machines panel. The
+        // websocket/SSH transports below remain only for an older deployment whose
+        // control plane reports no cmux-tui at all; a cmux-tui-only machine never
+        // reaches them.
         let attachInfoStartedAt = Date()
         if let opened = try openVMShellViaCmuxTuiIfAvailable(
             vmId: id,
@@ -13142,7 +13150,7 @@ struct CMUXCLI {
             client: client
         ) {
             logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "ok": true,
                 "vm_id": id,
                 "workspace_id": opened.workspaceId,
@@ -13155,6 +13163,9 @@ struct CMUXCLI {
                 "remote_workspace_id": opened.remoteWorkspaceId ?? NSNull(),
                 "surface_id": opened.terminalSurfaceId ?? NSNull(),
             ]
+            if let networkAddresses = opened.networkAddresses {
+                payload["network_addresses"] = networkAddresses
+            }
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -13716,6 +13727,27 @@ struct CMUXCLI {
     private static func isVMNotFoundError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         return message.contains("vm_not_found") || message.contains("was not found")
+    }
+
+    /// A forced SSH request is a compatibility probe, not permission to hide a
+    /// real auth, billing, or VM failure. Fall back only when the old managed
+    /// route is explicitly unsupported or absent. Provider-level Freestyle SSH
+    /// is not a substitute for the cmux-remote graph session.
+    private static func shouldFallbackFromForcedSSH(_ error: CLIError) -> Bool {
+        if isVMNotFoundError(error) { return false }
+        if error.vmBackendCode == Self.vmAttachTransportUnsupportedCode {
+            return true
+        }
+        let text = error.message.lowercased()
+        if text.contains("http 401") || text.contains("auth_required") || text.contains("sign-in") {
+            return false
+        }
+        return text.contains("http 404")
+            || text.contains("method not found")
+            || text.contains("ssh gateway")
+            || text.contains("no ssh")
+            || text.contains("not supported")
+            || text.contains("cmux-remote")
     }
 
     private func defaultFreestyleSSHInfoWithRetryIfNeeded(

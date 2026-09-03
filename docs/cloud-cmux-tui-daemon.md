@@ -199,12 +199,29 @@ that no other client changed the completed tabs. A transport failure can still
 leave a partial fan-out, so the operation returns an explicit partial-operation
 error instead of silently claiming success.
 
+The local coordinator is not a distributed lock. The backend serializes every
+Freestyle tunnel mutation with `cloud_vm_tunnel_enrollment_locks`, keyed by
+`(user_id, device_fingerprint)`: enrollment, read-with-attachment-heal, revoke,
+and account-cleanup deletion all acquire the same owner-token lease. The lease
+expires after ten minutes, renews before and after provider calls, and releases
+only when the owner token still matches. A live lease returns a retryable `409`;
+missing lease support returns `503`, so a deployment cannot silently run the
+old race after code rollout. Apply the migration before deploying the route.
+Freestyle tunnel requests use a 60-second provider client timeout, well below
+the lease duration. A process paused during an already-running provider request
+can still finish that external request after expiry because Freestyle has no
+conditional mutation token; the post-call renewal fences all later local writes,
+and deterministic tunnel slugs plus idempotent delete/create recovery bound the
+remaining drift.
+
 Freestyle is the active provider. A private-network VM is reached through its
-VPC address and requires the owner's WireGuard tunnel. A legacy or public-network
-VM is reached through its public IPv6 address. Both use the direct
-`cmux-remote` Noise session on `/v1/link`; the old bearer-token WebSocket and SSH
-attach paths are not fallback transports. The backend and the app treat the
-route as opaque, and the daemon's enrolled device key is the session authority.
+VPC address and requires the owner's WireGuard tunnel. The client prefers the VPC
+IPv4 address and uses VPC IPv6 when IPv4 is absent. A legacy or public-network VM
+is reached through its public IPv6 address. All managed sessions use the direct
+`cmux-remote` Noise session on `/v1/link`; Freestyle's scoped SSH proxy is an
+unmanaged provider diagnostic path, not a fallback transport. The backend and the
+app treat the route as opaque, and the daemon's enrolled device key is the session
+authority.
 
 This model keeps all daemon fields available to agents through the redacted
 `surface.catalog` export while keeping credentials out of the export. It costs
@@ -241,8 +258,9 @@ The rejected alternatives are explicit:
 
 `POST /api/vm/[id]/attach-endpoint` returns
 `{transport:"cmux-remote", route, token, expiresAtUnix, session, invitation?}`.
-The route is a direct Freestyle IPv6 address on port 1337 for machines with a
-private VPC, or the machine's public IPv6 for legacy public-network machines.
+The route is a direct Freestyle private IPv4 address on port 1337 when available,
+then private IPv6 for machines with a VPC, or the machine's public IPv6 for legacy
+public-network machines.
 The provider route token is recorded as a hash in the lease ledger and is not
 used as daemon session authentication. The cmux-tui Noise handshake and the
 enrolled device key authenticate the session. Private-network machines are

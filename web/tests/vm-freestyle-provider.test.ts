@@ -94,7 +94,7 @@ const tunnelCreateOptions = {
 describe("Freestyle tunnel create recovery", () => {
   test("reconciles a provider slug conflict without creating a second tunnel", async () => {
     const calls: string[] = [];
-    const existing = tunnelApiData({ clientPublicKey: tunnelCreateOptions.clientPublicKey });
+    let existing = tunnelApiData({ clientPublicKey: tunnelCreateOptions.clientPublicKey });
     const api = {
       create: async () => {
         throw new FreestyleApiError(409, { code: "CONFLICT", message: "slug is already in use" });
@@ -105,7 +105,8 @@ describe("Freestyle tunnel create recovery", () => {
       },
       attachVpc: async (id: string, vpc: string) => {
         calls.push(`attach:${id}:${vpc}`);
-        return { ...existing, attachments: [tunnelAttachment(vpc)] };
+        existing = { ...existing, attachments: [tunnelAttachment(vpc)] };
+        return existing;
       },
       rotateKey: async () => {
         throw new Error("must not rotate an equal key");
@@ -117,12 +118,16 @@ describe("Freestyle tunnel create recovery", () => {
     expect(result.rotated).toBe(false);
     expect(result.tunnel.id).toBe("tun-test-1");
     expect(result.tunnel.addressV4).toBe("10.40.0.2");
-    expect(calls).toEqual(["get:cmux-wg-test", "attach:cmux-wg-test:vpc-test-1"]);
+    expect(calls).toEqual([
+      "get:cmux-wg-test",
+      "attach:cmux-wg-test:vpc-test-1",
+      "get:cmux-wg-test",
+    ]);
   });
 
   test("attaches the requested VPC before rotating a stale client key", async () => {
     const calls: string[] = [];
-    const existing = tunnelApiData({
+    let existing = tunnelApiData({
       clientPublicKey: "client-key-a",
       attachments: [tunnelAttachment("vpc-old")],
     });
@@ -133,16 +138,18 @@ describe("Freestyle tunnel create recovery", () => {
       get: async () => existing,
       attachVpc: async (_id: string, vpc: string) => {
         calls.push(`attach:${vpc}`);
-        return { ...existing, attachments: [...existing.attachments, tunnelAttachment(vpc)] };
+        existing = { ...existing, attachments: [...existing.attachments, tunnelAttachment(vpc)] };
+        return existing;
       },
       rotateKey: async (_id: string, options: { clientPublicKey?: string }) => {
         const key = options.clientPublicKey ?? "";
         calls.push(`rotate:${key}`);
-        return {
+        existing = {
           ...existing,
           clientPublicKey: key,
           attachments: [...existing.attachments, tunnelAttachment("vpc-test-1")],
         };
+        return existing;
       },
     };
 
@@ -150,7 +157,10 @@ describe("Freestyle tunnel create recovery", () => {
     expect(result.created).toBe(false);
     expect(result.rotated).toBe(true);
     expect(result.tunnel.clientPublicKey).toBe(tunnelCreateOptions.clientPublicKey);
-    expect(calls).toEqual(["attach:vpc-test-1", "rotate:client-key-b"]);
+    expect(calls).toEqual([
+      "attach:vpc-test-1",
+      "rotate:client-key-b",
+    ]);
   });
 
   test("keeps the ordinary create path unchanged", async () => {
@@ -266,10 +276,16 @@ describe("FreestyleProvider transport contract", () => {
     await expect(provider.openAttach(VM_ID)).rejects.toThrow("cmux-remote");
   });
 
-  test("openSSH refuses: the public platform has no SSH gateway", async () => {
+  test("openSSH refuses as a managed transport even though provider SSH exists", async () => {
     const provider = new FreestyleProvider();
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow(ProviderError);
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow("cmux-remote");
+    try {
+      await provider.openSSH(VM_ID);
+      throw new Error("openSSH unexpectedly resolved");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(String(error)).toContain("unmanaged");
+      expect(String(error)).toContain("cmux-remote");
+    }
   });
 
   test("revokeSSHIdentity is a no-op, so destroy/cleanup paths stay safe", async () => {

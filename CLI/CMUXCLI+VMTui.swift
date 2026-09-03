@@ -232,6 +232,8 @@ extension CMUXCLI {
         /// workspace (`ws_…`); nil for `vm tui`, whose pane is the whole client.
         let terminalId: String?
         let remoteWorkspaceId: String?
+        /// Provider-reported private addresses, preserved for JSON/agent output.
+        let networkAddresses: [String: String]?
     }
 
     /// What the placeholder pane runs while the app opens the machine's terminal beside
@@ -366,6 +368,11 @@ extension CMUXCLI {
         let invitation = info["invitation"] as? [String: Any]
         let invitationUri = invitation?["uri"] as? String
         let invitationId = invitation?["invitation_id"] as? String
+        let networkAddresses: [String: String]? = {
+            guard let raw = info["network_addresses"] as? [String: Any] else { return nil }
+            let values = raw.compactMapValues { $0 as? String }
+            return values.isEmpty ? nil : values
+        }()
 
         let initialCommand: String
         if options.fullClient, let clientPath {
@@ -480,6 +487,24 @@ extension CMUXCLI {
                     _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])
                 }
                 paneSurfaceId = newSurface ?? terminalSurfaceId
+
+                // `workspace.create` runs before the remote terminal exists, so its
+                // first bind cannot include the cmux-tui workspace identity. Persist
+                // the identity returned by `surface.new_terminal` immediately. The
+                // local title rename path then has one exact remote target after a
+                // fresh open, without relying on a later catalog refresh or a
+                // name-based inference.
+                if let remoteWorkspaceID, !remoteWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    _ = try client.sendV2(
+                        method: "workspace.cloud_vm_bind",
+                        params: [
+                            "workspace_id": workspaceId,
+                            "vm_id": vmId,
+                            "base": options.pinAsBase,
+                            "remote_workspace_id": remoteWorkspaceID,
+                        ]
+                    )
+                }
             } catch {
                 if didCreateWorkspace {
                     _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
@@ -510,7 +535,8 @@ extension CMUXCLI {
             session: session,
             enrolling: invitationUri != nil,
             terminalId: terminalId,
-            remoteWorkspaceId: remoteWorkspaceId
+            remoteWorkspaceId: remoteWorkspaceId,
+            networkAddresses: networkAddresses
         )
     }
 

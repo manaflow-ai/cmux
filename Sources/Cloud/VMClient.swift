@@ -471,6 +471,15 @@ struct VMCmuxRemoteEndpoint {
     let expiresAtUnix: Int64
     let session: String
     let invitation: Invitation?
+    /// The machine's private addresses, when the provider returned them. Keep
+    /// this metadata on the client boundary so agents and diagnostics can see
+    /// the same route state the backend used, without reconstructing it.
+    struct NetworkAddresses {
+        let ipv4: String?
+        let ipv6: String?
+    }
+
+    let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
     struct DaemonBuild {
         let commit: String?
@@ -951,13 +960,22 @@ actor VMClient {
                 version: raw["version"] as? String
             )
         }
+        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        if let raw = obj["networkAddresses"] as? [String: Any] {
+            let ipv4 = raw["ipv4"] as? String
+            let ipv6 = raw["ipv6"] as? String
+            if ipv4 != nil || ipv6 != nil {
+                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+            }
+        }
         return VMCmuxRemoteEndpoint(
             route: route,
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
             invitation: invitation,
-            daemonBuild: daemonBuild
+            daemonBuild: daemonBuild,
+            networkAddresses: networkAddresses
         )
     }
 

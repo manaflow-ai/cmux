@@ -61,6 +61,39 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertFalse(devbox.isDesktop)
     }
 
+    func testCloudTerminalRenameRequiresAStableTabPlacement() {
+        let machine = SurfaceMachineID.cloud("freestyle-vm")
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1")
+        let workspace = SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true)
+        let placement = SurfaceRemoteView(tabID: "tab-1", workspace: workspace)
+        let detached = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        let pooled = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [placement],
+            port: nil,
+            url: nil
+        )
+
+        XCTAssertFalse(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: nil))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: placement))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: pooled, remoteView: nil))
+    }
+
     func testLabelDrivesDisplayName() {
         var summary = VMSummary(
             id: "noble-wren",

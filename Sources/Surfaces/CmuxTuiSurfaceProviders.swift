@@ -968,7 +968,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var seenTabIDs = Set<String>()
         let targets: [(tabID: String, previousName: String)] = views.compactMap { view in
             guard seenTabIDs.insert(view.tabID).inserted,
-                  let tab = observed.tabs.first(where: { $0.id == view.tabID }) else { return nil }
+                  let tab = observed.lookupIndex.tab(id: view.tabID) else { return nil }
             return (view.tabID, tab.name ?? "")
         }
         guard !targets.isEmpty else {
@@ -1026,7 +1026,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                latestCursor.generation == observedCursor.generation,
                latestCursor.revision == lastCommitRevision,
                renamedTabs.allSatisfy({ entry in
-                   latest.tabs.first(where: { $0.id == entry.tabID })?.name == normalizedName
+                   latest.lookupIndex.tab(id: entry.tabID)?.name == normalizedName
                }) {
                 compensated = true
                 var compensationRevision = latestCursor.revision

@@ -28,6 +28,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
 
+    /// A terminal rename needs a stable daemon tab placement. A terminal row
+    /// with only a legacy workspace hint is not enough, because the same
+    /// terminal can have zero or many tab placements.
+    static func canRenameTerminal(
+        resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?
+    ) -> Bool {
+        remoteView != nil || resource.remoteViews?.isEmpty == false
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             machineActions: machineActions,
@@ -637,9 +647,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     // views has no single safe target, so expose the explicit
                     // all-views operation. A detached zero-view resource has no
                     // daemon tab to rename and keeps this item hidden.
-                    let canRename = row.remoteView != nil
-                        || row.resource.remoteViews?.isEmpty == false
-                        || row.resource.remoteWorkspace != nil
+                    let canRename = CloudTreeOutlineView.canRenameTerminal(
+                        resource: row.resource,
+                        remoteView: row.remoteView
+                    )
                     if canRename {
                         let title = if row.remoteView == nil {
                             String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")

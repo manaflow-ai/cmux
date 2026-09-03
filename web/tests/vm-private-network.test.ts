@@ -11,7 +11,10 @@ import {
   tunnelSlugForDevice,
 } from "../services/vms/privateNetwork";
 import {
+  VmDatabaseError,
   VmPrivateNetworkUnavailableError,
+  VmTunnelEnrollmentBusyError,
+  VmTunnelEnrollmentUnavailableError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
 import type {
@@ -90,6 +93,7 @@ function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow 
 
 type GatewayCalls = {
   ensureNetwork: number;
+  getNetwork: number;
   createTunnel: CreateProviderTunnelOptions[];
   rotateTunnelKey: string[];
   deleteTunnel: string[];
@@ -98,9 +102,11 @@ type GatewayCalls = {
 function testGateway(options: {
   calls?: GatewayCalls;
   getTunnel?: ProviderTunnel | null;
+  network?: ProviderNetwork;
   supports?: boolean;
 } = {}): VmProviderGatewayShape {
   const calls = options.calls;
+  const network = options.network ?? NETWORK;
   return {
     create: () => Effect.die("unused"),
     destroy: () => Effect.void,
@@ -112,7 +118,12 @@ function testGateway(options: {
     ensureNetwork: () =>
       Effect.sync(() => {
         if (calls) calls.ensureNetwork += 1;
-        return NETWORK;
+        return network;
+      }),
+    getNetwork: (_provider, networkId) =>
+      Effect.sync(() => {
+        if (calls) calls.getNetwork += 1;
+        return network.id === networkId ? network : null;
       }),
     deleteNetwork: () => Effect.void,
     createTunnel: (_provider, createOptions) =>
@@ -141,6 +152,9 @@ type RepoCalls = {
   upserts: number;
   inserts: number;
   updates: number;
+  lockAcquires: number;
+  lockReleases: number;
+  lockRenews: number;
   revoked: string[];
 };
 
@@ -148,6 +162,9 @@ function testRepo(options: {
   calls?: RepoCalls;
   network?: CloudVmNetworkRow | null;
   tunnel?: CloudVmTunnelRow | null;
+  lockAcquired?: boolean;
+  lockRenewed?: boolean;
+  lockError?: VmDatabaseError;
 } = {}): VmRepositoryShape {
   const calls = options.calls;
   const base: Partial<VmRepositoryShape> = {
@@ -184,6 +201,22 @@ function testRepo(options: {
         calls?.revoked.push(id);
         return true;
       }),
+    acquireTunnelEnrollmentLock: () => {
+      if (options.lockError) return Effect.fail(options.lockError);
+      return Effect.sync(() => {
+        if (calls) calls.lockAcquires += 1;
+        return options.lockAcquired ?? true;
+      });
+    },
+    releaseTunnelEnrollmentLock: () =>
+      Effect.sync(() => {
+        if (calls) calls.lockReleases += 1;
+      }),
+    renewTunnelEnrollmentLock: () =>
+      Effect.sync(() => {
+        if (calls) calls.lockRenews += 1;
+        return options.lockRenewed ?? true;
+      }),
   };
   return base as VmRepositoryShape;
 }
@@ -196,11 +229,19 @@ function layerFor(repo: VmRepositoryShape, gateway: VmProviderGatewayShape) {
 }
 
 function newGatewayCalls(): GatewayCalls {
-  return { ensureNetwork: 0, createTunnel: [], rotateTunnelKey: [], deleteTunnel: [] };
+  return { ensureNetwork: 0, getNetwork: 0, createTunnel: [], rotateTunnelKey: [], deleteTunnel: [] };
 }
 
 function newRepoCalls(): RepoCalls {
-  return { upserts: 0, inserts: 0, updates: 0, revoked: [] };
+  return {
+    upserts: 0,
+    inserts: 0,
+    updates: 0,
+    lockAcquires: 0,
+    lockReleases: 0,
+    lockRenews: 0,
+    revoked: [],
+  };
 }
 
 describe("WireGuard public key validation", () => {
@@ -245,7 +286,7 @@ describe("resolveOwnerNetwork", () => {
     expect(repoCalls.upserts).toBe(1);
   });
 
-  test("reuses the recorded network without a provider call", async () => {
+  test("reconciles the recorded network with the provider before reuse", async () => {
     const gatewayCalls = newGatewayCalls();
     const network = await Effect.runPromise(
       resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
@@ -256,7 +297,28 @@ describe("resolveOwnerNetwork", () => {
       ),
     );
     expect(network?.providerNetworkId).toBe(NETWORK.id);
-    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(gatewayCalls.ensureNetwork).toBe(1);
+  });
+
+  test("replaces a stale control-plane network id when Freestyle recreated the VPC", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repoCalls = newRepoCalls();
+    const recreated: ProviderNetwork = {
+      ...NETWORK,
+      id: "vpc-recreated-2",
+      slug: networkSlugForUser("user-1"),
+    };
+    const network = await Effect.runPromise(
+      resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
+        Effect.provide(layerFor(
+          testRepo({ calls: repoCalls, network: networkRow({ providerNetworkId: "vpc-deleted-1" }) }),
+          testGateway({ calls: gatewayCalls, network: recreated }),
+        )),
+      ),
+    );
+    expect(network?.providerNetworkId).toBe(recreated.id);
+    expect(gatewayCalls.ensureNetwork).toBe(1);
+    expect(repoCalls.upserts).toBe(1);
   });
 
   test("returns null (does not fail) when the provider has no private networking", async () => {
@@ -306,6 +368,56 @@ describe("enrollVmTunnel", () => {
     expect(gatewayCalls.createTunnel).toHaveLength(1);
     expect(gatewayCalls.createTunnel[0]?.networkId).toBe(NETWORK.id);
     expect(repoCalls.inserts).toBe(1);
+    expect(repoCalls.lockAcquires).toBe(1);
+    expect(repoCalls.lockReleases).toBe(1);
+    expect(repoCalls.lockRenews).toBeGreaterThan(0);
+  });
+
+  test("reports a live enrollment lease without touching the provider", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repoCalls = newRepoCalls();
+    const error = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceFingerprint: "device-1",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(
+        Effect.provide(layerFor(
+          testRepo({ calls: repoCalls, lockAcquired: false }),
+          testGateway({ calls: gatewayCalls }),
+        )),
+        Effect.flip,
+      ),
+    );
+    expect(error).toBeInstanceOf(VmTunnelEnrollmentBusyError);
+    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(gatewayCalls.createTunnel).toHaveLength(0);
+    expect(repoCalls.lockAcquires).toBe(1);
+    expect(repoCalls.lockReleases).toBe(0);
+  });
+
+  test("stops before provider work when the lease is lost", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repoCalls = newRepoCalls();
+    const error = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceFingerprint: "device-1",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(
+        Effect.provide(layerFor(
+          testRepo({ calls: repoCalls, lockRenewed: false }),
+          testGateway({ calls: gatewayCalls }),
+        )),
+        Effect.flip,
+      ),
+    );
+    expect(error).toBeInstanceOf(VmTunnelEnrollmentBusyError);
+    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(gatewayCalls.createTunnel).toHaveLength(0);
+    expect(repoCalls.lockReleases).toBe(1);
   });
 
   test("re-enrolling with the same key is idempotent: no create, no rotate", async () => {
@@ -390,18 +502,93 @@ describe("enrollVmTunnel", () => {
 });
 
 describe("readVmTunnel / revokeVmTunnel", () => {
+  test("keeps an existing tunnel readable while new private-network provisioning is rolled back", async () => {
+    const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
+    process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
+    const gatewayCalls = newGatewayCalls();
+    try {
+      const tunnel = await Effect.runPromise(
+        readVmTunnel({
+          userId: "user-1",
+          provider: "freestyle",
+          deviceFingerprint: "device-1",
+        }).pipe(
+          Effect.provide(layerFor(
+            testRepo({ network: networkRow(), tunnel: tunnelRow() }),
+            testGateway({ calls: gatewayCalls }),
+          )),
+        ),
+      );
+      expect(tunnel.tunnelId).toBe("tun-test-1");
+      expect(gatewayCalls.ensureNetwork).toBe(0);
+      expect(gatewayCalls.getNetwork).toBe(1);
+    } finally {
+      if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
+      else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
+    }
+  });
+
+  test("fails closed when rollback leaves only a stale network row", async () => {
+    const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
+    process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
+    try {
+      const error = await Effect.runPromise(
+        readVmTunnel({
+          userId: "user-1",
+          provider: "freestyle",
+          deviceFingerprint: "device-1",
+        }).pipe(
+          Effect.provide(layerFor(
+            testRepo({ network: networkRow(), tunnel: tunnelRow() }),
+            testGateway({ network: { ...NETWORK, id: "vpc-recreated" } }),
+          )),
+          Effect.flip,
+        ),
+      );
+      expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
+    } finally {
+      if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
+      else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
+    }
+  });
+
   test("read fails typed for a device that never enrolled", async () => {
+    const gatewayCalls = newGatewayCalls();
     const error = await Effect.runPromise(
       readVmTunnel({
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
       }).pipe(
-        Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway())),
+        Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls: gatewayCalls }))),
         Effect.flip,
       ),
     );
     expect(error).toBeInstanceOf(VmTunnelNotFoundError);
+    expect(gatewayCalls.getNetwork).toBe(0);
+    expect(gatewayCalls.ensureNetwork).toBe(0);
+  });
+
+  test("reports a missing lock migration as a typed unavailable response", async () => {
+    const error = await Effect.runPromise(
+      readVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceFingerprint: "device-unknown",
+      }).pipe(
+        Effect.provide(layerFor(
+          testRepo({
+            lockError: new VmDatabaseError({
+              operation: "acquireTunnelEnrollmentLock",
+              cause: { code: "42P01", message: 'relation "cloud_vm_tunnel_enrollment_locks" does not exist' },
+            }),
+          }),
+          testGateway(),
+        )),
+        Effect.flip,
+      ),
+    );
+    expect(error).toBeInstanceOf(VmTunnelEnrollmentUnavailableError);
   });
 
   test("revoke deletes the provider tunnel before marking the row revoked", async () => {
@@ -422,6 +609,9 @@ describe("readVmTunnel / revokeVmTunnel", () => {
     expect(result.revoked).toBe(true);
     expect(gatewayCalls.deleteTunnel).toEqual(["tun-test-1"]);
     expect(repoCalls.revoked).toHaveLength(1);
+    expect(repoCalls.lockAcquires).toBe(1);
+    expect(repoCalls.lockReleases).toBe(1);
+    expect(repoCalls.lockRenews).toBeGreaterThan(0);
   });
 
   test("revoking a device that never enrolled is a no-op, not an error", async () => {
@@ -433,5 +623,25 @@ describe("readVmTunnel / revokeVmTunnel", () => {
       }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))),
     );
     expect(result.revoked).toBe(false);
+  });
+
+  test("serializes a missing-device read and releases the lease", async () => {
+    const repoCalls = newRepoCalls();
+    const error = await Effect.runPromise(
+      readVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceFingerprint: "device-unknown",
+      }).pipe(
+        Effect.provide(layerFor(
+          testRepo({ calls: repoCalls, network: networkRow() }),
+          testGateway(),
+        )),
+        Effect.flip,
+      ),
+    );
+    expect(error).toBeInstanceOf(VmTunnelNotFoundError);
+    expect(repoCalls.lockAcquires).toBe(1);
+    expect(repoCalls.lockReleases).toBe(1);
   });
 });

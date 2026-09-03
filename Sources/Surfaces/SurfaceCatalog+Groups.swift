@@ -118,7 +118,7 @@ extension SurfaceCatalog {
         var placements: [SurfaceResourcePlacement] = []
         for kind in orderedKinds {
             for resource in resources where resource.kind == kind {
-                if let views = resource.remoteViews {
+                if let views = resource.remoteViews, !views.isEmpty {
                     for view in views where view.workspace.id == workspaceID {
                         workspace = workspace ?? view.workspace
                         placements.append(

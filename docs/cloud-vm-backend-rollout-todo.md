@@ -20,6 +20,7 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - Current durable VM control-plane state is in Postgres:
   - `cloud_vms`
   - `cloud_vm_leases`
+  - `cloud_vm_tunnel_enrollment_locks`
   - `cloud_vm_usage_events`
 - WebSocket PTY and browser proxy data paths use the authenticated `cmux-remote`
   link after the REST handshake.
@@ -100,10 +101,11 @@ browsers, and agents. The macOS app must not create a second remote graph.
   cursor is rejected rather than treated as legacy.
 - Freestyle route selection reads the canonical `vpcs` addresses when that
   field is present, uses the deprecated `networks` alias only when `vpcs` is
-  absent, and uses public IPv6 only for a machine with no private address list.
-  Private machines require the owner's WireGuard tunnel. `cmux-remote` Noise
-  enrollment remains the only session transport; legacy WebSocket and SSH
-  paths fail explicitly.
+  absent, prefers private IPv4, then private IPv6, and uses public IPv6 only for
+  a machine with no private address list. Private machines require the owner's
+  WireGuard tunnel. `cmux-remote` Noise enrollment remains the only managed
+  session transport. Freestyle's scoped SSH proxy is provider-level access and
+  is not a managed fallback.
 
 Agent-facing controls are JSON-first and composable: `cmux vm tree --json`,
 `surface.catalog`, `surface.project`, `vm tab rename`, and the explicit
@@ -150,12 +152,20 @@ remains incompatible.
   full-document re-encoding.
 - [x] Verify reverse tab-content edges, legacy terminal tab references, tab
   moves, and large opaque collections in focused behavior tests.
+- [x] Serialize Freestyle tunnel enrollment, read-with-attachment-heal, revoke,
+  and account cleanup per `(user_id, device_fingerprint)` with a durable
+  owner-token lease, renewal, expiry recovery, and fail-closed migration guard.
+- [ ] Apply `cloud_vm_tunnel_enrollment_locks` in staging and production before
+  deploying the route, then rehearse an expired lease and a concurrent request.
 - [ ] Persist the claimed cmux-tui device fingerprint/device id in each lease and
   revoke only those device records on sign-out. Freestyle currently revokes the
   control-plane lease rows, but not daemon enrollment records.
-- [ ] Make missing Freestyle VPC member-rule repair a visible degraded create
-  result or a retried provider operation. The current attach path is best-effort
-  and can leave a private VM unreachable when the provider rejects the rule.
+- [x] Make missing Freestyle VPC member-rule repair fail closed. A rejected
+  listing or repair now fails network ensure instead of creating a private VM
+  that the owner's tunnel cannot reach.
+- [x] Keep existing tunnel reads and revokes usable during a private-network
+  rollback. The disabled flag blocks new VPC provisioning, but an existing
+  provider network is read by id and is never recreated as a side effect.
 - [ ] Run authenticated preview and staging create/attach/browser-proxy smoke
   after the next deployment.
 - [ ] Decide whether provider create needs an asynchronous status flow after

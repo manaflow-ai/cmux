@@ -244499,6 +244499,23 @@
         }
       }
     },
+    "socket.vm.renameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote name could not be changed. Refresh and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名を変更できませんでした。更新して再試行してください。"
+          }
+        }
+      }
+    },
     "socket.client.accessDenied": {
       "extractionState": "manual",
       "localizations": {

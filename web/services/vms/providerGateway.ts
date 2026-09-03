@@ -108,6 +108,11 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options: { slug: string; displayName?: string },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
+  /** Read a provider network without creating or repairing it. */
+  readonly getNetwork?: (
+    provider: ProviderId,
+    networkId: string,
+  ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
     networkId: string,
@@ -258,6 +263,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   ensureNetwork: (provider, options) =>
     providerEffect(provider, "ensureNetwork", () =>
       privateNetworking(provider).ensureNetwork(options)
+    ),
+  getNetwork: (provider, networkId) =>
+    providerEffect(provider, "getNetwork", () =>
+      privateNetworking(provider).getNetwork(networkId)
     ),
   deleteNetwork: (provider, networkId) =>
     providerEffect(provider, "deleteNetwork", () =>
