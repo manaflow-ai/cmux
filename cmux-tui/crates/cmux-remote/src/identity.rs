@@ -30,6 +30,7 @@ const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
+const MAX_KNOWN_DAEMON_ROUTE_HINTS: usize = 64;
 const ENROLLMENT_URI_PREFIX: &str = "cmux://enroll/";
 const CLIENT_STATE_FILE: &str = "known-daemons.json";
 pub const MAX_INVITATION_URI_BYTES: usize = ENROLLMENT_URI_PREFIX.len() + 16 * 1024;
@@ -274,9 +275,7 @@ impl ClientIdentityStore {
             existing.last_used_at_unix = now;
             if auth == KnownDaemonAuth::Carrier || existing.auth == KnownDaemonAuth::Carrier {
                 for route in route_hints {
-                    if !existing.route_hints.contains(&route) {
-                        existing.route_hints.push(route);
-                    }
+                    append_bounded_route_hint(&mut existing.route_hints, route);
                 }
                 if auth == KnownDaemonAuth::Enrolled {
                     existing.auth = KnownDaemonAuth::Enrolled;
@@ -318,9 +317,7 @@ impl ClientIdentityStore {
             return Ok(None);
         };
         existing.last_used_at_unix = now;
-        if !existing.route_hints.contains(&route) {
-            existing.route_hints.push(route);
-        }
+        append_bounded_route_hint(&mut existing.route_hints, route);
         let record = existing.clone();
         self.commit_client_state(transaction, candidate)?;
         Ok(Some(record))
@@ -2195,6 +2192,24 @@ fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, Ident
     Ok(sanitized)
 }
 
+fn append_bounded_route_hint(routes: &mut Vec<String>, route: String) {
+    cap_route_hints(routes);
+    if routes.contains(&route) {
+        return;
+    }
+    if routes.len() >= MAX_KNOWN_DAEMON_ROUTE_HINTS {
+        routes.remove(0);
+    }
+    routes.push(route);
+}
+
+fn cap_route_hints(routes: &mut Vec<String>) {
+    let excess = routes.len().saturating_sub(MAX_KNOWN_DAEMON_ROUTE_HINTS);
+    if excess > 0 {
+        routes.drain(..excess);
+    }
+}
+
 fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
     let mut sanitized = Vec::with_capacity(routes.len());
     for route in routes {
@@ -2212,6 +2227,7 @@ fn sanitize_loaded_known_daemon(daemon: &mut KnownDaemon) -> bool {
     let original_name = std::mem::take(&mut daemon.name);
     daemon.name = credential_free_daemon_name(original_name.clone());
     daemon.route_hints = credential_free_route_hints_lossy(&original_routes);
+    cap_route_hints(&mut daemon.route_hints);
     daemon.name != original_name || daemon.route_hints != original_routes
 }
 
