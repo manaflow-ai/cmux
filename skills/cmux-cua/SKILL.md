@@ -38,10 +38,17 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 - The wrappers keep the signed, app-bundled skill discoverable in both agent
   pickers: each repairs the link in its agent's own root before launching —
   `~/.claude/skills/cmux-cua` for Claude, `~/.agents/skills/cmux-cua` for
-  Codex (migrating any older cmux-owned `cmux-computer-use` link) — so the
-  picker shows one plain `cmux-cua` entry. Codex falls back to an
-  invocation-scoped `skills.config` entry only when that repair fails; there
-  is deliberately no Claude plugin fallback and no plugin manifest in this
+  Codex (migrating any older cmux-owned `cmux-computer-use` link). The
+  canonical name remains `cmux-cua` for existing references, while this
+  bundled driving row is labeled `cmux-cua (macOS driver)` in Codex metadata.
+  That explicit label keeps a same-name project/global collision visible and
+  path-specific; Codex retains its normal project-before-user order for a bare
+  `$cmux-cua` mention. The separate HQ build/E2E skill is
+  `$cmux-cua-build` (Issue #402); do not add a compatibility alias at
+  `cmux-cua`, since it would recreate the collision. Codex falls back to an
+  invocation-scoped `skills.config` entry only when that repair fails; picker
+  presentation of that session-only path remains Codex-owned. There is
+  deliberately no Claude plugin fallback and no plugin manifest in this
   directory, because a manifest makes Codex namespace the skill
   (`cmux-cua:cmux-cua`) and Claude display it plugin-qualified. A user-owned
   directory or unrelated symlink at that path is never replaced. Set

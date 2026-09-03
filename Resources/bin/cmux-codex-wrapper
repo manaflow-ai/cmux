@@ -256,9 +256,12 @@ cmux_codex_global_skill_install_enabled() {
 cmux_codex_install_computer_use_skill() {
     # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
     # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns. Returns 0 only
+    # Never replace a real directory or a symlink the user owns. The bundled
+    # skill keeps the canonical cmux-cua name for compatibility; its
+    # agents/openai.yaml display metadata supplies the stable "(macOS driver)"
+    # picker identity when a project skill uses the same name. Returns 0 only
     # when the cmux-cua link now points at this app bundle, so callers can skip
-    # the namespaced invocation-scoped fallback.
+    # the invocation-scoped fallback.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
     local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
@@ -353,10 +356,9 @@ cmux_codex_computer_use_enabled_for_invocation() {
 
 cmux_codex_emit_computer_use_args() {
     cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
-    # Invocation-scoped fallback only: a skills.config entry displays
-    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
-    # along when the plain ~/.agents/skills/cmux-cua link already covers this
-    # session.
+    # Invocation-scoped fallback only. Picker identity is owned by Codex's
+    # filesystem discovery and the bundled openai.yaml metadata; do not add a
+    # second path when the durable link already covers this session.
     local skill_path
     skill_path=""
     if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
@@ -651,9 +653,9 @@ cmux_codex_read_inject_args() {
 # Keep the bundled skill discoverable by Codex's picker before the session
 # starts. Installation is best-effort so an existing user-owned skill can
 # never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
-# for a strictly invocation-scoped session. When the durable link is in place,
-# the emitter skips its invocation-scoped skills.config fallback so the picker
-# shows one plain cmux-cua entry.
+# for a strictly invocation-scoped session. The durable link exposes the
+# bundled row with its explicit "cmux-cua (macOS driver)" display identity;
+# Codex remains responsible for ordering any same-name project row.
 CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
 if cmux_codex_global_skill_install_enabled \
       && cmux_codex_computer_use_enabled_for_invocation "$@"; then
