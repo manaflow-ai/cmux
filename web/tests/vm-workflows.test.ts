@@ -53,6 +53,7 @@ import {
   resetBaseVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  sweepExpiredVms,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -870,6 +871,58 @@ describe("VM Effect workflows", () => {
     expect(revoked).toBe(0);
     expect(revokedLeaseIds).toEqual([]);
     expect(leaseRevocationRetries).toHaveLength(1);
+  });
+
+  test("sweeps an expired Blaxel machine through destroy and home-volume cleanup", async () => {
+    const now = new Date("2026-08-31T12:00:00.000Z");
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000120",
+      userId: "user-workflow-expired-blaxel",
+      billingTeamId: "team-workflow-expired-blaxel",
+      billingPlanId: "free",
+      provider: "blaxel",
+      providerVmId: "expired-blaxel-machine",
+      status: "running",
+      createdAt: new Date("2026-08-01T12:00:00.000Z"),
+      providerMetadata: {
+        homeVolume: "cmux-home-expired-blaxel-expired-blaxel-machine",
+        homeVolumePerMachine: true,
+      },
+    });
+    const destroyedIds: string[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      destroyedIds,
+      usageEvents,
+      expiredLifecycleCandidates: (input) => {
+        expect(input.now).toEqual(now);
+        expect(input.freeAccessExpiresBefore).toEqual(new Date("2026-08-24T12:00:00.000Z"));
+        expect(input.limit).toBe(50);
+        return Effect.succeed([vm]);
+      },
+    });
+    const destroyedProviderIds: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: (_provider, providerVmId) => Effect.sync(() => {
+        destroyedProviderIds.push(providerVmId);
+      }),
+      deleteHomeVolume: (_provider, volumeName) => Effect.sync(() => {
+        deletedVolumes.push(volumeName);
+      }),
+    };
+
+    const result = await Effect.runPromise(
+      sweepExpiredVms({ now }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ checked: 1, destroyed: 1, skipped: 0, supported: true });
+    expect(destroyedProviderIds).toEqual(["expired-blaxel-machine"]);
+    expect(deletedVolumes).toEqual(["cmux-home-expired-blaxel-expired-blaxel-machine"]);
+    expect(destroyedIds).toEqual([vm.id]);
+    expect(usageEvents.some((event) => event.eventType === "vm.destroyed")).toBe(true);
   });
 
   dbTest("backs off failed expired identity cleanup so later leases progress", async () => {
@@ -4473,6 +4526,7 @@ function testWorkflowRepo(input: {
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly expiredLifecycleCandidates?: VmRepositoryShape["expiredLifecycleCandidates"];
   readonly markDestroyed?: VmRepositoryShape["markDestroyed"];
   readonly destroyedIds?: string[];
 }): VmRepositoryShape {
@@ -4488,6 +4542,7 @@ function testWorkflowRepo(input: {
     markBaseCreateRunning: () => unusedDatabaseEffect("markBaseCreateRunning"),
     markBaseCreateFailed: () => Effect.void,
     activeLimitCandidates: () => Effect.succeed([]),
+    expiredLifecycleCandidates: input.expiredLifecycleCandidates,
     reservePausedResume: () =>
       Effect.succeed({
         ...input.vm,

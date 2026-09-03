@@ -1,4 +1,23 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,6 +34,7 @@ import {
   cloudVmTunnels,
   cloudVms,
   cloudVmUsageEvents,
+  stripeSubscriptions,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -219,6 +239,11 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly expiredLifecycleCandidates?: (input: {
+    readonly now: Date;
+    readonly freeAccessExpiresBefore: Date | null;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /** Live VM rows that currently claim a persistent home volume. */
   readonly listLiveHomeVolumeNames?: (input: {
     readonly provider: ProviderId;
@@ -341,6 +366,10 @@ export class VmRepository extends Context.Tag("cmux/VmRepository")<
   VmRepository,
   VmRepositoryShape
 >() {}
+
+const activeVmSubscription = alias(stripeSubscriptions, "active_vm_subscription");
+const expiredVmSubscription = alias(stripeSubscriptions, "expired_vm_subscription");
+const ACTIVE_VM_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 
 function dbEffect<A>(
   operation: string,
@@ -1398,6 +1427,84 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVms)
         .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
         .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
+    }),
+
+  expiredLifecycleCandidates: (input) =>
+    dbEffect("expiredLifecycleCandidates", async () => {
+      const db = cloudDb();
+      const activeSubscription = db
+        .select({ id: activeVmSubscription.id })
+        .from(activeVmSubscription)
+        .where(and(
+          inArray(activeVmSubscription.status, [...ACTIVE_VM_SUBSCRIPTION_STATUSES]),
+          // Stripe keeps a subscription in an active status until the end of a
+          // cancel-at-period-end cycle. Do not protect a VM after that boundary.
+          or(
+            eq(activeVmSubscription.cancelAtPeriodEnd, false),
+            isNull(activeVmSubscription.currentPeriodEnd),
+            gt(activeVmSubscription.currentPeriodEnd, input.now),
+          ),
+          or(
+            and(
+              eq(activeVmSubscription.scope, "user"),
+              eq(activeVmSubscription.plan, "pro"),
+              eq(activeVmSubscription.stackUserId, cloudVms.userId),
+            ),
+            and(
+              eq(activeVmSubscription.scope, "team"),
+              eq(activeVmSubscription.plan, "team"),
+              eq(activeVmSubscription.stackTeamId, cloudVms.billingTeamId),
+            ),
+          ),
+        ));
+      const expiredSubscription = db
+        .select({ id: expiredVmSubscription.id })
+        .from(expiredVmSubscription)
+        .where(and(
+          or(
+            notInArray(expiredVmSubscription.status, [...ACTIVE_VM_SUBSCRIPTION_STATUSES]),
+            and(
+              eq(expiredVmSubscription.cancelAtPeriodEnd, true),
+              lte(expiredVmSubscription.currentPeriodEnd, input.now),
+            ),
+          ),
+          or(
+            and(
+              eq(expiredVmSubscription.scope, "user"),
+              eq(expiredVmSubscription.plan, "pro"),
+              eq(expiredVmSubscription.stackUserId, cloudVms.userId),
+            ),
+            and(
+              eq(expiredVmSubscription.scope, "team"),
+              eq(expiredVmSubscription.plan, "team"),
+              eq(expiredVmSubscription.stackTeamId, cloudVms.billingTeamId),
+            ),
+          ),
+        ));
+      const freeAccessExpired = input.freeAccessExpiresBefore
+        ? and(
+          // Legacy rows can have a null or blank plan; entitlement resolution
+          // treats those rows as free, so the cleanup query must do the same.
+          sql`lower(coalesce(nullif(trim(${cloudVms.billingPlanId}), ''), 'free')) = 'free'`,
+          lt(cloudVms.createdAt, input.freeAccessExpiresBefore),
+        )
+        : sql`false`;
+      const paidAccessExpired = and(
+        sql`lower(coalesce(nullif(trim(${cloudVms.billingPlanId}), ''), '')) in ('pro', 'team')`,
+        exists(expiredSubscription),
+      );
+
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          inArray(cloudVms.status, ["running", "paused"]),
+          isNotNull(cloudVms.providerVmId),
+          or(freeAccessExpired, paidAccessExpired),
+          notExists(activeSubscription),
+        ))
+        .orderBy(asc(cloudVms.createdAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 

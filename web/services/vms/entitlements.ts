@@ -223,10 +223,11 @@ export function maxActiveVmsForPlan(
 
 /**
  * How long a free-plan machine stays reachable after it is created, in days.
- * After the window the machine (and its data) is preserved, but every access
- * verb (attach, ssh, exec, ports, sessions) requires a paid plan; list/status/
- * delete keep working so the machine is visible and disposable. 0 disables
- * the window entirely (env kill switch).
+ * After the window every access verb (attach, ssh, exec, ports, sessions)
+ * requires a paid plan. The machine remains visible until the periodic
+ * lifecycle sweep removes it, so an upgrade can recover it before that sweep;
+ * list/status/delete keep working. 0 disables the window entirely (env kill
+ * switch).
  */
 export function vmFreeAccessWindowDays(
   env: Record<string, string | undefined> = process.env,

@@ -226,9 +226,10 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
 
 /**
  * The paywall response for a free-plan machine whose access window lapsed:
- * the machine and its data are preserved, reconnecting requires Pro. 402 with
- * `upgradeRequired`/`upgradeUrl` so clients render an upgrade prompt, mirroring
- * the free-plan variant of `vmActiveLimitExceededResponse`.
+ * the machine and its data remain available until the lifecycle sweep removes
+ * them, and reconnecting requires Pro before that sweep. 402 with
+ * `upgradeRequired`/`upgradeUrl` lets clients render an upgrade prompt,
+ * mirroring the free-plan variant of `vmActiveLimitExceededResponse`.
  */
 export function vmFreeAccessExpiredResponse(input: {
   readonly vmId: string;
@@ -237,8 +238,8 @@ export function vmFreeAccessExpiredResponse(input: {
   return vmErrorResponse({
     error: "vm_access_requires_pro",
     status: 402,
-    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to Pro reconnects it.`,
-    action: `Upgrade to Pro at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
+    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window. The machine and everything on it are preserved until the lifecycle cleanup sweep; upgrade to Pro before then to reconnect it.`,
+    action: `Upgrade to Pro at ${VM_UPGRADE_URL} before the lifecycle cleanup sweep to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { vmId: input.vmId, windowDays: input.windowDays },
   });
