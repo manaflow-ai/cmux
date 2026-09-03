@@ -9486,7 +9486,7 @@ mod unix {
                 assert_eq!(snapshot, Some("/spawn".into()));
                 assert_eq!(
                     crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
-                    Some(std::path::PathBuf::from("/spawn"))
+                    Some(PathBuf::from("/spawn"))
                 );
             }
         }
