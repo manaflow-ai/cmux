@@ -59,7 +59,7 @@ use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{
-    Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition, SidebarColumn,
+    Action, AgentSortMode, ChromeTheme, Config, ScrollbarPosition, SidebarColumn,
     SidebarColumnKind, SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope,
     SidebarViewSpec,
 };
