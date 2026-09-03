@@ -16,6 +16,21 @@ import { reportCoderouterFailure } from "../coderouter/observability";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
 
 export const CODEROUTER_ALERT_WINDOW_MINUTES = 5;
+export const CODEROUTER_ALERT_SINK_ACK_ENV = "CMUX_ALERTS_SINK_UNCONFIGURED_ACK";
+
+/**
+ * A cron run must have a Slack sink, or an explicit plain-text operator
+ * acknowledgement that the sink is intentionally absent. The deployment
+ * audit applies the same rule; reject its redacted sensitive-value marker at
+ * runtime because it is not an auditable reason.
+ */
+export function coderouterAlertSinkReady(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  if (env.CMUX_ALERTS_SLACK_WEBHOOK_URL?.trim()) return true;
+  const acknowledgement = env[CODEROUTER_ALERT_SINK_ACK_ENV]?.trim();
+  return Boolean(acknowledgement && acknowledgement !== "[SENSITIVE]");
+}
 
 export type CoderouterAlertCheck = {
   readonly key: string;

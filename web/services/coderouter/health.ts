@@ -98,6 +98,46 @@ export async function coderouterHealth(
   return { status, checks, checkedAt: new Date().toISOString() };
 }
 
+/**
+ * Keep the unauthenticated health endpoint cheap during monitor retries or a
+ * request burst. The result has no secrets and is safe to reuse briefly. A
+ * shared promise also ensures that concurrent callers run one probe, rather
+ * than one Postgres and ClickHouse probe per request.
+ */
+export const CODEROUTER_HEALTH_CACHE_TTL_MS = 5_000;
+
+export type CoderouterHealthProbe = () => Promise<CoderouterHealth>;
+
+export function createCachedCoderouterHealthProbe(
+  probe: CoderouterHealthProbe,
+  options: {
+    readonly now?: () => number;
+    readonly ttlMs?: number;
+  } = {},
+): CoderouterHealthProbe {
+  const now = options.now ?? (() => Date.now());
+  const ttlMs = options.ttlMs ?? CODEROUTER_HEALTH_CACHE_TTL_MS;
+  let cached: { readonly value: CoderouterHealth; readonly expiresAt: number } | undefined;
+  let inFlight: Promise<CoderouterHealth> | undefined;
+
+  return async () => {
+    const current = now();
+    if (cached && current < cached.expiresAt) return cached.value;
+
+    if (!inFlight) {
+      inFlight = probe()
+        .then((value) => {
+          cached = { value, expiresAt: now() + ttlMs };
+          return value;
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+    }
+    return inFlight;
+  };
+}
+
 async function timed(
   name: HealthCheck["name"],
   critical: boolean,

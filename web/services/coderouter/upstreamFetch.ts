@@ -46,25 +46,25 @@ export async function fetchWithHeadersTimeout(
   init: RequestInit,
   timeoutMs: number = upstreamHeadersTimeoutMs(),
 ): Promise<Response> {
-  const controller = new AbortController();
-  const outer = init.signal ?? null;
-  const forward = () => controller.abort(outer?.reason);
-  if (outer) {
-    if (outer.aborted) controller.abort(outer.reason);
-    else outer.addEventListener("abort", forward, { once: true });
-  }
+  const timeoutController = new AbortController();
+  const outer = init.signal;
+  // The timeout controller is only for the header phase. Keep the caller's
+  // signal in the composed signal so cancellation still reaches the body
+  // after headers have arrived and the timer has been cleared.
+  const requestSignal = outer
+    ? AbortSignal.any([outer, timeoutController.signal])
+    : timeoutController.signal;
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    controller.abort(new UpstreamHeadersTimeoutError(timeoutMs));
+    timeoutController.abort(new UpstreamHeadersTimeoutError(timeoutMs));
   }, timeoutMs);
   try {
-    return await fetchImpl(input, { ...init, signal: controller.signal });
+    return await fetchImpl(input, { ...init, signal: requestSignal });
   } catch (error) {
     if (timedOut) throw new UpstreamHeadersTimeoutError(timeoutMs);
     throw error;
   } finally {
     clearTimeout(timer);
-    outer?.removeEventListener("abort", forward);
   }
 }

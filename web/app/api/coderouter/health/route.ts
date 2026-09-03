@@ -1,6 +1,9 @@
 import { connection } from "next/server";
 
-import { coderouterHealth } from "../../../../services/coderouter/health";
+import {
+  coderouterHealth,
+  createCachedCoderouterHealthProbe,
+} from "../../../../services/coderouter/health";
 import {
   coderouterControlRoute,
   recordCoderouterOutcome,
@@ -12,9 +15,10 @@ import {
  * data plane can route, 503 when a critical dependency is down.
  */
 export const GET = coderouterControlRoute("health", "/api/coderouter/health", async () => {
-  // Never prerendered or cached: every call probes the live dependencies.
+  // Never prerendered. The short, in-process cache and shared promise prevent
+  // an unauthenticated monitor retry burst from multiplying DB load.
   await connection();
-  const health = await coderouterHealth();
+  const health = await cachedCoderouterHealth();
   const status = health.status === "down" ? 503 : 200;
   // A failing probe is an operator fault, but its own fingerprint: one
   // PostHog issue per outage instead of a generic server_error.
@@ -28,3 +32,5 @@ export const GET = coderouterControlRoute("health", "/api/coderouter/health", as
     headers: { "cache-control": "no-store" },
   });
 });
+
+const cachedCoderouterHealth = createCachedCoderouterHealthProbe(coderouterHealth);
