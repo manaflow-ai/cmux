@@ -54,7 +54,8 @@ extension SurfaceCatalog {
         port: Int,
         into destination: SurfaceDestination,
         focus: Bool,
-        reuseExisting: Bool
+        reuseExisting: Bool,
+        reuseInWorkspace: UUID? = nil
     ) async throws -> (projection: SurfaceProjection, reused: Bool) {
         guard case .cloud = machine, (1...65_535).contains(port) else {
             throw SurfaceCatalogError.unsupported(
@@ -87,7 +88,8 @@ extension SurfaceCatalog {
             id,
             into: destination,
             focus: focus,
-            reuseExisting: reuseExisting
+            reuseExisting: reuseExisting,
+            reuseInWorkspace: reuseInWorkspace
         )
     }
 

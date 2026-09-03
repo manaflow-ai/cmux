@@ -610,12 +610,26 @@ enum CloudTreeNodeBuilder {
                         projectionsByResource: projectionsByResource,
                         id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id)
                     )
-                } + members.browsers.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
+                } + members.browsers.map { browser in
+                    let id = nodeID(resource: browser.id, inRemoteWorkspace: workspace.id)
+                    if browser.id.isForwardedPort {
+                        return CloudTreeNode(
+                            id: id,
+                            kind: .port(
+                                browser,
+                                url: browser.url ?? portURL(
+                                    machine: machine,
+                                    info: info,
+                                    port: browser.id.forwardedPort ?? browser.port
+                                )
+                            )
+                        )
+                    }
+                    return CloudTreeNode(
+                        id: id,
                         kind: .browser(CloudTreeBrowserRow(
-                            resource: $0,
-                            isOpen: projectionsByResource[$0.id] != nil,
+                            resource: browser,
+                            isOpen: projectionsByResource[browser.id] != nil,
                             workspaceTitle: nil
                         ))
                     )

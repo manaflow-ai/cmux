@@ -117,7 +117,8 @@ struct CloudTreeNodeActions {
                             port: port,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: workspaceID
                         )
                     } else {
                         opened = try await catalog.project(

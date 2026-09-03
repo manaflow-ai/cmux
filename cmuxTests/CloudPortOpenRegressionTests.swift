@@ -219,7 +219,11 @@ struct CloudPortOpenRegressionTests {
         ))
         let portsGroup = try #require(tree.first { $0.id == "machine:port-vm/ports" })
         #expect(portsGroup.children.compactMap { $0.dragResource?.id } == [port.id])
-        #expect(tree.contains { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+        guard case .port = workspacePort.kind else {
+            Issue.record("the workspace pointer should retain the port row kind")
+            return
+        }
 
         // A complete snapshot with no browser view retires the old workspace
         // membership but keeps the listening port in the machine pool.
@@ -333,6 +337,19 @@ struct CloudPortOpenRegressionTests {
         #expect(second.reused)
         #expect(provider.materialized.count == 2, "the first explicit terminal projection is separate; the port itself is opened once")
         #expect(catalog.projections(of: port.id).count == 1)
+
+        // A scoped sidebar open must not reuse the owner's pane when the caller
+        // explicitly asks for another local workspace.
+        let scoped = try await catalog.openCloudPort(
+            machine: machine,
+            port: 8000,
+            into: .workspace(id: unrelatedWorkspaceID, placement: .split),
+            focus: false,
+            reuseExisting: true,
+            reuseInWorkspace: unrelatedWorkspaceID
+        )
+        #expect(!scoped.reused)
+        #expect(catalog.projections(of: port.id).count == 2)
 
         // A pool-only port has no remote workspace owner; unrelated machine
         // projections must not override the caller's selected workspace.
