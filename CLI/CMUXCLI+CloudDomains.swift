@@ -349,6 +349,12 @@ extension CMUXCLI {
                 defaultValue: "Routing: the apex record serves %@ itself; the * record serves every subdomain."
             )
             print(String(format: noteFormat, hostname))
+            // Freestyle documents no stable edge IPs, so an A record is never offered.
+            let fallbackFormat = String(
+                localized: "cli.cloud.domains.dns.apexFallback",
+                defaultValue: "No ALIAS/ANAME/flattening record at your DNS provider? Publish www.%@ and redirect the apex to it."
+            )
+            print(String(format: fallbackFormat, hostname))
         }
         printPublicationVerifyHint(name: hostname)
     }

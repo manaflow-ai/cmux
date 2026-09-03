@@ -226,6 +226,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(zones.contains("routing CNAME *.example.com beta-web.freestyle.sh"))
         #expect(zones.contains("certificate NS _acme-challenge.example.com beta-dns.freestyle.sh"))
         #expect(zones.contains("the * record serves every subdomain"))
+        #expect(zones.contains("Publish www.example.com and redirect the apex to it."))
         #expect(result.stdout.contains("cmux cloud domains verify example.com"))
         #expect(!result.stdout.contains("cmux cloud domains verify verified.example.net"))
         #expect(
