@@ -12640,6 +12640,10 @@ fn handle_command_with_cancellation(
                             json!({"event": "tree-changed"})
                         }
                         MuxEvent::TreeSelectionChanged => continue,
+                        MuxEvent::TerminalLifecycle { .. } if tree_deltas => {
+                            subscribed_event_json(&event)
+                        }
+                        MuxEvent::TerminalLifecycle { .. } => continue,
                         _ => subscribed_event_json(&event),
                     };
                     if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
@@ -13167,6 +13171,26 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+        MuxEvent::TerminalLifecycle {
+            terminal_id,
+            registry_terminal_id,
+            surface,
+            from,
+            to,
+            elapsed_ms,
+            cause,
+            discarded_input_bytes,
+        } => json!({
+            "event": "terminal-lifecycle",
+            "terminal_id": terminal_id,
+            "registry_terminal_id": registry_terminal_id,
+            "surface": surface,
+            "from": from,
+            "to": to,
+            "elapsed_ms": elapsed_ms,
+            "cause": cause,
+            "discarded_input_bytes": discarded_input_bytes,
+        }),
         MuxEvent::FrontendProjectionChanged {
             frontend,
             scope,

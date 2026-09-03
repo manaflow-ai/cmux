@@ -491,6 +491,12 @@
       ]
     },
     {
+      "name": "terminal-lifecycle",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "terminal-registry-changed",
       "streams": [
         "subscribe"

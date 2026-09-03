@@ -49,6 +49,7 @@ public final class Events {
     public static final EventMetadata TAB_ADDED = new EventMetadata("tab-added", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_CLOSED = new EventMetadata("tab-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_RENAMED = new EventMetadata("tab-renamed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata TERMINAL_LIFECYCLE = new EventMetadata("terminal-lifecycle", 12, null, List.of("subscribe"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
     public static final EventMetadata TREE_CHANGED = new EventMetadata("tree-changed", 5, null, List.of("subscribe"), true);
@@ -100,6 +101,7 @@ public final class Events {
         values.put("tab-added", TAB_ADDED);
         values.put("tab-closed", TAB_CLOSED);
         values.put("tab-renamed", TAB_RENAMED);
+        values.put("terminal-lifecycle", TERMINAL_LIFECYCLE);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);
         values.put("tree-changed", TREE_CHANGED);

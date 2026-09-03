@@ -15990,6 +15990,157 @@ Result<TabRenamedEvent> Codec<TabRenamedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalLifecycleEvent>::encode(const TerminalLifecycleEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-lifecycle")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    } else {
+        object.emplace("cause", Json(nullptr));
+    }
+    auto encoded_discarded_input_bytes = encode_value(value.discarded_input_bytes);
+    if (!encoded_discarded_input_bytes) return std::move(encoded_discarded_input_bytes).error();
+    object.emplace("discarded_input_bytes", std::move(encoded_discarded_input_bytes).value());
+    auto encoded_elapsed_ms = encode_value(value.elapsed_ms);
+    if (!encoded_elapsed_ms) return std::move(encoded_elapsed_ms).error();
+    object.emplace("elapsed_ms", std::move(encoded_elapsed_ms).value());
+    if (value.from) {
+        auto encoded = encode_value(*value.from);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("from", std::move(encoded).value());
+    } else {
+        object.emplace("from", Json(nullptr));
+    }
+    auto encoded_registry_terminal_id = encode_value(value.registry_terminal_id);
+    if (!encoded_registry_terminal_id) return std::move(encoded_registry_terminal_id).error();
+    object.emplace("registry_terminal_id", std::move(encoded_registry_terminal_id).value());
+    if (value.surface) {
+        auto encoded = encode_value(*value.surface);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("surface", std::move(encoded).value());
+    } else {
+        object.emplace("surface", Json(nullptr));
+    }
+    if (value.terminal_id) {
+        auto encoded = encode_value(*value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    } else {
+        object.emplace("terminal_id", Json(nullptr));
+    }
+    auto encoded_to = encode_value(value.to);
+    if (!encoded_to) return std::move(encoded_to).error();
+    object.emplace("to", std::move(encoded_to).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalLifecycleEvent> Codec<TerminalLifecycleEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalLifecycleEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (!field_cause) {
+        return make_error(ErrorCode::decode, "missing required field 'cause'");
+    }
+    if (field_cause) {
+        if (field_cause->is_null()) {
+            result.cause.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cause);
+            if (!decoded) return std::move(decoded).error();
+            result.cause = std::move(decoded).value();
+        }
+    }
+    const Json* field_discarded_input_bytes = value.find("discarded_input_bytes");
+    if (!field_discarded_input_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'discarded_input_bytes'");
+    }
+    if (field_discarded_input_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_discarded_input_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.discarded_input_bytes = std::move(decoded).value();
+    }
+    const Json* field_elapsed_ms = value.find("elapsed_ms");
+    if (!field_elapsed_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'elapsed_ms'");
+    }
+    if (field_elapsed_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_elapsed_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.elapsed_ms = std::move(decoded).value();
+    }
+    const Json* field_from = value.find("from");
+    if (!field_from) {
+        return make_error(ErrorCode::decode, "missing required field 'from'");
+    }
+    if (field_from) {
+        if (field_from->is_null()) {
+            result.from.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_from);
+            if (!decoded) return std::move(decoded).error();
+            result.from = std::move(decoded).value();
+        }
+    }
+    const Json* field_registry_terminal_id = value.find("registry_terminal_id");
+    if (!field_registry_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'registry_terminal_id'");
+    }
+    if (field_registry_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_registry_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_terminal_id = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        if (field_surface->is_null()) {
+            result.surface.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_surface);
+            if (!decoded) return std::move(decoded).error();
+            result.surface = std::move(decoded).value();
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = std::move(decoded).value();
+        }
+    }
+    const Json* field_to = value.find("to");
+    if (!field_to) {
+        return make_error(ErrorCode::decode, "missing required field 'to'");
+    }
+    if (field_to) {
+        auto decoded = decode_value<std::string>(*field_to);
+        if (!decoded) return std::move(decoded).error();
+        result.to = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-lifecycle"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalRegistryChangedEvent>::encode(const TerminalRegistryChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -18002,6 +18153,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "terminal-lifecycle") {
+        auto decoded = decode_value<TerminalLifecycleEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "terminal-registry-changed") {
         auto decoded = decode_value<TerminalRegistryChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -18222,7 +18378,7 @@ constexpr std::array<CommandMetadata, 105> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 47> kEvents{{
+constexpr std::array<EventMetadata, 48> kEvents{{
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
@@ -18261,6 +18417,7 @@ constexpr std::array<EventMetadata, 47> kEvents{{
     {"tab-added", 7U, "", "subscribe-deltas", "emitted"},
     {"tab-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"tab-renamed", 7U, "", "subscribe-deltas", "emitted"},
+    {"terminal-lifecycle", 12U, "", "subscribe", "emitted"},
     {"terminal-registry-changed", 9U, "", "subscribe", "emitted"},
     {"title-changed", 5U, "", "subscribe", "emitted"},
     {"tree-changed", 5U, "", "subscribe", "emitted"},

@@ -164,6 +164,11 @@ impl SurfaceSessionScope {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
             MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
+            // A lifecycle transition names the placement it happened on; a
+            // terminal without a live placement is not this client's concern.
+            MuxEvent::TerminalLifecycle { surface, .. } => {
+                surface.is_none_or(|surface| surface == self.surface)
+            }
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful
             // state and would only force repeated whole-tree refreshes.

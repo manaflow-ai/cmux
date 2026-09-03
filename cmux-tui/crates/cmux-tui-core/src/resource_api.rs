@@ -662,12 +662,15 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     format!("terminal {terminal_id} omitted its durable identity")
                 })?;
                 if let Some(surface) = surface {
-                    let runtime_host =
-                        mux.resource_terminal_host_identity(surface).with_context(|| {
+                    // A launching terminal has a reserved id but no host
+                    // incarnation yet; match on the id, which the reserved
+                    // terminal already carries.
+                    let runtime_host_id =
+                        mux.terminal_id_for_surface(surface).with_context(|| {
                             format!("terminal {terminal_id} runtime omitted its durable identity")
                         })?;
                     anyhow::ensure!(
-                        runtime_host.terminal_id == *host_id,
+                        runtime_host_id == *host_id,
                         "terminal {terminal_id} runtime references a mismatched durable host"
                     );
                 }

@@ -259,6 +259,7 @@ MODEL_BY_PATH = {
     'events/tab-added/payload': models.TabAddedEvent,
     'events/tab-closed/payload': models.TabClosedEvent,
     'events/tab-renamed/payload': models.TabRenamedEvent,
+    'events/terminal-lifecycle/payload': models.TerminalLifecycleEvent,
     'events/terminal-registry-changed/payload': models.TerminalRegistryChangedEvent,
     'events/title-changed/payload': models.TitleChangedEvent,
     'events/tree-changed/payload': models.TreeChangedEvent,
@@ -292,6 +293,7 @@ ENUM_BY_PATH = {
 
 PYTHON_FIELD_NAMES = {
     'bytes': 'bytes_data',
+    'from': 'from_',
     'self': 'is_self'
 }
 
