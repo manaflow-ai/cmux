@@ -430,4 +430,53 @@ mod tests {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
     }
+
+    #[test]
+    fn agent_view_orders_blocked_before_working_then_by_recency() {
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 20,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            },
+        ];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree(),
+            &agents,
+            0,
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+            vec![
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 1,
+                    surface: 5,
+                    agent: true,
+                },
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 0,
+                    surface: 4,
+                    agent: true,
+                },
+            ]
+        );
+    }
 }
