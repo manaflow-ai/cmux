@@ -1352,6 +1352,41 @@ mod tests {
     }
 
     #[test]
+    fn unix_connect_readiness_wait_honors_cancellation() {
+        use std::io::ErrorKind;
+        use std::os::fd::IntoRawFd;
+        use std::os::unix::net::UnixStream;
+
+        let (mut writer, reader) = UnixStream::pair().expect("create readiness socket pair");
+        writer.set_nonblocking(true).expect("make readiness writer nonblocking");
+        let payload = [0_u8; 16 * 1024];
+        loop {
+            match writer.write(&payload) {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                Err(error) => panic!("fill readiness socket: {error}"),
+            }
+        }
+        let socket = unsafe { Socket::from_raw_fd(writer.into_raw_fd()) };
+        let context = MachineConnectContext::new(Duration::from_secs(30));
+        let worker_context = context.clone();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let result = wait_for_socket_ready_with_context(&socket, &worker_context);
+            done_tx.send(result).expect("report readiness wait result");
+        });
+
+        thread::sleep(Duration::from_millis(25));
+        context.cancel();
+        let result = done_rx
+            .recv_timeout(Duration::from_millis(500))
+            .expect("readiness wait ignored cancellation");
+        assert_eq!(result.expect_err("cancelled readiness wait succeeded").kind(), ErrorKind::Interrupted);
+        worker.join().expect("join readiness wait worker");
+        drop(reader);
+    }
+
+    #[test]
     fn deadline_interrupts_a_blocked_provider_pipe() {
         let directory = TestDirectory::new();
         let script = directory.script("block-forever", "while IFS= read -r _line; do :; done");
