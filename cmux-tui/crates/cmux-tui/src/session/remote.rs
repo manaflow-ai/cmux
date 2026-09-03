@@ -7716,6 +7716,53 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_repeated_output_color_state_emits_only_changed_sidecar() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let colors = json!({
+            "fg": "#102030",
+            "bg": "#405060",
+            "cursor": "#708090",
+            "cursor_style": "underline",
+            "cursor_blink": true,
+            "palette": {"196": "#010203"},
+        });
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"first"),
+            "colors": colors.clone(),
+        }));
+        let PipeIoEvent::Output(first) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("first output did not forward");
+        };
+        assert!(first.starts_with(b"first"));
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"second"),
+            "colors": colors,
+        }));
+        let PipeIoEvent::Output(second) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("second output did not forward");
+        };
+        assert_eq!(second, b"second");
+    }
+
+    #[test]
     fn pipe_io_colors_changed_is_forwarded_to_an_owned_surface() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
