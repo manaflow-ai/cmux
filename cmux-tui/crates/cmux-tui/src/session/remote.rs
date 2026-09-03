@@ -5674,7 +5674,7 @@ mod tests {
     #[cfg(unix)]
     use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
-    use std::os::unix::net::UnixStream;
+    use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Condvar, Mutex, Weak};
@@ -9639,6 +9639,39 @@ mod tests {
             .expect("deadline-bounded ordered wait blocked on the state mutex")
             .expect_err("an unwritten sequence unexpectedly completed");
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn expired_probe_does_not_start_a_socket_connector() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("probe.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let error = RemoteSession::connect_for_terminal_attach_until(
+            &path,
+            Instant::now() - Duration::from_millis(1),
+        )
+        .expect_err("an expired probe unexpectedly connected");
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+
+        let settle_deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            match listener.accept() {
+                Ok(_) => panic!("expired probe started a connector after returning"),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= settle_deadline {
+                        break;
+                    }
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("probe listener failed: {error}"),
+            }
+        }
     }
 
     #[test]
