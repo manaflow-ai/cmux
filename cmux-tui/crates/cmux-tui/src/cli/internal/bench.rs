@@ -665,7 +665,7 @@ fn close_created_terminals(
     let created = &report.lock().unwrap().created_terminals;
     let plan = current
         .iter()
-        .filter(|(id, life)| created.contains(*id) && !matches!(*life, "tombstoned" | "exited"))
+        .filter(|(id, life)| created.contains(id) && !matches!(life.as_str(), "tombstoned" | "exited"))
         .map(|(id, _)| id.to_string())
         .collect::<Vec<_>>();
     for terminal_id in plan {
