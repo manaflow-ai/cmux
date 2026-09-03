@@ -2415,8 +2415,9 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        _ = workspace.withNewTabZoomPolicy(inPane: paneId) {
+            workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
@@ -12858,7 +12859,7 @@ struct VerticalTabsSidebar: View, Equatable {
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
             }
-            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: nil)
+            let panel = tabManager.createNewTerminalSurface(in: workspace, initialInput: nil)
             if panel == nil, workspace.isRemoteTmuxMirror {
                 // Routed to the remote as a tmux `new-window`; the tab arrives
                 // asynchronously via the mirror, so this is success, not failure.

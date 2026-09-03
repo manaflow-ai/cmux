@@ -222,13 +222,15 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            switch workspace.newTerminalSurfaceOutcome(
-                inPane: paneId,
-                focus: focus,
-                inheritWorkingDirectoryFallback: true,
-                workingDirectoryFallbackSourcePanelId: panelId,
-                allowTextBoxFocusDefault: false
-            ) {
+            switch workspace.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+                workspace.newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: focus,
+                    inheritWorkingDirectoryFallback: true,
+                    workingDirectoryFallbackSourcePanelId: panelId,
+                    allowTextBoxFocusDefault: false
+                )
+            }) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 return finish(.created(newPanel.id))
@@ -259,12 +261,14 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            guard let newPanel = workspace.newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: focus,
-                creationPolicy: .automationPreload
-            ) else {
+            guard let newPanel = workspace.withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+                workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )
+            }) else {
                 return .createFailed
             }
             _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)

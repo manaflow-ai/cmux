@@ -135,8 +135,12 @@ struct CmuxConfigExecutor {
             case .currentTerminal:
                 targetTerminal?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                if let targetWorkspace {
+                    _ = tabManager.createNewTerminalSurface(
+                        in: targetWorkspace,
+                        initialInput: shellInput
+                    )
+                }
             }
             onExecuted?()
         }

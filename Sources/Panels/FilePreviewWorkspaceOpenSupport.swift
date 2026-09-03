@@ -32,12 +32,14 @@ extension Workspace {
             let panel: (any Panel)?
             let pathExtension = (filePath as NSString).pathExtension.lowercased()
             if pathExtension == "xcodeproj" || pathExtension == "xcworkspace" {
-                panel = newProjectSurface(
-                    inPane: paneId,
-                    projectPath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
+                panel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: shouldFocusNewTabs) {
+                    newProjectSurface(
+                        inPane: paneId,
+                        projectPath: filePath,
+                        focus: shouldFocusNewTabs,
+                        targetIndex: nextIndex
+                    )
+                }
             } else if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
                 if reuseExisting {
                     panel = openOrFocusMarkdownSurface(
@@ -46,12 +48,14 @@ extension Workspace {
                         focus: shouldFocusNewTabs
                     )
                 } else {
-                    panel = newMarkdownSurface(
-                        inPane: paneId,
-                        filePath: filePath,
-                        focus: shouldFocusNewTabs,
-                        targetIndex: nextIndex
-                    )
+                    panel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: shouldFocusNewTabs) {
+                        newMarkdownSurface(
+                            inPane: paneId,
+                            filePath: filePath,
+                            focus: shouldFocusNewTabs,
+                            targetIndex: nextIndex
+                        )
+                    }
                 }
             } else if reuseExisting {
                 panel = openOrFocusFilePreviewSurface(
@@ -60,12 +64,14 @@ extension Workspace {
                     focus: shouldFocusNewTabs
                 )
             } else {
-                panel = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
+                panel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: shouldFocusNewTabs) {
+                    newFilePreviewSurface(
+                        inPane: paneId,
+                        filePath: filePath,
+                        focus: shouldFocusNewTabs,
+                        targetIndex: nextIndex
+                    )
+                }
             }
 
             if let panel {
@@ -101,12 +107,14 @@ extension Workspace {
                     focus: shouldFocusNewTabs
                 )
             } else {
-                panel = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
+                panel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: shouldFocusNewTabs) {
+                    newFilePreviewSurface(
+                        inPane: paneId,
+                        filePath: filePath,
+                        focus: shouldFocusNewTabs,
+                        targetIndex: nextIndex
+                    )
+                }
             }
 
             if let panel {

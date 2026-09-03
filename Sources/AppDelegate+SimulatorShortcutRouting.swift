@@ -38,7 +38,9 @@ extension AppDelegate {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled,
               let workspace = context.tabManager.selectedWorkspace,
               let pane = workspace.bonsplitController.focusedPaneId,
-              workspace.newSimulatorSurface(inPane: pane, focus: true) != nil else {
+              (workspace.withNewTabZoomPolicy(inPane: pane) {
+                  workspace.newSimulatorSurface(inPane: pane, focus: true)
+              }) != nil else {
             return false
         }
         onExecuted?()

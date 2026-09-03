@@ -594,6 +594,35 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     // MARK: - In-app creation
 
+    /// Applies the shared pane-zoom preference to a focused Dock tab request.
+    private func applyNewTabZoomPolicy(inPane paneId: PaneID) {
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        let keepExpanded = settings.value(for: settingsCatalog.app.keepExpandedOnNewTab)
+        guard zoomedPaneId != nil,
+              !(keepExpanded && zoomedPaneId == paneId) else { return }
+        _ = bonsplitController.clearPaneZoom()
+        applyVisibilityToAllPanels()
+    }
+
+    /// Runs a Dock tab creation transactionally with the shared pane-zoom policy.
+    func withNewTabZoomPolicy<Result>(
+        inPane paneId: PaneID,
+        applyPolicy: Bool = true,
+        _ operation: () -> Result?
+    ) -> Result? {
+        guard applyPolicy else { return operation() }
+        let previousZoomedPaneId = bonsplitController.zoomedPaneId
+        applyNewTabZoomPolicy(inPane: paneId)
+        let result = operation()
+        if result == nil,
+           let previousZoomedPaneId,
+           bonsplitController.zoomedPaneId == nil,
+           bonsplitController.allPaneIds.contains(previousZoomedPaneId) {
+            _ = toggleDockPaneZoom(inPane: previousZoomedPaneId)
+        }
+        return result
+    }
+
     /// Creates a new surface (tab) in an existing Dock pane. Used by the tab-bar
     /// "+" buttons, the empty-pane affordance, and `surface.create --placement dock`.
     @discardableResult
@@ -617,9 +646,37 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        applyZoomPolicy: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        if applyZoomPolicy && focus {
+            return withNewTabZoomPolicy(inPane: paneId) {
+                newSurface(
+                    kind: kind,
+                    inPane: paneId,
+                    url: url,
+                    initialRequest: initialRequest,
+                    command: command,
+                    workingDirectory: workingDirectory,
+                    sourcePanelId: sourcePanelId,
+                    environment: environment,
+                    tmuxStartCommand: tmuxStartCommand,
+                    initialInput: initialInput,
+                    startupRestoreAgent: startupRestoreAgent,
+                    focus: focus,
+                    preferredProfileID: preferredProfileID,
+                    bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                    chromeVisibility: chromeVisibility,
+                    preloadInitialNavigationInBackground: preloadInitialNavigationInBackground,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy,
+                    allowsExternalBrowserFallback: allowsExternalBrowserFallback,
+                    websiteDataStore: websiteDataStore,
+                    applyZoomPolicy: false
+                )
+            }
+        }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser

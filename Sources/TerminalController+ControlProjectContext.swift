@@ -36,11 +36,14 @@ extension TerminalController: ControlProjectContext {
             return .noFocusedPane
         }
 
-        guard let panel = ws.newProjectSurface(
-            inPane: paneId,
-            projectPath: path,
-            focus: v2FocusAllowed(requested: requestedFocus)
-        ) else {
+        let focus = v2FocusAllowed(requested: requestedFocus)
+        guard let panel = ws.withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+            ws.newProjectSurface(
+                inPane: paneId,
+                projectPath: path,
+                focus: focus
+            )
+        }) else {
             return .createFailed
         }
         return .opened(

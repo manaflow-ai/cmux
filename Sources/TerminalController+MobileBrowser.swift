@@ -186,7 +186,9 @@ extension TerminalController {
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
-        guard let panel = workspace.newBrowserSurface(inPane: paneId, focus: false) else {
+        guard let panel = workspace.withNewTabZoomPolicy(inPane: paneId, applyPolicy: false, {
+            workspace.newBrowserSurface(inPane: paneId, focus: false)
+        }) else {
             mobileBrowserRecordDiagnostic(.browserPanelCreateResolved, panel: nil, a: 0)
             return .err(code: "unavailable", message: "Browser creation is unavailable", data: nil)
         }

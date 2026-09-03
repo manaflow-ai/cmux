@@ -17,7 +17,9 @@ enum SessionEntryResumeCoordinator {
         let selectedTab = tabManager.selectedTabId.flatMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let isRemoteSelection =
+            selectedTab?.isRemoteWorkspace == true ||
+            selectedTab?.isRemoteTmuxMirror == true
         let workspaceCwd = selected?.currentDirectory
         let pwdMatches: Bool = {
             guard !isRemoteSelection,
@@ -31,13 +33,15 @@ enum SessionEntryResumeCoordinator {
         if pwdMatches,
            let workspace = selected,
            let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
+            _ = workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+                workspace.newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: true,
+                    workingDirectory: targetCwd,
+                    initialInput: launch.initialInput,
+                    startupRestoreAgent: launch.startupRestoreAgent
+                )
+            }
             return
         }
 

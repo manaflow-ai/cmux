@@ -4658,14 +4658,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) else {
                     return false
                 }
-                return self.newBrowserSurface(
-                    inPane: targetPane,
-                    initialRequest: request,
-                    focus: true,
-                    preferredProfileID: sourcePanel.profileID,
-                    allowsExternalBrowserFallback: false,
-                    websiteDataStore: websiteDataStore
-                ) != nil
+                return self.withNewTabZoomPolicy(inPane: targetPane) {
+                    self.newBrowserSurface(
+                        inPane: targetPane,
+                        initialRequest: request,
+                        focus: true,
+                        preferredProfileID: sourcePanel.profileID,
+                        allowsExternalBrowserFallback: false,
+                        websiteDataStore: websiteDataStore
+                    )
+                } != nil
             },
             openHorizontalSplit: { request, websiteDataStore in
                 self.newBrowserSplit(
@@ -4684,15 +4686,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) else {
                     return false
                 }
-                return self.newBrowserSurface(
-                    inPane: sourcePane,
-                    initialRequest: request,
-                    focus: true,
-                    insertAtEnd: true,
-                    preferredProfileID: sourcePanel.profileID,
-                    allowsExternalBrowserFallback: false,
-                    websiteDataStore: websiteDataStore
-                ) != nil
+                return self.withNewTabZoomPolicy(inPane: sourcePane) {
+                    self.newBrowserSurface(
+                        inPane: sourcePane,
+                        initialRequest: request,
+                        focus: true,
+                        insertAtEnd: true,
+                        preferredProfileID: sourcePanel.profileID,
+                        allowsExternalBrowserFallback: false,
+                        websiteDataStore: websiteDataStore
+                    )
+                } != nil
             },
             isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
@@ -4717,14 +4721,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) else {
                     return false
                 }
-                return self.newBrowserSurface(
-                    inPane: targetPane,
-                    url: url,
-                    focus: true,
-                    preferredProfileID: sourcePanel.profileID,
-                    allowsExternalBrowserFallback: false,
-                    websiteDataStore: websiteDataStore
-                ) != nil
+                return self.withNewTabZoomPolicy(inPane: targetPane) {
+                    self.newBrowserSurface(
+                        inPane: targetPane,
+                        url: url,
+                        focus: true,
+                        preferredProfileID: sourcePanel.profileID,
+                        allowsExternalBrowserFallback: false,
+                        websiteDataStore: websiteDataStore
+                    )
+                } != nil
             },
             openHorizontalSplit: { url, websiteDataStore in
                 self.newBrowserSplit(
@@ -4743,15 +4749,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) else {
                     return false
                 }
-                return self.newBrowserSurface(
-                    inPane: sourcePane,
-                    url: url,
-                    focus: true,
-                    insertAtEnd: true,
-                    preferredProfileID: sourcePanel.profileID,
-                    allowsExternalBrowserFallback: false,
-                    websiteDataStore: websiteDataStore
-                ) != nil
+                return self.withNewTabZoomPolicy(inPane: sourcePane) {
+                    self.newBrowserSurface(
+                        inPane: sourcePane,
+                        url: url,
+                        focus: true,
+                        insertAtEnd: true,
+                        preferredProfileID: sourcePanel.profileID,
+                        allowsExternalBrowserFallback: false,
+                        websiteDataStore: websiteDataStore
+                    )
+                } != nil
             },
             isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
@@ -9808,7 +9816,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return withNewTabZoomPolicy(inPane: targetPane) {
+                newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            }
         }
 
         return newMarkdownSplit(
@@ -10007,7 +10017,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
     }
 
     @discardableResult
@@ -10070,7 +10082,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
     }
 
     @discardableResult
@@ -10089,7 +10103,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return withNewTabZoomPolicy(inPane: targetPane) {
+                newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            }
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -11354,21 +11370,113 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        newTerminalSurfaceInFocusedPaneOutcome(
+            focus: focus,
+            initialInput: initialInput
+        ).panel
+    }
+
+    /// Creates a terminal tab in the focused pane while retaining remote routing status.
+    @discardableResult
+    func newTerminalSurfaceInFocusedPaneOutcome(
+        focus: Bool? = nil,
+        initialInput: String? = nil
+    ) -> TerminalPanelCreationOutcome {
+        guard let focusedPaneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return .failed
+        }
+        return newTerminalSurfaceInPaneOutcome(
+            inPane: focusedPaneId,
+            focus: focus,
+            initialInput: initialInput
+        )
+    }
+
+    /// Creates a terminal tab in an explicit pane while retaining canvas and
+    /// remote-tmux creation behavior.
+    @discardableResult
+    func newTerminalSurfaceInPaneOutcome(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        initialInput: String? = nil
+    ) -> TerminalPanelCreationOutcome {
+        guard bonsplitController.allPaneIds.contains(paneId) else { return .failed }
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
         // floating as a separate canvas pane.
         let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
-        let panel = newTerminalSurface(
-            inPane: focusedPaneId,
+        let outcome = newTerminalSurfaceOutcome(
+            inPane: paneId,
             focus: focus,
             initialInput: initialInput,
             inheritWorkingDirectoryFallback: true
         )
-        if let panel, let anchor = canvasAnchorPanelId {
+        if case .created(let panel) = outcome, let anchor = canvasAnchorPanelId {
             joinNewPanelIntoCanvasPane(panel.id, anchor: anchor)
         }
-        return panel
+        return outcome
+    }
+
+    /// Applies the configured pane-zoom behavior before a user-created tab.
+    ///
+    /// Internal restore, layout, and placeholder paths intentionally call their
+    /// lower-level creation methods directly. Interactive tab entry points call
+    /// this method first so
+    /// the legacy unzoom behavior and the opt-in inheritance behavior share one
+    /// policy.
+    func applyNewTabZoomPolicy(inPane paneId: PaneID) {
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        let keepExpanded = settings.value(for: SettingCatalog().app.keepExpandedOnNewTab)
+        let shouldKeepExpanded = keepExpanded && zoomedPaneId == paneId
+
+        if zoomedPaneId != nil && !shouldKeepExpanded {
+            clearSplitZoom()
+        }
+    }
+
+    /// Runs a user-created tab operation transactionally with the pane-zoom policy.
+    /// If the operation returns `nil`, any zoom cleared for the attempt is restored.
+    @discardableResult
+    func withNewTabZoomPolicy<Result>(
+        inPane paneId: PaneID,
+        applyPolicy: Bool = true,
+        _ operation: () -> Result?
+    ) -> Result? {
+        guard applyPolicy else { return operation() }
+        let previousZoomedPaneId = bonsplitController.zoomedPaneId
+        applyNewTabZoomPolicy(inPane: paneId)
+        let result = operation()
+
+        if result == nil,
+           let previousZoomedPaneId,
+           bonsplitController.zoomedPaneId == nil,
+           bonsplitController.allPaneIds.contains(previousZoomedPaneId) {
+            _ = bonsplitController.togglePaneZoom(inPane: previousZoomedPaneId)
+        }
+        return result
+    }
+
+    /// Runs a terminal-tab operation while preserving remote routing outcomes.
+    /// A routed tmux request is successful even though it has no local panel;
+    /// only a genuine `.failed` outcome restores a zoom cleared for the attempt.
+    @discardableResult
+    func withNewTerminalTabZoomPolicy(
+        inPane paneId: PaneID,
+        applyPolicy: Bool = true,
+        _ operation: () -> TerminalPanelCreationOutcome
+    ) -> TerminalPanelCreationOutcome {
+        guard applyPolicy else { return operation() }
+        let previousZoomedPaneId = bonsplitController.zoomedPaneId
+        applyNewTabZoomPolicy(inPane: paneId)
+        let outcome = operation()
+
+        if case .failed = outcome,
+           let previousZoomedPaneId,
+           bonsplitController.zoomedPaneId == nil,
+           bonsplitController.allPaneIds.contains(previousZoomedPaneId) {
+            _ = bonsplitController.togglePaneZoom(inPane: previousZoomedPaneId)
+        }
+        return outcome
     }
 
     @discardableResult
@@ -12395,12 +12503,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
-        guard let newPanel = newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            inheritWorkingDirectoryFallback: true,
-            workingDirectoryFallbackSourcePanelId: sourcePanelId
-        ) else { return }
+        guard case .created(let newPanel) = withNewTerminalTabZoomPolicy(inPane: paneId, {
+            newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: true,
+                inheritWorkingDirectoryFallback: true,
+                workingDirectoryFallbackSourcePanelId: sourcePanelId
+            )
+        }) else { return }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
@@ -12408,13 +12518,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let sourceBrowser = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0) }
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: url,
-            focus: true,
-            preferredProfileID: sourceBrowser?.profileID,
-            websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
-        ) else { return }
+        guard let newPanel = withNewTabZoomPolicy(inPane: paneId, {
+            newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: true,
+                preferredProfileID: sourceBrowser?.profileID,
+                websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
+            )
+        }) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
@@ -12424,15 +12536,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let paneId = paneId(forPanelId: panelId),
               let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: browser.currentURLForTabDuplication,
-            focus: focus,
-            preferredProfileID: browser.profileID,
-            chromeVisibility: browser.chromeVisibility,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
-        ) else { return nil }
+        guard let newPanel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
+            newBrowserSurface(
+                inPane: paneId,
+                url: browser.currentURLForTabDuplication,
+                focus: focus,
+                preferredProfileID: browser.profileID,
+                chromeVisibility: browser.chromeVisibility,
+                bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+                websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
+            )
+        }) else { return nil }
         newPanel.setMuted(browser.isMuted)
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
@@ -12536,15 +12650,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
-            let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return panel != nil
+            // Remote mirrors cannot replay a Vault launch payload through the
+            // tmux new-window route; reject it instead of acknowledging a
+            // blank remote window as a successful resume.
+            guard !isRemoteTmuxMirror else { return false }
+            switch withNewTerminalTabZoomPolicy(inPane: paneId, {
+                newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: true,
+                    workingDirectory: launch.workingDirectory,
+                    initialInput: launch.initialInput,
+                    startupRestoreAgent: launch.startupRestoreAgent
+                )
+            }) {
+            case .created:
+                return true
+            case .routedToRemote:
+                return false
+            case .failed:
+                return false
+            }
         case .split(let paneId, let orientation, let insertFirst):
+            guard !isRemoteTmuxMirror else { return false }
             let panel = splitPaneWithNewTerminal(
                 targetPane: paneId,
                 orientation: orientation,
@@ -12891,25 +13018,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return nil
         }
 
-        let zoomedPaneId = bonsplitController.zoomedPaneId
-        if zoomedPaneId != nil {
-            clearSplitZoom()
-        }
-
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let forkedPanel = newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
-            initialInput: startupInput
-        )
-        if let forkedPanel {
-            _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
-            if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
-            }
-        } else if let zoomedPaneId {
-            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        guard case .created(let forkedPanel) = withNewTerminalTabZoomPolicy(inPane: paneId, {
+            newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+                initialInput: startupInput
+            )
+        }) else {
+            return nil
+        }
+        _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
+        if remoteStartupCommand != nil, let workingDirectory {
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
         }
         return forkedPanel
     }
@@ -14416,7 +14538,9 @@ extension Workspace: BonsplitDelegate {
                     )
                 }
             case .newSimulator:
-                _ = newSimulatorSurface(inPane: pane, focus: true)
+                _ = withNewTabZoomPolicy(inPane: pane) {
+                    newSimulatorSurface(inPane: pane, focus: true)
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
@@ -14493,12 +14617,14 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(
-                    inPane: pane,
-                    focus: true,
-                    initialInput: shellInput,
-                    inheritWorkingDirectoryFallback: true
-                )
+                _ = self.withNewTerminalTabZoomPolicy(inPane: pane) {
+                    self.newTerminalSurfaceOutcome(
+                        inPane: pane,
+                        focus: true,
+                        initialInput: shellInput,
+                        inheritWorkingDirectoryFallback: true
+                    )
+                }
             }
         }
         guard didExecute else {
@@ -14509,11 +14635,17 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         switch kind {
         case "terminal":
-            _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
+            _ = withNewTerminalTabZoomPolicy(inPane: pane) {
+                newTerminalSurfaceOutcome(inPane: pane, inheritWorkingDirectoryFallback: true)
+            }
         case "browser":
-            _ = newBrowserSurface(inPane: pane)
+            _ = withNewTabZoomPolicy(inPane: pane) {
+                newBrowserSurface(inPane: pane)
+            }
         default:
-            _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
+            _ = withNewTerminalTabZoomPolicy(inPane: pane) {
+                newTerminalSurfaceOutcome(inPane: pane, inheritWorkingDirectoryFallback: true)
+            }
         }
     }
 

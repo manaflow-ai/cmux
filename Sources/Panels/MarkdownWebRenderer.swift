@@ -669,11 +669,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                       preferredWorkspaceId: workspaceId
                   ),
                   let paneId = location.workspace.paneId(forPanelId: panelId) else { return }
-            _ = location.workspace.newMarkdownSurface(
-                inPane: paneId,
-                filePath: path,
-                focus: true
-            )
+            _ = location.workspace.withNewTabZoomPolicy(inPane: paneId) {
+                location.workspace.newMarkdownSurface(
+                    inPane: paneId,
+                    filePath: path,
+                    focus: true
+                )
+            }
         }
 
         private func handleLibRequest(_ lib: String) {
@@ -911,11 +913,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return
             }
 
-            _ = location.workspace.newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: true
-            )
+            _ = location.workspace.withNewTabZoomPolicy(inPane: paneId) {
+                location.workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: true
+                )
+            }
         }
 
         private func isInPageFragment(_ url: URL) -> Bool {

@@ -187,6 +187,20 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "keepExpandedOnNewTab",
+                settingsKey: "app.keepExpandedOnNewTab",
+                title: {
+                    String(
+                        localized: "settings.app.keepExpandedOnNewTab",
+                        defaultValue: "Keep Pane Expanded on New Tab"
+                    )
+                },
+                sectionTitle: app,
+                keywords: ["app.keepExpandedOnNewTab", "pane", "zoom", "expanded", "new", "tab", "surface", "layout"],
+                defaultValue: SettingCatalog().app.keepExpandedOnNewTab.defaultValue,
+                defaultsKey: SettingCatalog().app.keepExpandedOnNewTab.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "focusPaneOnFirstClick",
                 settingsKey: "app.focusPaneOnFirstClick",
                 title: {

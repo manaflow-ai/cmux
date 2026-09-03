@@ -4173,13 +4173,34 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        if let workspace = selectedWorkspace {
+            _ = createNewTerminalSurface(in: workspace, initialInput: nil)
+        }
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        if let workspace = selectedWorkspace {
+            _ = createNewTerminalSurface(in: workspace, initialInput: initialInput)
+        }
+    }
+
+    /// Creates a user-requested terminal tab while applying the app's pane-zoom
+    /// inheritance policy. The legacy path clears zoom before creating a tab;
+    /// ``app.keepExpandedOnNewTab`` lets the focused pane remain expanded.
+    @discardableResult
+    func createNewTerminalSurface(
+        in workspace: Workspace,
+        initialInput: String? = nil
+    ) -> TerminalPanel? {
+        guard let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else { return nil }
+        return workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+            workspace.newTerminalSurfaceInPaneOutcome(
+                inPane: paneId,
+                focus: true,
+                initialInput: initialInput
+            )
+        }.panel
     }
 
     // MARK: - Split Creation
@@ -4508,13 +4529,15 @@ class TabManager: ObservableObject {
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
-                   inPane: targetPaneId,
-                   url: url,
-                   focus: true,
-                   insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID
-               ) {
+               let browserPanel = workspace.withNewTabZoomPolicy(inPane: targetPaneId, {
+                   workspace.newBrowserSurface(
+                       inPane: targetPaneId,
+                       url: url,
+                       focus: true,
+                       insertAtEnd: insertAtEnd,
+                       preferredProfileID: preferredProfileID
+                   )
+               }) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
             }
@@ -4548,13 +4571,15 @@ class TabManager: ObservableObject {
         }
 
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
+              let browserPanel = workspace.withNewTabZoomPolicy(inPane: paneId, {
+                  workspace.newBrowserSurface(
+                      inPane: paneId,
+                      url: url,
+                      focus: true,
+                      insertAtEnd: insertAtEnd,
+                      preferredProfileID: preferredProfileID
+                  )
+              }) else {
             return nil
         }
         rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
@@ -4853,12 +4878,14 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(
-               inPane: originalPane,
-               url: snapshot.url,
-               focus: true,
-               preferredProfileID: snapshot.profileID
-           ) {
+           let browserPanel = workspace.withNewTabZoomPolicy(inPane: originalPane, {
+               workspace.newBrowserSurface(
+                   inPane: originalPane,
+                   url: snapshot.url,
+                   focus: true,
+                   preferredProfileID: snapshot.profileID
+               )
+           }) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
@@ -4884,12 +4911,14 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(
-            inPane: focusedPane,
-            url: snapshot.url,
-            focus: true,
-            preferredProfileID: snapshot.profileID
-        )?.id
+        return workspace.withNewTabZoomPolicy(inPane: focusedPane) {
+            workspace.newBrowserSurface(
+                inPane: focusedPane,
+                url: snapshot.url,
+                focus: true,
+                preferredProfileID: snapshot.profileID
+            )
+        }?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.

@@ -10860,12 +10860,14 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
-                inPane: pane,
-                url: url,
-                focus: true,
-                creationPolicy: .automationPreload
-            ) else {
+            guard let panel = ws.withNewTabZoomPolicy(inPane: pane, {
+                ws.newBrowserSurface(
+                    inPane: pane,
+                    url: url,
+                    focus: true,
+                    creationPolicy: .automationPreload
+                )
+            }) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -15420,14 +15422,17 @@ class TerminalController {
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
-        guard let terminal = workspace.newTerminalSurface(
-            inPane: paneId,
-            focus: false,
-            autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false,
-            inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
-        ) else {
+        let outcome = workspace.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: false) {
+            workspace.newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: false,
+                autoRefreshMetadata: false,
+                preserveFocusWhenUnfocused: false,
+                inheritWorkingDirectoryFallback: true,
+                allowTextBoxFocusDefault: false
+            )
+        }
+        guard let terminal = outcome.panel else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
         // workspace.updated emit is handled by MobileWorkspaceListObserver.
