@@ -6508,10 +6508,9 @@ impl PtySurface {
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     fn finish_hosted_exit(&self) {
         let mut term = self.term.lock().unwrap();
-        // Attach takes the same terminal lock. Publish Exited first so an
-        // attacher can observe either a live terminal or its final snapshot.
-        self.host_connection_state
-            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+        // Attach takes the same terminal lock. The caller that changes `dead`
+        // owns finalization; a prior host-loss owner must keep its state and
+        // reject an incomplete replay.
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -6519,6 +6518,11 @@ impl PtySurface {
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
         self.render.lock().unwrap().taps.clear();
+        // Publish Exited only after the final frame is built and both stream
+        // sets are closed. An attacher that acquires `term` next can then
+        // observe a live terminal or a complete, inert final snapshot.
+        self.host_connection_state
+            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
     }
 
     fn mark_output_dirty(&self) {
