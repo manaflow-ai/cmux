@@ -1631,8 +1631,8 @@ mod tests {
             result,
             Err(LinkError::Transport(message)) if message == "timed out closing physical link"
         ));
+        assert!(weak_physical.upgrade().is_none(), "stalled physical link was retained by mux");
         drop(mux);
-        assert!(weak_physical.upgrade().is_none(), "stalled physical link was retained");
     }
 
     #[tokio::test]
