@@ -296,8 +296,14 @@ extension TerminalController {
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
+            // `cmux vm ssh-info` only prints the endpoint, which is still useful
+            // with the tunnel down, so it opts out of the reachability gate.
+            // `cmux vm ssh` shares this verb but goes on to dial, so it keeps it.
+            let requireReachable = Self.socketWorkerBool(params["require_reachable"])
+                ?? Self.socketWorkerBool(params["requireReachable"])
+                ?? true
             return v2VmCall(id: id) {
-                let endpoint = try await VMClient.shared.openSSH(id: vmId)
+                let endpoint = try await VMClient.shared.openSSH(id: vmId, requireReachable: requireReachable)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
         case "vm.attach_info":

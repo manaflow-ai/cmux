@@ -13564,7 +13564,13 @@ struct CMUXCLI {
     }
 
     private func printVMSSHInfo(id vmID: String, command: String, client: SocketClient, jsonOutput: Bool) throws {
-        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: 60)
+        // Printing an endpoint needs no route to it, so this does not go through
+        // the app's reachability gate; `cmux vm ssh` (which dials) does.
+        let response = try client.sendV2(
+            method: "vm.ssh_info",
+            params: ["id": vmID, "require_reachable": false],
+            responseTimeout: 60
+        )
         if jsonOutput {
             print(jsonString(response))
             return
@@ -18585,8 +18591,16 @@ struct CMUXCLI {
             Usage: cmux vpn <up|down|status|revoke|hosts>
 
             The WireGuard tunnel between this Mac and your private Cloud VM
-            network. Cloud machines have no public ports, so `cmux vm` attach,
-            exec, and port verbs need this tunnel up.
+            network. Cloud machines have no public ports, so every verb that
+            connects this Mac to a machine needs this tunnel up: `vm shell`,
+            `attach`, `tui`, `workspace *`, `terminal *`, `open`, `desktop`,
+            `ssh`, `base open`, `new`, `fork`, `restore`, `agent`, and `tree`
+            for a machine. Verbs the backend runs for you, and the ones that
+            only print, work with the tunnel down: `exec`, `run`, `push`,
+            `pull`, `ports`, `tools`, `stats`, `status`, `ls`, `wait`, `rm`,
+            `snapshot`, `ssh-info`. With the tunnel down a connecting verb now
+            fails in seconds naming the machine and this command, instead of
+            hanging.
 
             up      Enroll this Mac (first run), bring the tunnel up, and sync
                     internal hostnames. Uses wg-quick and prompts for sudo;
@@ -18631,7 +18645,11 @@ struct CMUXCLI {
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports; run `cmux vpn up`
-            once per boot so this Mac can reach them (see `cmux help vpn`).
+            once per boot so this Mac can reach them (see `cmux help vpn`). Verbs that
+            connect to a machine (shell, attach, tui, workspace, terminal, open, desktop,
+            ssh) fail immediately while the tunnel is down; verbs the backend runs
+            (exec, run, push, pull, ports, tools, stats, status, ls, rm, ssh-info) do not
+            need it.
 
             Subcommands:
               ls                        List your cloud VMs.
@@ -18719,6 +18737,7 @@ struct CMUXCLI {
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+                                        Runs through the backend, so it needs no `cmux vpn up`.
               run [--sync] [--pull <remote>] [--machine <id>] [--new] -- <command...>
                                         Run a command without naming a machine: the router
                                         reuses an idle pool machine, wakes a sleeper, or

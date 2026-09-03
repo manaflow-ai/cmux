@@ -474,8 +474,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // for the id shape `portBrowser` mints.
             if !desktop, resource.id.key.hasPrefix("port:"),
                let directURLString = resource.url, let directURL = URL(string: directURLString) {
+                // This URL is the machine's own private address, so it is only
+                // openable through the tunnel — and WebKit's own failure page
+                // would blame the site rather than the network. Refuse here so
+                // the user gets the tunnel message and the "Connect Network"
+                // action instead. `openPort` gates the minted-endpoint branch
+                // below inside ``VMClient``.
+                try CloudMachineReachability.live().ensureRoutable(machine: info.name, urlString: directURLString)
                 created = try SurfacePaneFactory.makeBrowserPane(url: directURL, at: destination, focus: focus)
             } else if let url = endpointURL(port: port, desktop: desktop) {
+                try CloudMachineReachability.live().ensureRoutable(machine: info.name, urlString: url.absoluteString)
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
             } else {
                 // Optimistic: the pane exists before its endpoint does. Minting the preview

@@ -381,7 +381,11 @@ final class MachinesPanelViewModel: ObservableObject {
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse,
+             .tunnelDown, .machineUnreachable:
+            // Listing goes through the backend and is never gated on the
+            // tunnel, so these cannot come from a list; retrying is still the
+            // right advice if one ever does.
             return .unreachable
         }
     }

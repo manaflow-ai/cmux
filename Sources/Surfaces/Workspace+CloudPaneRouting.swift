@@ -118,6 +118,8 @@ extension Workspace {
         alert.informativeText = CloudMachineLink.errorText(error)
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
-        alert.runModal()
+        // Adds "Connect Network" when the tunnel is what is broken, so the fix
+        // is one click instead of a command the user has to copy out of the text.
+        CloudTunnelRepairAction.runModal(alert, for: error)
     }
 }

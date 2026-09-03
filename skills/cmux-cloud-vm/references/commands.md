@@ -2,6 +2,8 @@
 
 `cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. All of this requires the cmux app running and a signed-in account.
 
+Two classes of verb. Machines open no public port, so anything that connects this Mac to a machine needs `cmux vpn up` first: `shell`, `attach`, `tui`, `workspace *`, `terminal *`, `open`, `desktop`, `ssh`, `base open`, `new`, `fork`, `restore`, `agent`, and `tree <id>`. Verbs the backend runs for you, and the ones that only print, need no tunnel: `exec`, `run`, `push`, `pull`, `ports`, `tools`, `stats`, `status`, `ls`, `wait`, `rm`, `snapshot`, `promote-template`, `ssh-info`. With the tunnel down, a connecting verb exits 1 within a few seconds naming the machine and `cmux vpn up`; it does not hang.
+
 ## Discovery: the cloud tree
 
 ```bash

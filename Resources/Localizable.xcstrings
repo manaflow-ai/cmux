@@ -273174,6 +273174,57 @@
           }
         }
       }
+    },
+    "cloud.machine.unreachable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't reach %1$@ at %2$@: the connection timed out. Check that the machine is running (`cmux vm status %1$@`) and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %2$@ の %1$@ に接続できません。接続がタイムアウトしました。マシンが実行中であることを確認して（`cmux vm status %1$@`）、再試行してください。"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.down.action.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect Network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークに接続"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.down.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't reach %@: the Cloud VM network is off. Run `cmux vpn up` in a terminal (it asks for your password once per boot)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に接続できません。Cloud VM ネットワークがオフです。ターミナルで `cmux vpn up` を実行してください（起動ごとに 1 回パスワードの入力が必要です）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

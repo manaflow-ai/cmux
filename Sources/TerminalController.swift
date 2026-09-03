@@ -4003,6 +4003,15 @@ class TerminalController {
     /// can make idempotency decisions structurally instead of parsing the
     /// formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        // A local reachability verdict has no backend code; scripts get the
+        // reason and the address so they can tell "tunnel down" from a server
+        // failure without parsing display text.
+        if case let VMClientError.tunnelDown(machine, address) = error {
+            return ["reason": "tunnel_down", "machine": machine, "address": address]
+        }
+        if case let VMClientError.machineUnreachable(machine, address, privateNetwork) = error {
+            return ["reason": privateNetwork ? "tunnel_down" : "unreachable", "machine": machine, "address": address]
+        }
         guard case let VMClientError.httpStatus(status, body) = error,
               let data = body.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
@@ -4025,7 +4034,7 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .tunnelDown, .machineUnreachable:
             return false
         }
     }

@@ -1,15 +1,113 @@
 import CmuxAuthRuntime
 import Foundation
 
-enum VMClientError: Error, CustomStringConvertible {
+enum VMClientError: Error, CustomStringConvertible, LocalizedError {
     case notSignedIn
     case sessionRefreshFailed
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
+    /// The machine sits on the private Cloud VM network and no local interface
+    /// carries the WireGuard tunnel, so a dial to `address` cannot succeed.
+    /// `machine` is the name people know it by (label, else id).
+    case tunnelDown(machine: String, address: String)
+    /// A bounded dial to `address` got no answer. On a private address this is
+    /// the tunnel-down message again (the tunnel is up but does not route
+    /// there); on a public one it names the address and asks for a status check.
+    case machineUnreachable(machine: String, address: String, privateNetwork: Bool)
+
+    /// The one sentence every surface shows when the tunnel is down: which
+    /// machine, and the exact command that fixes it. This is what the app's
+    /// error surfaces display; ``description`` wraps it in the CLI's
+    /// "What to do:" shape.
+    static func tunnelDownMessage(machine: String) -> String {
+        String(
+            format: String(
+                localized: "cloud.tunnel.down.message",
+                defaultValue: "cmux can't reach %@: the Cloud VM network is off. Run `cmux vpn up` in a terminal (it asks for your password once per boot)."
+            ),
+            machine
+        )
+    }
+
+    static func machineUnreachableMessage(machine: String, address: String) -> String {
+        String(
+            format: String(
+                localized: "cloud.machine.unreachable.message",
+                defaultValue: "cmux can't reach %1$@ at %2$@: the connection timed out. Check that the machine is running (`cmux vm status %1$@`) and retry."
+            ),
+            machine, address
+        )
+    }
+
+    /// The headline an app surface shows: one sentence, no CLI scaffolding.
+    var displayMessage: String {
+        switch self {
+        case .tunnelDown(let machine, _):
+            return Self.tunnelDownMessage(machine: machine)
+        case .machineUnreachable(let machine, let address, let privateNetwork):
+            return privateNetwork
+                ? Self.tunnelDownMessage(machine: machine)
+                : Self.machineUnreachableMessage(machine: machine, address: address)
+        default:
+            return description
+        }
+    }
+
+    /// App surfaces render `localizedDescription`, so they get the headline
+    /// while the CLI keeps the full ``description`` block. Every other case's
+    /// ``displayMessage`` is its ``description``, so nothing else changes.
+    var errorDescription: String? { displayMessage }
+
+    /// Whether the fix for this error is bringing the Cloud VM tunnel up, which
+    /// is what lets a surface offer a "Connect Network" action instead of only
+    /// quoting a command.
+    var isTunnelDown: Bool {
+        switch self {
+        case .tunnelDown:
+            return true
+        case .machineUnreachable(_, _, let privateNetwork):
+            return privateNetwork
+        default:
+            return false
+        }
+    }
 
     var description: String {
         switch self {
+        case .tunnelDown(let machine, let address):
+            // Same "What to do:" shape as every other case here so scripts and
+            // people read one format across cloud failures.
+            return """
+                \(Self.tunnelDownMessage(machine: machine))
+
+                What to do:
+                  cmux vpn up
+                  cmux vpn status
+
+                Details:
+                  \(machine) answers only on the private Cloud VM network (\(address)), which nothing routes to while the tunnel is down.
+                """
+        case .machineUnreachable(let machine, let address, let privateNetwork):
+            if privateNetwork {
+                return """
+                    \(Self.tunnelDownMessage(machine: machine))
+
+                    What to do:
+                      cmux vpn up
+                      cmux vpn status
+
+                    Details:
+                      The tunnel is up but the connection to \(address) timed out, so it does not currently route to \(machine).
+                    """
+            }
+            return """
+                \(Self.machineUnreachableMessage(machine: machine, address: address))
+
+                What to do:
+                  cmux vm status \(machine)
+                  Retry once the machine reports running.
+                """
         case .notSignedIn:
             return """
                 You are not signed in to cmux.
@@ -553,12 +651,55 @@ actor VMClient {
     private let session: URLSession
     private let auth: AuthCoordinator
     private let telemetry: VMClientTelemetry
+    /// The gate every machine dial passes through before a socket opens
+    /// (``CloudMachineReachability``): applied here, where each endpoint is
+    /// resolved, so the sidebar, the `vm.*` socket verbs behind the CLI, and
+    /// the browser/desktop panes all share one decision.
+    private let reachability: CloudMachineReachability
+    /// Labels seen in list/status/rename responses, so a reachability error can
+    /// name the machine the way the person does instead of by id.
+    private var machineLabels: [String: String] = [:]
 
-    init(session: URLSession = .shared, auth: AuthCoordinator, telemetry: VMClientTelemetry = .shared) {
+    init(
+        session: URLSession = .shared,
+        auth: AuthCoordinator,
+        telemetry: VMClientTelemetry = .shared,
+        reachability: CloudMachineReachability = .live()
+    ) {
         self.session = session
         self.auth = auth
         self.telemetry = telemetry
+        self.reachability = reachability
     }
+
+    /// The name a reachability error shows for `id`: its label when one has
+    /// been seen, else the id.
+    func machineName(_ id: String) -> String {
+        machineLabels[id] ?? id
+    }
+
+    private func rememberLabel(of summary: VMSummary) {
+        if let label = summary.displayName, !label.isEmpty {
+            machineLabels[summary.id] = label
+        } else {
+            machineLabels[summary.id] = nil
+        }
+    }
+
+    /// Refuses a dial to `urlString` (route, desktop URL, port URL) that cannot
+    /// succeed right now, and proves the address answers otherwise. Throws
+    /// ``VMClientError/tunnelDown(machine:address:)`` or
+    /// ``VMClientError/machineUnreachable(machine:address:privateNetwork:)``.
+    func ensureDialable(id: String, urlString: String) async throws {
+        try await reachability.ensureReachable(machine: machineName(id), urlString: urlString)
+    }
+
+    func ensureDialable(id: String, host: String, port: Int?) async throws {
+        try await reachability.ensureReachable(machine: machineName(id), host: host, port: port)
+    }
+
+    /// Whether this Mac currently carries the tunnel (`cmux vpn status`'s answer).
+    nonisolated var tunnelIsUp: Bool { reachability.tunnelIsUp() }
 
     func list() async throws -> [VMSummary] {
         try await listPage().vms
@@ -614,6 +755,7 @@ actor VMClient {
             }
             return summary
         }
+        for summary in vms { rememberLabel(of: summary) }
         return VMListPage(vms: vms, limits: limits)
     }
 
@@ -748,6 +890,7 @@ actor VMClient {
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
+        rememberLabel(of: summary)
         return summary
     }
 
@@ -853,12 +996,20 @@ actor VMClient {
         return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
     }
 
-    func openSSH(id: String) async throws -> VMSSHEndpoint {
+    /// - Parameter requireReachable: Pass `false` when the caller only prints the
+    ///   endpoint (`cmux vm ssh-info`). Printing a host and port is useful with
+    ///   the tunnel down, so gating it would refuse a command that works.
+    ///   Callers that go on to dial (`cmux vm ssh`) keep the default.
+    func openSSH(id: String, requireReachable: Bool = true) async throws -> VMSSHEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
-        return try decodeSSHEndpoint(obj)
+        let endpoint = try decodeSSHEndpoint(obj)
+        if requireReachable {
+            try await ensureDialable(id: id, host: endpoint.host, port: endpoint.port)
+        }
+        return endpoint
     }
 
     func openAttach(
@@ -887,7 +1038,18 @@ actor VMClient {
         )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
-        return try decodeAttachEndpoint(obj)
+        let endpoint = try decodeAttachEndpoint(obj)
+        try await ensureDialable(id: id, endpoint: endpoint)
+        return endpoint
+    }
+
+    private func ensureDialable(id: String, endpoint: VMAttachEndpoint) async throws {
+        switch endpoint {
+        case .ssh(let ssh):
+            try await ensureDialable(id: id, host: ssh.host, port: ssh.port)
+        case .websocket(let websocket):
+            try await ensureDialable(id: id, urlString: websocket.url)
+        }
     }
 
     /// Transport capabilities a cmux-tui client may advertise (`remote-probe --json` →
@@ -951,6 +1113,7 @@ actor VMClient {
                 version: raw["version"] as? String
             )
         }
+        try await ensureDialable(id: id, urlString: route)
         return VMCmuxRemoteEndpoint(
             route: route,
             token: token,
@@ -1081,7 +1244,9 @@ actor VMClient {
             throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
         }
         let session = (obj["session"] as? [String: Any]).flatMap { try? decodeCloudSession($0) }
-        return VMCloudSessionAttach(endpoint: try decodeAttachEndpoint(endpointObject), session: session)
+        let endpoint = try decodeAttachEndpoint(endpointObject)
+        try await ensureDialable(id: id, endpoint: endpoint)
+        return VMCloudSessionAttach(endpoint: endpoint, session: session)
     }
 
     private func decodeAttachEndpoint(_ obj: [String: Any]) throws -> VMAttachEndpoint {
@@ -1201,6 +1366,10 @@ actor VMClient {
               let openUrl = obj["openUrl"] as? String else {
             throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
         }
+        // On today's driver this is the machine's private address (the desktop
+        // and forwarded ports ride the tunnel like the daemon does); a public
+        // wrapper URL passes the gate untouched.
+        try await ensureDialable(id: id, urlString: openUrl)
         return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
     }
 
@@ -1306,7 +1475,9 @@ actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus: return .unknown
+        // The reachability gate runs after the request completes, so these
+        // never classify an HTTP call; they are here to keep the map total.
+        case .httpStatus, .tunnelDown, .machineUnreachable: return .unknown
         }
     }
 
@@ -1314,6 +1485,8 @@ actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
+        case .tunnelDown(_, let address): return address
+        case .machineUnreachable(_, let address, _): return address
         case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
         }
     }

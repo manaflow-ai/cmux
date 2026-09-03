@@ -271,22 +271,43 @@ struct VMTunnelManager: Sendable {
     /// really configured (a name file can outlive a crash until reboot). A
     /// future NetworkExtension tunnel reports through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
-        guard FileManager.default.fileExists(atPath: runtimeNameFileURL.path) else { return false }
-        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let expected = Self.interfaceAddresses(in: config)
+        guard runtimeInterfacePresent() else { return false }
+        let expected = configuredTunnelAddresses()
         guard !expected.isEmpty else { return false }
+        return !expected.isDisjoint(with: Self.localInterfaceAddresses())
+    }
+
+    /// Whether wg-quick's own record for this interface name exists. Root-only
+    /// to write, visible to everyone, and what separates this environment's
+    /// tunnel from another enrollment's: every enrollment gives this Mac the
+    /// same tunnel-side address, so the address alone cannot tell them apart.
+    func runtimeInterfacePresent() -> Bool {
+        FileManager.default.fileExists(atPath: runtimeNameFileURL.path)
+    }
+
+    /// The tunnel's own addresses from the config this manager wrote; empty
+    /// when this Mac has never enrolled. These are what ``wgQuickInterfaceUp()``
+    /// and ``CloudMachineReachability`` look for on the local interfaces.
+    func configuredTunnelAddresses() -> Set<String> {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
+        return Self.interfaceAddresses(in: config)
+    }
+
+    /// Every numeric address a local interface holds right now (lowercase, no
+    /// prefix length), via `getifaddrs`.
+    static func localInterfaceAddresses() -> Set<String> {
+        var addresses = Set<String>()
         var addrs: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addrs) == 0 else { return false }
+        guard getifaddrs(&addrs) == 0 else { return addresses }
         defer { freeifaddrs(addrs) }
         var cursor = addrs
         while let current = cursor {
-            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa),
-               expected.contains(address) {
-                return true
+            if let sa = current.pointee.ifa_addr, let address = numericAddress(sa) {
+                addresses.insert(address)
             }
             cursor = current.pointee.ifa_next
         }
-        return false
+        return addresses
     }
 
     /// The `Address =` values in a wg-quick config's `[Interface]` section,
