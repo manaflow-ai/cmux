@@ -1300,7 +1300,7 @@ async fn relay_session(
         )
         .await
         {
-            eprintln!("PTY transport cleanup exceeded its safety deadline and was cancelled.");
+            eprintln!("Some terminal sessions did not close. Reconnect to the relay and retry.");
         }
     }
     result
