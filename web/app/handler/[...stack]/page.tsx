@@ -51,14 +51,24 @@ export default async function StackHandlerPage(
     <StackHandler fullPage app={stackServerApp} params={props.params} />
   );
 
-  // Stack's email-verification page calls useUser() while rendering its
-  // client component. Next requires that CSR bailout to have a boundary on
-  // this route, otherwise a real verification link returns HTTP 500.
-  if (stack[0] === "email-verification") {
-    return <Suspense fallback={null}>{stackHandler}</Suspense>;
-  }
+  // Stack handler pages use client hooks for session and query state. Keep the
+  // whole handler behind one boundary so every current and future auth path
+  // can opt into client rendering without a missing-boundary error.
+  return <Suspense fallback={<StackHandlerLoading />}>{stackHandler}</Suspense>;
+}
 
-  return stackHandler;
+function StackHandlerLoading() {
+  return (
+    <main
+      aria-busy="true"
+      className="flex min-h-screen items-center justify-center"
+    >
+      <div
+        aria-hidden="true"
+        className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
+      />
+    </main>
+  );
 }
 
 function coderouterHost(host: string | null): boolean {
