@@ -158,6 +158,76 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func browserSplitDividerHitTestingReusesCachedRegionsAndRefreshesHiddenSplits() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
+        let splitView = CountingSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(120, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let unrelatedContainer = NSView(frame: contentView.bounds)
+        let unrelatedMiddle = NSView(frame: contentView.bounds)
+        let unrelatedLeaf = NSView(frame: contentView.bounds)
+        unrelatedMiddle.addSubview(unrelatedLeaf)
+        unrelatedContainer.addSubview(unrelatedMiddle)
+        contentView.addSubview(unrelatedContainer)
+
+        let host = WindowBrowserHostView(frame: container.convert(contentView.bounds, from: contentView))
+        let hostedView = CapturingView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let initialRectConversionCount = splitView.rectConversionCount
+
+        #expect(host.hitTest(dividerPointInHost) == nil)
+        #expect(host.hitTest(dividerPointInHost) == nil)
+        #expect(
+            splitView.rectConversionCount - initialRectConversionCount == 2,
+            "Browser portal divider hit-testing should collect split bounds and divider rect once."
+        )
+
+        unrelatedLeaf.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1)))
+        #expect(host.hitTest(dividerPointInHost) == nil)
+        #expect(
+            splitView.rectConversionCount - initialRectConversionCount == 2,
+            "Unrelated browser subtree mutations should not rebuild cached divider geometry."
+        )
+
+        splitView.isHidden = true
+        #expect(
+            host.hitTest(dividerPointInHost) === hostedView,
+            "Hidden browser split dividers must not keep stale pass-through regions active."
+        )
+
+        splitView.isHidden = false
+        #expect(
+            host.hitTest(dividerPointInHost) == nil,
+            "Revealed browser split dividers should become interactive without a resize notification."
+        )
+    }
+
+    @Test
     func terminalSplitDividerCacheIgnoresRemovedSplitView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
