@@ -1372,11 +1372,44 @@ mod owner_identity_tests {
         };
         save_config(&path, &config).expect("initial config saves");
 
-        reconcile_owner_user_id_and_persist(&mut config, None, &path, false);
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &path, false);
 
         let reloaded = load_config(&path).expect("persisted config loads");
         assert_eq!(reloaded.owner_user_id, None);
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn ownerless_reconnect_retries_after_persist_failure() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "chatmux-relay-owner-reconnect-retry-{}-{unique}",
+            std::process::id()
+        ));
+        let persisted_path = root.join("config.json");
+        let blocked_parent = root.join("blocked");
+        let failed_path = blocked_parent.join("config.json");
+        std::fs::create_dir_all(&root).expect("test directory creates");
+
+        let mut config = Config {
+            device_id: "device".to_owned(),
+            token: "token".to_owned(),
+            owner_user_id: Some("previous-owner".to_owned()),
+            ..Config::default()
+        };
+        save_config(&persisted_path, &config).expect("initial config saves");
+        std::fs::write(&blocked_parent, b"not a directory").expect("blocker file writes");
+
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &failed_path, false);
+        assert_eq!(config.owner_user_id.as_deref(), Some("previous-owner"));
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &persisted_path, false);
+
+        let reloaded = load_config(&persisted_path).expect("persisted config loads");
+        assert_eq!(reloaded.owner_user_id, None);
+        std::fs::remove_dir_all(root).ok();
     }
 }
 
