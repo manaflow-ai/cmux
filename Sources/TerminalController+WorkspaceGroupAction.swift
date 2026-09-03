@@ -17,9 +17,9 @@ extension TerminalController {
         v2MainSync {
             guard tabManager.createWorkspaceGroup(
                 name: name,
-                externalID: identity.value,
                 selectAnchor: false,
-                collapseSidebarSelection: false
+                collapseSidebarSelection: false,
+                externalID: identity.value
             ) != nil else {
                 mutationError = .err(code: "not_created", message: "Group was not created", data: nil)
                 return
@@ -235,7 +235,13 @@ extension TerminalController {
             }
             return (nil, .err(
                 code: "invalid_params",
-                message: String(localized: messageKey, defaultValue: defaultValue),
+                message: String(
+                    localized: LocalizedStringResource(
+                        messageKey,
+                        defaultValue: String.LocalizationValue(defaultValue),
+                        bundle: .main
+                    )
+                ),
                 data: nil
             ))
         } catch {
