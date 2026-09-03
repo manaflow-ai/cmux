@@ -33,6 +33,12 @@ public nonisolated enum LocalLinuxError: Error, Equatable, Sendable {
     case kernelUnavailable
     /// The requested runtime configuration differs from the one already booted.
     case configurationMismatch
+    /// The Ghostty renderer could not host the terminal surface.
+    case rendererUnavailable
+    /// The scrollback ring could not start consuming session output.
+    case outputRetentionUnavailable
+    /// The kernel reported a written byte count outside the submitted range.
+    case inputByteCountInvalid
     /// An unexpected bridge or filesystem error occurred.
     case operationFailed(String)
 }
