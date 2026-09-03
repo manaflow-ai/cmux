@@ -3252,19 +3252,6 @@ impl RemoteSession {
         .map(|_| ())
     }
 
-    /// Enqueues a geometry claim without waiting for its acknowledgement.
-    /// Claims only establish ownership; input and resize requests already use
-    /// the same ordered writer, so a fire-and-forget claim cannot overtake the
-    /// keystroke that follows it.
-    pub(crate) fn notify_claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
-        self.notify(json!({
-            "cmd": "set-client-sizing",
-            "surface": surface,
-            "enabled": true,
-            "exclusive": true,
-        }))
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn interactive_write_metrics(&self) -> InteractiveWriteMetricsSnapshot {
         self.interactive_writer.metrics()
@@ -8231,7 +8218,7 @@ mod tests {
         let (finished_tx, finished_rx) = channel();
         let sender_session = session.clone();
         let sender = std::thread::spawn(move || {
-            finished_tx.send(sender_session.notify_claim_terminal_geometry(9)).unwrap();
+            finished_tx.send(sender_session.claim_terminal_geometry(9)).unwrap();
         });
 
         let mut peer = BufReader::new(server);

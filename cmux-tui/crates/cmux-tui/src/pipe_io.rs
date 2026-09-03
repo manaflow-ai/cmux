@@ -499,7 +499,7 @@ fn run_stdin_pump(
             let Some(remote) = claim_remote.upgrade() else {
                 return PipeIoControlResult::Gone;
             };
-            match remote.notify_claim_terminal_geometry(surface) {
+            match remote.claim_terminal_geometry(surface) {
                 Ok(()) => PipeIoControlResult::Completed(()),
                 Err(error) => PipeIoControlResult::Failed(error),
             }
