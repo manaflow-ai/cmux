@@ -21,7 +21,7 @@ public enum MobileTailscaleSetupStatus: Equatable, Sendable {
 }
 
 /// Canonical identity for one locally authorized legacy Tailscale endpoint.
-private nonisolated struct MobileTailscaleAuthorizationEndpoint:
+private struct MobileTailscaleAuthorizationEndpoint:
     Hashable, Sendable
 {
     let macDeviceID: String

@@ -199,7 +199,7 @@ async function sendHook(
   subcommand: string,
   ctx: ExtensionContext,
   extra: Record<string, unknown> = {},
-  options: SendHookOptions = {},
+  options: SendHookOptions = {}
 ): Promise<void> {
   const invocation = hookInvocation(subcommand, ctx, extra);
   if (!invocation) return;
@@ -301,12 +301,12 @@ function cleanupFrom(value: unknown): Cleanup | null {
 function registerApiListener(
   api: ExtensionAPI,
   eventName: string,
-  handler: (...args: unknown[]) => unknown,
+  handler: (...args: unknown[]) => unknown
 ): Cleanup {
   try {
     const registered = (api as unknown as { on: (name: string, handler: (...args: unknown[]) => unknown) => unknown }).on(
       eventName,
-      handler,
+      handler
     );
     return cleanupFrom(registered) || (() => {});
   } catch (_) {

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private nonisolated struct MarkerGitReferenceReader: GitReferenceReading {
+private struct MarkerGitReferenceReader: GitReferenceReading {
     let markerDirectory: URL
 
     func snapshot(repository _: ResolvedGitRepository) -> GitReferenceSnapshot {

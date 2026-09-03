@@ -4,7 +4,7 @@ async function sendHook(
   dispatcher: PiCmuxCommandDispatcher,
   subcommand: string,
   context: PiExtensionContextSnapshot,
-  extra: HookExtra = {},
+  extra: HookExtra = {}
 ): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
   const sessionId = context.sessionId;
@@ -24,7 +24,7 @@ async function sendHook(
     ["hooks", "pi", subcommand, ...target],
     cwd,
     JSON.stringify(payload),
-    context,
+    context
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
   return result.ok;
@@ -56,7 +56,7 @@ function surfaceTargetArgs(dispatcher: PiCmuxCommandDispatcher, sessionId: strin
 function rememberSurfaceTarget(
   dispatcher: PiCmuxCommandDispatcher,
   sessionId: string,
-  result: CommandResult,
+  result: CommandResult
 ): void {
   const payload = parseJSONOutput(result);
   const workspaceId = firstString(payload?.workspace_id);
@@ -64,14 +64,14 @@ function rememberSurfaceTarget(
   if (!workspaceId || !surfaceId) return;
   surfaceTargetsFor(dispatcher).set(
     sessionId,
-    ["--workspace", workspaceId, "--surface", surfaceId],
+    ["--workspace", workspaceId, "--surface", surfaceId]
   );
 }
 
 function releaseSessionRuntime(
   dispatcher: PiCmuxCommandDispatcher,
   sessionStates: Map<string, SessionState>,
-  sessionId: string,
+  sessionId: string
 ): void {
   dispatcher.releaseSession(sessionId);
   sessionStates.delete(sessionId);
@@ -171,7 +171,7 @@ function sanitizedResumeArgv(sessionId: string): string[] {
 async function ensureResumeBinding(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
-  sessionId: string,
+  sessionId: string
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
@@ -205,7 +205,7 @@ async function ensureResumeBinding(
     ["--json", "surface", "resume", "get", ...target],
     cwd,
     undefined,
-    context,
+    context
   );
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
@@ -221,7 +221,7 @@ async function ensureResumeBinding(
 async function clearResumeBinding(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
-  sessionId: string,
+  sessionId: string
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
@@ -269,7 +269,7 @@ function prepareFeedDispatch(
   sessionStates: Map<string, SessionState>,
   eventName: PiFeedEventName,
   context: PiExtensionContextSnapshot,
-  event: unknown,
+  event: unknown
 ): (() => void) | undefined {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return undefined;
   const sessionId = context.sessionId;
@@ -324,7 +324,7 @@ function prepareFeedDispatch(
 
 async function warnFeedDeliveryDropped(
   context: PiExtensionContextSnapshot,
-  sessionId: string,
+  sessionId: string
 ): Promise<void> {
   await warn(context, "cmux feed delivery dropped", {
     session_id: sessionId,
@@ -338,7 +338,7 @@ async function publishPendingCompletion(
   sessionStates: Map<string, SessionState>,
   context: PiExtensionContextSnapshot,
   sessionId: string,
-  completion: PendingCompletion,
+  completion: PendingCompletion
 ): Promise<void> {
   await dispatcher.finishFeedForSession(sessionId);
   const state = stateFor(sessionStates, sessionId);
@@ -374,12 +374,12 @@ interface PiLifecycleQueue {
   enqueue(
     sessionId: string,
     context: PiExtensionContextSnapshot,
-    operation: () => Promise<unknown> | unknown,
+    operation: () => Promise<unknown> | unknown
   ): Promise<void>;
   tryEnqueue(
     sessionId: string,
     context: PiExtensionContextSnapshot,
-    operation: () => Promise<unknown> | unknown,
+    operation: () => Promise<unknown> | unknown
   ): boolean;
 }
 
@@ -389,7 +389,7 @@ function createPiLifecycleQueue(): PiLifecycleQueue {
   const enqueue = (
     sessionId: string,
     context: PiExtensionContextSnapshot,
-    operation: () => Promise<unknown> | unknown,
+    operation: () => Promise<unknown> | unknown
   ): Promise<void> => {
     pendingCounts.set(sessionId, (pendingCounts.get(sessionId) || 0) + 1);
     const previous = tails.get(sessionId) || Promise.resolve();
@@ -433,7 +433,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const enqueueLifecycleTask = (
     sessionId: string,
     context: PiExtensionContextSnapshot,
-    operation: () => Promise<unknown> | unknown,
+    operation: () => Promise<unknown> | unknown
   ): Promise<void> => lifecycleTasks.enqueue(sessionId, context, operation);
 
   pi.on("session_start", (_event, ctx) => {
@@ -465,7 +465,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const enqueueFeed = (
     eventName: PiFeedEventName,
     event: unknown,
-    ctx: ExtensionContext,
+    ctx: ExtensionContext
   ): void => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
