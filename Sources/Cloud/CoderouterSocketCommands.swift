@@ -3,9 +3,11 @@ import Foundation
 // `coderouter.*` socket methods behind `cmux coderouter <status|machines|claude>`.
 // The CLI is presentation only; the app owns the Stack session and the team
 // selection, so the credential a user pastes travels CLI -> local socket ->
-// this handler -> cmux backend and nowhere else. Every other `cmux coderouter`
-// or `cmux cr` invocation is exec'd into the installed CodeRouter CLI before
-// the socket is opened (see `runCoderouterAlias`).
+// this handler -> cmux backend and nowhere else. A team holds many Claude
+// upstream accounts: `add` appends, `remove` and `update` address one by id,
+// `clear` drops them all. `set` stays as an alias of `add` for older CLIs.
+// Every other `cmux coderouter` or `cmux cr` invocation is exec'd into the
+// installed CodeRouter CLI before the socket is opened (see `runCoderouterAlias`).
 extension TerminalController {
     nonisolated func socketWorkerCoderouterResponse(
         method: String,
@@ -16,10 +18,10 @@ extension TerminalController {
         switch method {
         case "coderouter.claude_upstream.get":
             return coderouterCall(id: id) {
-                let result = try await CoderouterClient.shared.claudeUpstream(teamID: teamID)
+                let result = try await CoderouterClient.shared.claudeAccounts(teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
-        case "coderouter.claude_upstream.set":
+        case "coderouter.claude_upstream.add", "coderouter.claude_upstream.set":
             let input: ClaudeUpstreamInput
             switch Self.claudeUpstreamInput(from: params) {
             case .success(let parsed):
@@ -27,13 +29,38 @@ extension TerminalController {
             case .failure(let message):
                 return v2Error(id: id, code: "invalid_params", message: message)
             }
+            let label = Self.coderouterString(params["label"])
             return coderouterCall(id: id) {
-                let result = try await CoderouterClient.shared.setClaudeUpstream(input, teamID: teamID)
+                let result = try await CoderouterClient.shared.addClaudeAccount(input, label: label, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "coderouter.claude_upstream.update":
+            guard let accountID = Self.coderouterString(params["accountId"]) else {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.claude_upstream.update requires `accountId`.")
+            }
+            let label = Self.coderouterString(params["label"])
+            let state = Self.coderouterString(params["state"])
+            if let state, state != "active", state != "disabled" {
+                return v2Error(id: id, code: "invalid_params", message: "`state` must be active or disabled.")
+            }
+            if label == nil, state == nil {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.claude_upstream.update needs `label` or `state`.")
+            }
+            return coderouterCall(id: id) {
+                let result = try await CoderouterClient.shared.updateClaudeAccount(id: accountID, label: label, state: state, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "coderouter.claude_upstream.remove":
+            guard let accountID = Self.coderouterString(params["accountId"]) else {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.claude_upstream.remove requires `accountId`.")
+            }
+            return coderouterCall(id: id) {
+                let result = try await CoderouterClient.shared.removeClaudeAccount(id: accountID, teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "coderouter.claude_upstream.clear":
             return coderouterCall(id: id) {
-                let result = try await CoderouterClient.shared.clearClaudeUpstream(teamID: teamID)
+                let result = try await CoderouterClient.shared.clearClaudeAccounts(teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "coderouter.machines":
@@ -59,30 +86,30 @@ extension TerminalController {
     /// token grammar and is the authority.
     private nonisolated static func claudeUpstreamInput(from params: [String: Any]) -> ClaudeUpstreamParse {
         guard let kind = coderouterString(params["kind"])?.lowercased(), !kind.isEmpty else {
-            return .failure("coderouter.claude_upstream.set requires `kind`: anthropic_api_key, anthropic_oauth, or bedrock.")
+            return .failure("coderouter.claude_upstream.add requires `kind`: anthropic_api_key, anthropic_oauth, or bedrock.")
         }
         switch kind {
         case "anthropic_api_key":
-            guard let apiKey = socketWorkerSecret(params["apiKey"]) else {
+            guard let apiKey = coderouterString(params["apiKey"]) else {
                 return .failure("anthropic_api_key requires `apiKey`.")
             }
             return .success(.anthropicAPIKey(apiKey))
         case "anthropic_oauth":
-            guard let token = socketWorkerSecret(params["token"]) else {
+            guard let token = coderouterString(params["token"]) else {
                 return .failure("anthropic_oauth requires `token` (from `claude setup-token`).")
             }
             return .success(.anthropicOAuth(token: token))
         case "bedrock":
-            guard let region = socketWorkerSecret(params["region"]) else {
+            guard let region = coderouterString(params["region"]) else {
                 return .failure("bedrock requires `region`.")
             }
-            guard let accessKeyID = socketWorkerSecret(params["accessKeyId"]) else {
+            guard let accessKeyID = coderouterString(params["accessKeyId"]) else {
                 return .failure("bedrock requires `accessKeyId`.")
             }
-            guard let secretAccessKey = socketWorkerSecret(params["secretAccessKey"]) else {
+            guard let secretAccessKey = coderouterString(params["secretAccessKey"]) else {
                 return .failure("bedrock requires `secretAccessKey`.")
             }
-            let sessionToken = socketWorkerSecret(params["sessionToken"])
+            let sessionToken = coderouterString(params["sessionToken"])
             var modelIDs: [String: String] = [:]
             if let raw = params["modelIds"] {
                 guard let object = raw as? [String: Any] else {
@@ -107,16 +134,12 @@ extension TerminalController {
         }
     }
 
-    /// Socket params arrive as untyped JSON; only string values are accepted
-    /// (numbers or objects in a credential field are a caller bug, not data).
+    /// Socket params arrive as untyped JSON; only non-empty string values are
+    /// accepted (numbers or objects in a credential field are a caller bug).
     private nonisolated static func coderouterString(_ value: Any?) -> String? {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private nonisolated static func socketWorkerSecret(_ value: Any?) -> String? {
-        coderouterString(value)
     }
 
     /// Mirrors the `GET /api/coderouter/vm-usage/team` JSON so `--json` output
