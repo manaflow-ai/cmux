@@ -7,9 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{
-    Receiver, RecvError, RecvTimeoutError, Sender, TrySendError, channel, sync_channel,
-};
+use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -1511,7 +1509,7 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     if current.sender.is_some() {
         return;
     }
-    let (sender, receiver) = sync_channel::<()>(1);
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(1);
     let worker_state = state.clone();
     #[cfg(test)]
     if current.fail_next_spawn {
@@ -1609,8 +1607,8 @@ fn enqueue_worker_reap_in_state(
         current.pending.push((handle, completion));
         if let Some(sender) = current.sender.as_ref() {
             match sender.try_send(()) {
-                Ok(()) | Err(TrySendError::Full(())) => {}
-                Err(TrySendError::Disconnected(())) => current.sender = None,
+                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(())) => {}
+                Err(std::sync::mpsc::TrySendError::Disconnected(())) => current.sender = None,
             }
         }
     }
