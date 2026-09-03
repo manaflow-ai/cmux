@@ -1,0 +1,144 @@
+module content.mojom;
+
+enum OwlFreshMouseKind {
+  kDown = 0,
+  kUp = 1,
+  kMove = 2,
+  kWheel = 3,
+};
+
+struct OwlFreshMouseEvent {
+  OwlFreshMouseKind kind;
+  float x;
+  float y;
+  uint32 button;
+  uint32 click_count;
+  float delta_x;
+  float delta_y;
+  uint32 modifiers;
+};
+
+struct OwlFreshKeyEvent {
+  bool key_down;
+  uint32 key_code;
+  string text;
+  uint32 modifiers;
+};
+
+struct OwlFreshCompositorInfo {
+  uint32 context_id;
+};
+
+enum OwlFreshSurfaceKind {
+  kWebView = 0,
+  kPopupWidget = 1,
+  kNativeMenu = 2,
+  kNativeFilePicker = 3,
+  kDevTools = 4,
+};
+
+enum OwlFreshDevToolsMode {
+  kBottom = 0,
+  kRight = 1,
+  kLeft = 2,
+  kWindow = 3,
+};
+
+struct OwlFreshNativeMenuItem {
+  string label;
+  string tool_tip;
+  bool enabled;
+  bool separator;
+  bool group;
+  uint32 text_direction;
+  bool has_text_direction_override;
+};
+
+struct OwlFreshSurfaceInfo {
+  uint64 surface_id;
+  uint64 parent_surface_id;
+  OwlFreshSurfaceKind kind;
+  uint32 context_id;
+  int32 x;
+  int32 y;
+  uint32 width;
+  uint32 height;
+  float scale;
+  int32 z_index;
+  bool visible;
+  array<string> menu_items;
+  array<OwlFreshNativeMenuItem> native_menu_items;
+  int32 selected_index;
+  float item_font_size;
+  bool right_aligned;
+  string file_picker_mode;
+  array<string> file_picker_accept_types;
+  bool file_picker_allows_multiple;
+  bool file_picker_upload_folder;
+  string label;
+};
+
+struct OwlFreshSurfaceTree {
+  uint64 generation;
+  array<OwlFreshSurfaceInfo> surfaces;
+};
+
+struct OwlFreshCaptureResult {
+  array<uint8> png;
+  uint32 width;
+  uint32 height;
+  string capture_mode;
+  string error;
+};
+
+interface OwlFreshClient {
+  OnReady(int32 host_pid, OwlFreshCompositorInfo compositor);
+  OnCompositorChanged(OwlFreshCompositorInfo compositor);
+  OnSurfaceTreeChanged(OwlFreshSurfaceTree surface_tree);
+  OnNavigationChanged(string url, string title, bool loading);
+  OnHostLog(string message);
+};
+
+interface OwlFreshSession {
+  SetClient(pending_remote<OwlFreshClient> client);
+  BindProfile(pending_receiver<OwlFreshProfile> profile);
+  BindWebView(pending_receiver<OwlFreshWebView> web_view);
+  BindInput(pending_receiver<OwlFreshInput> input);
+  BindSurfaceTree(pending_receiver<OwlFreshSurfaceTreeHost> surface_tree);
+  BindNativeSurfaceHost(pending_receiver<OwlFreshNativeSurfaceHost> native_surface_host);
+  BindDevToolsHost(pending_receiver<OwlFreshDevToolsHost> devtools_host);
+  Flush() => (bool ok);
+};
+
+interface OwlFreshProfile {
+  GetPath() => (string path);
+};
+
+interface OwlFreshWebView {
+  Navigate(string url);
+  Resize(uint32 width, uint32 height, float scale);
+  SetFocus(bool focused);
+};
+
+interface OwlFreshInput {
+  SendMouse(OwlFreshMouseEvent event);
+  SendKey(OwlFreshKeyEvent event);
+};
+
+interface OwlFreshSurfaceTreeHost {
+  CaptureSurface() => (OwlFreshCaptureResult result);
+  GetSurfaceTree() => (OwlFreshSurfaceTree surface_tree);
+};
+
+interface OwlFreshNativeSurfaceHost {
+  AcceptActivePopupMenuItem(uint32 index) => (bool ok);
+  CancelActivePopup() => (bool ok);
+  SelectActiveFilePickerFiles(array<string> paths) => (bool ok);
+  CancelActiveFilePicker() => (bool ok);
+};
+
+interface OwlFreshDevToolsHost {
+  OpenDevTools(OwlFreshDevToolsMode mode) => (bool ok);
+  CloseDevTools() => (bool ok);
+  EvaluateDevToolsJavaScript(string script) => (string result_json);
+};
