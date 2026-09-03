@@ -1287,7 +1287,7 @@ mod tests {
         let stream = transport::connect(&socket).unwrap();
         let mut conn = Conn { reader: BufReader::new(stream), next_id: 1 };
         let report = Arc::new(Mutex::new(Report::new(&socket)));
-        let events = Arc::new(Mutex::new(Vec::new()));
+        let events = Arc::new(Mutex::new(VisibilityIndex::default()));
         record_create_result(
             &mut conn,
             Instant::now(),
