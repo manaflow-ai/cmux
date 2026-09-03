@@ -1154,6 +1154,30 @@ mod tests {
     }
 
     #[test]
+    fn process_group_cache_refreshes_when_a_same_pid_runtime_reexecs() {
+        let now = Instant::now();
+        let first = cmux::ProcessInfoResult {
+            pid: 0,
+            executable: Some("node".into()),
+            argv: vec!["node".into(), "/tmp/agent-a".into()],
+            cwd: None,
+            foreground_cwd: None,
+            foreground_executable: Some("node".into()),
+            children: Vec::new(),
+        };
+        let second = cmux::ProcessInfoResult {
+            argv: vec!["node".into(), "/tmp/agent-b".into()],
+            ..first.clone()
+        };
+        let mut cache = ProcessGroupCache::default();
+
+        let _ = cache.job_for("terminal-1", &first, Some(7), now);
+        let second_job = cache.job_for("terminal-1", &second, Some(7), now);
+
+        assert_eq!(second_job.processes[0].argv, second.argv);
+    }
+
+    #[test]
     fn emission_keys_are_unique_for_one_connection() {
         let first = emission_idempotency_key("17-123456789", 0);
         let second = emission_idempotency_key("17-123456789", 1);
