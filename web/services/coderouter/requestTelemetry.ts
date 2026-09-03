@@ -258,8 +258,7 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
       return "operator";
     case "provider_unavailable":
       return outcome.failureStage === "upstream_transport" ||
-          outcome.failureStage === "upstream_response" ||
-          outcome.failureStage === "provider_config"
+          outcome.failureStage === "upstream_response"
         ? "upstream"
         : "operator";
     case "no_usable_account":

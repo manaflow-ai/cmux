@@ -50,6 +50,7 @@ describe("coderouter alert checks", () => {
   test("one operator-side failure is critical; upstream and tenant failures need their thresholds", async () => {
     const { sent, run } = harness([
       { outcome: "provider_unavailable", failure_stage: "account_selection", team_id: "t1", provider: "claude", c: 1 },
+      { outcome: "provider_unavailable", failure_stage: "provider_config", team_id: "t1", provider: "opencode-go", c: 1 },
       { outcome: "upstream_error", failure_stage: "upstream_response", team_id: "t1", provider: "codex", c: 2 },
       { outcome: "no_usable_account", failure_stage: "account_selection", team_id: "t2", provider: "codex", c: 3 },
     ], healthy, webhook);
@@ -57,6 +58,7 @@ describe("coderouter alert checks", () => {
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-operator-failures"]);
     expect(sent[0]!.severity).toBe("critical");
     expect(sent[0]!.body).toContain("claude/provider_unavailable/account_selection: 1");
+    expect(sent[0]!.body).toContain("opencode-go/provider_unavailable/provider_config: 1");
     expect(summary.checks.find((check) => check.key === "coderouter-upstream-failures")).toMatchObject({ triggered: false, count: 2, threshold: 5 });
     expect(summary.checks.find((check) => check.key === "coderouter-no-usable-account")).toMatchObject({ triggered: false, count: 3, threshold: 10 });
   });

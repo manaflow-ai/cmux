@@ -206,16 +206,14 @@ export async function runCoderouterAlertChecks(
 function isOperatorFailure(row: RouteEventRow): boolean {
   return row.outcome === "provider_unavailable" &&
     row.failure_stage !== "upstream_transport" &&
-    row.failure_stage !== "upstream_response" &&
-    row.failure_stage !== "provider_config";
+    row.failure_stage !== "upstream_response";
 }
 
 function isUpstreamFailure(row: RouteEventRow): boolean {
   if (row.outcome === "upstream_error") return true;
   if (row.outcome === "provider_unavailable") {
     return row.failure_stage === "upstream_transport" ||
-      row.failure_stage === "upstream_response" ||
-      row.failure_stage === "provider_config";
+      row.failure_stage === "upstream_response";
   }
   return row.outcome === "no_usable_account" &&
     (row.failure_stage === "credential_refresh" || row.failure_stage === "upstream_transport");
