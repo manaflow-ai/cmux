@@ -6,8 +6,6 @@
 //! validation must finish before pairing, config, or autostart code can
 //! touch disk or the network.
 
-use std::path::PathBuf;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Help,
@@ -38,7 +36,7 @@ pub struct ParsedArgs {
     /// The raw flag string that selected `command` (for conflict messages).
     command_flag: Option<String>,
     pub backend: Option<String>,
-    pub config_path: Option<PathBuf>,
+    pub config_path: Option<String>,
     pub enrollment_file: Option<String>,
     pub allow_root: Vec<String>,
     pub no_onboard: bool,
@@ -88,7 +86,7 @@ where
             match argument {
                 "--allow-root" => parsed.allow_root.push(value),
                 "--backend" => parsed.backend = Some(value),
-                "--config" => parsed.config_path = Some(PathBuf::from(value)),
+                "--config" => parsed.config_path = Some(value),
                 _ => parsed.enrollment_file = Some(value),
             }
             index += 2;
