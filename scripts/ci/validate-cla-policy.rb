@@ -16,6 +16,13 @@ require "yaml"
 
 class PolicyError < StandardError; end
 
+# A pull-request event is a snapshot. If the live pull request has since moved
+# to another well-formed head, this invocation can no longer authorize that
+# newer revision, but its check is still attached to the old head. Keep this
+# outcome separate from policy failures so a rapid push does not leave a false
+# red check behind.
+class SupersededRevision < StandardError; end
+
 SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
@@ -60,7 +67,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "cda4c1369aaa53f3d7f78651eff6b8c9d5664d83eac627c00b0a5bb485c26477"
+EXPECTED_GUARD_SCRIPT_DIGEST = "353624e9efebf6ad8b37e2a24cb76c46a192e4192daf2cbd4d5a18ff89c720f0"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -2415,6 +2422,11 @@ def validate_guard_script(raw, pr_author_id: nil)
     "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",
     "trusted_review_approves_head?",
+    "class SupersededRevision",
+    "def validated_pull_request_metadata",
+    "raise SupersededRevision if live_head[\"sha\"] != head_sha",
+    "rescue SupersededRevision",
+    "CLA policy validation skipped because this revision was superseded",
     "pr_author_id",
     "pull-request author ID is malformed",
     "base_workflow_digest",
@@ -2440,6 +2452,52 @@ def validate_guard_script(raw, pr_author_id: nil)
   end
 end
 
+def validated_pull_request_metadata(repository, pr_number, base_sha, head_sha)
+  repository_metadata = api_json(repository, "repos/#{repository}")
+  repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
+  assert_positive_integer(repository_id, "base repository ID")
+
+  live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
+  fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
+  live_base = live_pr["base"]
+  live_head = live_pr["head"]
+  live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil
+  live_head_repo = live_head.is_a?(Hash) ? live_head["repo"] : nil
+  live_author = live_pr["user"]
+
+  # A superseded run is safe to retire only after the live response proves an
+  # open pull request on the expected base and supplies a well-formed head
+  # repository. Malformed, closed, retargeted, or cross-repository metadata
+  # remains a hard failure; only a well-formed newer head gets the non-error
+  # outcome.
+  fail!("pull request head SHA is malformed") unless
+    live_head.is_a?(Hash) && live_head["sha"].is_a?(String) && live_head["sha"].match?(SHA)
+  fail!("pull request metadata changed while validating") unless
+    live_pr["number"].to_s == pr_number &&
+    live_pr["state"] == "open" &&
+    live_base.is_a?(Hash) &&
+    live_base["ref"] == "main" &&
+    live_base["sha"] == base_sha &&
+    live_base_repo.is_a?(Hash) &&
+    live_base_repo["full_name"].to_s.downcase == repository.downcase &&
+    live_base_repo["id"] == repository_id &&
+    live_head["ref"].is_a?(String) &&
+    !live_head["ref"].empty? &&
+    live_head_repo.is_a?(Hash) &&
+    live_head_repo["full_name"].is_a?(String) &&
+    !live_head_repo["full_name"].empty? &&
+    live_head_repo["id"].is_a?(Integer) &&
+    live_head_repo["id"].positive?
+  fail!("pull request author metadata is malformed") unless
+    live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
+  head_repository = live_head_repo["full_name"].to_s
+  fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
+
+  raise SupersededRevision if live_head["sha"] != head_sha
+
+  { pr_author_id: live_author["id"], head_repository: head_repository }
+end
+
 begin
   run_yaml_regression_matrix!
   run_guard_contract_regression_matrix!
@@ -2457,39 +2515,9 @@ begin
   head_sha = required_env("HEAD_SHA", SHA)
   fail!("base and head revisions are identical") if base_sha == head_sha
 
-  repository_metadata = api_json(repository, "repos/#{repository}")
-  repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
-  assert_positive_integer(repository_id, "base repository ID")
-  live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
-  fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
-  live_base = live_pr["base"]
-  live_head = live_pr["head"]
-  live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil
-  live_head_repo = live_head.is_a?(Hash) ? live_head["repo"] : nil
-  live_author = live_pr["user"]
-  fail!("pull request metadata changed while validating") unless
-    live_pr["number"].to_s == pr_number &&
-    live_pr["state"] == "open" &&
-    live_base.is_a?(Hash) &&
-    live_base["ref"] == "main" &&
-    live_base["sha"] == base_sha &&
-    live_base_repo.is_a?(Hash) &&
-    live_base_repo["full_name"].to_s.downcase == repository.downcase &&
-    live_base_repo["id"] == repository_id &&
-    live_head.is_a?(Hash) &&
-    live_head["sha"] == head_sha &&
-    live_head["ref"].is_a?(String) &&
-    !live_head["ref"].empty? &&
-    live_head_repo.is_a?(Hash) &&
-    live_head_repo["full_name"].is_a?(String) &&
-    !live_head_repo["full_name"].empty? &&
-    live_head_repo["id"].is_a?(Integer) &&
-    live_head_repo["id"].positive?
-  fail!("pull request author metadata is malformed") unless
-    live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
-  pr_author_id = live_author["id"]
-  head_repository = live_head_repo["full_name"].to_s
-  fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
+  metadata = validated_pull_request_metadata(repository, pr_number, base_sha, head_sha)
+  pr_author_id = metadata.fetch(:pr_author_id)
+  head_repository = metadata.fetch(:head_repository)
 
   base_workflow = fetch_file(repository, base_sha, ".github/workflows/cla.yml")
   # A fork pull request stores the head commit in the head repository. Fetch
@@ -2590,6 +2618,12 @@ begin
     File.binwrite(File.join(candidate_dir, File.basename(head_script_path)), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
+rescue SupersededRevision
+  # This check is attached to the event's old head. A synchronize event will
+  # validate the newer head independently; do not turn a stale snapshot into
+  # a misleading required-check failure.
+  warn "::notice::CLA policy validation skipped because this revision was superseded"
+  exit 0
 rescue PolicyError
   # Candidate-controlled API, YAML, and shell diagnostics must not be copied
   # into a public check annotation. Keep the check deterministic and generic;

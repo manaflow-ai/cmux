@@ -84,6 +84,10 @@ FAKE_GH = <<~'RUBY'
       warn "gh: unexpected fake content path"
       exit 1
     end
+    if mode == "superseded"
+      warn "gh: superseded validation must not fetch candidate content"
+      exit 1
+    end
 
     bytes = File.binread(File.join(root, path))
     emit.call(
