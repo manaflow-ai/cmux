@@ -1904,6 +1904,8 @@
     "metaDescription": "cmux NIGHTLY indirin. main deki en son commit ten otomatik olarak derlenen bağımsız bir uygulama. Kararlı sürümle yan yana çalışır ve kendi otomatik güncellemelerine sahiptir.",
     "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
     "download": "Mac için NIGHTLY indir",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
   "languageSwitcher": {

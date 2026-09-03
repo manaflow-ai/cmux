@@ -1900,6 +1900,8 @@
     "metaDescription": "ទាញយក cmux NIGHTLY កម្មវិធីដាច់ដោយឡែកដែលត្រូវបានបង្កើតដោយស្វ័យប្រវត្តិពី commit ចុងក្រោយនៅលើ main។ ដំណើរការស្របជាមួយកំណែស្ថិរភាពជាមួយការអាប់ដេតស្វ័យប្រវត្តិផ្ទាល់ខ្លួន។",
     "description": "cmux NIGHTLY ត្រូវបានបង្កើតដោយស្វ័យប្រវត្តិពី commit ចុងក្រោយនៅលើ main។ វាមាន bundle ID ផ្ទាល់ខ្លួន ដូច្នេះវាដំណើរការស្របជាមួយកំណែស្ថិរភាពដោយគ្មានជម្លោះ។ ប្រើវាដើម្បីសាកល្បងមុខងារថ្មីមុនពេលចេញផ្សាយ។",
     "download": "ទាញយក NIGHTLY សម្រាប់ Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "កំណែ nightly អាចមានកំហុស ឬមុខងារមិនទាន់ពេញលេញ។ ប្រសិនបើមានបញ្ហា សូមរាយការណ៍នៅលើ <githubLink>GitHub</githubLink> ឬក្នុង <discordLink>#nightly-bugs នៅលើ Discord</discordLink> ហើយប្តូរទៅកំណែស្ថិរភាពវិញ។"
   },
   "languageSwitcher": {
