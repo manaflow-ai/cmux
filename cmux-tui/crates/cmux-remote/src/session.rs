@@ -152,7 +152,7 @@ impl ReliableSession {
             let (sender, receiver) = mpsc::channel(1);
             scheduler.spawn_tracked(run_ack_sender(
                 shared.clone(),
-                scheduler.clone(),
+                Arc::downgrade(&scheduler.inner),
                 generation,
                 lane,
                 receiver,
@@ -554,7 +554,7 @@ fn encode_ack(shared: &SharedState, generation: u64, lane: Lane) -> Result<Bytes
 
 async fn run_ack_sender(
     shared: Arc<SharedState>,
-    scheduler: ScheduledSender,
+    scheduler: Weak<ScheduledSenderInner>,
     generation: u64,
     lane: Lane,
     mut requested: mpsc::Receiver<()>,
@@ -570,7 +570,7 @@ async fn run_ack_sender(
         }
         while requested.try_recv().is_ok() {}
         let Ok(encoded) = encode_ack(&shared, generation, lane) else { return };
-        if scheduler.send(lane, encoded).await.is_err() {
+        if ScheduledSender::send_from_weak(&scheduler, lane, encoded).await.is_err() {
             return;
         }
     }
@@ -763,6 +763,17 @@ struct ScheduledSenderInner {
     active_tasks: AtomicUsize,
 }
 
+impl Drop for ScheduledSenderInner {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(tasks) = self.tasks.get_mut().as_mut() {
+            for task in tasks {
+                task.abort();
+            }
+        }
+    }
+}
+
 impl ScheduledSender {
     fn spawn(link: Arc<dyn FrameLink>, limits: SessionLimits) -> Self {
         let (interactive_tx, interactive_rx) = mpsc::channel(limits.queued_frames_per_lane);
@@ -815,16 +826,63 @@ impl ScheduledSender {
         F: Future<Output = ()> + Send + 'static,
     {
         self.inner.active_tasks.fetch_add(1, Ordering::AcqRel);
-        let inner = self.inner.clone();
+        let inner = Arc::downgrade(&self.inner);
         let task = tokio::spawn(async move {
             future.await;
-            inner.active_tasks.fetch_sub(1, Ordering::AcqRel);
+            if let Some(inner) = inner.upgrade() {
+                inner.active_tasks.fetch_sub(1, Ordering::AcqRel);
+            }
         });
         let mut tasks = self.inner.tasks.lock().unwrap();
         if let Some(tasks) = tasks.as_mut() {
             tasks.push(task);
         } else {
             task.abort();
+        }
+    }
+
+    async fn send_from_weak(
+        scheduler: &Weak<ScheduledSenderInner>,
+        lane: Lane,
+        frame: Bytes,
+    ) -> Result<(), ScheduleError> {
+        let Some(inner) = scheduler.upgrade() else {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        };
+        let queues = inner.queues.clone();
+        let budgets = inner.budgets.clone();
+        let limits = inner.limits;
+        let cancel = inner.cancel.clone();
+        drop(inner);
+
+        if cancel.is_cancelled() {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        let budget = &budgets[lane_index(lane)];
+        budget
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current
+                    .checked_add(frame.len())
+                    .filter(|next| *next <= limits.queued_bytes_per_lane)
+            })
+            .map_err(|_| ScheduleError::Unscheduled(SessionError::QueueFull(lane)))?;
+        let bytes = frame.len();
+        let (completion, result) = oneshot::channel();
+        let queued = tokio::select! {
+            _ = cancel.cancelled() => {
+                budget.fetch_sub(bytes, Ordering::AcqRel);
+                return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+            }
+            result = queues.get(lane).send(ScheduledFrame { lane, frame, completion }) => result,
+        };
+        if queued.is_err() {
+            budget.fetch_sub(bytes, Ordering::AcqRel);
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        match result.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(ScheduleError::Ambiguous(SessionError::LinkMessage(message))),
+            Err(_) => Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed)),
         }
     }
 
@@ -1298,6 +1356,24 @@ mod tests {
         })
         .await
         .expect("concurrent close calls missed scheduler completion");
+    }
+
+    #[tokio::test]
+    async fn dropping_session_aborts_worker_tasks_without_close() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([18; 16]), link.clone(), SessionLimits::default());
+
+        drop(session);
+        drop(link);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while weak_link.upgrade().is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("session workers retained the link after session drop");
     }
 
     #[tokio::test]
