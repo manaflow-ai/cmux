@@ -1112,7 +1112,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--new] [--size <s>] [--json] -- <prompt or args...>
 
         Run a coding agent on a cloud machine. The machine is chosen like `vm run`
         (sticky per directory, then idle pool machine, then a fresh one) unless
@@ -1132,6 +1132,10 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --remote-workspace <ws>
+                           Land the agent's terminal in this machine workspace
+                           (a `ws_…` id from `vm tree`, e.g. one staged with
+                           `vm workspace new --no-open`) instead of the detached pool.
           --new            Force a fresh pool machine.
           --size <s>       Memory preset for a machine this call creates.
 
@@ -1267,6 +1271,7 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
         var index = 0
@@ -1286,6 +1291,7 @@ extension CMUXCLI {
             case "--cwd": cwdOption = try takeValue()
             case "--name": nameOption = try takeValue()
             case "--no-open": noOpen = true
+            case "--remote-workspace": remoteWorkspaceOption = try takeValue()
             case "--new": forceNew = true
             case "--size": sizeOption = try takeValue()
             case "--json": break
@@ -1339,13 +1345,19 @@ extension CMUXCLI {
         // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
         // in the machine's cmux-tui session, shows up in `cmux vm tree`, and opens locally as a
         // pane unless --no-open.
-        let params: [String: Any] = [
+        var params: [String: Any] = [
             "machine": selection.id,
             "command": vmAgentShellCommand(argv: argv),
             "cwd": remoteCwd,
             "name": name,
             "open": !noOpen,
         ]
+        // --remote-workspace: land the agent's terminal in a staged machine
+        // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
+        // that group instead of the detached pool.
+        if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
+            params["remote_workspace_id"] = remoteWorkspaceOption
+        }
         let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"

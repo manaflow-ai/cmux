@@ -798,7 +798,10 @@ extension CMUXCLI {
 
     static let vmWorkspaceUsage = """
         Usage:
-          cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
+          cmux vm workspace new <machine> [--name <name>] [--no-open]
+                                                              Create a workspace on the machine (its ⌘N) and open it here;
+                                                              --no-open stages it headlessly (shows in `vm tree`, nothing
+                                                              opens locally — open later with `vm workspace open`).
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
               [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
                                                               --here: into the current (or --workspace) local workspace instead — one pane
@@ -858,11 +861,17 @@ extension CMUXCLI {
         case "new":
             var params: [String: Any] = ["id": machine]
             if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
+            // --no-open: stage the workspace on the machine headlessly (it shows in
+            // `vm tree` and the sidebar; nothing opens or focuses locally).
+            if hasFlag(tail, name: "--no-open") { params["open"] = false }
             let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
             let remote = (response["remote_workspace_id"] as? String) ?? "?"
-            let local = (response["workspace_id"] as? String) ?? "?"
-            print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+            if let local = response["workspace_id"] as? String, !local.isEmpty {
+                print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+            } else {
+                print("OK remote_workspace=\(remote) machine=\(machine) (staged; open with: cmux vm workspace open \(machine) \(remote))")
+            }
         case "open":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]

@@ -278,16 +278,20 @@ extension TerminalController {
                 provider: provider,
                 catalog: catalog,
                 name: name,
-                focus: Self.surfaceBool(params["focus"]) ?? true
+                focus: Self.surfaceBool(params["focus"]) ?? true,
+                // `open: false` stages the workspace headlessly: it exists on the
+                // machine (with its starter terminal) but nothing opens locally.
+                openLocally: Self.surfaceBool(params["open"]) ?? true
             )
-            return [
+            var payload: [String: Any] = [
                 "machine": machine.rawValue,
                 "remote_workspace_id": created.workspace.id,
                 "remote_workspace_name": created.workspace.name,
                 "terminal_id": created.terminal.id.key,
-                "workspace_id": created.opened.workspaceID.uuidString,
-                "surface_id": created.opened.projections.first?.panelID.uuidString ?? NSNull(),
             ]
+            payload["workspace_id"] = created.opened?.workspaceID.uuidString ?? NSNull()
+            payload["surface_id"] = created.opened?.projections.first?.panelID.uuidString ?? NSNull()
+            return payload
         }
     }
 
