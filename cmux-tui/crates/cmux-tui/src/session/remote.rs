@@ -1566,6 +1566,8 @@ fn enqueue_worker_reap_in_state(
     handle: std::thread::JoinHandle<()>,
     completion: Arc<WorkerCompletion>,
 ) {
+    let self_thread = handle.thread().id() == std::thread::current().id();
+    let completion_for_fallback = completion.clone();
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
@@ -1581,6 +1583,21 @@ fn enqueue_worker_reap_in_state(
         try_start_reaper(state);
         if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
             reap_completed_workers(state);
+            if self_thread {
+                let retained = {
+                    let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    current
+                        .pending
+                        .iter()
+                        .position(|(pending, _)| {
+                            pending.thread().id() == std::thread::current().id()
+                        })
+                        .map(|index| current.pending.swap_remove(index).0)
+                };
+                if let Some(handle) = retained {
+                    completion_for_fallback.install_handle(handle);
+                }
+            }
         }
     }
 }
@@ -2034,7 +2051,6 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
-    reader_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     reader_completion: Arc<WorkerCompletion>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
@@ -2403,7 +2419,6 @@ impl RemoteSession {
             Arc::new(WorkerCompletion::with_slot(worker_runtime, Some(reader_slot)));
         let session = Arc::new(RemoteSession {
             interactive_writer,
-            reader_worker: Mutex::new(None),
             reader_completion: reader_completion.clone(),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
@@ -2479,7 +2494,7 @@ impl RemoteSession {
             .inspect_err(|_| {
                 reader_completion.release_slot();
             })?;
-        *session.reader_worker.lock().unwrap() = Some(reader_worker);
+        reader_completion.install_handle(reader_worker);
 
         if let Err(error) = session.initialize(subscribe) {
             session.disconnect_transport();
@@ -3497,25 +3512,19 @@ impl RemoteSession {
 
     fn join_reader_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
-        let handle = {
-            let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
-            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
-                let handle = worker.take();
-                drop(worker);
-                if let Some(handle) = handle {
-                    self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
-                }
-                return;
-            }
-            worker.take()
+        let Some(handle) = self.reader_completion.take_handle() else {
+            let _ = self.reader_completion.wait(deadline.saturating_duration_since(Instant::now()));
+            return;
         };
-        if let Some(handle) = handle {
-            if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
-                let _ = handle.join();
-                self.reader_completion.release_slot();
-            } else {
-                self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
-            }
+        if handle.thread().id() == current {
+            self.reader_completion.install_handle(handle);
+            return;
+        }
+        if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
+            let _ = handle.join();
+            self.reader_completion.release_slot();
+        } else {
+            self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
         }
     }
 
@@ -4442,7 +4451,6 @@ fn test_session_with_writer(
             worker_runtime,
         )
         .unwrap(),
-        reader_worker: Mutex::new(None),
         reader_completion: Arc::new(WorkerCompletion::new()),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
@@ -5693,7 +5701,6 @@ mod tests {
         let worker_runtime = test_worker_runtime();
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort, worker_runtime).unwrap(),
-            reader_worker: Mutex::new(None),
             reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
