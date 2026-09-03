@@ -7186,6 +7186,8 @@ pub struct App {
     projection_agents_generation: u64,
     #[cfg(test)]
     projection_agents_builds: usize,
+    #[cfg(test)]
+    projection_collapsed_clones: usize,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
@@ -9494,6 +9496,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         projection_agents_generation: 0,
         #[cfg(test)]
         projection_agents_builds: 0,
+        #[cfg(test)]
+        projection_collapsed_clones: 0,
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
@@ -10349,11 +10353,15 @@ impl App {
         }
         let Some(spec) = self.config.sidebar.views.get(index) else { return Arc::from([]) };
         let empty_collapsed = HashSet::new();
-        let collapsed = self
-            .projection_rails
-            .get(&spec.id)
-            .map(|state| state.collapsed.clone())
-            .unwrap_or(empty_collapsed);
+        let collapsed = if let Some(state) = self.projection_rails.get(&spec.id) {
+            #[cfg(test)]
+            {
+                self.projection_collapsed_clones += 1;
+            }
+            state.collapsed.clone()
+        } else {
+            empty_collapsed
+        };
         let agents = self
             .projection_agents
             .as_ref()
@@ -44558,11 +44566,15 @@ mod tests {
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
+        app.projection_rail_state_mut(0)
+            .collapsed
+            .insert(crate::sidebar_projection::ProjectionBranch::Workspace(1));
 
         let first = app.projection_rows(0);
         let second = app.projection_rows(0);
         assert_eq!(first, second);
         assert_eq!(app.projection_agents_builds, 1);
+        assert_eq!(app.projection_collapsed_clones, 1);
 
         app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
             surface: 0,
