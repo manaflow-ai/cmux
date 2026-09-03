@@ -45,7 +45,10 @@ fn escape_character(character: char) -> String {
         '\r' => "\\r".to_owned(),
         '\t' => "\\t".to_owned(),
         '\u{2028}' | '\u{2029}' => unicode_escape(character),
-        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}'
+        '\u{061c}'
+        | '\u{200e}'
+        | '\u{200f}'
+        | '\u{202a}'..='\u{202e}'
         | '\u{2066}'..='\u{2069}' => unicode_escape(character),
         character if character.is_control() => unicode_escape(character),
         character => character.to_string(),

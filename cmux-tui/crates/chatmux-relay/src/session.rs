@@ -1113,9 +1113,7 @@ async fn relay_session(
                                 let code =
                                     result.get("code").and_then(Value::as_str).unwrap_or("failed");
                                 let shown_code = terminal_text(code);
-                                println!(
-                                    "Refused {shown_verb} ({shown_code}) for {shown_actor}."
-                                );
+                                println!("Refused {shown_verb} ({shown_code}) for {shown_actor}.");
                             }
                             let size = serde_json::to_string(&result)
                                 .map(|text| text.len() as u64)
