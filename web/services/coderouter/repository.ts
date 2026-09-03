@@ -808,9 +808,14 @@ export async function selectAccountForRequest(
   teamId: string,
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[] = [],
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
+  throwIfAborted(signal);
   await sweepExpiredRefreshLeases(teamId);
-  return await claimAccountForPlacement(teamId, provider, excludedAccountIds);
+  throwIfAborted(signal);
+  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds);
+  throwIfAborted(signal);
+  return account;
 }
 
 function accountExclusion(
