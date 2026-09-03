@@ -123,10 +123,10 @@ extension MobileShellComposite {
             return
         }
         // Failed dials run their own cleanup with the default non-preserving
-        // teardown, dropping the secondary subscriptions preserved above (the
-        // foreground id is already nil, so that filter keeps only the
-        // anonymous key). Rebuild them so a failed foreground redial cannot
-        // strand healthy secondary Macs.
+        // teardown, cancelling the secondary subscriptions preserved above
+        // (their last-known rows stay, downgraded to unavailable). Rebuild the
+        // subscriptions so a failed foreground redial cannot strand healthy
+        // secondary Macs on stale rows.
         await refreshSecondaryMacWorkspaces()
     }
 
