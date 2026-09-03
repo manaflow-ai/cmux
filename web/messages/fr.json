@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
       "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation."
+      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "machines": {
+        "title": "Machines",
+        "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Jetons au total",
+        "apiEquivalentColumn": "Valeur équivalente API",
+        "unnamed": "Machine sans nom",
+        "empty": "Aucune machine n'a utilisé coderouter au cours des {days} derniers jours.",
+        "unavailable": "L'utilisation par machine est temporairement indisponible.",
+        "estimateNote": "La valeur équivalente API est une estimation basée sur les prix publics, pas une dépense réelle."
+      }
     },
     "accountMenu": {
       "label": "Menu du compte",
@@ -1856,6 +1867,8 @@
     "metaDescription": "Téléchargez cmux NIGHTLY, une app séparée compilée automatiquement depuis le dernier commit sur main. Fonctionne à côté de la version stable avec ses propres mises à jour automatiques.",
     "description": "cmux NIGHTLY est compilé automatiquement depuis le dernier commit sur main. Il possède son propre bundle ID et fonctionne donc à côté de la version stable sans conflit. Utilisez-le pour tester les nouvelles fonctionnalités avant leur sortie.",
     "download": "Télécharger NIGHTLY pour Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Les builds nightly peuvent contenir des bugs ou des fonctionnalités incomplètes. En cas de problème, signalez-le sur <githubLink>GitHub</githubLink> ou dans <discordLink>#nightly-bugs sur Discord</discordLink> et revenez à la version stable."
   },
   "languageSwitcher": {

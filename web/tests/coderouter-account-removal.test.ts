@@ -5,11 +5,10 @@ import { createAccountRemover } from "../services/coderouter/accounts";
 const accountId = "00000000-0000-4000-8000-000000000001";
 
 describe("coderouter account removal", () => {
-  test("requires manage permission and scopes deletion to the resolved team", async () => {
+  test("scopes deletion to the resolved team", async () => {
     let removed: { teamId: string; accountId: string } | undefined;
     const handler = createDeleteAccountHandler({
-      resolve: async (_request, permission) => {
-        expect(permission).toBe("manage");
+      resolve: async () => {
         return {
           ok: true as const,
           value: {

@@ -1,5 +1,13 @@
 import type { Span } from "@opentelemetry/api";
-import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
+import { after } from "next/server";
+import {
+  activeTraceIds,
+  forceFlushTraces,
+  recordSpanError,
+  spanTraceIds,
+  withApiRouteSpan,
+  type MaybeAttributes,
+} from "../telemetry";
 import {
   parseNativeStackTokens,
   unauthorized,
@@ -24,6 +32,7 @@ import {
   isVmDatabaseError,
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
@@ -31,11 +40,21 @@ import {
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
+  type VmModelPlaneError,
   type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
-import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
+import {
+  captureVmRequestOutcome,
+  reportVmErrorResponse,
+  VM_ERROR_CODE_HEADER,
+} from "./observability";
+import {
+  runWithVmRequestContext,
+  vmClientIdentityFromRequest,
+  type VmRequestContext,
+} from "./requestContext";
 import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
@@ -61,28 +80,62 @@ export async function withAuthedVmApiRoute(
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
 ): Promise<Response> {
-  return withApiRouteSpan(
+  const operation = typeof attributes["cmux.vm.operation"] === "string"
+    ? attributes["cmux.vm.operation"]
+    : "unknown";
+  const requestContext: VmRequestContext = {
+    route,
+    method: request.method,
+    operation,
+    startedAtMs: performance.now(),
+    client: vmClientIdentityFromRequest(request),
+    vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+  };
+  return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
     route,
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
+      const ids = spanTraceIds(span);
+      if (ids) {
+        requestContext.traceId = ids.traceId;
+        requestContext.spanId = ids.spanId;
+      }
       let responseFinalizer: ((response: Response) => void) | null = null;
       const setResponseFinalizer = (finalizer: ((response: Response) => void) | null) => {
         responseFinalizer = finalizer;
       };
       const finalize = (response: Response): Response => {
-        if (!responseFinalizer) return response;
+        if (responseFinalizer) {
+          try {
+            responseFinalizer(response);
+          } catch (err) {
+            recordSpanError(span, err);
+            console.error(`${failureLog}: response finalizer failed`, err);
+          }
+        }
+        // Every VM response, every route: outcome + latency to the span and
+        // PostHog, then a bounded span flush so an error-heavy instance cannot
+        // lose the trace the PostHog row points at.
         try {
-          responseFinalizer(response);
+          captureVmRequestOutcome({
+            context: requestContext,
+            response,
+            span,
+            durationMs: performance.now() - requestContext.startedAtMs,
+          });
         } catch (err) {
           recordSpanError(span, err);
-          console.error(`${failureLog}: response finalizer failed`, err);
+          console.error(`${failureLog}: outcome capture failed`, err);
+        }
+        if (response.status >= 400 || !isPolledVmOperation(operation)) {
+          scheduleTraceFlush();
         }
         return response;
       };
 
       try {
-        const routeStartedAtMs = performance.now();
+        const routeStartedAtMs = requestContext.startedAtMs;
         const bearer = parseBearer(request);
         const authStart = performance.now();
         let user: AuthedUser | null;
@@ -93,9 +146,10 @@ export async function withAuthedVmApiRoute(
         }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
-        if (!user) return unauthorized();
+        if (!user) return finalize(unauthorized());
+        requestContext.userId = user.id;
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
-        if (mutationForbidden) return mutationForbidden;
+        if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
@@ -111,7 +165,25 @@ export async function withAuthedVmApiRoute(
         }));
       }
     },
-  );
+  ));
+}
+
+const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
+
+function isPolledVmOperation(operation: string): boolean {
+  return POLLED_OPERATIONS.has(operation);
+}
+
+function scheduleTraceFlush(): void {
+  const flush = () => forceFlushTraces();
+  try {
+    // Past the response, inside the request lifecycle (Vercel keeps the
+    // function alive for `after` callbacks). Outside a request scope `after`
+    // throws; there is no batch exporter to flush there.
+    after(flush);
+  } catch {
+    // Not in a request scope (tests, scripts).
+  }
 }
 
 /**
@@ -181,6 +253,10 @@ export type VmLifecyclePhase =
 
 export function vmErrorResponse(input: VmErrorResponseInput): Response {
   const retryAfterSeconds = normalizedRetryAfterSeconds(input.retryAfterSeconds);
+  // The trace id is the support reference: a user pastes it, an operator opens
+  // the exact Axiom trace, PostHog row and Sentry event. Safe to expose (random
+  // 128-bit id, no meaning outside our telemetry).
+  const traceId = activeTraceIds()?.traceId;
   const payload = {
     ...(input.extra ?? {}),
     ...(input.details ? { details: {
@@ -199,11 +275,13 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
       severity: input.severity ?? (input.status >= 500 ? "warning" : "error"),
       retryable: input.retryable ?? false,
       ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      ...(traceId ? { traceId } : {}),
     },
     error: input.error,
     message: input.message,
     reason: input.reason ?? input.message,
     action: input.action,
+    ...(traceId ? { traceId } : {}),
   };
   const headers: Record<string, string> = {};
   if (retryAfterSeconds !== undefined) {
@@ -474,7 +552,34 @@ export function vmCreateLikeErrorResponse(
       details: { amount: err.amount },
     });
   }
+  if (isVmModelPlaneError(err)) {
+    return vmModelPlaneErrorResponse(err, input.operation);
+  }
   return null;
+}
+
+/**
+ * The machine could not be wired to coderouter, so no provider machine was
+ * created. Every model-plane failure is a coderouter outage (retry); there
+ * is no plan gate on the model plane.
+ */
+export function vmModelPlaneErrorResponse(
+  _err: VmModelPlaneError,
+  phase: "create" | VmCreateLikeOperation = "create",
+): Response {
+  return vmErrorResponse({
+    error: "vm_model_plane_unavailable",
+    status: 503,
+    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    reason: "coderouter is unavailable.",
+    action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
+    phase,
+    retryable: true,
+    retryAfterSeconds: 30,
+    displayTitle: "coderouter is unavailable",
+    displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
+    details: { retryable: true },
+  });
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
@@ -519,6 +624,10 @@ export async function vmWorkflowErrorResponse(
         supportedTransports: [...workflowError.supported],
       },
     });
+  }
+
+  if (isVmModelPlaneError(workflowError)) {
+    return vmModelPlaneErrorResponse(workflowError);
   }
 
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
@@ -950,4 +1059,19 @@ function allowedBrowserOrigins(): Set<string> {
 function normalizedOptionalString(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+/**
+ * Run best-effort work once the response has been sent. Vercel keeps the
+ * function alive for `after` callbacks; outside a request scope (tests, a
+ * plain Node server) `after` throws, and the work runs detached instead.
+ * Failures are logged, never surfaced to the response that already left.
+ */
+export function runAfterResponse(work: () => Promise<void>): void {
+  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  try {
+    after(guarded);
+  } catch {
+    void guarded();
+  }
 }

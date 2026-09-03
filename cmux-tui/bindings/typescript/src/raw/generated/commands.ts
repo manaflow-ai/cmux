@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929. */
 
 
 import type * as T from "./types.js";
@@ -401,6 +401,11 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
 }
 export type ListWorkspacesResult = T.Tree;
+
+/** Protocol v12; authority: control. */
+export interface MachineUsageRequest extends CmuxRequestBase {
+  cmd: "machine-usage";
+}
 
 /** Protocol v9; authority: provider-authority. */
 export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
@@ -977,6 +982,7 @@ export type CmuxRequest =
   | ListClientsRequest
   | ListTerminalsRequest
   | ListWorkspacesRequest
+  | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
@@ -1382,6 +1388,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "machine-usage": {
+    request: MachineUsageRequest;
+    result: T.MachineUsageResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-usage-v1";
     stream: null;
   };
   "mark-workspaces-provider-managed": {

@@ -72,7 +72,7 @@ export default function NightlyPage() {
 
         {/* Download button */}
         <a
-          href="https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg"
+          href="https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg"
           className="inline-flex items-center gap-2.5 rounded-full font-medium bg-foreground hover:opacity-85 transition-opacity px-5 py-2.5 text-[15px]"
           style={{ color: "var(--background)", textDecoration: "none" }}
         >
@@ -86,6 +86,15 @@ export default function NightlyPage() {
           </svg>
           {t("download")}
         </a>
+        <p className="text-[13px] text-muted mt-3" style={{ lineHeight: 1.5 }}>
+          {t("appleSilicon")} ·{" "}
+          <a
+            href="https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg"
+            className="underline hover:opacity-85 transition-opacity"
+          >
+            {t("intel")}
+          </a>
+        </p>
 
         <p
           className="text-[15px] text-muted mt-8"

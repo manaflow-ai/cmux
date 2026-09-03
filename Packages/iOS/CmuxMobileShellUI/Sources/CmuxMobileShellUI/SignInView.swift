@@ -576,8 +576,8 @@ struct SignInView: View {
                 .accessibilityHidden(true)
 
             Text(L10n.string("mobile.signIn.title", defaultValue: "cmux"))
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.system(.title2, design: .default, weight: .semibold))
+                .tracking(-0.33)
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .center)

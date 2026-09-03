@@ -6,13 +6,13 @@
 # coderouter agent-config generator.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). The binary is NOT
-# baked: each driver installs the pinned files.cmux.com build
-# (sha256-verified) onto the machine at create time and heals it on attach
-# (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
-# /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
-# and restarts the daemon. The Freestyle public-platform bake runs it from a
-# systemd unit.
+# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
+# driver installs the pinned files.cmux.com build (sha256-verified) at create
+# time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
+# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# for the binary and restarts the daemon. The Freestyle public-platform bake
+# (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
+# bakes the binary and binds the daemon identity to the instance id.
 #
 # Portability rules the Freestyle replay depends on (originally imposed by a
 # remote builder's restricted Dockerfile parser): no backslash escape
@@ -190,6 +190,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
      done \
   && rm -rf /tmp/blesh-seed-home \
+  && chmod -R a+rX /etc/cmux/blesh-cache-seed \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
@@ -202,8 +203,10 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
-# configs from the machine boot env (the coderouter model-plane vars minted
-# at VM create) and persists that env 0600 for shells that boot without it.
+# configs from the machine boot env (the coderouter model-plane vars set at
+# VM create: base URLs, placeholder keys, the VM id; the route token itself
+# is injected by the provider's TLS edge and never reaches the guest) and
+# persists that env 0600 for shells that boot without it.
 # The build check generates configs under a throwaway HOME with fake env,
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
@@ -214,22 +217,26 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
   && mkdir -p /tmp/agent-config-check \
-  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
-  && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
   && grep -q '"baseUrl": "https://example.invalid/v1"' /tmp/agent-config-check/.pi/agent/models.json \
-  && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json \
-  && ! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json \
+  && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json \
   && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
-  && echo "export OPENAI_API_KEY='crt_persisted'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && echo "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
@@ -243,3 +250,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
   && sh -n /usr/local/bin/cmux-devbox-boot
+
+# Login banner (pam_motd on providers that run sshd; inert elsewhere). It
+# reads the versions the bake pinned from /etc/cmux/tool-versions so login
+# never runs a tool to ask.
+COPY cmux-motd /etc/update-motd.d/00-cmux
+RUN chmod 0755 /etc/update-motd.d/00-cmux \
+  && sh -n /etc/update-motd.d/00-cmux \
+  && mkdir -p /etc/cmux \
+  && echo "claude ${CMUX_IMAGE_CLAUDE_CODE_VERSION} · codex ${CMUX_IMAGE_CODEX_VERSION} · opencode ${CMUX_IMAGE_OPENCODE_VERSION} · pi ${CMUX_IMAGE_PI_VERSION}" > /etc/cmux/tool-versions \
+  && echo "node $(node --version) · python $(python3 --version | awk '{print $2}') · bun $(bun --version) · uv $(uv --version | awk '{print $2}') · gh $(gh --version | head -1 | awk '{print $3}')" >> /etc/cmux/tool-versions \
+  && cat /etc/cmux/tool-versions

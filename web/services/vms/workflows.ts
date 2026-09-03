@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
+import type { CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -7,6 +9,7 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VmEdgeRule,
   VMHandle,
   VMStatus,
 } from "./drivers";
@@ -28,12 +31,15 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
+  VmModelPlaneError,
   VmNotFoundError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
@@ -94,6 +100,9 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   readonly displayName: string | null;
+  /** The machine's address on its owner's private network, when it has one. */
+  readonly addressIpv4: string | null;
+  readonly addressIpv6: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -104,6 +113,29 @@ export type BaseVmEntry = VmEntry & {
 };
 
 export type CloudVmSessionEntry = CloudVmSessionRow;
+
+/**
+ * What the machine gets from the coderouter model plane: guest env (base
+ * URLs, placeholder keys, the VM id) and the edge rules that inject the real
+ * credential. Provisioned once the VM row exists, before the provider call.
+ */
+export type VmModelPlaneMaterials = {
+  readonly envs: Readonly<Record<string, string>>;
+  readonly edgeRules: readonly VmEdgeRule[];
+};
+
+/**
+ * The model-plane seam the routes inject (services/vms/modelPlaneGateway.ts).
+ * `provision` rejects with VmModelPlaneError to fail the create; `revoke` is
+ * idempotent and called best-effort on destroy and on every create rollback.
+ */
+export type VmModelPlaneProvisioner = {
+  readonly provision: (cloudVmId: string) => Promise<VmModelPlaneMaterials>;
+  readonly revoke: (cloudVmId: string) => Promise<void>;
+};
+
+/** The revoke half alone, for paths that only end a machine. */
+export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
@@ -220,6 +252,8 @@ export function renameVm(input: {
 
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
+  /** Revokes coderouter tokens for machines the provider reports gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -240,7 +274,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron"),
+      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     let updated = 0;
@@ -342,12 +376,17 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
+  readonly imageSize?: CreateOptions["imageSize"];
+  /** See CreateOptions.afterResponse: the edge probe runs here instead of inside the request. */
+  readonly afterResponse?: CreateOptions["afterResponse"];
   /**
-   * Machine-level env injected at provider create (e.g. the coderouter
-   * model-plane vars). May hold secrets: passed to the driver only, never
-   * persisted in the VM row or providerMetadata.
+   * Wires the machine to coderouter. Provisioned after the row exists (its id
+   * is the token binding) and before the provider call; a failure fails the
+   * create. Omitted only by the local-dev kill switch, which creates an
+   * unwired machine.
    */
-  readonly envs?: Readonly<Record<string, string>>;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -355,20 +394,35 @@ export function createVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
 
-    // Resolved before the row is inserted and the credit reserved, so a
-    // provisioning failure here costs nothing to unwind. The network is an
-    // account-level resource — free, idempotent, and reused by every later
-    // machine — so resolving it for a create that then hits the active-VM
-    // limit is not waste, it is setup the next create no longer has to do.
-    // Null means the deployment or provider has no private networking, and the
-    // machine falls back to being reachable at its public address.
-    const network = yield* measureVmEffect(
-      input.timing,
-      "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+    // The owner's network row and the create row do not depend on each other,
+    // so the request pays the slower of the two reads, not their sum. A network
+    // failure after the row was inserted marks that row failed instead of
+    // leaving it "creating" forever; the network itself is an account-level
+    // resource, so nothing there needs unwinding.
+    const [networkResult, create] = yield* Effect.all(
+      [
+        Effect.either(
+          measureVmEffect(
+            input.timing,
+            "resolve_network",
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+          ),
+        ),
+        beginCreateWithLazyProviderRefresh(repo, providers, input),
+      ],
+      { concurrency: 2 },
     );
-
-    const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
+    if (Either.isLeft(networkResult)) {
+      if (create.inserted) {
+        yield* repo.markCreateFailed({
+          id: create.vm.id,
+          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+          message: errorMessage(networkResult.left),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+      return yield* Effect.fail(networkResult.left);
+    }
+    const network = networkResult.right;
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -392,6 +446,37 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
+    const materials = yield* measureVmEffect(
+      input.timing,
+      "model_plane_provision",
+      provisionModelPlane(input.modelPlane, create.vm.id),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
+            message: errorMessage(err.cause),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              operation: "model_plane_provision",
+              kind: err.kind,
+              message: errorMessage(err.cause),
+            },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -404,12 +489,16 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
-        envs: input.envs,
+        imageSize: input.imageSize,
+        afterResponse: input.afterResponse,
+        envs: materials?.envs,
+        edgeRules: materials?.edgeRules,
         ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
+          revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
@@ -448,6 +537,7 @@ export function createVm(input: {
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* rollbackProviderCreate(providers, input.provider, handle);
+          yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markCreateFailed({
             id: create.vm.id,
@@ -470,6 +560,41 @@ export function createVm(input: {
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * Runs the injected model-plane provisioning for a row that now exists. The
+ * gateway rejects with VmModelPlaneError; anything else is treated as
+ * coderouter being unavailable so the row is marked with a retryable code.
+ */
+function provisionModelPlane(
+  modelPlane: VmModelPlaneProvisioner | undefined,
+  cloudVmId: string,
+): Effect.Effect<VmModelPlaneMaterials | null, VmModelPlaneError> {
+  if (!modelPlane) return Effect.succeed(null);
+  return Effect.tryPromise({
+    try: () => modelPlane.provision(cloudVmId),
+    catch: (cause) => (isVmModelPlaneError(cause) ? cause : new VmModelPlaneError({ kind: "unavailable", cause })),
+  });
+}
+
+/**
+ * Best-effort token revocation for a machine that is gone or never came up.
+ * A failed revoke is logged, never fails the caller: the token stays bound to
+ * a VM id no edge will ever inject again, so it is unusable anyway.
+ */
+function revokeModelPlane(
+  modelPlane: VmModelPlaneRevoker | undefined,
+  cloudVmId: string,
+): Effect.Effect<void> {
+  if (!modelPlane) return Effect.void;
+  return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+      })
+    ),
+  );
 }
 
 export function openBaseVm(input: {
@@ -788,6 +913,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Same contract as createVm: the restored machine gets its own token and edge rule. */
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -811,6 +938,7 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
+      modelPlane: input.modelPlane,
       timing: input.timing,
     });
   });
@@ -1028,6 +1156,7 @@ function beginCreateWithLazyProviderRefresh(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
     readonly timing?: VmTimingSink;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
@@ -1053,6 +1182,7 @@ function refreshActiveLimitProviderStatuses(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
   },
 ): Effect.Effect<void, VmDatabaseError, never> {
   return Effect.gen(function* () {
@@ -1079,7 +1209,7 @@ function refreshActiveLimitProviderStatuses(
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
+      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -1111,6 +1241,7 @@ function reconcileObservedProviderStatus(
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
   usageEventSource: string,
+  modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
@@ -1132,6 +1263,7 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     if (dbStatus === "destroyed") {
+      yield* revokeModelPlane(modelPlane, vm.id);
       yield* repo.recordUsageEvent({
         userId: vm.userId,
         billingTeamId: vm.billingTeamId,
@@ -1475,6 +1607,8 @@ export function destroyVm(input: {
   readonly providerVmId: string;
   readonly provider?: ProviderId;
   readonly afterProviderDestroy?: () => void;
+  /** Revokes the machine's coderouter tokens once the provider machine is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1489,6 +1623,7 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    yield* revokeModelPlane(input.modelPlane, vm.id);
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
@@ -1856,6 +1991,19 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // Backfill: machines created before address recording learn their private
+    // address on first attach, so "Copy IP Address" appears for them too.
+    const learned = endpoint.networkAddresses;
+    if (learned && repo.mergeProviderMetadata) {
+      const metadata = vm.providerMetadata ?? {};
+      const patch = {
+        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
+        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
+      };
+      if (Object.keys(patch).length) {
+        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }
     return endpoint;
   });
 }
@@ -2555,6 +2703,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   if (!row.providerVmId) {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
+  const metadata = row.providerMetadata ?? {};
+  const addressIpv4 = metadata["networkIpv4"];
+  const addressIpv6 = metadata["networkIpv6"];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -2563,6 +2714,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
+    addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
+    addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };
 }
 
