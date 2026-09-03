@@ -5472,18 +5472,20 @@ impl Surface {
         } else {
             platform::local_terminal_pwd_to_local_path
         };
-        let terminal_cwd = if hosted { None } else {
+        let terminal_cwd = if hosted {
+            None
+        } else {
             self.pwd()
                 .as_deref()
                 .and_then(terminal_pwd_to_local_path)
                 .map(|path| path.to_string_lossy().into_owned())
         };
         terminal_cwd.or_else(|| {
-                self.spawn_cwd()
-                    .as_deref()
-                    .and_then(platform::spawn_cwd_to_local_path)
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
+            self.spawn_cwd()
+                .as_deref()
+                .and_then(platform::spawn_cwd_to_local_path)
+                .map(|path| path.to_string_lossy().into_owned())
+        })
     }
 
     #[cfg(test)]
