@@ -135,19 +135,55 @@ final class CloudVMActionLauncher {
         }
     }
 
-    private var processes: [Int32: Process] = [:]
-    private var authTransitionSuppressedProcessIDs: Set<Int32> = []
-    private var cancelledProcessIDs: Set<Int32> = []
+    /// Tracks one launch token alongside its PID. Keeping this tiny registry
+    /// separate makes the PID-reuse rule explicit: a deferred callback may
+    /// remove an entry only when its token still matches the current entry.
+    struct LaunchRegistry<Value> {
+        struct Entry {
+            let value: Value
+            let launchID: UUID
+        }
+
+        private(set) var entries: [Int32: Entry] = [:]
+
+        /// Records or replaces the launch currently occupying `processID`.
+        mutating func insert(_ value: Value, processID: Int32, launchID: UUID) {
+            entries[processID] = Entry(value: value, launchID: launchID)
+        }
+
+        /// Returns the entry for a PID without treating the PID as a complete
+        /// identity; callers must compare its `launchID` before mutating it.
+        func entry(processID: Int32) -> Entry? {
+            entries[processID]
+        }
+
+        /// Removes an entry only when both the PID and launch token match.
+        @discardableResult
+        mutating func remove(processID: Int32, launchID: UUID) -> Value? {
+            guard entries[processID]?.launchID == launchID else { return nil }
+            return entries.removeValue(forKey: processID)?.value
+        }
+
+        mutating func removeAll() {
+            entries.removeAll()
+        }
+    }
+
+    private var processes = LaunchRegistry<Process>()
+    private var authTransitionSuppressedLaunchIDs: Set<UUID> = []
+    private var cancelledLaunchIDs: Set<UUID> = []
     private var isShuttingDown = false
 
     private init() {}
 
     func terminateAll() {
         isShuttingDown = true
-        for process in processes.values where process.isRunning {
-            process.terminate()
+        for tracked in processes.entries.values where tracked.value.isRunning {
+            tracked.value.terminate()
         }
         processes.removeAll()
+        authTransitionSuppressedLaunchIDs.removeAll()
+        cancelledLaunchIDs.removeAll()
     }
 
     /// Cancel Cloud VM CLI children when the account is signing out without
@@ -155,25 +191,38 @@ final class CloudVMActionLauncher {
     /// Their late termination callbacks are suppressed so a failed CLI cannot
     /// present an alert over the signed-out account screen.
     func cancelAllForAuthTransition() {
-        for (processID, process) in processes where process.isRunning {
-            authTransitionSuppressedProcessIDs.insert(processID)
-            process.terminate()
+        for tracked in processes.entries.values {
+            // Mark every tracked launch, including one that has exited but whose
+            // termination callback is still queued, so no late callback presents
+            // an alert after the account transition.
+            authTransitionSuppressedLaunchIDs.insert(tracked.launchID)
+            if tracked.value.isRunning {
+                tracked.value.terminate()
+            }
         }
         processes.removeAll()
         // A process that was cancelled before sign-out may report after the
-        // table is cleared. Do not let that old PID mark a later child as
-        // cancelled if the operating system reuses it.
-        cancelledProcessIDs.removeAll()
+        // table is cleared. Do not let that old launch mark a later child as
+        // cancelled if the operating system reuses its PID.
+        cancelledLaunchIDs.removeAll()
     }
 
     /// Stops one child launched by `start`. The termination callback remains
     /// authoritative: callers still receive its final output and can clean up
     /// a provider machine that was created just before cancellation.
     func cancel(processID: Int32) {
-        guard let process = processes[processID] else { return }
-        cancelledProcessIDs.insert(processID)
-        if process.isRunning {
-            process.terminate()
+        guard let tracked = processes.entry(processID: processID) else { return }
+        cancel(processID: processID, launchID: tracked.launchID)
+    }
+
+    /// Cancels only the launch identified by both its PID and unique token. The
+    /// token prevents a stale cancellation handle from acting on a later child
+    /// after the operating system recycles the PID.
+    private func cancel(processID: Int32, launchID: UUID) {
+        guard let tracked = processes.entry(processID: processID), tracked.launchID == launchID else { return }
+        cancelledLaunchIDs.insert(launchID)
+        if tracked.process.isRunning {
+            tracked.process.terminate()
         }
     }
 
@@ -275,14 +324,18 @@ final class CloudVMActionLauncher {
         outputCollector.start()
         let launchWindow = preferredWindow
         let commandLine = arguments.joined(separator: " ")
+        let launchID = UUID()
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
-                Self.shared.processes.removeValue(forKey: processIdentifier)
-                let suppressPresentation = Self.shared.authTransitionSuppressedProcessIDs.remove(processIdentifier) != nil
-                let wasCancelled = Self.shared.cancelledProcessIDs.remove(processIdentifier) != nil
+                // A PID can be reused before this deferred main-actor callback
+                // runs. Remove the table entry only when it is still this
+                // launch; the old completion must never tear down a new child.
+                _ = Self.shared.processes.remove(processID: processIdentifier, launchID: launchID)
+                let suppressPresentation = Self.shared.authTransitionSuppressedLaunchIDs.remove(launchID) != nil
+                let wasCancelled = Self.shared.cancelledLaunchIDs.remove(launchID) != nil
                 let completion = Completion(
                     terminationStatus: terminationStatus,
                     output: output,
@@ -321,9 +374,9 @@ final class CloudVMActionLauncher {
         do {
             try process.run()
             let processID = process.processIdentifier
-            processes[processID] = process
+            processes.insert(process, processID: processID, launchID: launchID)
             onCancellationReady?(CancellationHandle { [weak self] in
-                self?.cancel(processID: processID)
+                self?.cancel(processID: processID, launchID: launchID)
             })
 #if DEBUG
             cmuxDebugLog("cloudVM.launch pid=\(processID) socket=\(socketPath)")

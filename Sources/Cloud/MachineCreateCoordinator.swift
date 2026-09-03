@@ -82,6 +82,7 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var cancellableLaunches: [UUID: CancellableLaunch] = [:]
     @ObservationIgnored private var cancellationHandles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
     @ObservationIgnored private var progressOutput: [UUID: String] = [:]
+    @ObservationIgnored private var progressMarkerCarry: [UUID: String] = [:]
     @ObservationIgnored private var cancelledCreates: [UUID: CancelledCreate] = [:]
     @ObservationIgnored private var cleanupIssuedMachineIDs: Set<String> = []
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
@@ -101,7 +102,10 @@ final class MachineCreateCoordinator {
     }
 
     private static let outputParseLimit = 32 * 1024
-    private static let cancelledMarkerCarryLimit = 512
+    /// The marker parser only needs a short tail to bridge a token split across
+    /// callbacks. The full callback is parsed before any transcript bound is
+    /// applied, so a marker at the start of a large callback is not lost.
+    private static let markerCarryLimit = 512
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -162,6 +166,7 @@ final class MachineCreateCoordinator {
         operations.append(operation)
         cancellableLaunches[operation.id] = cancellableLaunch
         progressOutput[operation.id] = ""
+        progressMarkerCarry[operation.id] = ""
         postDidChange(finished: nil)
         guard let cancellation = cancellableLaunch(
             request.arguments,
@@ -173,6 +178,7 @@ final class MachineCreateCoordinator {
             }
             cancellableLaunches.removeValue(forKey: operation.id)
             progressOutput.removeValue(forKey: operation.id)
+            progressMarkerCarry.removeValue(forKey: operation.id)
             postDidChange(finished: nil)
             return false
         }
@@ -195,6 +201,7 @@ final class MachineCreateCoordinator {
         operations[index].phase = .running
         operations[index].createdMachineID = nil
         progressOutput[id] = ""
+        progressMarkerCarry[id] = ""
         cancellationHandles.removeValue(forKey: id)
         postDidChange(finished: nil)
         guard let cancellation = launch(operations[index].request.arguments, progressHandler(for: id), completionHandler(for: id)) else {
@@ -221,6 +228,7 @@ final class MachineCreateCoordinator {
         cancellableLaunches.removeValue(forKey: id)
         cancellationHandles.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
+        progressMarkerCarry.removeValue(forKey: id)
         postDidChange(finished: nil)
     }
 
@@ -234,7 +242,10 @@ final class MachineCreateCoordinator {
         let cancellation = cancellationHandles.removeValue(forKey: id)
         cancellableLaunches.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
-        var cancelled = CancelledCreate(isBaseSetup: operation.request.isBaseSetup)
+        var cancelled = CancelledCreate(
+            isBaseSetup: operation.request.isBaseSetup,
+            markerCarry: progressMarkerCarry.removeValue(forKey: id) ?? ""
+        )
         if !operation.request.isBaseSetup, let machineID = operation.createdMachineID {
             cancelled.cleanedMachineID = machineID
         }
@@ -257,6 +268,7 @@ final class MachineCreateCoordinator {
         cancellableLaunches.removeAll()
         cancellationHandles.removeAll()
         progressOutput.removeAll()
+        progressMarkerCarry.removeAll()
         cancelledCreates.removeAll()
         cleanupIssuedMachineIDs.removeAll()
         postDidChange(finished: nil)
@@ -325,9 +337,16 @@ final class MachineCreateCoordinator {
         { [weak self] chunk in
             guard let self else { return }
             if let index = self.operations.firstIndex(where: { $0.id == id }) {
+                // Parse the complete callback before bounding the retained
+                // transcript. ProcessOutputCollector does not promise a small
+                // chunk, so a marker at the beginning of a large callback must
+                // still correlate the operation.
+                let markerInput = self.progressMarkerCarry[id, default: ""] + chunk
+                let machineID = Self.createdMachineID(fromOutput: markerInput)
+                self.progressMarkerCarry[id] = String(markerInput.suffix(Self.markerCarryLimit))
                 let bounded = (self.progressOutput[id, default: ""] + chunk).suffix(Self.outputParseLimit)
                 self.progressOutput[id] = String(bounded)
-                if let machineID = Self.createdMachineID(fromOutput: self.progressOutput[id] ?? "") {
+                if let machineID {
                     guard self.operations[index].createdMachineID != machineID else { return }
                     self.operations[index].createdMachineID = machineID
                     self.postDidChange(finished: nil)
@@ -337,11 +356,11 @@ final class MachineCreateCoordinator {
             // The row is intentionally gone after Cancel, but the process can
             // still flush bytes. Keep parsing that tail for a provider id.
             guard var cancelled = self.cancelledCreates[id] else { return }
-            cancelled.markerCarry = String(
-                (cancelled.markerCarry + chunk).suffix(Self.cancelledMarkerCarryLimit)
-            )
+            let markerInput = cancelled.markerCarry + chunk
+            let machineID = Self.createdMachineID(fromOutput: markerInput)
+            cancelled.markerCarry = String(markerInput.suffix(Self.markerCarryLimit))
             if !cancelled.isBaseSetup,
-               let machineID = Self.createdMachineID(fromOutput: cancelled.markerCarry),
+               let machineID,
                cancelled.cleanedMachineID != machineID {
                 cancelled.cleanedMachineID = machineID
                 self.cleanupCancelledMachine(machineID)
@@ -378,6 +397,7 @@ final class MachineCreateCoordinator {
             cancellableLaunches.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
+            progressMarkerCarry.removeValue(forKey: id)
             if !operation.request.isBaseSetup, let createdMachineID {
                 cleanupCancelledMachine(createdMachineID)
             }
@@ -391,6 +411,7 @@ final class MachineCreateCoordinator {
             cancellableLaunches.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
+            progressMarkerCarry.removeValue(forKey: id)
         } else if !operation.request.isBaseSetup, let machineID = createdMachineID {
             // Base setup is idempotent (`vm base open` reopens the same slot),
             // so only `vm new` can leave a machine behind that must not be re-created.
@@ -399,11 +420,13 @@ final class MachineCreateCoordinator {
             cancellableLaunches.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
+            progressMarkerCarry.removeValue(forKey: id)
         } else {
             let failure = Self.displayableFailureOutput(output)
             outcome = .failed(output: failure)
             operations[index].phase = .failed(output: failure)
             progressOutput.removeValue(forKey: id)
+            progressMarkerCarry.removeValue(forKey: id)
         }
         let finished = Finished(operation: operation, outcome: outcome)
         lastFinished = finished

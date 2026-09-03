@@ -89,6 +89,9 @@ final class SurfaceCatalog {
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private(set) var projections: Set<SurfaceProjection> = []
+    /// Resource IDs grouped by machine so providers can answer presence checks
+    /// without sorting the full catalog snapshot on every refresh.
+    private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
@@ -172,8 +175,8 @@ final class SurfaceCatalog {
         }
         providers[machine] = nil
         machines[machine] = nil
-        let gone = resources.keys.filter { $0.machine == machine }
-        for id in gone { resources[id] = nil }
+        for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
+        resourceIDsByMachine[machine] = nil
         let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
         for record in pending { pendingRestoredProjections[record] = nil }
         projections = projections.filter { $0.resource.machine != machine }
@@ -225,12 +228,12 @@ final class SurfaceCatalog {
     /// `from` identifies the provider that produced the snapshot, when one is available.
     func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: machine, from: source) else { return }
-        for id in resources.keys where id.machine == machine {
-            resources[id] = nil
-        }
+        for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
+        resourceIDsByMachine[machine] = nil
         for resource in list {
             precondition(resource.machine == machine, "resource \(resource.id) reported by the wrong provider")
             resources[resource.id] = resource
+            resourceIDsByMachine[machine, default: []].insert(resource.id)
         }
         if let info { machines[machine] = info }
         resolvePendingRestoredProjections(on: machine)
@@ -242,6 +245,7 @@ final class SurfaceCatalog {
     func upsert(_ resource: SurfaceResource, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: resource.machine, from: source) else { return }
         resources[resource.id] = resource
+        resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         resolvePendingRestoredProjections(on: resource.machine)
         notifyChange()
     }
@@ -250,6 +254,10 @@ final class SurfaceCatalog {
     func remove(_ id: SurfaceResourceID, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: id.machine, from: source) else { return }
         resources[id] = nil
+        resourceIDsByMachine[id.machine]?.remove(id)
+        if resourceIDsByMachine[id.machine]?.isEmpty == true {
+            resourceIDsByMachine[id.machine] = nil
+        }
         notifyChange()
     }
 
@@ -704,6 +712,10 @@ final class SurfaceCatalog {
             for existing in projections where existing.panelID == projection.panelID && existing.resource.machine.isLocal {
                 projections.remove(existing)
                 resources[existing.resource] = nil
+                resourceIDsByMachine[existing.resource.machine]?.remove(existing.resource)
+                if resourceIDsByMachine[existing.resource.machine]?.isEmpty == true {
+                    resourceIDsByMachine[existing.resource.machine] = nil
+                }
             }
         }
         projections.insert(projection)
@@ -774,6 +786,12 @@ final class SurfaceCatalog {
     /// when a different machine later receives the same ID.
     var pendingRestoredMachineIDs: Set<String> {
         Set(pendingRestoredProjections.keys.compactMap { $0.resource.machine.cloudMachineID })
+    }
+
+    /// Returns whether at least one resource is currently published for a machine.
+    /// This is intentionally unsorted and does not materialize a snapshot.
+    func hasResources(on machine: SurfaceMachineID) -> Bool {
+        !(resourceIDsByMachine[machine]?.isEmpty ?? true)
     }
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {

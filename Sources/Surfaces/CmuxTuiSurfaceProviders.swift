@@ -258,7 +258,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // The display opens over the HTTPS preview and never needs the link, so a
         // machine with no resources yet gets it published before the link attempt —
         // a slow or hanging connect must not leave the desktop unopenable.
-        if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
+        if !resources.isEmpty, !catalog.hasResources(on: machine) {
             catalog.replaceResources(resources, on: machine, info: info, from: self)
         }
         if summary.resolvedKind.hasDesktop {

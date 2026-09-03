@@ -798,9 +798,11 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let term = terminal(.cloud("m"), "term_1")
         catalog.replaceResources([term], on: .cloud("m"))
+        #expect(catalog.hasResources(on: .cloud("m")))
         _ = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
         catalog.unregister(machine: .cloud("m"))
         #expect(catalog.snapshot.resources.isEmpty)
+        #expect(!catalog.hasResources(on: .cloud("m")))
         #expect(catalog.snapshot.projections.isEmpty)
         #expect(catalog.provider(for: .cloud("m")) == nil)
     }

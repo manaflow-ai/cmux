@@ -191,6 +191,28 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []) == true)
     }
 
+    @Test func markerAtTheStartOfALargeProgressCallbackIsNotDropped() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let largeChunk = "OK machine=calm-petrel\n" + String(repeating: "progress ", count: 5_000)
+
+        launches.progressHandlers[0](largeChunk)
+
+        #expect(coordinator.operations.first?.createdMachineID == "calm-petrel")
+    }
+
+    @Test func launchRegistryDoesNotLetAStalePIDCallbackRemoveTheReplacement() {
+        var registry = CloudVMActionLauncher.LaunchRegistry<String>()
+        let oldLaunch = UUID()
+        let replacementLaunch = UUID()
+        registry.insert("old", processID: 42, launchID: oldLaunch)
+        registry.insert("replacement", processID: 42, launchID: replacementLaunch)
+
+        #expect(registry.remove(processID: 42, launchID: oldLaunch) == nil)
+        #expect(registry.entry(processID: 42)?.value == "replacement")
+        #expect(registry.remove(processID: 42, launchID: replacementLaunch) == "replacement")
+    }
+
     // MARK: Success
 
     @Test func successDropsTheRowAndTellsThePersonWhereTheMachineOpened() {
