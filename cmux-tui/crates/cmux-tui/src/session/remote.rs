@@ -6817,6 +6817,17 @@ mod tests {
     }
 
     #[test]
+    fn reaper_restarts_after_sender_disconnect_and_drains_pending_workers() {
+        let state = reaper_state().clone();
+        state.lock().unwrap().sender = None;
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        enqueue_worker_reap(handle, completion.clone());
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
     fn worker_reaper_returns_ownership_when_queue_is_saturated() {
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
         let completion = Arc::new(WorkerCompletion::new());
