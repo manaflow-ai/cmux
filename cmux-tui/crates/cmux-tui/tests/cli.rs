@@ -4596,6 +4596,37 @@ fn pipe_io_startup_connect_failure_reports_daemon_lost() {
 
 #[cfg(unix)]
 #[test]
+fn pipe_io_startup_socket_validation_reports_setup_failed() {
+    // Session-name validation happens before a remote socket can be opened.
+    // Pipe-IO clients still require the structured terminal result so they do
+    // not have to parse a human-facing startup error.
+    let invalid_session = "x".repeat(256);
+    let output = Command::new(bin())
+        .args(["attach", "--session"])
+        .arg(&invalid_session)
+        .args(["--terminal", "term_0123456789abcdef0123456789abcdef", "--pipe-io"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_line = stderr
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .expect("pipe-io startup must emit a structured exit record");
+    let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
+    assert_eq!(value["exit"]["reason"], "setup-failed");
+}
+
+#[cfg(unix)]
+#[test]
 fn pipe_io_wait_for_exit_waits_for_delayed_stderr_drain() {
     let server = HeadlessServer::start("pipe-io-drain-join");
     let terminal = pipe_io_terminal(&server);
