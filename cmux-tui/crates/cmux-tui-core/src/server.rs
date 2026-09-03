@@ -10067,9 +10067,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!(
-            "bad source {other}; raw report-agent accepts only socket or hook"
-        ),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
