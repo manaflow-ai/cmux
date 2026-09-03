@@ -57,8 +57,9 @@ describe("coderouter alert checks", () => {
     const summary = await run();
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-operator-failures"]);
     expect(sent[0]!.severity).toBe("critical");
-    expect(sent[0]!.body).toContain("claude/provider_unavailable/account_selection: 1");
-    expect(sent[0]!.body).toContain("opencode-go/provider_unavailable/provider_config: 1");
+    expect(sent[0]!.body).toContain("failed before reaching a provider.");
+    expect(sent[0]!.body).not.toContain("claude");
+    expect(sent[0]!.body).not.toContain("opencode-go");
     expect(summary.checks.find((check) => check.key === "coderouter-upstream-failures")).toMatchObject({ triggered: false, count: 2, threshold: 5 });
     expect(summary.checks.find((check) => check.key === "coderouter-no-usable-account")).toMatchObject({ triggered: false, count: 3, threshold: 10 });
   });
@@ -74,7 +75,8 @@ describe("coderouter alert checks", () => {
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-upstream-failures"]);
     expect(sent[0]!.severity).toBe("warning");
     expect(sent[0]!.body).toContain("5 of 10 requests");
-    expect(sent[0]!.body).toContain("codex/upstream_error/upstream_response: 3");
+    expect(sent[0]!.body).toContain("ended in a provider failure after failover.");
+    expect(sent[0]!.body).not.toContain("codex");
   });
 
   test("tenants without a usable account are named, auth rejects use their own threshold", async () => {
@@ -85,7 +87,9 @@ describe("coderouter alert checks", () => {
     ], healthy, webhook);
     await run();
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-no-usable-account", "coderouter-auth-rejected"]);
-    expect(sent[0]!.body).toContain("team-a, team-b");
+    expect(sent[0]!.body).toContain("across 2 affected team(s)");
+    expect(sent[0]!.body).not.toContain("team-a");
+    expect(sent[0]!.body).not.toContain("team-b");
     expect(sent[1]!.body).toContain("30 unauthorized requests");
   });
 

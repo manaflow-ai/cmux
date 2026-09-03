@@ -149,15 +149,15 @@ describe("CodeRouter ClickHouse client", () => {
   test("honors a caller abort signal", async () => {
     const controller = new AbortController();
     let markStarted!: () => void;
-    let abortedByCaller = false;
+    let requestSignal: AbortSignal | undefined;
     const started = new Promise<void>((resolve) => { markStarted = resolve; });
     const pending = query("SELECT 1", {}, {
       config: () => config,
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
         markStarted();
+        requestSignal = init?.signal;
         return await new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => {
-            abortedByCaller = true;
             reject(new Error("aborted"));
           }, { once: true });
         });
@@ -165,8 +165,8 @@ describe("CodeRouter ClickHouse client", () => {
     }, { signal: controller.signal, timeoutMs: 10_000 });
     await started;
     controller.abort();
+    expect(requestSignal?.aborted).toBe(true);
     await expect(pending).resolves.toEqual({ ok: false, reason: "request_failed" });
-    expect(abortedByCaller).toBe(true);
   });
 
   test("disabled mode is a silent no-op reported once", async () => {
