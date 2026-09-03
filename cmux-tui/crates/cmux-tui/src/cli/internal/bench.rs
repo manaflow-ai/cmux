@@ -659,7 +659,7 @@ fn close_created_terminals(
             return;
         }
     };
-    let created = &report.lock().unwrap().created_terminals;
+    let created = report.lock().unwrap().created_terminals.clone();
     let plan = current
         .iter()
         .filter(|(id, life)| {
