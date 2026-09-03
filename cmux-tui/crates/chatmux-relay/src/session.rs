@@ -32,7 +32,9 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_util::sync::CancellationToken;
 
-use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubbed_env};
+use crate::actions::{
+    ActionContext, MAX_BLOCKING_FILE_ACTIONS, perform_action, process_env_snapshot, scrubbed_env,
+};
 use crate::config::{Config, save_config};
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
@@ -322,6 +324,7 @@ impl OutboundSink {
 pub struct SessionRuntime {
     home: PathBuf,
     base_env: HashMap<String, String>,
+    file_action_slots: Arc<Semaphore>,
     pub(crate) workspace: Arc<crate::workspace::SharedRuntime>,
     #[cfg(unix)]
     pty: Arc<PtyManager>,
@@ -343,6 +346,7 @@ impl SessionRuntime {
         SessionRuntime {
             home,
             base_env,
+            file_action_slots: Arc::new(Semaphore::new(MAX_BLOCKING_FILE_ACTIONS)),
             workspace: Arc::new(crate::workspace::SharedRuntime::new(local_roots)),
             #[cfg(unix)]
             pty,
@@ -1040,6 +1044,10 @@ async fn relay_session(
                             local_roots: snapshot.roots,
                             home: runtime.home.clone(),
                             env: scrubbed_env(&runtime.base_env),
+                            file_slots: Arc::clone(&runtime.file_action_slots),
+                            process_cancellation: connection_cancellation.clone(),
+                            #[cfg(test)]
+                            test_file_operation_barrier: None,
                         };
                         let out = out_tx.clone();
                         let pending = Arc::clone(&pending);

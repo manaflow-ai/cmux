@@ -83091,6 +83091,74 @@
         }
       }
     },
+    "computers.listauth.unverified.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified on the new connection system yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい接続システムでまだ確認されていません"
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のアップデートが必要です"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running %@. Update it to %@ or later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+          }
+        }
+      }
+    },
     "mobile.connectionsUpdate.macUpdate.detail.official": {
       "extractionState": "manual",
       "localizations": {
@@ -83339,7 +83407,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+          "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
           }
         },
         "de": {

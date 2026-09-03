@@ -9,6 +9,7 @@ use cmux_tui_core::resource::{
     EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
     StreamEndReason, StreamItemEnvelope,
 };
+use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
@@ -591,10 +592,11 @@ fn append_human(value: &Value, output: &mut String) {
             }
             let mut rows = Vec::new();
             flatten_human_object(None, object, &mut rows);
-            let width = rows.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0);
+            let width =
+                rows.iter().map(|(key, _)| usize::from(key.cell_width())).max().unwrap_or(0);
             for (key, value) in rows {
                 output.push_str(&key);
-                output.push_str(&" ".repeat(width.saturating_sub(key.chars().count())));
+                output.push_str(&" ".repeat(width.saturating_sub(usize::from(key.cell_width()))));
                 output.push_str("  ");
                 output.push_str(&value);
                 output.push('\n');
@@ -636,10 +638,10 @@ fn append_record_table(values: &[Value], output: &mut String) {
         .enumerate()
         .map(|(index, column)| {
             rows.iter()
-                .map(|row| row[index].chars().count())
+                .map(|row| usize::from(row[index].cell_width()))
                 .max()
                 .unwrap_or(0)
-                .max(human_header(column).chars().count())
+                .max(usize::from(human_header(column).cell_width()))
         })
         .collect::<Vec<_>>();
 
@@ -660,7 +662,9 @@ fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
         }
         output.push_str(cell);
         if index + 1 != cells.len() {
-            output.push_str(&" ".repeat(widths[index].saturating_sub(cell.chars().count())));
+            output.push_str(
+                &" ".repeat(widths[index].saturating_sub(usize::from(cell.cell_width()))),
+            );
         }
     }
     output.push('\n');
@@ -721,6 +725,13 @@ pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.
 pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
+    resolve_socket_with_env(global, |name| std::env::var_os(name))
+}
+
+pub(super) fn resolve_socket_with_env(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> anyhow::Result<(PathBuf, bool)> {
     if let Some(path) = &global.socket {
         return Ok((path.clone(), false));
     }
@@ -728,7 +739,7 @@ pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
+        if let Some(path) = env(name)
             && !path.is_empty()
         {
             return Ok((PathBuf::from(path), false));
@@ -817,6 +828,25 @@ mod tests {
         ]));
         assert_eq!(output, "ID    NAME   FOCUSED\nws_a  build  true\nws_b  docs   false\n");
         assert!(!output.contains(['{', '}', '"']));
+    }
+
+    #[test]
+    fn human_tables_pad_wide_cells_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"界","value":"a"},
+            {"name":"x","value":"界"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\n界    a\nx     界\n");
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn human_tables_pad_halfwidth_dakuten_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"ｶﾞ","value":"a"},
+            {"name":"x","value":"ｶﾞ"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\nｶﾞ    a\nx     ｶﾞ\n");
     }
 
     #[test]

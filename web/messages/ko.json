@@ -1125,7 +1125,10 @@
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."
+          "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다.",
+          "agentIdleReminder": "에이전트가 유휴 상태로 입력을 기다릴 때(턴 종료 후 약 60초) 알림을 보냅니다. 이전 턴의 백그라운드 작업이 아직 남아 있는 동안에는 억제되므로 실행 중인 빌드나 감시자가 잘못된 대기 알림을 만들지 않습니다.",
+          "soundOverrides": "에이전트 및 알림 유형별 알림 소리 재정의입니다. 비어 있는 셀은 notifications.sound를 사용합니다.",
+          "soundOverride": "알림 소리 재정의입니다. default는 notifications.sound를 사용하고, none은 재생을 끄며, 나머지 값은 내장 또는 사용자 지정 소리를 선택합니다."
         },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
