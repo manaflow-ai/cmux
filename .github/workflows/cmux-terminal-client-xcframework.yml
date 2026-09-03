@@ -95,12 +95,29 @@ jobs:
       - name: Build static libraries
         working-directory: cmux-tui
         shell: bash
+        env:
+          # The workspace release profile uses thin LTO, which leaves the
+          # staticlib's objects as LLVM bitcode. Apple's nm and ld (LLVM 17)
+          # cannot read bitcode from a newer rustc ("Unknown attribute kind"),
+          # so the archive would build green and fail to link in Xcode. Build
+          # the Apple slices as ordinary machine code instead.
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          RUSTFLAGS: "-C embed-bitcode=no"
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           for target in aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin; do
             cargo build -p cmux-terminal-client --release --locked --target "$target"
-            test -f "target/$target/release/libcmux_terminal_client.a"
+            lib="target/$target/release/libcmux_terminal_client.a"
+            test -f "$lib"
+            # Apple's nm must see the exported C symbols as real text symbols;
+            # bitcode-only objects show none.
+            exported="$(nm -g "$lib" 2>/dev/null | grep -c ' T _cmux_' || true)"
+            echo "$target: $exported exported _cmux_ symbols"
+            if [[ "$exported" -lt 1 ]]; then
+              echo "::error::$lib exports no _cmux_ text symbols; the archive is not linkable by Apple tools" >&2
+              exit 1
+            fi
           done
 
       - name: Assemble xcframework
