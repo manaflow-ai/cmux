@@ -242,7 +242,7 @@ Les raccourcis de navigation de la palette de commandes, y compris ⌃ P, sont �
 
 ## Builds Nightly
 
-[Télécharger cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Télécharger cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY est une application séparée avec son propre identifiant de bundle, elle fonctionne donc en parallèle de la version stable. Construite automatiquement à partir du dernier commit `main` et mise à jour automatiquement via son propre flux Sparkle.
 

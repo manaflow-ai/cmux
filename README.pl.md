@@ -242,7 +242,7 @@ Skróty nawigacji w palecie poleceń, w tym ⌃ P, również można dostosować 
 
 ## Wersje Nightly
 
-[Pobierz cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Pobierz cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY to osobna aplikacja z własnym identyfikatorem pakietu, więc działa obok wersji stabilnej. Budowana automatycznie z najnowszego commitu `main` i aktualizuje się automatycznie przez własny kanał Sparkle.
 
