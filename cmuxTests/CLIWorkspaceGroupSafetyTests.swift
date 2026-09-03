@@ -10,6 +10,26 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect((params["child_workspace_ids"] as? [String]) == [])
     }
 
+    @Test func workspaceCreateForwardsInitialCommand() async throws {
+        let requests = try await runRequests(["workspace", "create", "--command", "echo hello", "--json"])
+        #expect(requests.count == 1)
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.create"])
+        #expect(!requests.contains { ($0["method"] as? String) == "surface.send_text" })
+
+        let params = try requestParams(try #require(requests.first), method: "workspace.create")
+        #expect(params["initial_command"] as? String == "echo hello")
+    }
+
+    @Test func legacyNewWorkspaceForwardsInitialCommand() async throws {
+        let requests = try await runRequests(["new-workspace", "--command", "echo hello", "--json"])
+        #expect(requests.count == 1)
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.create"])
+        #expect(!requests.contains { ($0["method"] as? String) == "surface.send_text" })
+
+        let params = try requestParams(try #require(requests.first), method: "workspace.create")
+        #expect(params["initial_command"] as? String == "echo hello")
+    }
+
     @Test func deleteDefaultsToNonDestructiveIntent() async throws {
         let request = try await run([
             "workspace", "group", "delete", "workspace_group:1", "--json",
@@ -40,6 +60,10 @@ struct CLIWorkspaceGroupSafetyTests {
     }
 
     private func run(_ arguments: [String]) async throws -> [String: Any] {
+        try #require(try await runRequests(arguments).first)
+    }
+
+    private func runRequests(_ arguments: [String]) async throws -> [[String: Any]] {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceGroupSafetyMockServer(socketPath: socketPath)
         let requestTask = server.start()
@@ -80,10 +104,12 @@ struct CLIWorkspaceGroupSafetyTests {
         )
         #expect(status == 0, Comment(rawValue: output))
 
-        let requestLine = try #require(await requestTask.value)
-        return try #require(
-            JSONSerialization.jsonObject(with: Data(requestLine.utf8)) as? [String: Any]
-        )
+        let requestLines = await requestTask.value
+        return try requestLines.map { line in
+            try #require(
+                JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            )
+        }
     }
 
     private func requestParams(

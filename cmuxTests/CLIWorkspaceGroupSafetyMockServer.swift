@@ -41,7 +41,7 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
         listenerDescriptor = descriptor
     }
 
-    func start() -> Task<String?, Never> {
+    func start() -> Task<[String], Never> {
         Task.detached(priority: .userInitiated) { [self] in
             defer {
                 Darwin.close(listenerDescriptor)
@@ -49,7 +49,7 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
             }
 
             var readiness = pollfd(fd: listenerDescriptor, events: Int16(POLLIN), revents: 0)
-            guard Darwin.poll(&readiness, 1, 5_000) > 0 else { return nil }
+            guard Darwin.poll(&readiness, 1, 5_000) > 0 else { return [] }
 
             var clientAddress = sockaddr_un()
             var clientAddressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -58,26 +58,29 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
                     Darwin.accept(listenerDescriptor, socketPointer, &clientAddressLength)
                 }
             }
-            guard clientDescriptor >= 0 else { return nil }
+            guard clientDescriptor >= 0 else { return [] }
             defer { Darwin.close(clientDescriptor) }
 
+            var recordedRequests: [String] = []
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4_096)
             while true {
                 let count = Darwin.read(clientDescriptor, &buffer, buffer.count)
                 if count < 0 {
                     if errno == EINTR { continue }
-                    return nil
+                    return recordedRequests
                 }
-                if count == 0 { return nil }
+                if count == 0 { return recordedRequests }
                 pending.append(buffer, count: count)
-                guard let newline = pending.firstRange(of: Data([0x0A])) else { continue }
-                let lineData = pending.subdata(in: 0..<newline.lowerBound)
-                guard let line = String(data: lineData, encoding: .utf8),
-                      Self.writeResponse(for: line, to: clientDescriptor) else {
-                    return nil
+                while let newline = pending.firstRange(of: Data([0x0A])) {
+                    let lineData = pending.subdata(in: 0..<newline.lowerBound)
+                    pending.removeSubrange(0...newline.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    recordedRequests.append(line)
+                    guard Self.writeResponse(for: line, to: clientDescriptor) else {
+                        return recordedRequests
+                    }
                 }
-                return line
             }
         }
     }
@@ -91,6 +94,16 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
         }
         let result: [String: Any]
         switch method {
+        case "workspace.create":
+            result = [
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "workspace_ref": "workspace:1",
+            ]
+        case "surface.send_text":
+            result = [
+                "surface_id": "22222222-2222-2222-2222-222222222222",
+                "surface_ref": "surface:1",
+            ]
         case "workspace.group.create":
             result = [
                 "group": [

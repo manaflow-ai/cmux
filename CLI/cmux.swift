@@ -10274,6 +10274,7 @@ struct CMUXCLI {
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
+        if let commandOpt { params["initial_command"] = commandOpt }
         if let groupOpt { params["group_id"] = groupOpt }
         if let groupPlacementOpt { params["group_placement"] = groupPlacementOpt }
         if let groupReferenceOpt { params["group_reference_workspace_id"] = groupReferenceOpt }
@@ -10295,14 +10296,6 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
         } else {
             print("OK \(wsId)")
-        }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
 
