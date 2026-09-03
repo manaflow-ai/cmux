@@ -178,7 +178,8 @@ export function preconnectFreestyle(): void {
   fetch(`${baseUrl}/`, { method: "HEAD", signal: AbortSignal.timeout(3_000) }).catch(() => undefined);
 }
 
-function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
+/** Exported for the publication provider, which shares this account-wide client. */
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
     fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;

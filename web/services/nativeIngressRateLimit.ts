@@ -10,7 +10,7 @@ const NATIVE_INGRESS_RETRY_AFTER_SECONDS = 60;
 
 export type NativeIngressRateLimitCheck = (
   id: string,
-  options: { request: Request },
+  options: { request: Request; rateLimitKey?: string },
 ) => Promise<{ rateLimited: boolean; error?: string | null }>;
 
 /**
@@ -23,6 +23,8 @@ export async function enforceNativeIngressRateLimit(input: {
   readonly request: Request;
   readonly route: string;
   readonly ruleId: string | undefined;
+  /** Bucket by something other than the caller's IP, e.g. the client behind a trusted proxy. */
+  readonly rateLimitKey?: string;
   readonly check?: NativeIngressRateLimitCheck;
   readonly isVercel?: boolean;
 }): Promise<Response | null> {
@@ -34,6 +36,7 @@ export async function enforceNativeIngressRateLimit(input: {
   try {
     result = await (input.check ?? checkRateLimit)(ruleId, {
       request: input.request,
+      ...(input.rateLimitKey ? { rateLimitKey: input.rateLimitKey } : {}),
     });
   } catch {
     console.error("native ingress rate-limit unavailable", {
