@@ -91,7 +91,12 @@ export function reportCoderouterFailure(
     { failure, errorType, ...context },
     "error",
   );
-  reportError(new Error(`coderouter.${failure}`), {
+  // Preserve the original Error so Sentry keeps its useful stack and
+  // grouping. Non-Error throws get a synthetic, secret-free replacement.
+  const reportableError = error instanceof Error
+    ? error
+    : new Error(`coderouter.${failure}: ${errorType}`);
+  reportError(reportableError, {
     service: "coderouter",
     failure,
     errorType,

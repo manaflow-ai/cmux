@@ -102,7 +102,14 @@ async function loadRouteEvents(
   if (!result.ok) {
     return { ok: false, reason: result.reason === "status" ? `http_${result.status}` : result.reason };
   }
-  return { ok: true, rows: result.rows.map((row) => ({ ...row, c: Number(row.c) })) };
+  return {
+    ok: true,
+    rows: result.rows.map((row) => ({
+      ...row,
+      c: Number(row.c),
+      team_id: typeof row.team_id === "string" ? row.team_id.trim() : "",
+    })),
+  };
 }
 
 export async function runCoderouterAlertChecks(
@@ -266,7 +273,7 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
       (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
       noUsableAccount += count;
       if (noUsableAccountTeams.size < 10) {
-        const teamId = row.team_id.trim();
+        const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
         if (teamId) noUsableAccountTeams.add(teamId);
       }
     }
