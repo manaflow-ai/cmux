@@ -499,6 +499,21 @@ struct RemoteTerminalColors {
     palette: [Option<Rgb>; 256],
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct PipeIoColorPresence {
+    fg: bool,
+    bg: bool,
+    cursor: bool,
+    cursor_visual: bool,
+    palette: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PipeIoColorState {
+    colors: RemoteTerminalColors,
+    presence: PipeIoColorPresence,
+}
+
 impl RemoteSurface {
     #[cfg(test)]
     fn run_geometry_test_hook(&self, step: RemoteGeometryTestStep) {
@@ -1861,6 +1876,11 @@ struct PipeIoTap {
     lifecycle_sender: EventSender<PipeIoEvent>,
     byte_budget: Arc<PipeIoByteBudget>,
     token: Arc<u8>,
+    // A pipe receives color state as VT sidecars. Keep the last sparse
+    // authored palette so a live replacement can reset only entries that
+    // disappeared, while omitted entries retain the embedder's theme.
+    palette: [Option<Rgb>; 256],
+    palette_known: bool,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2606,14 +2626,22 @@ impl RemoteSession {
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
                 // A pipe-IO relay consumes the authoritative VT byte stream
                 // itself. Do not also parse the same replay into a local
                 // `RemoteSurface`: that duplicate parser can fail or mutate
                 // state even though the embedder never reads it.
-                let Some(replay) = self.pipe_io_forward_replay(id, replay) else {
-                    return;
+                let replay = match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::replay(replay),
+                    pipe_colors.as_ref(),
+                ) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Replay { bytes, .. }) => bytes,
+                    Err(_) => return,
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2677,12 +2705,18 @@ impl RemoteSession {
                     return;
                 };
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                let bytes = match self.pipe_io_forward_owned(id, PipeIoEvent::Output(bytes)) {
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
+                let bytes = match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::Output(bytes),
+                    pipe_colors.as_ref(),
+                ) {
                     Ok(()) => return,
                     Err(PipeIoEvent::Output(bytes)) => bytes,
                     Err(_) => return,
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
@@ -2701,6 +2735,9 @@ impl RemoteSession {
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
                 let Some((cols, rows)) = remote_terminal_size(&value) else { return };
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
                 let replay = match value.get("replay").or_else(|| value.get("data")) {
                     Some(data) => {
                         let Some(data) = data.as_str() else {
@@ -2725,14 +2762,28 @@ impl RemoteSession {
                 );
                 let replay = match replay {
                     Some(replay) => {
-                        let replay = self.pipe_io_forward_replay(id, replay);
-                        if replay.is_none() {
-                            return;
+                        match self.pipe_io_forward_owned_with_colors(
+                            id,
+                            PipeIoEvent::replay(replay),
+                            pipe_colors.as_ref(),
+                        ) {
+                            Ok(()) => return,
+                            Err(PipeIoEvent::Replay { bytes, .. }) => Some(bytes),
+                            Err(_) => return,
                         }
-                        replay
                     }
                     None => {
-                        if self.pipe_io_owns_surface(id) {
+                        if pipe_colors.is_some() {
+                            match self.pipe_io_forward_owned_with_colors(
+                                id,
+                                PipeIoEvent::Output(Vec::new()),
+                                pipe_colors.as_ref(),
+                            ) {
+                                Ok(()) => return,
+                                Err(PipeIoEvent::Output(bytes)) if bytes.is_empty() => {}
+                                Err(_) => return,
+                            }
+                        } else if self.pipe_io_owns_surface(id) {
                             return;
                         }
                         None
@@ -2746,7 +2797,6 @@ impl RemoteSession {
                     self.disconnect_transport();
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
@@ -2774,10 +2824,17 @@ impl RemoteSession {
             }
             Some("colors-changed") => {
                 let Some(id) = surface_id() else { return };
-                if self.pipe_io_owns_surface(id) {
-                    return;
-                }
                 let Some(colors) = parse_terminal_colors(&value) else { return };
+                let pipe_colors = parse_pipe_io_colors(&value);
+                match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::Output(Vec::new()),
+                    pipe_colors.as_ref(),
+                ) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Output(bytes)) if bytes.is_empty() => {}
+                    Err(_) => return,
+                }
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let mut term = surface.term.lock().unwrap();
                     apply_terminal_colors(&mut term, &colors);
@@ -3510,6 +3567,8 @@ impl RemoteSession {
             lifecycle_sender,
             byte_budget,
             token: token.clone(),
+            palette: [None; 256],
+            palette_known: false,
         });
         token
     }
@@ -3593,6 +3652,7 @@ impl RemoteSession {
     /// matching tap exists, the event is returned to the caller for normal
     /// terminal parsing. Once a tap owns the event, queue overflow consumes it
     /// and tears down that relay, so the caller must not parse it locally.
+    #[cfg(test)]
     fn pipe_io_forward_owned(
         &self,
         surface: SurfaceId,
@@ -3600,10 +3660,80 @@ impl RemoteSession {
     ) -> Result<(), PipeIoEvent> {
         use crossbeam_channel::TrySendError;
         let stalled_token = {
-            let tap = self.pipe_io_tap.lock().unwrap();
-            let Some(tap) = tap.as_ref() else { return Err(event) };
+            let mut tap_slot = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap_slot.as_mut() else { return Err(event) };
             if tap.surface != surface {
                 return Err(event);
+            }
+            if !tap.byte_budget.try_reserve_event(&mut event) {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
+                        Some(tap.token.clone())
+                    }
+                }
+            }
+        };
+        if let Some(token) = stalled_token {
+            // Signal only the tap that observed the stall. A replacement tap
+            // may have been installed while this reader thread released the
+            // mutex; it must not be torn down by an older relay.
+            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+                self.disconnect_transport();
+            }
+        }
+        Ok(())
+    }
+
+    /// Forwards an owned byte event and appends its coupled color sidecar only
+    /// after a matching tap has been found. Keeping the ownership check and
+    /// append under one tap lock lets a missing tap return the original bytes
+    /// to the local mirror without leaking synthetic state into its parser.
+    fn pipe_io_forward_owned_with_colors(
+        &self,
+        surface: SurfaceId,
+        mut event: PipeIoEvent,
+        colors: Option<&PipeIoColorState>,
+    ) -> Result<(), PipeIoEvent> {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let mut tap_slot = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap_slot.as_mut() else { return Err(event) };
+            if tap.surface != surface {
+                return Err(event);
+            }
+            if let Some(colors) = colors {
+                match &mut event {
+                    PipeIoEvent::Replay { bytes, .. } => {
+                        // The relay writer emits a reset before every replay
+                        // after the first one. The reset clears authored
+                        // palette state, so replay the complete sparse set
+                        // rather than diffing against the prior live state.
+                        append_pipe_io_colors(bytes, colors, None, true);
+                    }
+                    PipeIoEvent::Output(bytes) => {
+                        let previous = tap.palette_known.then_some(&tap.palette);
+                        append_pipe_io_colors(bytes, colors, previous, false);
+                    }
+                    _ => {}
+                }
+            }
+            if matches!(&event, PipeIoEvent::Replay { .. }) {
+                // A replay replaces the terminal. Without a palette field the
+                // server gave us no authoritative authored set, so do not
+                // compare a later sparse update with stale state.
+                tap.palette_known = colors.is_some_and(|colors| colors.presence.palette);
+                if let Some(colors) = colors.filter(|colors| colors.presence.palette) {
+                    tap.palette = colors.colors.palette;
+                } else {
+                    tap.palette = [None; 256];
+                }
+            } else if let Some(colors) = colors.filter(|colors| colors.presence.palette) {
+                tap.palette = colors.colors.palette;
+                tap.palette_known = true;
             }
             if !tap.byte_budget.try_reserve_event(&mut event) {
                 Some(tap.token.clone())
@@ -3631,6 +3761,7 @@ impl RemoteSession {
     /// Forwards a replay while retaining ownership for the local mirror when
     /// no matching pipe-IO tap exists. The relay path consumes the vector, so
     /// this avoids cloning large replay frames on the session reader thread.
+    #[cfg(test)]
     fn pipe_io_forward_replay(&self, surface: SurfaceId, replay: Vec<u8>) -> Option<Vec<u8>> {
         match self.pipe_io_forward_owned(surface, PipeIoEvent::replay(replay)) {
             Ok(()) => None,
@@ -4589,6 +4720,100 @@ fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
         cursor_blink: value.get("cursor_blink").and_then(Value::as_bool),
         palette,
     })
+}
+
+fn parse_pipe_io_colors(value: &Value) -> Option<PipeIoColorState> {
+    let colors = parse_terminal_colors(value)?;
+    let presence = PipeIoColorPresence {
+        fg: value.get("fg").is_some(),
+        bg: value.get("bg").is_some(),
+        cursor: value.get("cursor").is_some(),
+        cursor_visual: value.get("cursor_style").is_some() && value.get("cursor_blink").is_some(),
+        palette: value.get("palette").is_some(),
+    };
+    Some(PipeIoColorState { colors, presence })
+}
+
+/// Append the VT sidecar needed by a raw pipe to adopt one protocol color
+/// transition. The JSON attach stream carries this state beside replay/output
+/// bytes, but a pipe embedder only receives bytes. Dynamic colors are emitted
+/// only when their field is present, allowing legacy live palette events to
+/// preserve omitted defaults and cursor metadata. A present sparse palette is
+/// a complete authored-override snapshot. On a live transition, reset only
+/// entries removed from the previous snapshot so omitted entries retain the
+/// embedder's theme. A replay has already reset the terminal, so it emits all
+/// current authored entries without a broad palette reset.
+fn append_pipe_io_colors(
+    bytes: &mut Vec<u8>,
+    state: &PipeIoColorState,
+    previous_palette: Option<&[Option<Rgb>; 256]>,
+    replay_reset: bool,
+) {
+    fn dynamic_color(
+        bytes: &mut Vec<u8>,
+        present: bool,
+        set_code: u16,
+        reset_code: u16,
+        color: Option<Rgb>,
+    ) {
+        if !present {
+            return;
+        }
+        match color {
+            Some(color) => bytes.extend_from_slice(
+                format!(
+                    "\x1b]{set_code};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    color.r, color.g, color.b
+                )
+                .as_bytes(),
+            ),
+            None => bytes.extend_from_slice(format!("\x1b]{reset_code}\x1b\\").as_bytes()),
+        }
+    }
+
+    let colors = &state.colors;
+    let presence = state.presence;
+    dynamic_color(bytes, presence.fg, 10, 110, colors.fg);
+    dynamic_color(bytes, presence.bg, 11, 111, colors.bg);
+    dynamic_color(bytes, presence.cursor, 12, 112, colors.cursor);
+
+    if presence.cursor_visual
+        && let (Some(style), Some(blink)) = (colors.cursor_style, colors.cursor_blink)
+    {
+        let value = match (style, blink) {
+            (CursorShape::Block | CursorShape::BlockHollow, true) => 1,
+            (CursorShape::Block | CursorShape::BlockHollow, false) => 2,
+            (CursorShape::Underline, true) => 3,
+            (CursorShape::Underline, false) => 4,
+            (CursorShape::Bar, true) => 5,
+            (CursorShape::Bar, false) => 6,
+        };
+        // Reset any application-authored DECSCUSR before applying the
+        // resolved pair, matching apply_terminal_colors on local mirrors.
+        bytes.extend_from_slice(format!("\x1b[0 q\x1b[{value} q").as_bytes());
+    }
+
+    if presence.palette {
+        for (index, color) in colors.palette.iter().enumerate() {
+            let previous = previous_palette.map(|palette| palette[index]);
+            if !replay_reset && previous == Some(*color) {
+                continue;
+            }
+            match color {
+                Some(color) => bytes.extend_from_slice(
+                    format!(
+                        "\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                        color.r, color.g, color.b
+                    )
+                    .as_bytes(),
+                ),
+                None if previous.is_some_and(Option::is_some) => {
+                    bytes.extend_from_slice(format!("\x1b]104;{index}\x1b\\").as_bytes());
+                }
+                None => {}
+            }
+        }
+    }
 }
 
 fn apply_terminal_colors(terminal: &mut Terminal, colors: &RemoteTerminalColors) {
@@ -7630,15 +7855,19 @@ mod tests {
             panic!("palette replacement did not forward output");
         };
 
-        assert!(bytes.windows(b"\x1b]104;2\x1b\\".len()).any(|window| {
-            window == b"\x1b]104;2\x1b\\"
-        }));
-        assert!(!bytes.windows(b"\x1b]104\x1b\\".len()).any(|window| {
-            window == b"\x1b]104\x1b\\"
-        }));
-        assert!(bytes.windows(b"\x1b]4;3;rgb:0d/0e/0f\x1b\\".len()).any(|window| {
-            window == b"\x1b]4;3;rgb:0d/0e/0f\x1b\\"
-        }));
+        assert!(
+            bytes
+                .windows(b"\x1b]104;2\x1b\\".len())
+                .any(|window| { window == b"\x1b]104;2\x1b\\" })
+        );
+        assert!(
+            !bytes.windows(b"\x1b]104\x1b\\".len()).any(|window| { window == b"\x1b]104\x1b\\" })
+        );
+        assert!(
+            bytes
+                .windows(b"\x1b]4;3;rgb:0d/0e/0f\x1b\\".len())
+                .any(|window| { window == b"\x1b]4;3;rgb:0d/0e/0f\x1b\\" })
+        );
     }
 
     #[test]

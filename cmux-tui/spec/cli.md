@@ -30,6 +30,12 @@ a renderer, for an embedder that parses terminal bytes itself. stdout carries
 raw bytes: the daemon replay first, then live output, with a full reset
 (`ESC c` plus erase-scrollback) before any replay that is not the relay's
 first output, because a replay replaces state while a byte stream appends.
+The relay applies the attach stream's coupled `colors` metadata as ordered VT
+sidecar bytes after the replay or live output it describes. This uses OSC
+10/11/12, OSC 4/104, and DECSCUSR, so a raw embedder receives the same default,
+cursor, and sparse palette state as a byte-mode attach client. A live palette
+snapshot resets prior authored entries before applying its sparse entries;
+omitted live color fields remain unchanged.
 stdin takes one JSON object per line: `{"input":"<base64>"}` forwards bytes to
 the terminal, `{"resize":{"cols":N,"rows":N}}` drives the attached viewer
 size, and `{"claim":{"geometry":true}}` re-asserts this relay's geometry
