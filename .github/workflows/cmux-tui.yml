@@ -255,8 +255,7 @@ jobs:
           )
           PY
 
-      - name: Require startup terminal replay sentinel
-        if: matrix.shard == 'startup'
+      - name: Verify baseline terminal replay behavior
         working-directory: cmux-tui
         run: |
           matches=0
@@ -266,7 +265,7 @@ jobs:
               terminal-*)
                 if ! "$bin" --list \
                   | grep -Fqx 'pending_wrap_replay_preserves_cursor_with_origin_mode: test'; then
-                  echo "::error::terminal replay test binary does not contain the exact startup sentinel" >&2
+                  echo "::error::terminal replay test binary does not contain the exact baseline test" >&2
                   exit 1
                 fi
                 "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
@@ -319,6 +318,9 @@ jobs:
           fi
 
           valgrind_args=(--track-origins=yes)
+          require_exact_test \
+            "$terminal_bin" \
+            pending_wrap_replay_preserves_cursor_with_origin_mode
           run_valgrind \
             "$terminal_bin" \
             pending_wrap_replay_preserves_cursor_with_origin_mode \
