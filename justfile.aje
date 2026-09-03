@@ -1,0 +1,11 @@
+set shell := ["zsh", "-cu"]
+
+# Build an isolated Debug app for testing. The reload script prints its app path.
+test-build:
+    ./scripts/reload.sh --tag aje-test-build
+
+# Build a fixed app with the release bundle identifier, then install it under a
+# distinct name. Quit the normal cmux app before launching this one: both apps
+# intentionally share the release session snapshot and bundle identity.
+release-build:
+    set -euo pipefail; log="$(mktemp -t cmux-aje-release.XXXXXX)"; trap 'rm -f "$log"' EXIT; ./scripts/reload.sh --tag aje-release --name "cmux AJE" --bundle-id com.cmuxterm.app 2>&1 | tee "$log"; app="$(sed -n 's/^  //p' "$log" | grep '\.app$' | head -n 1)"; test -n "$app"; dest="$HOME/Applications/cmux AJE.app"; mkdir -p "$HOME/Applications"; rm -rf "$dest"; ditto "$app" "$dest"; ./scripts/sign-dev-app.sh "$dest"; encoded="$(printf '%s' "$dest" | sed 's/ /%20/g')"; printf '\nInstalled app:\n  %s\n\nOpen: [cmux AJE.app](file://%s)\n' "$dest" "$encoded"
