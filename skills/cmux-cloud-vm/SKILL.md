@@ -74,7 +74,7 @@ cmux vm open <id>                       # the machine's shell
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
 cmux vm open <id>:desktop               # the noVNC screen (desktop-kind machines; base machines have no screen)
-cmux vm open <id>:port/3000 [--print]   # tokened URL for an HTTP port (--print: URL only; dormant — no deployment implements open-port yet)
+cmux vm open <id>:port/3000 [--print]   # URL for an HTTP port on the machine's private address (--print: URL only; needs `cmux vpn up`)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
 cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them
 cmux notify --title "Cloud build done" --body "…"

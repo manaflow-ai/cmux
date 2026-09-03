@@ -21,7 +21,7 @@ cmux vm run --sync -- bun install                                # --sync runs i
 cmux vm run --sync -- sh -c 'pid=$(cat .cmux-dev.pid 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && netstat -tlnp 2>/dev/null | grep -q ":3000 .*[ /]$pid/"; then echo "dev server already up (pid $pid owns :3000)"; else rm -f .cmux-dev.pid .cmux-dev.log; if netstat -tln 2>/dev/null | grep -q ":3000 "; then echo "port 3000 is owned by another process" >&2; exit 1; fi; nohup bun run dev > .cmux-dev.log 2>&1 & echo $! > .cmux-dev.pid; fi'
 cmux vm run --sync -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 .cmux-dev.log; exit 1'
 id=$(cmux vm route --json | jq -r '.machine')                    # the machine the router bound
-cmux vm open "$id":port/3000 --print                             # tokened URL to give the user (dormant today: backend answers "open-port is not supported"; show output via a terminal pane instead)
+cmux vm open "$id":port/3000 --print                             # private-network URL to give the user (resolves only on a Mac with `cmux vpn up`)
 ```
 
 Sticky binding means every `vm run` from this directory lands on the same machine. The explicit reuse-or-create spelling still works when you want full control:
@@ -112,7 +112,7 @@ cmux vm tree <id>                      # the map: which terminal is which, what 
 cmux vm open <id>/<ws>/<term>          # one terminal as a pane (reuses an open pane)
 cmux vm open <id>                      # shell (+ screen on desktop machines)
 cmux vm open <id>:desktop              # the screen
-cmux vm open <id>:port/3000            # the app they should look at (once open-port ships; dormant today)
+cmux vm open <id>:port/3000            # the app they should look at, as a browser pane (private network; `cmux vpn up`)
 cmux vm handoff <id>                   # attach block another human/agent can follow
 ```
 
