@@ -1626,6 +1626,12 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         notifications = updated
+        // Replaced local-only recovery rows no longer exist in the feed; drop
+        // their opaque IDs so this process-lifetime compatibility set remains
+        // bounded by live local recovery inventory.
+        localOnlyNotificationIDs.subtract(
+            idsToClear.compactMap(UUID.init(uuidString:))
+        )
         if !isLocalOnly {
             notificationFeedHistory.record(
                 notification,
