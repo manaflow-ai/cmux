@@ -2148,18 +2148,19 @@ impl Inner {
         transport_id: Option<&str>,
         generation: Option<u64>,
     ) {
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
-            (
-                entry.generation,
-                transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
-            )
-        }) && generation.is_none_or(|expected| entry_generation == expected)
-            && owns_opening
         {
-            opening.cancelled.insert(pty_id.to_owned(), entry_generation);
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
+                (
+                    entry.generation,
+                    transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
+                )
+            }) && generation.is_none_or(|expected| entry_generation == expected)
+                && owns_opening
+            {
+                opening.cancelled.insert(pty_id.to_owned(), entry_generation);
+            }
         }
-        drop(opening);
         let attachment = {
             let attachments = self.attachments.lock().expect("attach lock");
             attachments.get(pty_id).cloned()
