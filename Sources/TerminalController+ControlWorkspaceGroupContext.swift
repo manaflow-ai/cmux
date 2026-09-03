@@ -81,8 +81,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
             anchorWorkspaceID: group.liveAnchorWorkspaceId,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
-            anchorWorkspaceProvenance: group.anchorWorkspaceProvenance.rawValue,
             memberWorkspaceIDs: memberIds,
+            anchorWorkspaceProvenance: group.anchorWorkspaceProvenance.rawValue,
             externalID: group.externalID
         )
     }
