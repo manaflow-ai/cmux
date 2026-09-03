@@ -34,12 +34,17 @@ const TOP_SITES: usize = 8;
 /// Log-linear histogram over `u64` samples. Each power of two is split into
 /// four linear sub-buckets, so any percentile it reports is the upper bound
 /// of a bucket at most 25% above the true sample.
-#[derive(Default)]
 pub struct LogLinearHistogram {
     buckets: Box<[AtomicU64]>,
     count: AtomicU64,
     sum: AtomicU64,
     max: AtomicU64,
+}
+
+impl Default for LogLinearHistogram {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LogLinearHistogram {
@@ -69,13 +74,17 @@ impl LogLinearHistogram {
         let octave = (index / SUB_BUCKETS) as u32;
         let sub = (index % SUB_BUCKETS) as u64;
         let width = 1u64 << (octave - SUB_BUCKETS_LOG2);
-        (1u64 << octave) + (sub + 1) * width - 1
+        // Written so the top bucket lands exactly on `u64::MAX` without
+        // overflowing: (2^o - 1) + 4 * 2^(o-2) = 2^(o+1) - 1.
+        ((1u64 << octave) - 1) + (sub + 1) * width
     }
 
     pub fn record(&self, value: u64) {
         self.buckets[Self::bucket_index(value)].fetch_add(1, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
-        self.sum.fetch_add(value, Ordering::Relaxed);
+        let _ = self.sum.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |sum| {
+            Some(sum.saturating_add(value))
+        });
         self.max.fetch_max(value, Ordering::Relaxed);
     }
 
@@ -166,11 +175,7 @@ pub struct LockStats {
 
 impl LockStats {
     pub fn new() -> Self {
-        Self {
-            wait: LogLinearHistogram::new(),
-            hold: LogLinearHistogram::new(),
-            ..Default::default()
-        }
+        Self::default()
     }
 
     /// Call before blocking. Returns the site holding the lock at that moment
@@ -453,20 +458,21 @@ pub struct ConnectionStats {
 impl ConnectionStats {
     /// Claims a slot if fewer than `limit` connections are active.
     pub fn try_claim(&self, limit: u64) -> bool {
-        let claimed = self
-            .active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                (count < limit).then_some(count + 1)
-            })
-            .is_ok();
-        if claimed {
-            let active = self.active.load(Ordering::Acquire);
-            self.peak.fetch_max(active, Ordering::Relaxed);
-            self.accepted.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.refused.fetch_add(1, Ordering::Relaxed);
+        match self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < limit).then_some(count + 1)
+        }) {
+            Ok(previous) => {
+                // Use the count this claim produced, not a later reload: a
+                // release in between would under-report the peak.
+                self.peak.fetch_max(previous + 1, Ordering::Relaxed);
+                self.accepted.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(_) => {
+                self.refused.fetch_add(1, Ordering::Relaxed);
+                false
+            }
         }
-        claimed
     }
 
     pub fn release(&self) {
@@ -538,6 +544,19 @@ mod tests {
     #[test]
     fn empty_histogram_reports_zeros() {
         assert_eq!(LogLinearHistogram::new().snapshot(), HistogramSnapshot::default());
+    }
+
+    #[test]
+    fn default_constructed_stats_can_record() {
+        let histogram = LogLinearHistogram::default();
+        histogram.record(u64::MAX);
+        histogram.record(u64::MAX);
+        let snapshot = histogram.snapshot();
+        assert_eq!((snapshot.count, snapshot.max, snapshot.p99), (2, u64::MAX, u64::MAX));
+        assert_eq!(snapshot.mean, u64::MAX / 2, "sum saturates instead of wrapping");
+        let stats = LockStats::default();
+        stats.acquired(Location::caller(), Duration::from_secs(1), None);
+        assert_eq!(stats.snapshot().wait_us.count, 1);
     }
 
     #[test]
