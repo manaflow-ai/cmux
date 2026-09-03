@@ -27,8 +27,8 @@ import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
 import {
-  describeClaudeUpstream,
-  type ClaudeUpstreamDescription,
+  listClaudeAccounts,
+  type ClaudeAccountDescription,
 } from "@/services/coderouter/claudeUpstream";
 import {
   AddAiAccountForms,
@@ -223,7 +223,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
 
       <ClaudeUpstreamSection
         teamId={selectedTeam.id}
-        current={claudeUpstream.kind === "ok" ? claudeUpstream.upstream : null}
+        accounts={claudeUpstream.kind === "ok" ? claudeUpstream.accounts : []}
         canManage={selectedTeam.manageAccounts}
         loadFailed={claudeUpstream.kind === "error"}
       />
@@ -542,12 +542,12 @@ async function loadAccounts(
 }
 
 type ClaudeUpstreamState =
-  | { readonly kind: "ok"; readonly upstream: ClaudeUpstreamDescription | null }
+  | { readonly kind: "ok"; readonly accounts: readonly ClaudeAccountDescription[] }
   | { readonly kind: "error" };
 
 async function loadClaudeUpstream(teamId: string): Promise<ClaudeUpstreamState> {
   try {
-    return { kind: "ok", upstream: await describeClaudeUpstream(teamId) };
+    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
   } catch {
     return { kind: "error" };
   }
