@@ -3285,6 +3285,42 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// The same decision, refined by the coding agent attached to the surface.
+    ///
+    /// A coding agent is one long-lived foreground command: the shell reports
+    /// `commandRunning` from `claude` launch until exit, so on the shell signal
+    /// alone EVERY agent surface confirms on close — including one whose turn
+    /// finished an hour ago and is sitting at its own prompt. The agent's
+    /// lifecycle is the finer signal, so `idle` (turn finished) and
+    /// `needsInput` (waiting on the user) mean there is no work to interrupt
+    /// and the close goes through silently.
+    ///
+    /// The agent state only ever RELAXES the shell signal, never tightens it,
+    /// so a surface already safe to close stays safe. `running`, and an absent
+    /// or unknown lifecycle, keep the existing answer: a plain `make`, `pytest`
+    /// or `rm -rf` in a non-agent surface still confirms. A stale `idle` cannot
+    /// suppress the warning for a later non-agent command in the same surface
+    /// either, because a dead agent's lifecycle is cleared by `clearAgentPID`,
+    /// which `clearStaleAgentPIDs` runs on the next return to the prompt.
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        agentLifecycleState: AgentHibernationLifecycleState,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        guard resolveCloseConfirmation(
+            shellActivityState: shellActivityState,
+            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        ) else {
+            return false
+        }
+        switch agentLifecycleState {
+        case .idle, .needsInput:
+            return false
+        case .running, .unknown:
+            return true
+        }
+    }
+
     nonisolated static func makeSessionRestorePolicyService()
         -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
@@ -6117,6 +6153,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
         Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
+            agentLifecycleState: agentHibernationLifecycleState(panelId: panelId, fallback: nil),
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
         )
     }
