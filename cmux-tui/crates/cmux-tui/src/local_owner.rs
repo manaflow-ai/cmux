@@ -277,6 +277,17 @@ struct SpawnedOwner {
     state: std::sync::Arc<OwnerProcessState>,
 }
 
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+
+/// Remove terminal identity claims from the detached owner while preserving
+/// configuration and socket variables inherited from the launching client.
+fn configure_detached_owner_environment(command: &mut Command) {
+    for key in DETACHED_OWNER_IDENTITY_ENV {
+        command.env_remove(key);
+    }
+}
+
 impl SpawnedOwner {
     fn terminate(self) {
         self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
@@ -304,6 +315,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
     }
+    configure_detached_owner_environment(&mut command);
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal.
@@ -316,7 +328,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         // process-group leader, so failure is a real launch error.
         unsafe {
             command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+                if libc::setsid() < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
             });
         }
     }
@@ -396,13 +412,9 @@ mod tests {
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsString::from)))
             .collect::<std::collections::HashMap<_, _>>();
-        for key in [
-            "CMUX_SURFACE_ID",
-            "CMUX_WORKSPACE_ID",
-            "CMUX_TAB_ID",
-            "CMUX_PANEL_ID",
-            "CMUX_PANE_ID",
-        ] {
+        for key in
+            ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"]
+        {
             assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
         }
         assert_eq!(
