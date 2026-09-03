@@ -42,6 +42,7 @@ public actor MobileIrxRuntimeComposition {
         case notSignedIn
         case unsupportedRoute
         case peerNotDiscovered
+        case directDialUnavailable
     }
 
     /// Dial-gate refusals from the device-list lease. Deliberately NOT
@@ -118,6 +119,12 @@ public actor MobileIrxRuntimeComposition {
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
     private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
+    /// The latest path intent for each peer. Direct is an exclusive,
+    /// fail-closed allowlist; automatic permits broker and LAN discovery.
+    private var dialIntentByPeer: [String: IrxDialIntent] = [:]
+    /// The intent used by the currently admitted session. A request that
+    /// changes intent explicitly replaces the session before reusing it.
+    private var activeDialIntentByPeer: [String: IrxDialIntent] = [:]
     /// The LAN resolver authenticates an mDNS result against the device ID as
     /// well as the endpoint key. Attach routes carry that intent separately
     /// from the cryptographic peer identity.
@@ -514,6 +521,8 @@ public actor MobileIrxRuntimeComposition {
         await broker?.deactivate()
         identity = nil
         routesByPeer.removeAll()
+        dialIntentByPeer.removeAll()
+        activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll()
         claimedControlSessions.removeAll()
         claimedEventSessions.removeAll()
@@ -838,7 +847,47 @@ public actor MobileIrxRuntimeComposition {
             relayURL ?? existing?.relayURL,
             directAddresses.isEmpty ? (existing?.directAddresses ?? []) : directAddresses
         )
+        dialIntentByPeer[identity.endpointID] = request.irohDirectOnlyDialCandidates.map {
+            .direct($0)
+        } ?? .automatic
         return identity.endpointID
+    }
+
+    private enum IrxDialIntent: Equatable, Sendable {
+        case automatic
+        case direct([CmxIrohDirectDialCandidate])
+    }
+
+    private static func directDialAddresses(
+        candidates: [CmxIrohDirectDialCandidate],
+        directPorts: CmxIrohDirectPorts?
+    ) -> [String] {
+        var seen = Set<String>()
+        return candidates.prefix(16).compactMap { candidate in
+            guard let address = try? CmxIrohCustomPrivateAddress(candidate.address) else {
+                return nil
+            }
+            let port = candidate.port ?? (
+                address.family == .ipv4 ? directPorts?.ipv4 : directPorts?.ipv6
+            )
+            guard let port, port != 0 else { return nil }
+            let value = address.socketAddress(port: port)
+            guard seen.insert(value).inserted else { return nil }
+            return value
+        }
+    }
+
+    private func ensureSession(
+        forPeer peerHex: String,
+        trigger: String
+    ) async throws -> IrxClientSession {
+        let engine = engine(forPeer: peerHex)
+        let desired = dialIntentByPeer[peerHex] ?? .automatic
+        let replaceForIntent = activeDialIntentByPeer[peerHex].map { $0 != desired } ?? false
+        return try await engine.ensureSession(
+            explicit: replaceForIntent,
+            trigger: trigger
+        )
     }
 
     /// The target's home relay from the account registry: the Mac registers
@@ -918,21 +967,40 @@ public actor MobileIrxRuntimeComposition {
         }
         try enforceDialGate(peerHex: peerHex)
         let credentials = try await autopilot.usableCredentials()
-        var relayURL = routesByPeer[peerHex]?.relayURL
+        let dialIntent = dialIntentByPeer[peerHex] ?? .automatic
+        var relayURL: String?
+        var directAddresses: [String] = []
         let discoveredRoute: (binding: CmxIrohBrokerBinding, discovery: CmxIrohDiscoveryResponse)?
-        if !Self.forceRelayOnly {
-            discoveredRoute = await refreshRouteFromDiscovery(
-                peerHex: peerHex,
-                broker: broker
+        switch dialIntent {
+        case let .direct(candidates):
+            // Port-less Direct candidates may use only the broker's current
+            // per-family UDP port. This reads metadata, never a broker path,
+            // and still fails closed if no usable pinned address remains.
+            let needsPublishedPorts = candidates.contains { $0.port == nil }
+            let route = needsPublishedPorts
+                ? await refreshRouteFromDiscovery(peerHex: peerHex, broker: broker)
+                : nil
+            discoveredRoute = route
+            directAddresses = Self.directDialAddresses(
+                candidates: candidates,
+                directPorts: route?.binding.directPorts
             )
+            guard !directAddresses.isEmpty else {
+                Self.journal.record(
+                    "client-dial", "direct-candidates-unusable",
+                    ["peer": String(peerHex.prefix(12)), "count": String(candidates.count)]
+                )
+                throw CompositionError.directDialUnavailable
+            }
+        case .automatic:
+            discoveredRoute = Self.forceRelayOnly
+                ? nil
+                : await refreshRouteFromDiscovery(peerHex: peerHex, broker: broker)
             relayURL = routesByPeer[peerHex]?.relayURL
-        } else {
-            discoveredRoute = nil
-        }
-        if relayURL == nil {
-            relayURL = routesByPeer[peerHex]?.relayURL
+            directAddresses = routesByPeer[peerHex]?.directAddresses ?? []
         }
         if !Self.forceRelayOnly,
+           case .automatic = dialIntent,
            let discoveredRoute,
            let expectedDeviceID = expectedDeviceIDByPeer[peerHex]
         {
@@ -945,12 +1013,13 @@ public actor MobileIrxRuntimeComposition {
                 expectedMacDeviceID: expectedDeviceID,
                 expectedEndpointID: discoveredRoute.binding.endpointID
             ) {
-                var direct = routesByPeer[peerHex]?.directAddresses ?? []
+                var direct = directAddresses
                 for peer in peers where peer.binding.endpointID == discoveredRoute.binding.endpointID {
                     for hint in peer.pathHints where !direct.contains(hint.value) {
                         direct.append(hint.value)
                     }
                 }
+                directAddresses = direct
                 routesByPeer[peerHex] = (relayURL, direct)
                 Self.journal.record(
                     "client-dial", "lan-hints-adopted",
@@ -966,10 +1035,11 @@ public actor MobileIrxRuntimeComposition {
             [
                 "peer": String(peerHex.prefix(12)),
                 "relay": relayURL ?? "-",
-                "direct": String(routesByPeer[peerHex]?.directAddresses.count ?? 0),
+                "direct": String(directAddresses.count),
+                "intent": dialIntent == .automatic ? "automatic" : "direct",
             ]
         )
-        if relayURL == nil {
+        if case .automatic = dialIntent, relayURL == nil {
             // Stale/missing hint (e.g. the Mac's registered hint lapsed):
             // fall back to our own relay rather than refusing outright; the
             // fleet is small enough that co-homing is common, and a wrong
@@ -983,7 +1053,7 @@ public actor MobileIrxRuntimeComposition {
         let address = try supervisor.dialAddress(
             peerEndpointIDHex: peerHex,
             relayURL: relayURL,
-            directAddresses: routesByPeer[peerHex]?.directAddresses ?? []
+            directAddresses: directAddresses
         )
         let connection = try await supervisor.dial(
             address: address, credentials: credentials)
@@ -998,9 +1068,10 @@ public actor MobileIrxRuntimeComposition {
         await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
         // Automatic path mode: authorize NAT traversal so iroh can upgrade
         // this session off the relay make-before-break (direct/LAN paths).
-        if !Self.forceRelayOnly {
+        if !Self.forceRelayOnly, case .automatic = dialIntent {
             await connection.authorizeDirectPaths()
         }
+        activeDialIntentByPeer[peerHex] = dialIntent
         return IrxClientSession(
             connection: connection,
             admit: admit,
@@ -1015,8 +1086,7 @@ public actor MobileIrxRuntimeComposition {
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "server-events")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "server-events")
         guard !claimedEventSessions.contains(session.admit.session) else {
             throw CompositionError.unsupportedRoute
         }
@@ -1056,8 +1126,7 @@ public actor MobileIrxRuntimeComposition {
         cursor: UInt64? = nil
     ) async throws -> MobileIrohTerminalLane {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "terminal-lane")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "terminal-lane")
         let lane = try await session.connection.openLane(
             IrxLaneDescriptor(
                 lane: .terminal,
@@ -1081,8 +1150,7 @@ public actor MobileIrxRuntimeComposition {
         offset: UInt64
     ) async throws -> any MobileArtifactLaneConnection {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "artifact-lane")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "artifact-lane")
         let lane = try await session.connection.openLane(
             IrxLaneDescriptor(lane: .artifact, resource: resourceID, offset: offset)
         )
@@ -1094,8 +1162,10 @@ public actor MobileIrxRuntimeComposition {
         panelID: UUID
     ) async throws -> MobileIrohSimulatorStreamLane {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "simulator-stream-lane")
+        let session = try await ensureSession(
+            forPeer: peerHex,
+            trigger: "simulator-stream-lane"
+        )
         // Same legacy resource dialect the terminal lane uses; the Mac's
         // dialect server routes it to MobileHostIrohSimulatorStreamLaneHandler.
         let lane = try await session.connection.openLane(
@@ -1140,8 +1210,7 @@ public actor MobileIrxRuntimeComposition {
         peerHex: String,
         ownerID: UUID
     ) async throws -> (IrxConnection, IrxLaneStream) {
-        let engine = engine(forPeer: peerHex)
-        let session = try await engine.ensureSession(trigger: "control-transport")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "control-transport")
         if let existingOwner = claimedControlSessions[session.admit.session],
            existingOwner != ownerID {
             // One admitted session exposes one control lane. Returning a
