@@ -1,18 +1,17 @@
 package dev.cmux.android.feature.auth
 
-import androidx.activity.compose.LocalActivity
+import android.app.Activity
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.cmux.android.core.auth.StackAuthTokenStore
-import javax.inject.Inject
 
 @Composable
 fun SignInScreen(
@@ -20,7 +19,7 @@ fun SignInScreen(
     viewModel: SignInViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val activity = LocalActivity.current
+    val activity = LocalContext.current as? Activity
 
     LaunchedEffect(state) {
         if (state is SignInState.SignedIn) onSignedIn()

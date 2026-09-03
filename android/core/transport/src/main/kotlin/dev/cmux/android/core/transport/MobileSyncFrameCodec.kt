@@ -53,7 +53,7 @@ object MobileSyncFrameCodec {
         }
 
         if (consumed > 0) {
-            repeat(consumed) { buffer.removeAt(0) }
+            buffer.subList(0, consumed).clear()
         }
         return frames
     }

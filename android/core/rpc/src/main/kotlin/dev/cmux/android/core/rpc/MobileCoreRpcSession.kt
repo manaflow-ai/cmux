@@ -1,6 +1,7 @@
 package dev.cmux.android.core.rpc
 
 import dev.cmux.android.core.transport.TcpByteTransport
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -88,7 +89,7 @@ class MobileCoreRpcSession(
 
     private suspend fun readLoop() {
         try {
-            while (isActive) {
+            while (coroutineContext.isActive) {
                 val raw = transport.readFrame() ?: break
                 handleFrame(raw)
             }

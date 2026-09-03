@@ -65,7 +65,7 @@ class BrowserViewModel @Inject constructor(
                             val framePanel = envelope.payload["panel_id"]?.jsonPrimitive?.content
                             if (framePanel == panelId) {
                                 val dataB64 = envelope.payload["data_b64"]?.jsonPrimitive?.content
-                            val sequence = envelope.payload["seq"]?.jsonPrimitive?.longOrNull ?: 0L
+                            val sequence = envelope.payload["seq"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
                                 if (dataB64 != null) {
                                     val bytes = Base64.decode(dataB64, Base64.DEFAULT)
                                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

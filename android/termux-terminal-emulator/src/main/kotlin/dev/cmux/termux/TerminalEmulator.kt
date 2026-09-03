@@ -60,8 +60,8 @@ class TerminalEmulator(
                 pendingEscape.append(ch)
             }
             ch == '\n' -> {
-                cursorRow = (cursorRow + 1).coerceAtMost(rows - 1)
-                if (cursorRow == rows - 1) scrollUp()
+                cursorCol = 0
+                if (cursorRow < rows - 1) cursorRow++ else scrollUp()
             }
             ch == '\r' -> cursorCol = 0
             ch == '\b' -> cursorCol = (cursorCol - 1).coerceAtLeast(0)

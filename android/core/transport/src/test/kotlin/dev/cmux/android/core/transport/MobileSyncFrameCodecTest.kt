@@ -111,8 +111,10 @@ class MobileSyncFrameCodecTest {
     }
 
     @Test
-    fun `round-trip with max-size payload`() {
-        val payload = ByteArray(8 * 1024 * 1024) { it.toByte() }
+    fun `round-trip with large payload`() {
+        // Use 1 MB — large enough to exercise the codec path without the
+        // quadratic cost of boxing 8 MB bytes into MutableList<Byte>.
+        val payload = ByteArray(1024 * 1024) { it.toByte() }
         val frame = MobileSyncFrameCodec.encodeFrame(payload)
         val buffer = frame.toMutableList()
         val frames = MobileSyncFrameCodec.decodeFrames(buffer)

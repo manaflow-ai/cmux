@@ -67,7 +67,7 @@ class TerminalViewModelTest {
     }
 
     @Test
-    fun `terminal.bytes event base64 payload decodes to screen output`() {
+    fun `terminal bytes event base64 payload decodes to screen output`() {
         val emulator = TerminalEmulator(columns = 80, rows = 5)
         val text = "hello from server"
         val b64 = java.util.Base64.getEncoder().encodeToString(text.toByteArray())

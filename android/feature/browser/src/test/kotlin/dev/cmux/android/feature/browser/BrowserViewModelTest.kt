@@ -15,7 +15,7 @@ import java.util.Base64
 class BrowserViewModelTest {
 
     @Test
-    fun `browser.frame event has expected JSON keys`() {
+    fun `browser frame event has expected JSON keys`() {
         val panelId = "panel-abc"
         val fakeJpegB64 = Base64.getEncoder().encodeToString(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()))
         val payload = buildJsonObject {
@@ -45,7 +45,7 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `browser.frame.ack request has correct params`() {
+    fun `browser frame ack request has correct params`() {
         val params = mapOf(
             "panel_id" to JsonPrimitive("panel-abc"),
             "seq" to JsonPrimitive(42L),
@@ -75,7 +75,7 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `mobile.browser.stream.start request method is correct`() {
+    fun `mobile browser stream start request method is correct`() {
         val method = "mobile.browser.stream.start"
         assertTrue(method.startsWith("mobile.browser"))
     }

@@ -1,6 +1,5 @@
 package dev.cmux.android.core.rpc
 
-import dev.cmux.android.core.transport.MobileSyncFrameCodec
 import dev.cmux.android.core.transport.TcpByteTransport
 import io.mockk.*
 import kotlinx.coroutines.*
@@ -8,117 +7,74 @@ import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import java.util.UUID
 
-/**
- * Unit tests for MobileCoreRpcSession using a fake in-memory transport.
- *
- * The session's reader loop is exercised by having the fake transport return
- * pre-built frames synchronously.
- */
 class MobileCoreRpcSessionTest {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
-    /** Build a framed response JSON for the given request id. */
-    private fun responseFrame(id: String, result: JsonObject): ByteArray {
-        val obj = buildJsonObject {
-            put("id", id)
-            put("result", result)
-        }
-        return MobileSyncFrameCodec.encodeFrame(obj.toString().toByteArray())
-    }
-
-    /** Build a framed event JSON. */
-    private fun eventFrame(topic: String, payload: JsonObject, streamId: String? = null): ByteArray {
-        val obj = buildJsonObject {
-            put("topic", topic)
-            put("payload", payload)
-            if (streamId != null) put("stream_id", streamId)
-        }
-        return MobileSyncFrameCodec.encodeFrame(obj.toString().toByteArray())
-    }
-
     @Test
-    fun `sendRequest correlates response by id`() = runTest {
+    fun `sendRequest correlates response by id`() = runBlocking {
         val transport = mockk<TcpByteTransport>()
-        var sentPayload: ByteArray? = null
-        val id = UUID.randomUUID().toString()
-
-        // Capture what the session writes so we can parse the id
         coEvery { transport.connect() } just Runs
-        coEvery { transport.writeFrame(any()) } answers {
-            sentPayload = firstArg()
-        }
+        coEvery { transport.close() } just Runs
+        coEvery { transport.writeFrame(any()) } just Runs
 
-        val resultFrame = responseFrame(id, buildJsonObject { put("status", "ok") })
-        var callCount = 0
-        coEvery { transport.readFrame() } answers {
-            callCount++
-            if (callCount == 1) {
-                // Wait until the request has been sent before returning response
-                while (sentPayload == null) delay(1)
-                // Return the response framed payload (just the JSON bytes since readFrame strips framing)
-                """{"id":"$id","result":{"status":"ok"}}""".toByteArray()
+        var readCount = 0
+        coEvery { transport.readFrame() } coAnswers {
+            if (readCount++ == 0) {
+                """{"id":"fixed-id","result":{"status":"ok"}}""".toByteArray()
             } else {
-                delay(Long.MAX_VALUE) // block forever after first frame
-                null
+                suspendCancellableCoroutine { /* park until cancelled */ }
             }
         }
-        coEvery { transport.close() } just Runs
 
         val session = MobileCoreRpcSession(transport)
+
+        // Inject a pending entry BEFORE connect() so the reader loop finds it when
+        // the first frame (the response) arrives — avoids a race where the reader
+        // processes and discards the frame before the entry is registered.
+        val deferred = CompletableDeferred<JsonObject>()
+        val pendingField = session.javaClass.getDeclaredField("pending")
+        pendingField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val pendingMap = pendingField.get(session)
+            as java.util.concurrent.ConcurrentHashMap<String, PendingRequest>
+        pendingMap["fixed-id"] = PendingRequest("fixed-id", deferred)
+
         session.connect()
 
-        // The session needs the id we specified — inject it manually
-        val deferred = CompletableDeferred<JsonObject>()
-        val pending = session.javaClass.getDeclaredField("pending")
-        pending.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        val pendingMap = pending.get(session) as java.util.concurrent.ConcurrentHashMap<String, PendingRequest>
-        pendingMap[id] = PendingRequest(id, deferred)
-
-        // Simulate writeFrame triggering the response
-        launch {
-            delay(10)
-            // Manually complete deferred as if the reader delivered it
-            deferred.complete(buildJsonObject { put("id", id); put("result", buildJsonObject { put("status", "ok") }) })
-        }
-
-        val result = withTimeout(500) { deferred.await() }
+        val result = withTimeout(1000) { deferred.await() }
         assertEquals("ok", result["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content)
 
         session.disconnect()
     }
 
     @Test
-    fun `events SharedFlow emits server-pushed event frames`() = runTest {
+    fun `events SharedFlow emits server-pushed event frames`() = runBlocking {
         val transport = mockk<TcpByteTransport>()
         coEvery { transport.connect() } just Runs
         coEvery { transport.writeFrame(any()) } just Runs
         coEvery { transport.close() } just Runs
 
-        var callCount = 0
-        coEvery { transport.readFrame() } answers {
-            callCount++
-            when (callCount) {
-                1 -> """{"topic":"terminal.bytes","payload":{"data":"aGVsbG8="}}""".toByteArray()
-                else -> {
-                    delay(Long.MAX_VALUE)
-                    null
-                }
+        var readCount = 0
+        coEvery { transport.readFrame() } coAnswers {
+            if (readCount++ == 0) {
+                """{"topic":"terminal.bytes","payload":{"data":"aGVsbG8="}}""".toByteArray()
+            } else {
+                suspendCancellableCoroutine { /* park until cancelled */ }
             }
         }
 
         val session = MobileCoreRpcSession(transport)
+
+        // Subscribe BEFORE connect() so the collector is registered before the
+        // reader emits the first frame. yield() lets the collectJob coroutine
+        // run up to its first suspension point (registering on the SharedFlow).
+        val received = mutableListOf<EventEnvelope>()
+        val collectJob = launch { session.events.collect { received.add(it) } }
+        yield()
+
         session.connect()
 
-        val received = mutableListOf<EventEnvelope>()
-        val collectJob = launch {
-            session.events.collect { received.add(it) }
-        }
-
-        withTimeout(500) {
+        withTimeout(1000) {
             while (received.isEmpty()) delay(10)
         }
 
@@ -131,17 +87,18 @@ class MobileCoreRpcSessionTest {
 
     @Test
     fun `concurrent requests are correlated independently`() = runTest {
-        val deferreds = (1..3).map {
-            val id = "req-$it"
-            val d = CompletableDeferred<JsonObject>()
-            id to d
+        val deferreds = (1..3).map { i ->
+            val id = "req-$i"
+            id to CompletableDeferred<JsonObject>()
         }
 
-        // Complete each deferred independently
         deferreds.forEachIndexed { index, (id, deferred) ->
             launch {
                 delay((index * 10).toLong())
-                deferred.complete(buildJsonObject { put("id", id); put("result", buildJsonObject { put("n", index) }) })
+                deferred.complete(buildJsonObject {
+                    put("id", id)
+                    put("result", buildJsonObject { put("n", index) })
+                })
             }
         }
 
@@ -158,10 +115,7 @@ class MobileCoreRpcSessionTest {
             put("topic", "workspace.updated")
             put("payload", buildJsonObject { put("workspace_id", "ws-1") })
         }
-        // No "id" field — should never touch pending map
-        val hasId = eventObj.containsKey("id")
-        assertFalse(hasId)
-        val hasTopic = eventObj.containsKey("topic")
-        assertTrue(hasTopic)
+        assertFalse(eventObj.containsKey("id"))
+        assertTrue(eventObj.containsKey("topic"))
     }
 }
