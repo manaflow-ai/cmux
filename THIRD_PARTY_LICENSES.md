@@ -283,7 +283,7 @@ The following packages are linked into the cmux app binary.
 
 ## iSH and the Alpine Linux rootfs (iOS local Linux)
 
-cmux iOS can embed the iSH user-mode x86 kernel and an Alpine Linux fakefs
+cmux iOS can embed the iSH user-mode x86 kernel and an Alpine Linux root filesystem
 resource for its local Linux terminal. The vendored source is the Manaflow fork
 at `vendor/ish`, pinned at commit
 `efd2fa7a2b5a46d601fb0b9e667032591c7ad54d` for this release.

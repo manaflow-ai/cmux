@@ -3111,6 +3111,34 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Holding the plus button lists hosts and Linux on this iPhone; picking
+    /// Linux opens the bundled terminal full screen and Done returns to the list.
+    @MainActor
+    func testNewTerminalMenuOpensLinuxOnThisIPhone() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: true)
+        defer { app.terminate() }
+
+        let newTerminalButton = app.buttons["MobileNewWorkspaceButton"]
+        XCTAssertTrue(newTerminalButton.waitForExistence(timeout: 8))
+        newTerminalButton.press(forDuration: 1)
+
+        let linuxItem = app.buttons["MobileNewTerminalLocalLinuxMenuItem"]
+        XCTAssertTrue(
+            linuxItem.waitForExistence(timeout: 3),
+            "Holding the plus button must offer Linux on this iPhone."
+        )
+        XCTAssertTrue(linuxItem.isEnabled, "The bundled Linux image must make the row tappable.")
+        linuxItem.tap()
+
+        let terminal = app.descendants(matching: .any)["cmux.local-linux.terminal"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 10), "Picking Linux must open the local terminal.")
+        let done = app.buttons["MobileLocalLinuxDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3))
+        done.tap()
+        XCTAssertTrue(newTerminalButton.waitForExistence(timeout: 5), "Done must return to the workspace list.")
+    }
+
     @MainActor
     func testWorkspaceGroupFullSwipeMarksRead() throws {
         guard #available(iOS 26.0, *) else { return }
