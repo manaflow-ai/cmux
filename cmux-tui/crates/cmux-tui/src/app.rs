@@ -13768,12 +13768,11 @@ impl App {
         }
         let dirty_surfaces = std::mem::take(&mut self.graphics_dirty_surfaces);
         let occluders = self.graphic_occlusion_rects();
-        let context = GraphicsSceneContextKey {
-            session_generation: self.session_generation,
-            cell_pixels: self.cell_pixels,
-            occluders: occluders.clone(),
-        };
-        let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
+        let context_changed = self.graphics_scene_cache.context.as_ref().is_none_or(|cached| {
+            cached.session_generation != self.session_generation
+                || cached.cell_pixels != self.cell_pixels
+                || cached.occluders.as_slice() != occluders.as_slice()
+        });
         let full_scan = !dirty_only || context_changed;
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
         let mut updates = Vec::new();
@@ -13806,7 +13805,11 @@ impl App {
         });
         let projection_changed = !updates.is_empty();
         if context_changed {
-            self.graphics_scene_cache.context = Some(context);
+            self.graphics_scene_cache.context = Some(GraphicsSceneContextKey {
+                session_generation: self.session_generation,
+                cell_pixels: self.cell_pixels,
+                occluders,
+            });
             self.graphics_scene_cache.projections.clear();
         }
         if let Some(visible) = &visible {
