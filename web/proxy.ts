@@ -149,6 +149,17 @@ export default function middleware(incomingRequest: NextRequest) {
     return NextResponse.next();
   }
 
+  // Protected VM domains hand users back to one fixed CMUX origin. Keep the
+  // opaque auth transaction URL stable while still selecting localized copy.
+  if (pathname === "/cloud/access" || pathname === "/cloud/access/") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
   // so it must never be rewritten into the locale tree.
   if (pathname.startsWith("/vm/desktop/")) {
