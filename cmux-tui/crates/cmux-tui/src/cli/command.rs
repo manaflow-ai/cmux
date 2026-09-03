@@ -2948,6 +2948,12 @@ mod tests {
     }
 
     #[test]
+    fn server_stats_typo_suggests_stats_action() {
+        let error = parse(&strings(&["server", "stat"])).unwrap_err();
+        assert!(error.0.contains("Did you mean `stats`?"), "{error}");
+    }
+
+    #[test]
     fn bounded_text_validation_has_shared_limits() {
         assert!(validate_bounded_text("--name", "ok").is_ok());
         assert!(validate_bounded_text("--name", "").is_err());
