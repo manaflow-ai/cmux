@@ -7019,6 +7019,39 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_forward_accepts_replay_when_queued_budget_remainder_is_small() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let budget = Arc::new(PipeIoByteBudget::new(8));
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender.clone(),
+            lifecycle_sender,
+            budget.clone(),
+        );
+
+        let queued = PipeIoEvent::Output(vec![0; 7]);
+        assert!(budget.try_reserve_event(&queued));
+        sender.send(queued).unwrap();
+
+        let replay_bytes = vec![b'R'; 16];
+        assert!(session.pipe_io_forward(7, || PipeIoEvent::Replay {
+            bytes: replay_bytes.clone(),
+        }));
+        assert!(lifecycle_receiver.try_recv().is_err());
+
+        let queued = receiver.try_recv().unwrap();
+        let replay = receiver.try_recv().unwrap();
+        assert_eq!(queued, PipeIoEvent::Output(vec![0; 7]));
+        assert_eq!(replay, PipeIoEvent::Replay { bytes: replay_bytes });
+        budget.release_event(&queued);
+        budget.release_event(&replay);
+    }
+
+    #[test]
     fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),

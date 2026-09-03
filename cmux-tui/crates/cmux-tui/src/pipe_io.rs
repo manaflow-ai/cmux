@@ -728,6 +728,56 @@ mod tests {
     }
 
     #[test]
+    fn stdin_pump_emits_structured_resize_and_claim_diagnostics() {
+        let mut input = Cursor::new(
+            b"{\"resize\":{\"cols\":100,\"rows\":30}}\n\
+              {\"resize\":{\"cols\":80,\"rows\":24}}\n\
+              {\"claim\":{\"geometry\":true}}\n\
+              {\"claim\":{\"geometry\":true}}\n"
+                .to_vec(),
+        );
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let mut resize_results = vec![
+            PipeIoControlResult::Completed(false),
+            PipeIoControlResult::Failed(anyhow::anyhow!("resize rejected")),
+        ]
+        .into_iter();
+        let mut claim_results = vec![
+            PipeIoControlResult::Completed(()),
+            PipeIoControlResult::Failed(anyhow::anyhow!("claim enqueue failed")),
+        ]
+        .into_iter();
+        let mut diagnostics = Vec::new();
+
+        run_stdin_pump_with_handlers(
+            &mut input,
+            &lifecycle_sender,
+            |_bytes| PipeIoControlResult::Completed(()),
+            |cols, rows| {
+                assert!(matches!((cols, rows), (100, 30) | (80, 24)));
+                resize_results.next().unwrap()
+            },
+            || claim_results.next().unwrap(),
+            |line| diagnostics.push(line),
+        );
+
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
+        let diagnostics = diagnostics
+            .iter()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            diagnostics,
+            vec![
+                serde_json::json!({"diag": {"resize": {"cols": 100, "rows": 30, "accepted": false}}}),
+                serde_json::json!({"diag": {"resize": {"cols": 80, "rows": 24, "error": "resize rejected"}}}),
+                serde_json::json!({"diag": {"claim": {"accepted": true}}}),
+                serde_json::json!({"diag": {"claim": {"error": "claim enqueue failed"}}}),
+            ]
+        );
+    }
+
+    #[test]
     fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
         let terminal_ended =
             crate::session::test_remote_rejected_error_with_message("unknown surface 7");
