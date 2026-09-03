@@ -30536,11 +30536,18 @@ mod tests {
         let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
-        app.session.operations.enqueue_session_mutation("block input lane", false, move || {
-            started_tx.send(()).unwrap();
-            let _ = unblock_rx.recv();
-            Ok(())
-        });
+        // A session mutation blocks only the surfaces it names, so the blocker
+        // must target this surface for the fallback operations to stay queued.
+        app.session.operations.enqueue_session_mutation_targeting(
+            "block input lane",
+            &[surface.id],
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                let _ = unblock_rx.recv();
+                Ok(())
+            },
+        );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let fallback_key = KeyInput { utf8: "x".repeat(1024), ..Default::default() };
