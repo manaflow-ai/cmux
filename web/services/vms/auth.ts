@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Team } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
+import { hasAuthRateLimitSignal } from "./authErrors";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../account/deletionLock";
 import {
   billingPlanIdFromMetadata,
+  billingSeatsFromMetadata,
   billingTeamFromUnknown,
   resolveBillingTeam,
   type BillingTeamLike,
@@ -26,6 +28,8 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
+  /** Paid seats on the resolved billing team; null for user billing or unknown. */
+  billingSeats: number | null;
   resolveSubrouterPermissions: (
     teamId: string,
   ) => Promise<SubrouterPermissions>;
@@ -35,6 +39,7 @@ export type AuthedTeam = {
   id: string;
   displayName: string | null;
   billingPlanId: string | null;
+  billingSeats: number | null;
 };
 
 export type SubrouterPermissions = {
@@ -52,6 +57,15 @@ export class SubrouterAuthorizationTimeoutError extends Error {
 
 export class SubrouterAuthorizationUnavailableError extends Error {
   override readonly name = "SubrouterAuthorizationUnavailableError";
+}
+
+/**
+ * Stack Auth rejected (or is presumed to be rejecting) verification with a
+ * project-wide throttle. The message keeps the "rate limited" wording that
+ * `authProviderErrorResponse` and `relayAuthenticationError` detect.
+ */
+export class StackAuthRateLimitedError extends Error {
+  override readonly name = "StackAuthRateLimitedError";
 }
 
 export type NativeStackTokens = {
@@ -180,6 +194,34 @@ export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): v
   for (const [key, entry] of nativeAuthCache) {
     if (entry.tokenFingerprint === fingerprint) nativeAuthCache.delete(key);
   }
+}
+
+// Stack throttles per project, not per caller. Once one native verification is
+// throttled, every other native verification from this instance fails the same
+// way for the next few seconds, and the Stack SDK retries each of those calls
+// against three hosts before giving up. Fail fast during that window so a
+// throttled window costs one upstream call per instance instead of multiplying
+// the load that caused the throttle. Successful verifications still come from
+// the positive cache above; the cookie path is interactive and is never gated.
+const STACK_THROTTLE_CIRCUIT_MS = 10_000;
+let stackThrottledUntil = 0;
+
+function assertStackNotThrottled(): void {
+  const remainingMs = stackThrottledUntil - Date.now();
+  if (remainingMs <= 0) return;
+  throw new StackAuthRateLimitedError(
+    `Stack Auth rate limited; circuit open for ${Math.ceil(remainingMs / 1_000)}s`,
+  );
+}
+
+function recordStackThrottle(cause: unknown): StackAuthRateLimitedError {
+  stackThrottledUntil = Date.now() + STACK_THROTTLE_CIRCUIT_MS;
+  return new StackAuthRateLimitedError("Stack Auth rate limited", { cause });
+}
+
+/** Test hook: close the Stack throttle circuit between cases. */
+export function clearStackThrottleCircuitForTests(): void {
+  stackThrottledUntil = 0;
 }
 
 let activeStackAuthorizationCalls = 0;
@@ -464,10 +506,26 @@ export async function verifyRequest(
       const cached = readNativeAuthCache(cacheKey);
       if (cached) return cached;
     }
-    const user = await stackAuthorizationCall(
-      () => stackServerApp.getUser({ tokenStore: tokens }),
-      options.subrouterAuthorizationSignal,
-    );
+    // Subrouter calls carry their own deadline and error classes; only the
+    // cacheable native path (device registry, iroh broker, relay) is gated.
+    // The check runs inside the operation so it is evaluated when the call
+    // actually starts, not when it was queued behind the concurrency limiter.
+    let user: Awaited<ReturnType<typeof stackServerApp.getUser>>;
+    try {
+      user = await stackAuthorizationCall(
+        () => {
+          if (cacheable) assertStackNotThrottled();
+          return stackServerApp.getUser({ tokenStore: tokens });
+        },
+        options.subrouterAuthorizationSignal,
+      );
+    } catch (error) {
+      // The circuit's own fast-fail must not count as a new upstream throttle,
+      // or steady retry traffic would hold the circuit open forever.
+      if (error instanceof StackAuthRateLimitedError) throw error;
+      if (cacheable && hasAuthRateLimitSignal(error)) throw recordStackThrottle(error);
+      throw error;
+    }
     if (user) {
       const authed = await authedUserFromStackUser(user, options);
       if (authed && cacheKey) {
@@ -543,6 +601,7 @@ async function authedUserFromStackUser(
   });
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const rawTeams = new Map<string, unknown>();
   if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
   for (const raw of listedTeamRaw) {
@@ -557,6 +616,7 @@ async function authedUserFromStackUser(
     id: team.id,
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
   const subrouterPermissionCache = new Map<
     string,
@@ -574,6 +634,7 @@ async function authedUserFromStackUser(
     teamIds,
     userBillingPlanId,
     billingPlanId,
+    billingSeats,
     resolveSubrouterPermissions: async (teamId) => {
       const cached = subrouterPermissionCache.get(teamId);
       if (cached) return cached;
