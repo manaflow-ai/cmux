@@ -128,6 +128,9 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
+    // `resolvedServiceURL` is a static member of the main-actor class, so the
+    // test must run on the main actor; without this the cmuxTests target does
+    // not compile and no unit test in the target can run in CI.
     @MainActor
     @Test func productionPresenceIgnoresStagingEnvironment() {
         let defaults = UserDefaults(suiteName: "presence-prod-origin-\(UUID().uuidString)")!
