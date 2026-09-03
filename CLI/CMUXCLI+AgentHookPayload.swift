@@ -400,6 +400,42 @@ extension CMUXCLI {
         }
     }
 
+    func readInitialTextFileLine(
+        path: String,
+        maxBytes: Int
+    ) -> String? {
+        guard maxBytes > 0 else { return nil }
+
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        do {
+            guard let data = try handle.read(upToCount: maxBytes), !data.isEmpty else {
+                return nil
+            }
+
+            let lineData: Data
+            if let newline = data.firstIndex(of: 0x0A) {
+                lineData = Data(data[..<newline])
+            } else {
+                let size = try handle.seekToEnd()
+                guard size <= UInt64(maxBytes) else { return nil }
+                lineData = data
+            }
+
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                return nil
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        } catch {
+            return nil
+        }
+    }
+
     func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] else { continue }

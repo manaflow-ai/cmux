@@ -30118,12 +30118,20 @@ struct CMUXCLI {
         path: String,
         turnId: String?
     ) -> CodexTranscriptSubagentSignals {
-        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
-            return CodexTranscriptSubagentSignals()
+        var signals = CodexTranscriptSubagentSignals()
+        if let firstLine = readInitialTextFileLine(path: path, maxBytes: 4 * 1024 * 1024),
+           let data = firstLine.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+           (object["type"] as? String) == "session_meta",
+           let payload = object["payload"] as? [String: Any],
+           codexTranscriptSessionMetaIsSubagent(payload) {
+            signals.isSubagentSession = true
         }
 
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return signals
+        }
         let normalizedTurnId = normalizedHookValue(turnId)
-        var signals = CodexTranscriptSubagentSignals()
         var currentTurnId: String?
         var currentTurnRelevant = normalizedTurnId == nil
 
