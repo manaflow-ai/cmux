@@ -143,10 +143,13 @@ async fn ipv4_and_ipv6_reach_a_kernel_wireguard_peer() {
         &format!("{client_v4}/32,{client_v6}/128"),
     ]);
     sudo(&["ip", "address", "add", &format!("{server_v4}/24"), "dev", INTERFACE]);
-    // `nodad`: a fresh IPv6 address is tentative for about a second and cannot
-    // be bound while duplicate address detection runs.
+    // CI images often disable IPv6 on new interfaces by sysctl default, and a
+    // fresh IPv6 address is tentative for about a second during duplicate
+    // address detection; both make a bind fail with EADDRNOTAVAIL.
+    sudo(&["sysctl", "-q", "-w", &format!("net.ipv6.conf.{INTERFACE}.disable_ipv6=0")]);
     sudo(&["ip", "-6", "address", "add", &format!("{server_v6}/64"), "dev", INTERFACE, "nodad"]);
     sudo(&["ip", "link", "set", INTERFACE, "up", "mtu", "1200"]);
+    eprintln!("{}", sudo(&["ip", "address", "show", INTERFACE]));
 
     let echo_port = echo_listener(SocketAddr::new(server_v4, 0)).await;
     eprintln!("echo listener bound on {server_v4}:{echo_port}");
