@@ -2060,8 +2060,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published var shouldRenderWebView: Bool = false {
         didSet {
+            // Reclassify on every assignment, not just on change: a render-deferred
+            // panel assigns false over false and still needs its pending URL
+            // classified. refreshWebViewLifecycleState() no-ops when nothing moved.
+            refreshWebViewLifecycleState()
             if oldValue != shouldRenderWebView {
-                refreshWebViewLifecycleState()
                 applyConfiguredWebViewBackground()
             }
         }
@@ -3741,10 +3744,6 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
-            // A panel born with a URL is never `.newTab`: seed the state here
-            // because the deferred path returns without a visibility or
-            // navigation transition to refresh it later.
-            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
@@ -3767,10 +3766,6 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
-            // A panel born with a URL is never `.newTab`: seed the state here
-            // because the deferred path returns without a visibility or
-            // navigation transition to refresh it later.
-            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
