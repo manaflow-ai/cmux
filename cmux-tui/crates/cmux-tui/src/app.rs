@@ -112,18 +112,56 @@ const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
-    if !poll(poll_timeout)? {
-        return Ok(None);
+    let deadline = now() + poll_timeout;
+    let mut interrupted: u8 = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        match poll(remaining) {
+            Ok(false) => return Ok(None),
+            Ok(true) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    read().map(Some)
+    interrupted = 0;
+    loop {
+        match read() {
+            Ok(event) => return Ok(Some(event)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -6421,9 +6459,7 @@ const VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET: usize = PTY_OPERATION_QUEUE_CAPA
 
 #[cfg(test)]
 thread_local! {
-    static PANE_AREA_PROJECTION_WORK: std::cell::Cell<usize> = const {
-        std::cell::Cell::new(0)
-    };
+    static PANE_AREA_PROJECTION_WORK: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -10434,7 +10470,15 @@ impl App {
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
         match target {
-            ProjectionTarget::Workspace { index, .. } => {
+            ProjectionTarget::Workspace { id, .. } => {
+                // The hit map can outlive a tree snapshot while a remote
+                // reorder is queued. Resolve the stable workspace identity
+                // again instead of applying a stale row index.
+                let Some(index) =
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                else {
+                    return Ok(());
+                };
                 self.activate_workspace(index);
             }
             ProjectionTarget::Pane { workspace, screen, pane } => {
@@ -24715,7 +24759,8 @@ mod tests {
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -24726,12 +24771,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24742,12 +24788,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24758,6 +24805,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
@@ -24771,19 +24819,110 @@ mod tests {
     #[test]
     fn crossterm_reader_propagates_poll_errors_without_reading() {
         let mut read_calls = 0;
-        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+        let error = std::io::Error::other("poll failed");
+        let mut poll_calls = 0;
 
         let result = super::read_crossterm_event(
             None,
-            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Err(std::io::Error::new(error.kind(), error.to_string()))
+                }
+            },
             || {
                 read_calls += 1;
                 Ok(Event::Resize(80, 24))
             },
         );
 
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert_eq!(read_calls, 0);
+        assert!(poll_calls >= 1);
+    }
+
+    #[test]
+    fn crossterm_reader_retries_interrupted_poll_and_read() {
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let event = Event::Resize(80, 24);
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(true)
+                }
+            },
+            || {
+                read_calls += 1;
+                if read_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(event.clone())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 { start } else { start + Duration::from_millis(11) }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
     }
 
     use super::{
@@ -25112,7 +25251,7 @@ mod tests {
 
     #[test]
     fn host_input_runtime_shutdown_joins_reader_before_returning() {
-        let mut runtime = HostInputRuntime::new();
+        let runtime = HostInputRuntime::new();
         let ingress = runtime.ingress.clone();
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
@@ -25139,7 +25278,7 @@ mod tests {
 
     #[test]
     fn host_input_runtime_shutdown_serializes_concurrent_callers() {
-        let mut runtime = HostInputRuntime::new();
+        let runtime = HostInputRuntime::new();
         let ingress = runtime.ingress.clone();
         let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
@@ -25161,7 +25300,7 @@ mod tests {
         });
         closed_rx.recv().unwrap();
 
-        let second_shutdown = shutdown.clone();
+        let second_shutdown = shutdown;
         let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
         let second = std::thread::spawn(move || {
             second_shutdown.shutdown();
@@ -32894,7 +33033,7 @@ mod tests {
     #[test]
     fn graphics_changed_rect_bound_stays_within_linear_comparison_budget() {
         let mux = Mux::new("graphics-diff-complexity-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
+        let app = test_app(Session::Local(mux));
         let count = 512usize;
         let previous = (0..count)
             .map(|index| GraphicIdentity {
@@ -34933,7 +35072,7 @@ mod tests {
             surface_filter: None,
             cancellation: cancellation.clone(),
         };
-        let forwarder_recovery_generation = recovery_generation.clone();
+        let forwarder_recovery_generation = recovery_generation;
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
                 event_source,
@@ -43631,6 +43770,41 @@ mod tests {
 
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn projection_workspace_target_follows_id_after_tree_reorder() {
+        let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
+            index: 0,
+            id: app.tree.workspaces()[0].id,
+        };
+        app.tree.workspaces_mut().swap(0, 1);
+        app.activate_projection_target(target).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(
+            app.tree.active_workspace().map(|workspace| workspace.id),
+            Some(target_id(target))
+        );
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    fn target_id(
+        target: crate::sidebar_projection::ProjectionTarget,
+    ) -> cmux_tui_core::WorkspaceId {
+        match target {
+            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            _ => unreachable!("workspace target expected"),
         }
     }
 

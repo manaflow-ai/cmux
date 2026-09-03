@@ -438,6 +438,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ServerStatsResult serverStats() throws CmuxException {
+        Object result = execute(Commands.SERVER_STATS, Map.of());
+        return ServerStatsResult.fromWire(result);
+    }
+
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CELL_PIXELS, request.toWire());
         return SetCellPixelsResult.fromWire(result);
