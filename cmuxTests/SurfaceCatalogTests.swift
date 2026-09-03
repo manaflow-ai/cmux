@@ -805,6 +805,27 @@ struct SurfaceCatalogTests {
         #expect(catalog.provider(for: .cloud("m")) == nil)
     }
 
+    @Test func `A late refresh from a deleted machine cannot resurrect catalog state`() {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("gone")
+        let provider = FakeProvider(machine: machine)
+        let term = terminal(machine, "term_late")
+
+        catalog.register(provider)
+        catalog.replaceResources([term], on: machine)
+        catalog.unregister(machine: machine)
+
+        // The old provider can finish a refresh after unregister has returned.
+        // Those writes are stale and must not put the machine back in the tree.
+        catalog.replaceResources([term], on: machine, info: provider.info)
+        catalog.upsert(term)
+        catalog.updateMachine(provider.info)
+
+        #expect(catalog.provider(for: machine) == nil)
+        #expect(catalog.snapshot.machines.contains(where: { $0.id == machine }) == false)
+        #expect(catalog.snapshot.resources.contains(where: { $0.machine == machine }) == false)
+    }
+
     @Test func `Unregistering a machine closes its display and browser panes but not terminals`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))

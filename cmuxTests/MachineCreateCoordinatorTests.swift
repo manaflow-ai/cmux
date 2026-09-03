@@ -21,6 +21,7 @@ struct MachineCreateCoordinatorTests {
         var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
+        var cancellations = 0
 
         var launch: MachineCreateCoordinator.Launch {
             { [self] arguments, progress, completion in
@@ -29,6 +30,18 @@ struct MachineCreateCoordinatorTests {
                 progressHandlers.append(progress)
                 completions.append(completion)
                 return true
+            }
+        }
+
+        var cancellableLaunch: MachineCreateCoordinator.CancellableLaunch {
+            { [self] arguments, progress, completion in
+                self.arguments.append(arguments)
+                guard starts else { return nil }
+                progressHandlers.append(progress)
+                completions.append(completion)
+                return CloudVMActionLauncher.CancellationHandle {
+                    self.cancellations += 1
+                }
             }
         }
 
@@ -267,6 +280,41 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.isEmpty)
         #expect(!coordinator.retry(id), "a dismissed row cannot be retried")
         #expect(changes.changes == 3, "start, failure, dismiss")
+    }
+
+    @Test func runningCreateCanBeCancelledAndLateCompletionCleansUpCreatedMachine() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        let notices = NoticeRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { notices.notices.append($0) },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+        let request = Self.newMachineRequest(name: "cancel me")
+
+        #expect(coordinator.start(request, cancellableLaunch: launches.cancellableLaunch))
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        coordinator.cancel(id)
+
+        #expect(coordinator.operations.isEmpty, "Cancel removes the pending row immediately")
+        #expect(launches.cancellations == 1, "Cancel terminates the in-flight CLI")
+        #expect(cleanedMachineIDs == ["calm-petrel"], "A machine announced before cancellation is destroyed")
+
+        // A process can report its final bytes after the row is gone. They must not
+        // recreate the row or post a misleading success notification.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 0,
+            output: "OK machine=calm-petrel",
+            workspaceId: nil,
+            machineId: "calm-petrel"
+        ))
+        #expect(coordinator.operations.isEmpty)
+        #expect(notices.notices.isEmpty)
+        #expect(cleanedMachineIDs == ["calm-petrel"], "Late completion is reconciled exactly once")
     }
 
     @Test func retryThatCannotLaunchReportsInline() {
