@@ -18245,6 +18245,26 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    #[test]
+    fn dropping_mux_shuts_down_terminal_effect_workers() {
+        let mux = test_mux();
+        let effects = mux.terminal_effects.clone();
+
+        assert_eq!(
+            effects.worker_count(),
+            TERMINAL_EFFECT_WORKERS,
+            "test Mux must start its complete terminal effect worker pool"
+        );
+        drop(mux);
+
+        assert!(effects.is_shutting_down());
+        assert_eq!(
+            effects.worker_count(),
+            0,
+            "implicit Mux teardown must join idle terminal effect workers"
+        );
+    }
+
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
