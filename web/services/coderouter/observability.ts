@@ -72,7 +72,7 @@ export function addCoderouterBreadcrumb(
  * synthetic `coderouter.<failure>` error with the context as tags. PostHog
  * Error Tracking, the primary sink, receives an `$exception` carrying a safe
  * error class and repository-only stack frames, grouped by failure kind and
- * provider. The original message and stack stay in Sentry. Events are joined
+ * provider. The original error is never sent to Sentry. Events are joined
  * to the request's `$ai_trace` by the ledger request id when a route is active.
  */
 export function reportCoderouterFailure(
@@ -82,13 +82,11 @@ export function reportCoderouterFailure(
   options: CoderouterFailureOptions = {},
 ): void {
   const errorType = error instanceof Error ? error.name : typeof error;
-  const safeContext = Object.fromEntries(
-    Object.entries(context).filter(([key]) => !SENSITIVE_CONTEXT_KEY.test(key) || key === "request_id"),
-  );
+  const safeContext = sanitizeCoderouterFailureContext(context);
   addCoderouterBreadcrumb(
     "error",
     `coderouter.${failure}`,
-    { failure, errorType, ...context },
+    { failure, errorType, ...safeContext },
     "error",
   );
   // Keep Sentry's exception message synthetic. Provider and infrastructure
@@ -97,7 +95,7 @@ export function reportCoderouterFailure(
     service: "coderouter",
     failure,
     errorType,
-    ...context,
+    ...safeContext,
   });
   const provider = typeof context.provider === "string" ? context.provider : "unknown";
   const requestId = typeof context.request_id === "string" ? context.request_id : undefined;
@@ -118,4 +116,12 @@ export function reportCoderouterFailure(
       }),
     ]);
   }
+}
+
+export function sanitizeCoderouterFailureContext(
+  context: Readonly<Record<string, string | number | boolean>>,
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(
+    Object.entries(context).filter(([key]) => !SENSITIVE_CONTEXT_KEY.test(key) || key === "request_id"),
+  );
 }

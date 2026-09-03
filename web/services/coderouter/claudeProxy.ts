@@ -198,6 +198,16 @@ type Routed =
     readonly failureStage: RouteFailureStage;
   };
 
+class ClaudeOperationDeadlineError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Claude account operation exceeded the ${timeoutMs} ms request budget`);
+    this.name = "ClaudeOperationDeadlineError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export function createClaudeMessagesProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
   runtimeOverrides: ClaudeProxyRuntimeOverrides = {},
@@ -393,10 +403,16 @@ async function routeWithFailover(
     let selection: ClaudeSelection;
     const selectStartedAt = performance.now();
     try {
-      selection = await dependencies.select(identity.teamId, {
-        stickyKey: stickyKey(identity),
-        excludedAccountIds: excluded,
-      });
+      selection = await withClaudeOperationDeadline(
+        request,
+        upstreamHeaderDeadlineAt,
+        runtime,
+        (signal) => dependencies.select(identity.teamId, {
+          stickyKey: stickyKey(identity),
+          excludedAccountIds: excluded,
+          signal,
+        }),
+      );
       recordCoderouterSpan({
         name: "account_selection",
         startedAt: selectStartedAt,
@@ -407,9 +423,18 @@ async function routeWithFailover(
       recordCoderouterSpan({
         name: "account_selection",
         startedAt: selectStartedAt,
-        error: error instanceof Error ? error.name : "select_failed",
-        attributes: { provider: "claude", attempt: attempts + 1 },
+        error: error instanceof ClaudeOperationDeadlineError
+          ? "deadline_exceeded"
+          : error instanceof Error ? error.name : "select_failed",
+        attributes: {
+          provider: "claude",
+          attempt: attempts + 1,
+          ...(error instanceof ClaudeOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+        },
       });
+      if (error instanceof ClaudeOperationDeadlineError) {
+        return deadlineResult(attempts, lastFailure, "account_selection");
+      }
       reportCoderouterFailure("rds", error, {
         provider: "claude",
         operation: "select_claude_account",
@@ -524,10 +549,6 @@ async function routeWithFailover(
       cooldown_ms: verdict.cooldownMs,
       status: attempt.kind === "response" ? attempt.response.status : 0,
     }, "warning");
-    await dependencies.cooldown(upstream.accountId, verdict.cooldownMs, verdict.failureCode).catch((error) => {
-      reportCoderouterFailure("rds", error, { provider: "claude", operation: "cooldown_claude_account" });
-    });
-    excluded.push(upstream.accountId);
     lastFailure = {
       upstream,
       stage: verdict.stage,
@@ -535,6 +556,21 @@ async function routeWithFailover(
         ? attempt.response
         : anthropicError(502, "api_error", "coderouter could not reach the Claude upstream. Retry shortly."),
     };
+    try {
+      await withClaudeOperationDeadline(
+        request,
+        upstreamHeaderDeadlineAt,
+        runtime,
+        () => dependencies.cooldown(upstream.accountId, verdict.cooldownMs, verdict.failureCode),
+      );
+    } catch (error) {
+      if (request.signal.aborted) throw error;
+      if (error instanceof ClaudeOperationDeadlineError) {
+        return deadlineResult(attempts, lastFailure, "upstream_transport");
+      }
+      reportCoderouterFailure("rds", error, { provider: "claude", operation: "cooldown_claude_account" });
+    }
+    excluded.push(upstream.accountId);
   }
   return deadlineResult(attempts, lastFailure);
 }
@@ -542,6 +578,7 @@ async function routeWithFailover(
 function deadlineResult(
   attempts: number,
   lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null,
+  failureStage: RouteFailureStage = "upstream_transport",
 ): Routed {
   if (lastFailure) {
     return { kind: "response", ...lastFailure, attempts, failed: true, failureStage: lastFailure.stage };
@@ -550,11 +587,54 @@ function deadlineResult(
     kind: "exhausted",
     attempts,
     outcome: "provider_unavailable",
-    failureStage: "upstream_transport",
+    failureStage,
     response: anthropicError(503, "api_error", "coderouter could not reach a Claude upstream within the request time limit. Retry shortly.", {
       "retry-after": "5",
     }),
   };
+}
+
+async function withClaudeOperationDeadline<T>(
+  request: Request,
+  deadlineAt: number,
+  runtime: ClaudeProxyRuntime,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeoutMs = Math.ceil(deadlineAt - runtime.now());
+  if (timeoutMs <= 0) throw new ClaudeOperationDeadlineError(0);
+
+  const timeoutController = new AbortController();
+  const signal = AbortSignal.any([request.signal, timeoutController.signal]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let removeCallerAbortListener: () => void = () => undefined;
+  const callerAbort = new Promise<never>((_, reject) => {
+    const rejectAborted = () => {
+      reject(request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    if (request.signal.aborted) {
+      rejectAborted();
+      return;
+    }
+    request.signal.addEventListener("abort", rejectAborted, { once: true });
+    removeCallerAbortListener = () => request.signal.removeEventListener("abort", rejectAborted);
+  });
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new ClaudeOperationDeadlineError(timeoutMs);
+      timeoutController.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => operation(signal)),
+      timeout,
+      callerAbort,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    removeCallerAbortListener();
+  }
 }
 
 function throwIfRequestAborted(request: Request): void {

@@ -150,6 +150,8 @@ export type ClaudeSelectionInput = {
   readonly stickyKey: string | null;
   /** Accounts already tried for this request. */
   readonly excludedAccountIds?: readonly string[];
+  /** Request-scoped cancellation for database and credential selection work. */
+  readonly signal?: AbortSignal;
 };
 
 export type ClaudeSelection =
@@ -375,7 +377,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    * clients. Without a key the least recently used account is chosen.
    */
   async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
+    throwIfAborted(input.signal);
     const rows = await store.list(teamId);
+    throwIfAborted(input.signal);
     if (rows.length === 0) return { kind: "none" };
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
@@ -387,7 +391,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const chosen = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    return { kind: "selected", upstream: await decrypt(chosen), total: rows.length, healthy: healthy.length };
+    const upstream = await decrypt(chosen);
+    throwIfAborted(input.signal);
+    return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }
 
   async function cooldown(accountId: string, durationMs: number, failureCode: string): Promise<void> {
@@ -555,6 +561,11 @@ function trimmed(value: unknown): string | null {
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

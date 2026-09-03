@@ -2,8 +2,9 @@
 //
 // PostHog groups `$exception` events into issues by `$exception_fingerprint`.
 // It is a third-party analytics sink, so it receives only a structured error
-// class and source frames from known repository paths. The original error and
-// stack stay in Sentry, where the server-side scrubbing policy applies.
+// class and source frames from known repository paths. The original error is
+// retained only long enough to derive those safe frames; Sentry receives a
+// synthetic failure error from the caller.
 import type { CoderouterRawEvent } from "./analytics";
 
 const SENSITIVE_TEXT = [
