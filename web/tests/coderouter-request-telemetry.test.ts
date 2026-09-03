@@ -19,6 +19,12 @@ import { authenticateRequestRouteToken } from "../services/coderouter/routeToken
 import { TRACE_ID_RESPONSE_HEADER } from "../services/telemetry";
 
 type Captured = { event: string; teamId?: string; timestamp?: string; properties: Record<string, unknown> };
+type ExceptionPayload = {
+  type: string;
+  value: string;
+  mechanism: { handled: boolean; synthetic: boolean };
+  stacktrace?: { frames: unknown[] };
+};
 
 let rawBatch: ReturnType<typeof spyOn<typeof analytics, "captureCoderouterRawBatch">>;
 
@@ -109,7 +115,7 @@ describe("traceEvents", () => {
     expect(exception.properties.$exception_level).toBe("error");
     expect(exception.properties.$exception_fingerprint).toBe("coderouter:provider_unavailable:account_selection:codex");
     expect(exception.properties.$ai_trace_id).toBe("req-2");
-    expect(JSON.parse(String(exception.properties.$exception_list))[0].type).toBe("coderouter_provider_unavailable");
+    expect((exception.properties.$exception_list as Array<{ type: string }>)[0]!.type).toBe("coderouter_provider_unavailable");
     expect(operatorEvents[0]!.properties.$ai_is_error).toBe(true);
     expect(operatorEvents[0]!.properties.$ai_error).toBe("provider_unavailable/account_selection");
 
@@ -135,7 +141,7 @@ describe("traceEvents", () => {
     const error = new TypeError("boom Bearer sk-ant-secret-value-1234567890");
     const events = traceEvents(context, { status: 503, durationMs: 5, error });
     const exception = events.find((entry) => entry.event === "$exception")!;
-    const list = JSON.parse(String(exception.properties.$exception_list));
+    const list = exception.properties.$exception_list as ExceptionPayload[];
     expect(list[0].type).toBe("TypeError");
     expect(list[0].value).toBe("TypeError: message redacted");
     expect(list[0].mechanism.handled).toBe(false);
@@ -173,7 +179,7 @@ describe("stackFrames", () => {
       level: "error",
       properties: { coderouter_failure: "rds", skipped: null },
     });
-    const list = JSON.parse(String(event.properties.$exception_list));
+    const list = event.properties.$exception_list as ExceptionPayload[];
     expect(list[0].value).toBe("connect failed for [redacted]");
     expect(list[0].mechanism.synthetic).toBe(true);
     expect(event.properties.coderouter_failure).toBe("rds");
@@ -194,9 +200,9 @@ describe("stackFrames", () => {
       level: "error",
       error,
     });
-    const list = JSON.parse(String(event.properties.$exception_list));
+    const list = event.properties.$exception_list as ExceptionPayload[];
     expect(list[0].value).toBe("Error: message redacted");
-    expect(list[0].stacktrace.frames).toEqual([
+    expect(list[0]!.stacktrace!.frames).toEqual([
       expect.objectContaining({ filename: "web/services/coderouter/health.ts", function: "safe" }),
     ]);
     expect(JSON.stringify(event)).not.toContain("super-secret");

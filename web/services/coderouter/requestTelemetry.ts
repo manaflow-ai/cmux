@@ -112,6 +112,7 @@ const storage = new AsyncLocalStorage<CoderouterRequestContext>();
 const MAX_SPANS_PER_REQUEST = 64;
 const ATTRIBUTE_VALUE_MAX = 200;
 const SPAN_ATTRIBUTE_SENSITIVE = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|token/i;
+let traceFlushScheduled = false;
 
 export function currentCoderouterRequest(): CoderouterRequestContext | undefined {
   return storage.getStore();
@@ -501,10 +502,24 @@ function finalize(context: CoderouterRequestContext, span: Span, response: Respo
   if (fault !== "none" && fault !== "caller") {
     // An error-heavy instance can lose its deferred span export; flush now
     // so the Axiom trace behind the request id exists when someone looks.
+    scheduleTraceFlush();
+  }
+}
+
+/** Coalesces outage-time exporter flushes to one callback per runtime turn. */
+function scheduleTraceFlush(): void {
+  if (traceFlushScheduled) return;
+  traceFlushScheduled = true;
+  const flush = async () => {
     try {
-      after(() => forceFlushTraces());
-    } catch {
-      void forceFlushTraces();
+      await forceFlushTraces();
+    } finally {
+      traceFlushScheduled = false;
     }
+  };
+  try {
+    after(flush);
+  } catch {
+    void flush();
   }
 }

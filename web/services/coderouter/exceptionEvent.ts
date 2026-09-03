@@ -108,7 +108,7 @@ export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEv
       ...cleanTelemetryProperties(input.properties ?? {}),
       $exception_level: input.level,
       $exception_fingerprint: input.fingerprint.slice(0, VALUE_MAX),
-      $exception_list: JSON.stringify([
+      $exception_list: [
         {
           type: errorName,
           value,
@@ -119,7 +119,7 @@ export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEv
           },
           ...(frames.length > 0 ? { stacktrace: { type: "raw", frames } } : {}),
         },
-      ]),
+      ],
     },
   };
 }

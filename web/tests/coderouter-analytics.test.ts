@@ -328,7 +328,11 @@ describe("coderouter raw trace batch", () => {
         },
         {
           event: "$exception",
-          properties: { $exception_fingerprint: "coderouter.rds:codex", $exception_level: "error" },
+          properties: {
+            $exception_fingerprint: "coderouter.rds:codex",
+            $exception_level: "error",
+            $exception_list: [{ type: "Error", value: "message redacted" }],
+          },
         },
       ],
       captured.dependencies,
@@ -359,6 +363,9 @@ describe("coderouter raw trace batch", () => {
     const exception = body.batch[1]!;
     expect(exception.distinct_id).toBe("coderouter-server");
     expect(exception.properties.$process_person_profile).toBe(false);
+    expect(exception.properties.$exception_list).toEqual([
+      { type: "Error", value: "message redacted" },
+    ]);
   });
 
   test("is a no-op when disabled or unconfigured", async () => {

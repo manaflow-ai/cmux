@@ -93,19 +93,21 @@ export function reportCoderouterFailure(
   });
   const provider = typeof context.provider === "string" ? context.provider : "unknown";
   const requestId = typeof context.request_id === "string" ? context.request_id : undefined;
-  analytics.captureCoderouterRawBatch?.([
-    exceptionEvent({
-      type: `coderouter.${failure}`,
-      value: errorSummary(error),
-      fingerprint: `coderouter.${failure}:${provider}`,
-      level: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",
-      error,
-      properties: {
-        coderouter_failure: failure,
-        coderouter_error_type: errorType,
-        ...(requestId ? { coderouter_request_id: requestId, $ai_trace_id: requestId } : {}),
-        ...safeContext,
-      },
-    }),
-  ]);
+  if (failure !== "analytics_delivery") {
+    analytics.captureCoderouterRawBatch?.([
+      exceptionEvent({
+        type: `coderouter.${failure}`,
+        value: errorSummary(error),
+        fingerprint: `coderouter.${failure}:${provider}`,
+        level: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",
+        error,
+        properties: {
+          coderouter_failure: failure,
+          coderouter_error_type: errorType,
+          ...(requestId ? { coderouter_request_id: requestId, $ai_trace_id: requestId } : {}),
+          ...safeContext,
+        },
+      }),
+    ]);
+  }
 }

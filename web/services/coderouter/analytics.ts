@@ -37,6 +37,7 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_model_request_completed";
 
 type AnalyticsScalar = string | number | boolean;
+export type CoderouterRawProperty = AnalyticsScalar | readonly Record<string, unknown>[];
 
 type CaptureInput = {
   readonly event: CoderouterAnalyticsEvent;
@@ -97,7 +98,7 @@ export type CoderouterRawEvent = {
   readonly teamId?: string;
   /** Span start for `$ai_*` events; defaults to now. */
   readonly timestamp?: string;
-  readonly properties: Readonly<Record<string, AnalyticsScalar>>;
+  readonly properties: Readonly<Record<string, CoderouterRawProperty>>;
 };
 
 /** Property keys a raw event may carry; anything else is dropped. */
@@ -117,7 +118,7 @@ export function captureCoderouterRawBatch(
   if (!config) return;
   const now = new Date().toISOString();
   const batch = events.map((entry) => {
-    const properties: Record<string, AnalyticsScalar> = {};
+    const properties: Record<string, CoderouterRawProperty> = {};
     for (const [key, value] of Object.entries(entry.properties)) {
       if (RAW_EVENT_KEY.test(key)) properties[key] = value;
     }
@@ -139,6 +140,9 @@ export function captureCoderouterRawBatch(
   const body = JSON.stringify({ api_key: config.projectKey, batch });
   const task = deliver(body, dependencies.fetch, config.ingestHost).catch(
     (error) => {
+      // Reporting this failure through the same PostHog sink would recurse
+      // forever while the sink is unavailable. Sentry still receives the
+      // structured delivery failure through reportCoderouterFailure.
       reportCoderouterFailure("analytics_delivery", error);
     },
   );
