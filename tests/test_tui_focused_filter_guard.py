@@ -109,7 +109,9 @@ def test_tui_status_names_remain_stable() -> None:
     )
 
 
-def _resolve_mode_boolean(value: object, mode: str) -> bool:
+def _resolve_mode_boolean(
+    value: object, mode: str, variables: dict[str, bool] | None = None
+) -> bool:
     """Evaluate the small expression subset used by workflow mode inputs."""
 
     if isinstance(value, bool):
@@ -123,6 +125,8 @@ def _resolve_mode_boolean(value: object, mode: str) -> bool:
         return False
     if expression == "inputs.mode == 'full'":
         return mode == "full"
+    if variables is not None and expression in variables:
+        return variables[expression]
     raise AssertionError(f"unsupported mode expression: {value!r}")
 
 
@@ -134,8 +138,11 @@ def test_full_mode_runs_cloudflare_relay_and_focused_mode_skips_it() -> None:
 
     # Model GitHub's mode expression and the called job's `if` condition. This
     # catches a green full gate that silently disables relay verification.
-    assert cloudflare_job["if"] == "inputs.build_cloudflare_relay"
     for mode, expected in (("focused", False), ("full", True)):
         relay_input = _resolve_mode_boolean(caller_with["build_cloudflare_relay"], mode)
-        relay_runs = relay_input
+        relay_runs = _resolve_mode_boolean(
+            cloudflare_job["if"],
+            mode,
+            {"inputs.build_cloudflare_relay": relay_input},
+        )
         assert relay_runs is expected
