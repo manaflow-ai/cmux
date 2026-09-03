@@ -535,6 +535,7 @@ impl ReliableSession {
         {
             Ok(result) => result.map_err(SessionError::Link),
             Err(_) => {
+                self.link.abort_close();
                 Err(SessionError::Link(LinkError::Transport("timed out closing link".into())))
             }
         };

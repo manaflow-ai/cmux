@@ -883,7 +883,7 @@ impl FrameLink for LaneMuxLink {
         let links: Vec<_> =
             self.links.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).drain(..).collect();
         let completion = LinkCloseCompletionGuard::new(self.close_state.clone());
-        tokio::spawn(async move {
+        let close_task = tokio::spawn(async move {
             let result: Result<(), LinkError> = async {
                 for task in &tasks {
                     task.abort();
@@ -911,7 +911,16 @@ impl FrameLink for LaneMuxLink {
             };
             completion.publish(outcome);
         });
+        *self.close_task.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(close_task);
         wait_for_link_close(self.close_state.subscribe()).await
+    }
+
+    fn abort_close(&self) {
+        let close_task =
+            self.close_task.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(close_task) = close_task {
+            close_task.abort();
+        }
     }
 }
 
@@ -921,6 +930,11 @@ impl Drop for LaneMuxLink {
         let tasks = self.tasks.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
         for task in tasks.drain(..) {
             task.abort();
+        }
+        if let Some(close_task) =
+            self.close_task.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
+        {
+            close_task.abort();
         }
     }
 }
