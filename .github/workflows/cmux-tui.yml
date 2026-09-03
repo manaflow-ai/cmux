@@ -269,6 +269,9 @@ jobs:
                   echo "::error::terminal replay test binary does not contain the exact startup sentinel" >&2
                   exit 1
                 fi
+                "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
+                  --exact \
+                  --test-threads=1
                 matches=$((matches + 1))
                 ;;
             esac
@@ -316,9 +319,6 @@ jobs:
           fi
 
           valgrind_args=(--track-origins=yes)
-          require_exact_test \
-            "$terminal_bin" \
-            pending_wrap_replay_preserves_cursor_with_origin_mode
           run_valgrind \
             "$terminal_bin" \
             pending_wrap_replay_preserves_cursor_with_origin_mode \

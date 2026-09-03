@@ -136,6 +136,8 @@ def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     assert "name: Require startup terminal replay sentinel" in job
     assert "if: matrix.shard == 'startup'" in job
     assert "pending_wrap_replay_preserves_cursor_with_origin_mode: test" in job
+    assert '"$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \\\n' in job
+    assert job.count("pending_wrap_replay_preserves_cursor_with_origin_mode") == 3
     assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
     assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
     assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job
