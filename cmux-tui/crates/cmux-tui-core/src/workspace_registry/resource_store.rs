@@ -1581,6 +1581,7 @@ impl WorkspaceRegistry {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
                  BEFORE INSERT ON session_journal
+                 WHEN NEW.resource_revision IS NOT NULL
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {

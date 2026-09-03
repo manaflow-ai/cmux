@@ -5754,7 +5754,14 @@ impl Mux {
         // reducer fences by journal sequence and observed timestamp.
         let is_plugin_event = ingress.payload.get("format").and_then(Value::as_str)
             == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT);
-        if !commit.replayed || is_plugin_event {
+        // A replay can follow a crash before either projection or reducer
+        // side effects. The reducer cursor makes folding an already-applied
+        // sequence a no-op, so replay every agent event and repair a missing
+        // roster fold without duplicating live deltas.
+        if !commit.replayed
+            || is_plugin_event
+            || ingress.producer_id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+        {
             self.fold_agent_roster(ingress, &commit);
         }
         Ok(commit)
@@ -22798,19 +22805,20 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
-        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
         // Each fresh direct report publishes twice on the shared change
         // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches.len(), 2);
         assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
+        assert_eq!(resource_events.batches[1].changes[0]["value"]["state"], "blocked");
         assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
+            resource_events.batches[1].changes[0]["value"]["source_session"],
             "hook-session"
         );
         assert!(matches!(
@@ -22904,21 +22912,22 @@ mod tests {
         assert_eq!(ignored.state, AgentState::Blocked);
         assert_eq!(ignored.source, AgentSource::Hook);
         assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
         // Each fresh direct report publishes twice on the shared change
         // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -23546,6 +23555,10 @@ mod tests {
             |surface: &Surface| surface.terminal_public_id().cloned().expect("workspace terminal");
         let first_terminal = terminal_id(&first);
         let second_terminal = terminal_id(&second);
+        // Drive these rows through the Mux ingress path. A direct registry
+        // append bypasses the roster fold and cannot model a real pending
+        // hook, because the roster is derived only from committed ingress.
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         let hook = |terminal_id: &TerminalPublicId, key: &str| {
             let ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
@@ -23554,16 +23567,12 @@ mod tests {
                 serde_json::json!({}),
             )
             .unwrap();
-            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .append_journal_ingress(&ingress, &validated, "test", key)
-                .unwrap();
+            mux.append_journal_ingress(&ingress, "test", key).unwrap();
         };
 
         hook(&first_terminal, "first-pending");
         hook(&second_terminal, "second-pending");
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
         mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         let pending =
