@@ -1,10 +1,10 @@
 use super::*;
 use base64::Engine;
-use flate2::read::GzDecoder;
+use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufReader, Read, Result as IoResult};
+use std::io::{BufRead, BufReader, Read, Result as IoResult};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1449,7 +1449,7 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
-    let decoder = GzDecoder::new(compressed.as_slice());
+    let decoder = GzDecoder::new(BufReader::new(compressed.as_slice()));
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
     let mut reader = BufReader::new(DigestReader::new(
@@ -1470,12 +1470,15 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
             "journal segment {segment_id} contains trailing data"
         );
     }
+    let (decoder, bytes_read, digest) = reader.into_inner().finish();
+    let mut compressed_reader = decoder.into_inner();
     anyhow::ensure!(
-        reader.get_ref().bytes_read == expected_bytes,
-        "journal segment {segment_id} length is invalid"
+        compressed_reader.fill_buf()?.is_empty(),
+        "journal segment {segment_id} contains trailing compressed data"
     );
+    anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
     anyhow::ensure!(
-        reader.into_inner().digest().as_slice() == expected_digest.as_slice(),
+        digest.as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
     for record in &mut records {
@@ -1509,8 +1512,8 @@ impl<R: Read> DigestReader<R> {
     fn new(inner: R) -> Self {
         Self { inner, hasher: Sha256::new(), bytes_read: 0 }
     }
-    fn digest(self) -> sha2::digest::Output<Sha256> {
-        self.hasher.finalize()
+    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
+        (self.inner, self.bytes_read, self.hasher.finalize())
     }
 }
 impl<R: Read> Read for DigestReader<R> {
