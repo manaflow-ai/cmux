@@ -154,7 +154,9 @@ impl Drop for ProviderMachineConnectionLease {
             key,
             connection_id: connection_id.clone(),
         };
-        if self.close_worker.schedule(Box::new(move || {
+        if self
+            .close_worker
+            .schedule(Box::new(move || {
                 let _cleanup = cleanup;
                 if let Err(error) = client.close_machine(connection_id) {
                     crate::client_log::stderr_log!(
@@ -2811,10 +2813,10 @@ mod tests {
         let (finished, finished_rx) = mpsc::channel();
         worker
             .schedule(Box::new(move || {
-                    started.send(()).unwrap();
-                    release_rx.recv().unwrap();
-                    finished.send(()).unwrap();
-                }))
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+                finished.send(()).unwrap();
+            }))
             .unwrap();
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
