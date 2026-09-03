@@ -880,6 +880,55 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func endedRemoteWorkspaceSessionCannotProvideResumeContext() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let configuration = remoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.trackRemoteTerminalSurface(panelID)
+        let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: panelID,
+            authority: authority
+        ))
+
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panelID
+        )
+        workspace.remotePTYSessionIDsByPanelId[panelID] = sessionID
+        let liveContext = try #require(workspace.persistentSSHResumeContext(panelID: panelID))
+        #expect(liveContext.persistentPTYSessionID == sessionID)
+
+        // A pending-connection teardown can leave the panel in the active set
+        // while recording an ended phase. That phase must never authorize a
+        // resume binding or running-agent snapshot.
+        workspace.remoteTerminalSessionStatesBySurfaceId[panelID] =
+            WorkspaceRemoteTerminalSessionState(
+                phase: .ended,
+                authority: authority,
+                terminalLifecycleID: nil
+            )
+        #expect(workspace.activeRemoteTerminalSurfaceIds.contains(panelID))
+        #expect(workspace.persistentSSHResumeContext(panelID: panelID) == nil)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume ended-remote-session",
+            cwd: "/srv/project",
+            checkpointId: "ended-remote-session",
+            source: "agent-hook",
+            autoResume: true,
+            launchFlavor: .persistentSSH(liveContext)
+        )
+        #expect(!binding.recordsRunningPersistentSSHAgent(
+            in: workspace.persistentSSHResumeContext(panelID: panelID)
+        ))
+    }
+
+    @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
