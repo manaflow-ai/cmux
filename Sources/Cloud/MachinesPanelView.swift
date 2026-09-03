@@ -794,6 +794,7 @@ struct MachineRowActions {
     /// so the sheet can show them inline instead of a detached alert.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
+        onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
@@ -806,6 +807,7 @@ struct MachineRowActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             presentsFailureAlert: false,
+            onOutput: onOutput,
             onCompletion: onCompletion
         )
     }
