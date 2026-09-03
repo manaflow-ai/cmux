@@ -49,6 +49,13 @@ curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 "$MANIFEST_URL" 
 COMMIT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$MANIFEST")"
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "error: manifest at $MANIFEST_URL has no commit" >&2; exit 1; }
 BASE="${MANIFEST_URL%/manifest.json}"
+# The rolling latest/ prefix is rewritten on every main push, so a slice fetched
+# a moment after the manifest can belong to a newer build and fail its checksum.
+# The publisher also stores every build under its commit, immutably; fetch the
+# slices from there whenever the manifest came from the rolling prefix.
+if [[ "$BASE" == */latest ]]; then
+  BASE="${BASE%/latest}/$COMMIT"
+fi
 BUILD_DIR="$CACHE_DIR/$COMMIT"
 mkdir -p "$BUILD_DIR"
 

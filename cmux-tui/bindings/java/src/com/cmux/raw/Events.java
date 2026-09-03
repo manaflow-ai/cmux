@@ -26,6 +26,7 @@ public final class Events {
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
     public static final EventMetadata OUTPUT = new EventMetadata("output", 5, null, List.of("attach-byte"), true);
     public static final EventMetadata OVERFLOW = new EventMetadata("overflow", 7, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
@@ -76,6 +77,7 @@ public final class Events {
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
         values.put("layout-changed", LAYOUT_CHANGED);
+        values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);
         values.put("output", OUTPUT);
         values.put("overflow", OVERFLOW);

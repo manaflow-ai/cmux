@@ -2,12 +2,35 @@
 # cmux devbox boot supervisor (/usr/local/bin/cmux-devbox-boot).
 #
 # Supervises the cmux-tui session daemon, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). The binary is NOT baked: the driver
-# installs the pinned files.cmux.com build to /root/.cmux/bin/cmux-tui at
-# create time (sha256-verified; see web/services/vms/drivers/cmuxTuiDaemon.ts),
-# so this loop waits for it and restarts the daemon if it ever exits. The
-# command below must stay identical to cmuxTuiDaemonCommand() in that module;
-# vm-devbox-image.test.ts pins the equality.
+# (docs/cloud-cmux-tui-daemon.md), and, on a container image without systemd,
+# the desktop session (see "Desktop" below). The Freestyle bake installs the pinned
+# files.cmux.com build at /root/.cmux/bin/cmux-tui (sha256-verified; see
+# web/scripts/build-devbox-freestyle.ts) and this loop starts the daemon and
+# restarts it if it ever exits. On an image without the binary (the container
+# Dockerfile) the loop waits for a driver to install it. The daemon command
+# must stay identical to cmuxTuiDaemonCommand() in
+# web/services/vms/drivers/cmuxTuiDaemon.ts; vm-devbox-image.test.ts pins
+# the equality.
+#
+# Per-machine daemon identity. A Freestyle snapshot is a memory image: every
+# machine created from it resumes the source machine's processes, so a daemon
+# running at snapshot time would hand one Noise static identity
+# (identity.json) to every machine created from the snapshot, and nothing
+# inside the guest (boot id, MAC, addresses) tells a clone apart. The
+# platform's metadata service does (latest/meta-data/instance-id, the
+# Firecracker MMDS behind the EC2-style token dance), so the daemon identity
+# is bound to that id, cloud-init style, and re-checked every tick:
+#   * /etc/cmux/daemon-instance-id names the machine whose identity the
+#     state dir holds. A different id means "this is a clone": a running
+#     daemon (another machine's identity) is stopped, the remote state is
+#     wiped, and the daemon starts with a fresh identity bound to this id.
+#   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
+#     from. While it matches, the daemon is kept parked so the snapshot never
+#     carries a live identity. The bake and derive scripts write it right
+#     before they snapshot; a clone has a different id and starts its daemon
+#     within one tick of resume.
+# Without a metadata service (containers) the id is empty and the daemon
+# simply runs, keeping whatever identity the state dir already holds.
 #
 # The Freestyle public-platform bake runs this script from the cmux-tui-daemon
 # systemd unit.
@@ -16,9 +39,73 @@
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
 # because those machines are reached directly at their public IPv6; a
 # dual-stack bind still accepts IPv4.
+#
+# Desktop (container images only). On a Freestyle VM systemd's cmux-desktop
+# unit owns the desktop session (desktop/cmux-desktop.service); without
+# systemd nothing else would, so this supervisor runs the same
+# cmux-desktop-boot loop as the work user (the uid-1000 account, else root)
+# and restarts it if it ever exits. The daemon loop below is untouched by it:
+# the desktop is a sibling process, never a child of the session daemon.
+BIN=/root/.cmux/bin/cmux-tui
+DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
+DESKTOP_RUNTIME_DIR=/run/cmux-desktop
+DESKTOP_DISPLAY=:1
+# cmux-remote's default state dir for root on Linux; identity.json lives under sessions/<session>/auth.
+REMOTE_STATE_DIR=/root/.local/state/cmux/remote
+BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
+BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+METADATA=http://169.254.169.254
+
+instance_id() {
+  token=$(curl -sf -m 1 -X PUT "$METADATA/latest/api/token" -H 'X-metadata-token-ttl-seconds: 60') || return 1
+  curl -sf -m 1 -H "X-aws-ec2-metadata-token: $token" "$METADATA/latest/meta-data/instance-id"
+}
+
+daemon_pid=""
+desktop_pid=""
+
+start_desktop() {
+  [ -x "$DESKTOP_BOOT" ] || return 0
+  [ -d /run/systemd/system ] && return 0
+  if [ -n "$desktop_pid" ] && kill -0 "$desktop_pid" 2>/dev/null; then return 0; fi
+  [ -n "$desktop_pid" ] && wait "$desktop_pid" 2>/dev/null
+  desktop_user=$(getent passwd 1000 | cut -d: -f1)
+  [ -n "$desktop_user" ] || desktop_user=root
+  desktop_home=$(getent passwd "$desktop_user" | cut -d: -f6)
+  mkdir -p "$DESKTOP_RUNTIME_DIR" && chown "$desktop_user" "$DESKTOP_RUNTIME_DIR" && chmod 0755 "$DESKTOP_RUNTIME_DIR"
+  runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY" \
+    CMUX_DESKTOP_RUNTIME_DIR="$DESKTOP_RUNTIME_DIR" "$DESKTOP_BOOT" >>/var/log/cmux-desktop.log 2>&1 &
+  desktop_pid=$!
+}
+
+stop_daemon() {
+  [ -n "$daemon_pid" ] || return 0
+  kill "$daemon_pid" 2>/dev/null
+  i=0
+  while kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -9 "$daemon_pid" 2>/dev/null
+  wait "$daemon_pid" 2>/dev/null
+  daemon_pid=""
+}
+
 while true; do
-  if [ -x /root/.cmux/bin/cmux-tui ]; then
-    (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind)
+  start_desktop
+  if [ -x "$BIN" ]; then
+    id=$(instance_id 2>/dev/null) || id=""
+    if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
+      stop_daemon # the machine being snapshotted: parked until the snapshot is taken
+    else
+      if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        stop_daemon
+        rm -rf "$REMOTE_STATE_DIR"
+        mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+      fi
+      if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
+        [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
+        (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind) &
+        daemon_pid=$!
+      fi
+    fi
   fi
-  sleep 2
+  sleep 1
 done

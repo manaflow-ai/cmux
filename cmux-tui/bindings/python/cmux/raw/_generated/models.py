@@ -617,6 +617,22 @@ class LivePane:
 
 
 @dataclass(frozen=True)
+class MachineUsage:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineUsage'
+    api_equivalent_usd: float
+    as_of: Union[str, None]
+    period_days: int
+    total_tokens: int
+    vm_id: str
+
+
+@dataclass(frozen=True)
+class MachineUsageResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineUsageResult'
+    usage: Union[MachineUsage, None]
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererResult:
     __cmux_schema_path__: ClassVar[str] = 'types/MintTerminalRendererResult'
     terminal_id: str
@@ -1473,6 +1489,12 @@ class ListWorkspacesRequest:
 
 
 @dataclass(frozen=True)
+class MachineUsageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-usage/request'
+    pass
+
+
+@dataclass(frozen=True)
 class MarkWorkspacesProviderManagedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mark-workspaces-provider-managed/request'
     authority: str
@@ -2124,6 +2146,14 @@ class LayoutChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class MachineUsageChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
+    event: Literal['machine-usage-changed']
+    usage: Union[MachineUsage, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class NotificationEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/notification/payload'
     surface: Union[Id, None]
@@ -2494,7 +2524,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2562,6 +2592,8 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'MachineUsage',
+    'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
     'NotificationMarker',
@@ -2653,6 +2685,7 @@ __all__ = [
     'ListClientsRequest',
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
+    'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
@@ -2729,6 +2762,7 @@ __all__ = [
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'LayoutChangedEvent',
+    'MachineUsageChangedEvent',
     'NotificationEvent',
     'OutputEvent',
     'OverflowEvent',

@@ -85,6 +85,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
+| `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -138,7 +139,8 @@ Environment:
 | `select-workspace` | Select a workspace. |
 | `rename-workspace`, `rename-window` | Rename a workspace. `rename-window` is a compatibility alias. |
 | `current-workspace` | Print current workspace information. |
-| `read-screen` | Read terminal text from a surface. |
+| `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
+| `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `send` | Send text to a terminal surface. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
@@ -179,6 +181,73 @@ Environment:
 | `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
+
+## Surface Selection Contract
+
+`surface.read_selection` is a v2 worker-lane socket method advertised by
+`system.capabilities` and printed by `cmux capabilities`. It accepts the usual
+surface routing selectors (`window_id`, `workspace_id`, `surface_id`,
+`terminal_id`, `tab_id`, and `pane_id`) without focusing a window, workspace,
+pane, or surface.
+
+Successful responses use one shape across surface kinds:
+
+```json
+{
+  "has_selection": true,
+  "kind": "filepreview",
+  "text": "let answer = 42",
+  "base64": "bGV0IGFuc3dlciA9IDQy",
+  "file_path": "/Users/me/project/Answer.swift",
+  "line_range": { "start": 7, "end": 7 },
+  "workspace_id": "...",
+  "workspace_ref": "workspace:1",
+  "surface_id": "...",
+  "surface_ref": "surface:2",
+  "window_id": "...",
+  "window_ref": "window:1"
+}
+```
+
+- `has_selection`, `kind`, `text`, and `base64` are always present.
+- Selection text is capped at 1 MiB before it crosses the socket boundary;
+  browser and native text selections are shortened with a visible ellipsis,
+  while a terminal selection that exceeds Ghostty's bounded work budget is
+  reported as temporarily unavailable.
+- `file_path` is present for native file/Markdown selections and Markdown
+  preview selections.
+- `line_range` is present when a native text view can map the selection back to
+  source lines. `start` and `end` are one-based and inclusive. Selecting a line
+  terminator keeps that terminator on its source line.
+- `url` is present for browser selections.
+- The normal workspace, surface, and window identity fields are always emitted;
+  absent window identity values are JSON `null`.
+- A supported surface with no active selection succeeds with
+  `has_selection: false`, empty `text`, and empty `base64`. Unsupported surface
+  kinds return `not_supported`; a selectable surface whose live view is no
+  longer available returns `unavailable`.
+
+Terminal selections come from Ghostty's live selection API. Text file previews
+and Markdown text mode read their native text view. Markdown preview and browser
+surfaces read the page selection, including editable text controls; password
+input selections are never exposed. Non-text file preview modes do not claim
+selection support.
+
+`cmux read-selection` prints available kind, file, line, or URL context followed
+by the selected text. A supported surface with no selection still exits zero and
+prints the explicit `Has selection: false` marker. `cmux read-selection --json`
+preserves the complete response for scripts. `cmux read-screen --selection`
+uses the same socket path but omits source metadata, and cannot be combined with
+`--scrollback` or `--lines`.
+
+Examples:
+
+```bash
+cmux read-selection --surface surface:2
+cmux read-selection --surface surface:2 --json
+cmux read-screen --surface surface:2 --selection
+cmux rpc surface.read_selection '{"surface_id":"83F4E6A4-5246-4DB8-A412-9CE7B059FA6C"}'
+```
 
 ## Command Families
 
@@ -224,11 +293,11 @@ VM subcommands:
 | `vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>] [--json]` (alias `write`) | `vm.terminal_write {id, terminal_id, text?, keys?}`: types `text` into the machine terminal exactly as given (no newline), then presses the named keys (`enter`, `tab`, `escape`, `up`, …; chords join with `+`: `ctrl+c`) — cmux-tui `terminal <id> write --text` / `keys`. Headless: no pane is attached or focused. |
 | `vm terminal read <machine> <terminal-id> [--json]` (alias `screen`) | `vm.terminal_read {id, terminal_id}`: the terminal's visible screen (`text`; `--json` adds `rows`, `cols`, `cursor_row`, `cursor_col`, `cursor_visible`) — cmux-tui `terminal <id> screen read`. |
 | `vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>] [--json]` | `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}`: blocks until the screen text matches (default 30 s) — cmux-tui `terminal <id> screen wait`. Prints `OK matched …`; exits 1 with the screen tail on timeout. |
-| `vm new`, `vm create` | Create a shell-only VM. No provider ships a desktop image right now, so `--base` is the default and `--desktop` fails closed with an image config error until one lands; `--base`/`--no-desktop` stay accepted. The CLI sends the machine **kind** (`desktop`/`base`) and the backend maps it to the image its deployment supports; `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <2g|4g|8g|16g|24g|32g>`, `--name <label>` (display label, applied via `vm.rename` after create), `--provider`, `--workspace`, `--detach`, and `-d`. Without `--detach`, opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (name, kind, size, plan meter) whose Create runs this same command. |
+| `vm new`, `vm create` | Create a VM. The default kind is `desktop` (a screen: TigerVNC + openbox + noVNC on 6901); `--base`/`--no-desktop` ask for a shell-only machine. The CLI sends the machine **kind** (`desktop`/`base`) and the backend maps it to the image its deployment supports (today one devbox snapshot serves both kinds); `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <2g\|4g\|8g\|16g\|24g\|32g>`, `--name <label>` (display label, applied via `vm.rename` after create), `--provider`, `--workspace`, `--detach`, and `-d`. Without `--detach`, opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (name, kind, size, plan meter) whose Create runs this same command. |
 | `vm base open`, `vm base reset` | Open (creating on first use) or reset the persistent Base machine. `--base` / `--desktop` choose the kind for the create; an existing Base keeps its image. The app's Cloud VM button shows the Set Up Base sheet only when no Base exists yet. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses one path and lands a PLAIN terminal on the machine (like an ssh session, not the cmux-tui client): `vm.cmux_remote_info` (availability and protocol check; the local client's `client_capabilities` when one is installed), then `workspace.create` or, for `--workspace`, `workspace.cloud_vm_terminal_ready` (a placeholder pane), then `workspace.cloud_vm_bind`, then `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}` — the machine's provider creates a `bash -l` terminal in its cmux-tui session (a catalog resource `<machine>/terminal/<term_…>`) and the catalog projects it into the workspace as a pane running `attach --terminal`; the placeholder is closed with `surface.close`. The `OK` line carries `terminal=<term_…>` and a `Reattach: cmux vm open <m>/<ws>/<term>` hint; `--json` adds `terminal_id`, `remote_workspace_id`, `surface_id`. `cmux vm tui <id>` is the only open that runs the full client. The websocket/SSH transports remain only for deployments whose control plane reports no cmux-tui daemon; a machine that answers `vm_attach_transport_unsupported` is cmux-tui only and never falls back. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
-| `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the machine's open workspace, else the workspace you are in (or `--workspace <id|ref|index>`); desktop-image machines only, of which there are none today (the verb and its wrapper are kept for Freestyle desktop support). One path with `vm open <id>:desktop`, the split beside `vm shell`, and the sidebar tree: `vm.desktop_open {id, workspace_id?, focus}` (focus defaults to false so the pane never steals typing from the shell). |
+| `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the machine's open workspace, else the workspace you are in (or `--workspace <id\|ref\|index>`); desktop-kind machines only (`--base` machines have no screen). The pane opens the machine's private address on 6901 over the owner's private network (`POST /api/vm/<id>/open-port`). One path with `vm open <id>:desktop`, the split beside `vm shell`, and the sidebar tree: `vm.desktop_open {id, workspace_id?, focus}` (focus defaults to false so the pane never steals typing from the shell). |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
@@ -259,6 +328,22 @@ Remotes subcommands:
 | `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
 | `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
 | `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
+
+CodeRouter subcommands (cmux-owned; anything else passes through to the installed CodeRouter CLI):
+
+| Command | Contract |
+| --- | --- |
+| `coderouter status` | Sign-in state (`auth.status`), selected team, and the team's Claude upstream accounts. Supports `--team <id>` and `--json`. |
+| `coderouter machines` | 30-day coderouter usage per Cloud machine from `GET /api/coderouter/vm-usage/team`: vmId, display name, total tokens, API-equivalent USD, plus a total line. Alias `machine`. Supports `--team <id>` and `--json` (raw team-usage payload). |
+| `coderouter claude list` | Every Claude upstream account of the team: id, kind, masked identifier, label, health (`active`, `disabled`, `cooling down Ns <failure code>`), last use. Aliases `ls`, `show`, `get`, `status`. Supports `--team <id>` and `--json`. |
+| `coderouter claude add oauth-token` | Add a Claude Code OAuth token (`sk-ant-oat01-...`, from `claude setup-token`) as one more account. The token is read from `CLAUDE_CODE_OAUTH_TOKEN`, from stdin with `--stdin` or a non-TTY stdin, or from a hidden terminal prompt; never from argv. `--label <s>` names it. A non-`sk-ant-oat01-` value is rejected before the socket is used. Prints the masked identifier and account id only. `set` is an alias of `add`. Supports `--team <id>` and `--json`. |
+| `coderouter claude add api-key` | Same intake (`ANTHROPIC_API_KEY`, `--stdin`, hidden prompt) for an Anthropic API key (`sk-ant-...`, not `sk-ant-oat`). |
+| `coderouter claude add bedrock` | Amazon Bedrock credentials from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`; `--region <r>` (default `AWS_REGION` / `AWS_DEFAULT_REGION`); repeatable `--model <claude-id>=<bedrock-id>`. |
+| `coderouter claude remove <account>` | Remove one account. `<account>` is the id, or a label or masked identifier that matches exactly one account (ambiguity is an error naming the count). Idempotent. Aliases `rm`, `delete`. |
+| `coderouter claude disable <account>`, `coderouter claude enable <account>` | Take an account out of routing, or put it back, via `coderouter.claude_upstream.update`. Same selector rules as `remove`. |
+| `coderouter claude clear` | Remove every Claude upstream account of the team (`No Claude upstream accounts were set.` when none). Aliases `remove-all`, `unset`. Supports `--team <id>` and `--json`. |
+
+Socket methods: `coderouter.claude_upstream.get|add|update|remove|clear` (`set` is an alias of `add`), `coderouter.machines`. Sign-in failures surface as the `auth_required` code, like `vm`.
 
 Theme subcommands:
 
@@ -593,6 +678,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`

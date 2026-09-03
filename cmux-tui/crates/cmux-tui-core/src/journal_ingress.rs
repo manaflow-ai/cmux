@@ -25,6 +25,9 @@ const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+const JOURNAL_NONRETRYABLE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
@@ -954,7 +957,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
-            let mut delay = Duration::from_millis(10);
+            let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+            let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
             let mut reported_error = None;
             let mut uncompleted_nonretryable_failures = 0_usize;
             let retry_deadline = batch
@@ -969,6 +973,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     for pending_batch in pending {
                         complete_batch_error(&pending_batch, error.clone());
                     }
+                    // The final Mux owner can disappear while this writer is
+                    // in a retry wait. Drain both ingress lanes so receipts
+                    // for events that never entered the active batch cannot
+                    // remain unresolved forever.
+                    complete_queued_error(&receivers, &error);
                     return;
                 };
                 if Instant::now() >= retry_deadline {
@@ -1010,9 +1019,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             return;
                         }
                         if retryable_sqlite_error(&error) {
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay.min(remaining));
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            wait_for_journal_retry(mux, delay.min(remaining));
+                            delay = next_journal_retry_delay(delay);
                             continue;
                         }
                         if batch.len() > 1 {
@@ -1028,9 +1036,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if receivers.state.pause_nonretryable_failure_for_test() {
                                 continue;
                             }
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
+                            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
@@ -1053,6 +1060,32 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
             }
         }
     }
+}
+
+fn wait_for_journal_retry(mux: Arc<Mux>, timeout: Duration) {
+    wait_for_journal_retry_after_release(mux, timeout, || {});
+}
+
+fn wait_for_journal_retry_after_release(
+    mux: Arc<Mux>,
+    timeout: Duration,
+    after_release: impl FnOnce(),
+) {
+    // Do not retain the owning mux while sleeping. Shutdown and drop must be
+    // able to release the writer even when SQLite stays locked.
+    let journal = mux.shared_journal_handle();
+    let epoch = journal.epoch();
+    drop(mux);
+    after_release();
+    journal.wait(epoch, timeout);
+}
+
+fn next_journal_retry_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(JOURNAL_RETRY_MAX_DELAY)
+}
+
+fn next_nonretryable_retry_delay(delay: Duration) -> Duration {
+    next_journal_retry_delay(delay)
 }
 
 fn admit_batch_commit(
@@ -1238,6 +1271,55 @@ mod tests {
     }
 
     #[test]
+    fn retry_schedule_has_bounded_exponential_spacing() {
+        let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+        for expected in [100, 200, 400, 800, 1000, 1000] {
+            assert_eq!(delay.as_millis(), expected);
+            delay = next_journal_retry_delay(delay);
+        }
+        let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
+        for expected in [10, 20, 40, 80, 160, 320, 640, 1000, 1000] {
+            assert_eq!(nonretryable_delay.as_millis(), expected);
+            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
+        }
+        assert_eq!(next_journal_retry_delay(Duration::MAX), JOURNAL_RETRY_MAX_DELAY);
+        let remaining = Duration::from_millis(3);
+        assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining), remaining);
+    }
+
+    #[test]
+    fn retry_wait_releases_mux_before_waiting() {
+        let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
+        let journal = mux.shared_journal_handle();
+        let (released_tx, released_rx) = std::sync::mpsc::sync_channel(1);
+        let (proceed_tx, proceed_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiter_mux = Arc::clone(&mux);
+        let waiter = std::thread::spawn(move || {
+            wait_for_journal_retry_after_release(waiter_mux, Duration::from_secs(60), || {
+                released_tx.send(()).unwrap();
+                proceed_rx.recv().unwrap();
+            });
+            done_tx.send(()).unwrap();
+        });
+
+        // Keep one caller-owned Arc so Mux::drop cannot wake the journal wait
+        // while the test observes that the waiter released its own Arc.
+        let released = released_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let strong_count = Arc::strong_count(&mux);
+
+        let _ = proceed_tx.send(());
+        journal.wake_waiters();
+        let completed = done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let joined = waiter.join().is_ok();
+
+        assert!(released, "retry wait did not reach the release gate");
+        assert_eq!(strong_count, 1, "retry wait retained the owning mux");
+        assert!(completed, "retry wait did not return after its wake");
+        assert!(joined, "retry wait thread panicked");
+    }
+
+    #[test]
     fn frontend_events_are_durable_idempotent_and_stably_scoped() {
         let root = std::env::temp_dir().join(format!(
             "cmux-frontend-journal-{}-{}",
@@ -1417,6 +1499,58 @@ mod tests {
             output.terminal_output.as_deref(),
             Some(b"persist before shutdown returns".as_slice())
         );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retryable_sqlite_wait_releases_mux_before_backoff() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-retry-release-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-retry-release",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 16, TerminalPublicId::parse)),
+            Arc::from("retry-release-generation"),
+            b"retry while sqlite is locked".to_vec(),
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&mux) > 1 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            Arc::strong_count(&mux),
+            1,
+            "retryable SQLite backoff must not retain the owning Mux"
+        );
+
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        mux.flush_terminal_journal().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(records.iter().any(|record| {
+            record.kind == "terminal.output"
+                && record.terminal_output.as_deref()
+                    == Some(b"retry while sqlite is locked".as_slice())
+        }));
+
         drop(blocker);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
@@ -2544,6 +2678,28 @@ mod tests {
         completion_receiver
             .recv_timeout(Duration::from_millis(500))
             .expect("journal writer waited for its own completion during Mux::drop");
+    }
+
+    #[test]
+    fn mux_shutdown_completes_receipts_left_in_ingress_queues() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let (completion_sender, completion_receiver) = sync_channel(1);
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let queued = QueuedJournalEvent {
+            event: JournalIngressEvent::TerminalBarrier,
+            completion: Some(JournalIngressCompletion::Durable {
+                sender: completion_sender,
+                deadline,
+                commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
+            }),
+        };
+        sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
+
+        complete_queued_error(&receivers, "session journal stopped");
+
+        let result = completion_receiver.recv_timeout(Duration::from_millis(100)).unwrap();
+        assert!(result.is_err(), "shutdown must resolve queued durable receipts");
     }
 
     #[test]

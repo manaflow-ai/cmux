@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { Team } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
+import {
+  stackAccessTokenVerifierFromEnv,
+  verifyStackAccessTokenLocally,
+  type StackAccessTokenIdentity,
+} from "../auth/stackAccessToken";
+import { hasAuthRateLimitSignal } from "./authErrors";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
 import {
@@ -10,6 +15,7 @@ import {
 } from "../account/deletionLock";
 import {
   billingPlanIdFromMetadata,
+  billingSeatsFromMetadata,
   billingTeamFromUnknown,
   resolveBillingTeam,
   type BillingTeamLike,
@@ -26,20 +32,15 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
-  resolveSubrouterPermissions: (
-    teamId: string,
-  ) => Promise<SubrouterPermissions>;
+  /** Paid seats on the resolved billing team; null for user billing or unknown. */
+  billingSeats: number | null;
 };
 
 export type AuthedTeam = {
   id: string;
   displayName: string | null;
   billingPlanId: string | null;
-};
-
-export type SubrouterPermissions = {
-  readonly use: boolean;
-  readonly manageAccounts: boolean;
+  billingSeats: number | null;
 };
 
 export class SubrouterAuthorizationConfigurationError extends Error {
@@ -52,6 +53,15 @@ export class SubrouterAuthorizationTimeoutError extends Error {
 
 export class SubrouterAuthorizationUnavailableError extends Error {
   override readonly name = "SubrouterAuthorizationUnavailableError";
+}
+
+/**
+ * Stack Auth rejected (or is presumed to be rejecting) verification with a
+ * project-wide throttle. The message keeps the "rate limited" wording that
+ * `authProviderErrorResponse` and `relayAuthenticationError` detect.
+ */
+export class StackAuthRateLimitedError extends Error {
+  override readonly name = "StackAuthRateLimitedError";
 }
 
 export type NativeStackTokens = {
@@ -92,7 +102,8 @@ const MAX_QUEUED_STACK_AUTHORIZATION_CALLS = 32;
 // which surfaced as HTTP 429 rate_limited to end users. Successful verifications are cached
 // for a short TTL keyed by a hash of the exact tokens plus the result-affecting options, so a
 // burst costs one Stack call. Failures and throttles are never cached, and the cookie and
-// subrouter paths are never cached (cookies vary per request; subrouter enforces permissions).
+// subrouter paths are never cached (cookies vary per request; subrouter verification runs
+// under its own deadline and may page through every team).
 const DEFAULT_AUTH_CACHE_TTL_MS = 30_000;
 const MAX_AUTH_CACHE_ENTRIES = 256;
 
@@ -182,6 +193,34 @@ export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): v
   }
 }
 
+// Stack throttles per project, not per caller. Once one native verification is
+// throttled, every other native verification from this instance fails the same
+// way for the next few seconds, and the Stack SDK retries each of those calls
+// against three hosts before giving up. Fail fast during that window so a
+// throttled window costs one upstream call per instance instead of multiplying
+// the load that caused the throttle. Successful verifications still come from
+// the positive cache above; the cookie path is interactive and is never gated.
+const STACK_THROTTLE_CIRCUIT_MS = 10_000;
+let stackThrottledUntil = 0;
+
+function assertStackNotThrottled(): void {
+  const remainingMs = stackThrottledUntil - Date.now();
+  if (remainingMs <= 0) return;
+  throw new StackAuthRateLimitedError(
+    `Stack Auth rate limited; circuit open for ${Math.ceil(remainingMs / 1_000)}s`,
+  );
+}
+
+function recordStackThrottle(cause: unknown): StackAuthRateLimitedError {
+  stackThrottledUntil = Date.now() + STACK_THROTTLE_CIRCUIT_MS;
+  return new StackAuthRateLimitedError("Stack Auth rate limited", { cause });
+}
+
+/** Test hook: close the Stack throttle circuit between cases. */
+export function clearStackThrottleCircuitForTests(): void {
+  stackThrottledUntil = 0;
+}
+
 let activeStackAuthorizationCalls = 0;
 let timedOutStackAuthorizationCalls = 0;
 const stackAuthorizationWaiters: Array<{
@@ -194,7 +233,7 @@ const stackAuthorizationWaiters: Array<{
 export async function withSubrouterAuthorizationDeadline<T>(
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  assertSubrouterAuthorizationConfiguration();
+  const timeoutMs = subrouterStackAuthorizationTimeoutMs();
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -203,7 +242,7 @@ export async function withSubrouterAuthorizationDeadline<T>(
       reject(new SubrouterAuthorizationTimeoutError(
         "Stack authorization deadline exceeded",
       ));
-    }, subrouterStackAuthorizationTimeoutMs());
+    }, timeoutMs);
   });
   try {
     return await Promise.race([
@@ -235,46 +274,6 @@ export function isSubrouterAuthorizationError(
   return error instanceof SubrouterAuthorizationConfigurationError ||
     error instanceof SubrouterAuthorizationTimeoutError ||
     error instanceof SubrouterAuthorizationUnavailableError;
-}
-
-export function subrouterAllowedTeamIds(
-  raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
-): ReadonlySet<string> | "*" {
-  const values = raw
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (!values?.length) {
-    throw new SubrouterAuthorizationConfigurationError(
-      "SUBROUTER_ALLOWED_TEAM_IDS must be an explicit team list or *",
-    );
-  }
-  if (values.includes("*")) {
-    if (values.length !== 1) {
-      throw new SubrouterAuthorizationConfigurationError(
-        "SUBROUTER_ALLOWED_TEAM_IDS cannot combine * with team IDs",
-      );
-    }
-    return "*";
-  }
-  return new Set(values);
-}
-
-function assertSubrouterAuthorizationConfiguration(): void {
-  subrouterPermissionEnforcementEnabled();
-  subrouterAllowedTeamIds();
-  subrouterStackAuthorizationTimeoutMs();
-}
-
-function subrouterPermissionEnforcementEnabled(
-  raw = process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
-): boolean {
-  const normalized = raw?.trim();
-  if (normalized === "1") return true;
-  if (normalized === "0") return false;
-  throw new SubrouterAuthorizationConfigurationError(
-    "SUBROUTER_ENFORCE_STACK_PERMISSIONS must be explicitly set to 0 or 1",
-  );
 }
 
 function subrouterStackAuthorizationTimeoutMs(
@@ -464,10 +463,26 @@ export async function verifyRequest(
       const cached = readNativeAuthCache(cacheKey);
       if (cached) return cached;
     }
-    const user = await stackAuthorizationCall(
-      () => stackServerApp.getUser({ tokenStore: tokens }),
-      options.subrouterAuthorizationSignal,
-    );
+    // Subrouter calls carry their own deadline and error classes; only the
+    // cacheable native path (device registry, iroh broker, relay) is gated.
+    // The check runs inside the operation so it is evaluated when the call
+    // actually starts, not when it was queued behind the concurrency limiter.
+    let user: Awaited<ReturnType<typeof stackServerApp.getUser>>;
+    try {
+      user = await stackAuthorizationCall(
+        () => {
+          if (cacheable) assertStackNotThrottled();
+          return stackServerApp.getUser({ tokenStore: tokens });
+        },
+        options.subrouterAuthorizationSignal,
+      );
+    } catch (error) {
+      // The circuit's own fast-fail must not count as a new upstream throttle,
+      // or steady retry traffic would hold the circuit open forever.
+      if (error instanceof StackAuthRateLimitedError) throw error;
+      if (cacheable && hasAuthRateLimitSignal(error)) throw recordStackThrottle(error);
+      throw error;
+    }
     if (user) {
       const authed = await authedUserFromStackUser(user, options);
       if (authed && cacheKey) {
@@ -500,6 +515,58 @@ export async function verifyRequest(
   return null;
 }
 
+export type VerifiedIdentity = {
+  readonly id: string;
+  /** How the identity was established; surfaced for logs and tests. */
+  readonly source: "access_token" | "stack";
+};
+
+type VerifyIdentityOptions = {
+  readonly allowCookie?: boolean;
+  /**
+   * Skip the local token check and ask Stack, so a revoked session is refused
+   * immediately. Use for sensitive, low-volume operations.
+   */
+  readonly requireStackSession?: boolean;
+  /** Test seam for the local token verifier. */
+  readonly verifyAccessToken?: (
+    accessToken: string,
+  ) => Promise<StackAccessTokenIdentity | null>;
+};
+
+/**
+ * Establish only WHO the caller is, for routes that need the user id and
+ * nothing else (the iroh trust broker). A native bearer token is verified
+ * locally against Stack's published signing keys, so the ~100 req/s of device
+ * registration traffic no longer costs one Stack `users/me` call each. Any
+ * token the local check cannot accept (expired, unknown key, malformed, keys
+ * unavailable) falls back to `verifyRequest`, which asks Stack and refreshes.
+ *
+ * Trade-off, stated: a session revoked at Stack stays accepted here until its
+ * access token expires. Stack access tokens live one hour. Routes that gate
+ * money or account mutation must keep using `verifyRequest`.
+ */
+export async function verifyRequestIdentity(
+  request: Request,
+  options: VerifyIdentityOptions = {},
+): Promise<VerifiedIdentity | null> {
+  if (!isStackConfigured()) return null;
+  const tokens = parseNativeStackTokens(request);
+  if (tokens && !options.requireStackSession) {
+    const verifier = options.verifyAccessToken
+      ? null
+      : stackAccessTokenVerifierFromEnv();
+    const local = options.verifyAccessToken
+      ? await options.verifyAccessToken(tokens.accessToken)
+      : verifier
+        ? await verifyStackAccessTokenLocally(tokens.accessToken, verifier)
+        : null;
+    if (local) return { id: local.userId, source: "access_token" };
+  }
+  const user = await verifyRequest(request, { allowCookie: options.allowCookie });
+  return user ? { id: user.id, source: "stack" } : null;
+}
+
 async function authedUserFromStackUser(
   user: StackUserLike,
   options: VerifyRequestOptions,
@@ -508,8 +575,7 @@ async function authedUserFromStackUser(
     return null;
   }
 
-  const selectedTeamRaw = user.selectedTeam;
-  const selectedTeam = billingTeamFromUnknown(selectedTeamRaw);
+  const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
@@ -543,25 +609,13 @@ async function authedUserFromStackUser(
   });
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
-  const rawTeams = new Map<string, unknown>();
-  if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
-  for (const raw of listedTeamRaw) {
-    const team = billingTeamFromUnknown(raw);
-    if (team) rawTeams.set(team.id, raw);
-  }
-  const enforceSubrouterPermissions =
-    options.subrouterAuthorizationSignal
-      ? subrouterPermissionEnforcementEnabled()
-      : false;
+  const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
-  const subrouterPermissionCache = new Map<
-    string,
-    Promise<SubrouterPermissions>
-  >();
 
   return {
     id: user.id,
@@ -574,53 +628,7 @@ async function authedUserFromStackUser(
     teamIds,
     userBillingPlanId,
     billingPlanId,
-    resolveSubrouterPermissions: async (teamId) => {
-      const cached = subrouterPermissionCache.get(teamId);
-      if (cached) return cached;
-      const pending = teamId === user.id
-        ? subrouterPermissions(
-          user,
-          undefined,
-          enforceSubrouterPermissions,
-          options.subrouterAuthorizationSignal,
-        )
-        : (() => {
-          const rawTeam = rawTeams.get(teamId);
-          return rawTeam
-            ? subrouterPermissions(
-              user,
-              rawTeam,
-              enforceSubrouterPermissions,
-              options.subrouterAuthorizationSignal,
-            )
-            : Promise.resolve({ use: false, manageAccounts: false });
-        })();
-      subrouterPermissionCache.set(teamId, pending);
-      return pending;
-    },
-  };
-}
-
-async function subrouterPermissions(
-  user: StackUserLike,
-  team: unknown,
-  enforce: boolean,
-  signal: AbortSignal | undefined,
-): Promise<SubrouterPermissions> {
-  if (!enforce) return { use: true, manageAccounts: true };
-  if (typeof user.listPermissions !== "function") {
-    return { use: false, manageAccounts: false };
-  }
-  const permissions = await stackAuthorizationCall(
-    () => team
-      ? user.listPermissions!(team as Team)
-      : user.listPermissions!(),
-    signal,
-  );
-  const permissionIds = new Set(permissions.map((permission) => permission.id));
-  return {
-    use: permissionIds.has("subrouter:use"),
-    manageAccounts: permissionIds.has("subrouter:manage_accounts"),
+    billingSeats,
   };
 }
 
@@ -711,15 +719,6 @@ type StackUserLike = {
       readonly query?: string;
     },
   ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
-  readonly listPermissions?: {
-    (
-      scope: Team,
-      options?: { readonly recursive?: boolean },
-    ): Promise<readonly { readonly id: string }[]>;
-    (
-      options?: { readonly recursive?: boolean },
-    ): Promise<readonly { readonly id: string }[]>;
-  };
 };
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {
