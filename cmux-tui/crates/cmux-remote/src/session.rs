@@ -1204,6 +1204,8 @@ mod tests {
         send_release: Semaphore,
     }
 
+    struct StuckCloseLink;
+
     #[async_trait]
     impl FrameLink for RejectingLink {
         fn description(&self) -> &str {
@@ -1320,6 +1322,29 @@ mod tests {
 
         async fn close(&self) -> Result<(), LinkError> {
             Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for StuckCloseLink {
+        fn description(&self) -> &str {
+            "stuck-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            std::future::pending().await
         }
     }
 
@@ -1644,6 +1669,32 @@ mod tests {
         drop(session);
         drop(link);
         assert!(weak_link.upgrade().is_none(), "close retained the stuck worker link");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_times_out_when_link_close_stalls() {
+        let session = ReliableSession::new(
+            SessionId([23; 16]),
+            Arc::new(StuckCloseLink),
+            SessionLimits::default(),
+        );
+        let close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let result = result.await.expect("close remained blocked on link close").unwrap();
+        assert!(matches!(
+            result,
+            Err(SessionError::Link(LinkError::Transport(message)))
+                if message == "timed out closing link"
+        ));
     }
 
     #[tokio::test]
