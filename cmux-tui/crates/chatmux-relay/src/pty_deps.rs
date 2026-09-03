@@ -760,6 +760,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                 }
                 Ok(PtyChildCommand::ObserveUnavailable) => {
                     let _ = wait_lifecycle.begin_termination();
+                    force_kill_process_group(pid, process_group);
                     let _ = child.kill();
                     break;
                 }
