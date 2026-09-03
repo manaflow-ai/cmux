@@ -2044,13 +2044,15 @@ pub fn default_state_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_STATE_DIR") {
         return Some(path.into());
     }
-    #[cfg(target_os = "macos")]
+    // Every Apple target keeps app state under Library/Application Support;
+    // on iOS HOME is the app's sandbox container.
+    #[cfg(target_vendor = "apple")]
     {
         std::env::var_os("HOME")
             .map(PathBuf::from)
             .map(|home| home.join("Library/Application Support/cmux/remote"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     {
         std::env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
