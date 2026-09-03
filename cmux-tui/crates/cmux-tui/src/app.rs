@@ -59,8 +59,9 @@ use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{
-    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
+    Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition, SidebarColumn,
+    SidebarColumnKind, SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope,
+    SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -163,7 +164,7 @@ struct ProjectionRowsCache {
     focus: ProjectionFocusKey,
     /// The effective sort the rows were built with; a runtime cycle must
     /// miss this cache.
-    sort: crate::config::AgentSortMode,
+    sort: AgentSortMode,
     /// All surfaces that can contribute an agent row to this snapshot. This
     /// includes currently hidden/filtered rows so an agent state transition
     /// cannot leave an old empty snapshot cached.
@@ -7410,7 +7411,7 @@ pub struct App {
     /// persisted, never shared between attached clients. It is cleared when
     /// the active profile or its view specification is replaced, so a reused
     /// id cannot inherit a stale mode.
-    agent_sort_overrides: HashMap<String, crate::config::AgentSortMode>,
+    agent_sort_overrides: HashMap<String, AgentSortMode>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -10756,7 +10757,7 @@ impl App {
     pub(crate) fn effective_agent_sort(
         &self,
         spec: &SidebarViewSpec,
-    ) -> crate::config::AgentSortMode {
+    ) -> AgentSortMode {
         self.agent_sort_overrides.get(&spec.id).copied().unwrap_or(spec.sort)
     }
 
@@ -28661,9 +28662,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.profiles = vec![
             SidebarProfileSpec {
@@ -28726,9 +28727,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         };
         let agents_view = SidebarViewSpec {
             id: "shared-view".into(),
@@ -28739,9 +28740,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         };
         let tabs_profile = SidebarProfileSpec {
             id: "tabs".into(),
@@ -28793,12 +28794,12 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::Priority,
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
         };
         let second_view =
-            SidebarViewSpec { sort: crate::config::AgentSortMode::Recency, ..first_view.clone() };
+            SidebarViewSpec { sort: AgentSortMode::Recency, ..first_view.clone() };
         let first_profile = SidebarProfileSpec {
             id: "first".into(),
             name: "First".into(),
@@ -28817,11 +28818,11 @@ mod tests {
         app.config.sidebar.views = vec![first_view];
         app.config.sidebar.layout =
             crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
-        app.agent_sort_overrides.insert("shared-view".into(), crate::config::AgentSortMode::State);
+        app.agent_sort_overrides.insert("shared-view".into(), AgentSortMode::State);
 
         app.activate_sidebar_profile(1);
 
-        assert_eq!(app.effective_agent_sort(&second_view), crate::config::AgentSortMode::Recency);
+        assert_eq!(app.effective_agent_sort(&second_view), AgentSortMode::Recency);
     }
 
     #[test]
@@ -29003,8 +29004,8 @@ mod tests {
                 collapse_priority: 20,
                 row_lines: 1,
                 scope: SidebarViewScope::All,
-                sort: crate::config::AgentSortMode::default(),
-                filter: crate::config::AgentRowFilter::default(),
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
             },
         ];
         config.sidebar.views_explicit = true;
@@ -45441,9 +45442,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45475,9 +45476,9 @@ mod tests {
                 max_width: 0,
                 collapse_priority: 30,
                 row_lines: 1,
-                scope: crate::config::SidebarViewScope::Workspace,
-                sort: crate::config::AgentSortMode::default(),
-                filter: crate::config::AgentRowFilter::default(),
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "agents-second".into(),
@@ -45488,9 +45489,9 @@ mod tests {
                 max_width: 0,
                 collapse_priority: 30,
                 row_lines: 1,
-                scope: crate::config::SidebarViewScope::Workspace,
-                sort: crate::config::AgentSortMode::default(),
-                filter: crate::config::AgentRowFilter::default(),
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -45567,9 +45568,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::All,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45602,9 +45603,9 @@ mod tests {
                 max_width: 0,
                 collapse_priority: 30,
                 row_lines: 1,
-                scope: crate::config::SidebarViewScope::Workspace,
-                sort: crate::config::AgentSortMode::default(),
-                filter: crate::config::AgentRowFilter::default(),
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "tabs-second".into(),
@@ -45615,9 +45616,9 @@ mod tests {
                 max_width: 0,
                 collapse_priority: 30,
                 row_lines: 1,
-                scope: crate::config::SidebarViewScope::Workspace,
-                sort: crate::config::AgentSortMode::default(),
-                filter: crate::config::AgentRowFilter::default(),
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -45672,9 +45673,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45704,9 +45705,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45746,9 +45747,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45785,9 +45786,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45813,9 +45814,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45856,9 +45857,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45924,9 +45925,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45964,9 +45965,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 2,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -46015,9 +46016,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::Recency,
-            filter: crate::config::AgentRowFilter {
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Recency,
+            filter: AgentRowFilter {
                 agents: Vec::new(),
                 states: vec!["working".into()],
                 seen: None,
@@ -46059,9 +46060,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::Priority,
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -46079,12 +46080,12 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.config.sidebar.views[0].sort,
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             "the runtime cycle must not rewrite the shared config"
         );
         assert_eq!(
             app.effective_agent_sort(&app.config.sidebar.views[0]),
-            crate::config::AgentSortMode::Recency
+            AgentSortMode::Recency
         );
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(
@@ -46117,9 +46118,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -46272,9 +46273,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -46375,9 +46376,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));

@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn sort_modes_order_rows_by_their_own_field_and_recency() {
-        use crate::config::AgentSortMode::*;
+        use AgentSortMode::*;
         use std::cmp::Ordering;
         let blocked_old = sort_fields(4, 10, "beta", "codex", "blocked", 0);
         let working_new = sort_fields(2, 90, "alpha", "claude", "working", 1);
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn sort_cycle_visits_every_mode_and_wraps() {
-        use crate::config::AgentSortMode::*;
+        use AgentSortMode::*;
         let mut mode = Priority;
         let mut seen = Vec::new();
         for _ in 0..5 {
