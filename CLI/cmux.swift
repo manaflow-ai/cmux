@@ -5813,7 +5813,7 @@ struct CMUXCLI {
                 let rows: [(String, String, String, String, String)] = vms.map { vm in
                     (
                         (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String) ?? "",
+                        (vm["displayName"] as? String) ?? (vm["slug"] as? String) ?? "",
                         (vm["status"] as? String) ?? "unknown",
                         (vm["provider"] as? String) ?? "?",
                         (vm["image"] as? String) ?? "?"
