@@ -80,7 +80,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try Self.generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         #expect(!startupCommand.contains("workspace.remote.terminal_session_connected"))
         var environment = ProcessInfo.processInfo.environment
@@ -135,7 +135,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let generatedStartupCommand = try Self.generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         let generatedStartupURL = URL(
             fileURLWithPath: generatedStartupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -211,7 +211,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -266,7 +266,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -348,7 +348,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -432,7 +432,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -486,7 +486,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -583,7 +583,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -768,7 +768,7 @@ struct SSHStartupManualReconnectTests {
     }
 
     private static func generatedPersistentSSHForegroundAuthenticationStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL
+        sshExecutablePath: String
     ) throws -> String {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath("ssh-foreground-auth")
@@ -852,11 +852,20 @@ struct SSHStartupManualReconnectTests {
         )
         let configureParams = try #require(configureRequest["params"] as? [String: Any])
         let startupCommand = try #require(configureParams["terminal_startup_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+        let usesForegroundAuthHelper =
+            startupCommand.contains("cmux_ssh_attach_foreground_auth") ||
+            startupCommand.contains("cmux_ssh_foreground_auth")
+        #expect(
+            usesForegroundAuthHelper,
+            "Expected the persistent SSH foreground-auth startup path: \(startupCommand)"
+        )
+        return try SSHStartupCommandTestSupport(
+            sshExecutablePath: sshExecutablePath
+        ).rewriting(startupCommand)
     }
 
     private static func generatedVMSSHInitialStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL
+        sshExecutablePath: String
     ) throws -> String {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath("vm-ssh-startup")
@@ -945,57 +954,9 @@ struct SSHStartupManualReconnectTests {
         )
         let createParams = try #require(createRequest["params"] as? [String: Any])
         let startupCommand = try #require(createParams["initial_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
-    }
-
-    private static func rewritingSystemSSH(
-        in startupCommand: String,
-        with fakeSSH: URL
-    ) throws -> String {
-        let systemSSHPath = "/usr/bin/ssh"
-        let commandURL = URL(
-            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
-            let script = try String(contentsOf: commandURL, encoding: .utf8)
-            try #require(script.contains(systemSSHPath))
-            try script
-                .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-                .write(to: commandURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: commandURL.path
-            )
-            return startupCommand
-        }
-
-        if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        }
-
-        let encodedPrefix = "(printf %s "
-        let encodedSuffix = " | base64"
-        let prefixRange = try #require(startupCommand.range(of: encodedPrefix))
-        let suffixRange = try #require(
-            startupCommand.range(
-                of: encodedSuffix,
-                range: prefixRange.upperBound..<startupCommand.endIndex
-            )
-        )
-        let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-        let encodedScript = String(startupCommand[encodedRange])
-        let scriptData = try #require(Data(base64Encoded: encodedScript))
-        let script = try #require(String(data: scriptData, encoding: .utf8))
-        try #require(script.contains(systemSSHPath))
-        let rewrittenScript = script.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        var rewrittenCommand = startupCommand
-        rewrittenCommand.replaceSubrange(
-            encodedRange,
-            with: Data(rewrittenScript.utf8).base64EncodedString()
-        )
-        return rewrittenCommand
+        return try SSHStartupCommandTestSupport(
+            sshExecutablePath: sshExecutablePath
+        ).rewriting(startupCommand)
     }
 
     private static func makeTerminalExitPromptFixture() throws -> TerminalExitPromptFixture {
@@ -1020,7 +981,7 @@ struct SSHStartupManualReconnectTests {
             }
 
             let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand(
-                replacingSystemSSHWith: fakeSSH
+                sshExecutablePath: fakeSSH.path
             )
             var environment = ProcessInfo.processInfo.environment
             environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"

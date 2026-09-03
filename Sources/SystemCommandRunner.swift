@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import Foundation
 import Security
 
@@ -25,8 +26,57 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: AuthExecFn.self)
     }()
 
+    private typealias LockScreenFn = @convention(c) () -> Void
+
+    /// `SACLockScreenImmediate` from `login.framework` — the call behind the
+    /// Apple menu's "Lock Screen" (⌃⌘Q), predating the macOS 14 deployment
+    /// floor. It replaces shelling out to the `CGSession` binary, which macOS
+    /// 26 removed together with `User.menu`
+    /// (https://github.com/manaflow-ai/cmux/issues/9730). Resolved via `dlsym`
+    /// like `authExec` above, so no private symbol is linked and a macOS that
+    /// drops it degrades to a reported failure, not a crash. The private API has
+    /// no documented return contract; established clients declare it `void`, so
+    /// cmux verifies the resulting public lock signal instead of interpreting
+    /// an undocumented return register as status.
+    private static let lockScreenImmediate: LockScreenFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
+              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
+        return unsafeBitCast(symbol, to: LockScreenFn.self)
+    }()
+
+    private let lockScreenInvoker: (@Sendable () -> Void)?
+    private let lockStateReader: @Sendable () -> Bool?
+    /// The bounded grace period is only a recovery path when loginwindow never
+    /// publishes a usable confirmation. Ten seconds covers delayed IPC on busy
+    /// hosts while keeping a rejected request from disabling the UI forever.
+    private let lockConfirmationClock: any Clock<Duration>
+    private let lockConfirmationTimeout: Duration
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
+
+    convenience init(
+        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
+        lockConfirmationTimeout: Duration = .seconds(10)
+    ) {
+        self.init(
+            lockConfirmationClock: lockConfirmationClock,
+            lockConfirmationTimeout: lockConfirmationTimeout,
+            lockScreenInvoker: Self.defaultLockScreenInvoker(),
+            lockStateReader: { Self.screenLockState() }
+        )
+    }
+
+    init(
+        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
+        lockConfirmationTimeout: Duration = .seconds(10),
+        lockScreenInvoker: (@Sendable () -> Void)?,
+        lockStateReader: @escaping @Sendable () -> Bool?
+    ) {
+        self.lockConfirmationClock = lockConfirmationClock
+        self.lockConfirmationTimeout = lockConfirmationTimeout
+        self.lockScreenInvoker = lockScreenInvoker
+        self.lockStateReader = lockStateReader
+    }
 
     func run(_ tool: String, _ args: [String]) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -57,6 +107,117 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 continuation.resume(returning: String(data: data, encoding: .utf8))
             }
         }
+    }
+
+    /// Asks loginwindow to lock without blocking the caller's actor. Returns
+    /// only after the public session state confirms the transition. A request
+    /// that never produces that state fails closed at the bounded confirmation
+    /// deadline, or sooner when Sleepy Mode cancels its owning task.
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen() async -> Bool {
+        await lockScreen(using: SleepyLockInvocationGate())
+    }
+
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
+        guard let lockScreenInvoker else { return false }
+
+        let clock = lockConfirmationClock
+        let timeout = lockConfirmationTimeout
+        let stateReader = lockStateReader
+        let invoked = gate.invoke {
+            lockScreenInvoker()
+        }
+        guard invoked else { return false }
+        if stateReader() == true {
+            return true
+        }
+        return await Self.waitForLockConfirmation(
+            clock: clock,
+            timeout: timeout,
+            stateReader: stateReader
+        )
+    }
+
+    private static func waitForLockConfirmation(
+        clock: any Clock<Duration>,
+        timeout: Duration,
+        stateReader: @escaping @Sendable () -> Bool?
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                // Poll only the authoritative state. The distributed lock event
+                // has no trusted sender or request identity, so it cannot safely
+                // confirm this security-sensitive operation.
+                return await Self.waitForCurrentLockState(
+                    clock: clock,
+                    stateReader: stateReader
+                )
+            }
+            group.addTask {
+                try? await clock.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            guard result else { return false }
+            switch stateReader() {
+            case .some(true):
+                return true
+            case .none:
+                // Never claim a security lock without authoritative state.
+                return false
+            case .some(false):
+                return false
+            }
+        }
+    }
+
+    private static func waitForCurrentLockState(
+        clock: any Clock<Duration>,
+        stateReader: @escaping @Sendable () -> Bool?
+    ) async -> Bool {
+        while !Task.isCancelled {
+            switch stateReader() {
+            case .some(true):
+                return true
+            case .none:
+                do {
+                    try await clock.sleep(for: .milliseconds(50))
+                } catch {
+                    return false
+                }
+            case .some(false):
+                do {
+                    try await clock.sleep(for: .milliseconds(50))
+                } catch {
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
+    private static func screenLockState() -> Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return nil
+        }
+        return session["CGSSessionScreenIsLocked"] as? Bool
+    }
+
+    private static func defaultLockScreenInvoker() -> (@Sendable () -> Void)? {
+        guard Self.lockScreenImmediate != nil else { return nil }
+        return { Self.lockScreenImmediate?() }
     }
 
     @discardableResult

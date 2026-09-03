@@ -356,7 +356,7 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
@@ -465,7 +465,7 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 

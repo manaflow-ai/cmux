@@ -6548,7 +6548,12 @@ extension SessionPersistenceTests {
         ))
 
         XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        let outerArguments = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        let remoteCommand = try XCTUnwrap(outerArguments.last)
+        let remoteArguments = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(remoteCommand).map(\.value)
+        XCTAssertTrue(zip(remoteArguments, remoteArguments.dropFirst()).contains { pair in
+            pair.0 == "--provider" && pair.1 == "anthropic"
+        })
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {

@@ -35,7 +35,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for signal in ["HUP", "INT", "TERM"] {
             try? fileManager.removeItem(at: logFile)
             let startupCommand = try generatedVMSSHInitialStartupCommand(
-                replacingSystemSSHWith: fakeSSH
+                sshExecutablePath: fakeSSH.path
             )
 
             var environment = ProcessInfo.processInfo.environment
@@ -108,7 +108,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? fileManager.removeItem(at: childSignalLog)
 
             let startupCommand = try generatedVMSSHInitialStartupCommand(
-                replacingSystemSSHWith: fakeSSH
+                sshExecutablePath: fakeSSH.path
             )
             var environment = ProcessInfo.processInfo.environment
             environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -187,9 +187,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
 
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = try generatedSSHStartupCommand(sshExecutablePath: fakeSSH.path)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -261,9 +259,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = try generatedSSHStartupCommand(sshExecutablePath: fakeSSH.path)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -335,9 +331,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = try generatedSSHStartupCommand(sshExecutablePath: fakeSSH.path)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -453,7 +447,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             sshOptions: [
                 "ControlMaster no",
                 "ControlPath /tmp/cmux-ssh-%C",
@@ -544,7 +538,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             remoteCommandArguments: [
                 "touch",
                 "\"$CMUX_TEST_RAW_COMMAND_LOG\"",
@@ -635,7 +629,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         echo user-end >> "$CMUX_TEST_RAW_EVENT_LOG"
         """
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             remoteCommandArguments: [
                 "/bin/sh",
                 "-c",
@@ -717,7 +711,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             additionalArguments: ["--transport", "mosh"]
         )
         var environment = ProcessInfo.processInfo.environment
@@ -810,7 +804,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             sshOptions: [
                 "ControlMaster auto",
                 "ControlPersist 600",
@@ -885,7 +879,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
+            sshExecutablePath: fakeSSH.path,
             sshOptions: sshOptions
         )
         var environment = ProcessInfo.processInfo.environment
@@ -940,7 +934,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -997,7 +991,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -1048,7 +1042,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -1107,7 +1101,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -1160,7 +1154,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try generatedVMSSHInitialStartupCommand(
-            replacingSystemSSHWith: fakeSSH
+            sshExecutablePath: fakeSSH.path
         )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -1217,9 +1211,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
+        let startupCommand = try generatedSSHStartupCommand(sshExecutablePath: fakeSSH.path)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -1250,7 +1242,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     private func generatedSSHStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL,
+        sshExecutablePath: String,
         sshOptions: [String] = [
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
@@ -1354,12 +1346,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
         )
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        let startupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+        let startupCommand = try XCTUnwrap(
+            configureParams["terminal_startup_command"] as? String
+        )
+        return try SSHStartupCommandTestSupport(
+            sshExecutablePath: sshExecutablePath
+        ).rewriting(startupCommand)
     }
 
     private func generatedVMSSHInitialStartupCommand(
-        replacingSystemSSHWith fakeSSH: URL
+        sshExecutablePath: String
     ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh-startup")
@@ -1459,58 +1455,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
-    }
-
-    private func rewritingSystemSSH(
-        in startupCommand: String,
-        with fakeSSH: URL
-    ) throws -> String {
-        let systemSSHPath = "/usr/bin/ssh"
-        let commandURL = URL(
-            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-           !isDirectory.boolValue {
-            let script = try String(contentsOf: commandURL, encoding: .utf8)
-            XCTAssertTrue(script.contains(systemSSHPath), script)
-            try script
-                .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-                .write(to: commandURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: commandURL.path
-            )
-            return startupCommand
-        }
-
-        if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        }
-
-        let encodedPrefix = "(printf %s "
-        let encodedSuffix = " | base64"
-        guard let prefixRange = startupCommand.range(of: encodedPrefix),
-              let suffixRange = startupCommand.range(
-                  of: encodedSuffix,
-                  range: prefixRange.upperBound..<startupCommand.endIndex
-              ) else {
-            XCTFail("Generated startup command did not pin \(systemSSHPath): \(startupCommand)")
-            return startupCommand
-        }
-        let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-        let encodedScript = String(startupCommand[encodedRange])
-        let scriptData = try XCTUnwrap(Data(base64Encoded: encodedScript))
-        let script = try XCTUnwrap(String(data: scriptData, encoding: .utf8))
-        XCTAssertTrue(script.contains(systemSSHPath), script)
-        let rewrittenScript = script.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
-        var rewrittenCommand = startupCommand
-        rewrittenCommand.replaceSubrange(
-            encodedRange,
-            with: Data(rewrittenScript.utf8).base64EncodedString()
-        )
-        return rewrittenCommand
+        return try SSHStartupCommandTestSupport(
+            sshExecutablePath: sshExecutablePath
+        ).rewriting(startupCommand)
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {
