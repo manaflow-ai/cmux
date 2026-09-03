@@ -378,10 +378,15 @@ function hookEnvironment(cwd: string, includeSocketPassword = false): NodeJS.Pro
     if (value === undefined) continue;
     if (shouldPreserveEnvKey(key)) env[key] = value;
   }
-  // Only cmux CLI children need the socket credential; keep it out of the generic allowlist.
+  // Only cmux CLI children need the socket credentials; keep them out of the generic allowlist.
+  // CMUX_SOCKET_CAPABILITY must reach cmux CLI children: the detached auto-name pass they spawn
+  // is orphaned (sh -c '... &'), so ancestry-based socket auth fails and the inherited capability
+  // is that process's only credential. Without it the naming pass exits silently at its first probe.
   if (includeSocketPassword) {
     const socketPassword = process.env.CMUX_SOCKET_PASSWORD;
     if (socketPassword) env.CMUX_SOCKET_PASSWORD = socketPassword;
+    const socketCapability = process.env.CMUX_SOCKET_CAPABILITY;
+    if (socketCapability) env.CMUX_SOCKET_CAPABILITY = socketCapability;
   }
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
