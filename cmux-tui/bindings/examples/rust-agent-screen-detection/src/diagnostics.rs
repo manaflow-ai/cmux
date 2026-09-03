@@ -50,8 +50,10 @@ mod target_selection_tests {
         assert!(error.contains("term_2222"), "{error}");
     }
 }
-use cmux::{Client, Config, ProcessInfoResult, ReadScreenOptions, Selector, SessionId, TerminalId,
-    TerminalSnapshot};
+use cmux::{
+    Client, Config, ProcessInfoResult, ReadScreenOptions, Selector, SessionId, TerminalId,
+    TerminalSnapshot,
+};
 use serde_json::{Value, json};
 
 use crate::manifest::{DetectionInput, ManifestSet};
@@ -73,16 +75,12 @@ pub fn explain_live(socket: &str, session_name: &str, target: &str) -> Result<Va
     let snapshot = resolve_snapshot(&snapshots, target)?;
     let terminal = session.terminal(snapshot.id.clone());
     let process_info = terminal.process().map_err(|error| error.to_string())?;
-    let screen = terminal
-        .read_screen(ReadScreenOptions)
-        .map_err(|error| error.to_string())?;
+    let screen = terminal.read_screen(ReadScreenOptions).map_err(|error| error.to_string())?;
 
     let (manifests, manifest_warning) = match ManifestSet::from_environment() {
         Ok(set) => (set, None),
         Err(error) => {
-            eprintln!(
-                "cmux-agent-screen-detection: optional manifest source ignored: {error}"
-            );
+            eprintln!("cmux-agent-screen-detection: optional manifest source ignored: {error}");
             (ManifestSet::bundled().clone(), Some(error))
         }
     };
@@ -93,9 +91,8 @@ pub fn explain_live(socket: &str, session_name: &str, target: &str) -> Result<Va
     // Do not label the one-process SDK fallback as a native process-group
     // result. The fallback job uses the terminal's reported PID as a synthetic
     // group ID, so its identity is useful but not authoritative.
-    let group_identified = process_group_authoritative
-        .then(|| process::identify_job(&manifests, &job))
-        .flatten();
+    let group_identified =
+        process_group_authoritative.then(|| process::identify_job(&manifests, &job)).flatten();
     let group_identity_available = group_identified.is_some();
     let identified = group_identified
         .or_else(|| process::identify_job_with_process_fallback(&manifests, &job, &process_info));
@@ -154,7 +151,10 @@ pub fn explain_live(socket: &str, session_name: &str, target: &str) -> Result<Va
             "cursor_row": screen.cursor_row,
             "cursor_col": screen.cursor_col,
             "cursor_visible": screen.cursor_visible,
-            "osc_progress_present": screen.osc_progress.is_some(),
+            "osc_progress_present": screen
+                .osc_progress
+                .as_deref()
+                .is_some_and(|progress| !progress.is_empty()),
             "metadata_freshness": "one_shot_unknown",
         }),
     );
@@ -169,9 +169,7 @@ fn validate_target(target: &str) -> Result<(), String> {
         return Err("live explain target must not be empty".into());
     }
     if target.len() > MAX_TARGET_BYTES {
-        return Err(format!(
-            "live explain target exceeds {MAX_TARGET_BYTES} bytes"
-        ));
+        return Err(format!("live explain target exceeds {MAX_TARGET_BYTES} bytes"));
     }
     Ok(())
 }
@@ -200,22 +198,14 @@ pub(crate) fn resolve_snapshot<'a>(
             .ok_or_else(|| format!("terminal {target:?} was not found"));
     }
 
-    let matches = snapshots
-        .iter()
-        .filter(|snapshot| snapshot.title == target)
-        .collect::<Vec<_>>();
+    let matches = snapshots.iter().filter(|snapshot| snapshot.title == target).collect::<Vec<_>>();
     match matches.as_slice() {
         [] => Err(format!("no terminal has the exact title {target:?}")),
         [snapshot] => Ok(snapshot),
         many => {
-            let ids = many
-                .iter()
-                .map(|snapshot| snapshot.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            Err(format!(
-                "more than one terminal has the exact title {target:?}; use an ID: {ids}"
-            ))
+            let ids =
+                many.iter().map(|snapshot| snapshot.id.as_str()).collect::<Vec<_>>().join(", ");
+            Err(format!("more than one terminal has the exact title {target:?}; use an ID: {ids}"))
         }
     }
 }
@@ -268,11 +258,11 @@ mod tests {
     #[test]
     fn target_reports_missing_ids_and_titles() {
         let terminals = vec![snapshot("11111111111111111111111111111111", "build")];
-        assert!(resolve_snapshot(&terminals, "term_22222222222222222222222222222222")
-            .unwrap_err()
-            .contains("was not found"));
-        assert!(resolve_snapshot(&terminals, "missing")
-            .unwrap_err()
-            .contains("no terminal has"));
+        assert!(
+            resolve_snapshot(&terminals, "term_22222222222222222222222222222222")
+                .unwrap_err()
+                .contains("was not found")
+        );
+        assert!(resolve_snapshot(&terminals, "missing").unwrap_err().contains("no terminal has"));
     }
 }
