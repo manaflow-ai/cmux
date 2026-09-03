@@ -5143,6 +5143,112 @@ mod tests {
         assert!(with.supports_pipe_io_initial_size());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn legacy_pipe_io_sizes_before_attach() {
+        struct OrderedPipeIoAttachWriter {
+            session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+            requests: Sender<Value>,
+            release_attach: Option<Receiver<()>>,
+        }
+
+        impl RemoteMessageWriter for OrderedPipeIoAttachWriter {
+            fn send(&mut self, message: &str) -> io::Result<()> {
+                let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+                let id = request
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+                self.requests.send(request.clone()).map_err(io::Error::other)?;
+                let session = self
+                    .session
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+                    let release = self
+                        .release_attach
+                        .take()
+                        .ok_or_else(|| io::Error::other("attach release already consumed"))?;
+                    std::thread::spawn(move || {
+                        let _ = release.recv();
+                        let Some(session) = session.upgrade() else { return };
+                        let Some(response) = session.pending.lock().unwrap().remove(&id) else {
+                            return;
+                        };
+                        let _ = response.response.send(json!({
+                            "id": id,
+                            "ok": true,
+                            "data": null,
+                        }));
+                    });
+                    return Ok(());
+                }
+                let session = session
+                    .upgrade()
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                let response = session
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&id)
+                    .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+                response
+                    .response
+                    .send(json!({"id": id, "ok": true, "data": null}))
+                    .map_err(|_| io::Error::other("remote response receiver was dropped"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session_slot = Arc::new(Mutex::new(None));
+        let (requests_tx, requests_rx) = channel();
+        let (release_attach_tx, release_attach_rx) = channel();
+        let session = test_session_with_writer(
+            Box::new(OrderedPipeIoAttachWriter {
+                session: session_slot.clone(),
+                requests: requests_tx,
+                release_attach: Some(release_attach_rx),
+            }),
+            None,
+            HashSet::new(),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || attaching.try_attach_pipe_io(7, Some((100, 30))));
+        let first = requests_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("pipe-IO attach did not issue its first request");
+        let second = if first["cmd"] == "attach-surface" {
+            // The pre-fix ordering sends attach first and waits for its
+            // response. Release it now so the test can report the ordering
+            // failure instead of hitting the attach deadline.
+            let _ = release_attach_tx.send(());
+            requests_rx.recv_timeout(Duration::from_secs(1))
+        } else {
+            let second = requests_rx.recv_timeout(Duration::from_secs(1));
+            let _ = release_attach_tx.send(());
+            second
+        };
+        let result = worker.join().unwrap().expect("pipe-IO attach failed");
+
+        assert_eq!(first["cmd"], "resize-surface");
+        assert_eq!(first["surface"], 7);
+        assert_eq!(first["cols"], 100);
+        assert_eq!(first["rows"], 30);
+        let second = second.expect("legacy attach request was not sent");
+        assert_eq!(second["cmd"], "attach-surface");
+        assert!(second.get("cols").is_none());
+        assert!(second.get("rows").is_none());
+        assert!(matches!(result, PipeIoSurfaceAttach::Attached));
+    }
+
     #[test]
     fn protocol_12_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
