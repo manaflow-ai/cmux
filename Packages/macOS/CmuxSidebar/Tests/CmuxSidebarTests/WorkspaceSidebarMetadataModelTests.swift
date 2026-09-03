@@ -97,6 +97,16 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(await loader.image(at: "/tmp/oversized-dimensions.png") == nil)
     }
 
+    @Test func statusIconFileReaderRejectsIntMaxByteLimit() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-status-icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data([0x01]).write(to: fileURL)
+
+        let reader = SidebarStatusIconFileReader()
+        #expect(reader.data(at: fileURL.path, maximumByteCount: .max) == nil)
+    }
+
     @Test func appendLogEntryTrimsAndDropsEmpty() {
         let model = makeModel()
         model.appendLogEntry(message: "   ", level: .info, source: nil)
