@@ -502,7 +502,9 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
 
-    close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
+    if guard.owner.as_ref().is_some_and(|owner| owner.should_stop()) {
+        close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
+    }
     if let Some(owner_pid) = guard
         .owner
         .as_ref()

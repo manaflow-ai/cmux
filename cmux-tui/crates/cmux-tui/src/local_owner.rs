@@ -147,7 +147,7 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
-        if exited {
+        if exited || !owner_process_is_alive(self.pid) {
             if let Some(root) = self.state_root {
             let _ = std::fs::remove_dir_all(root);
             // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
@@ -162,6 +162,14 @@ impl EnsuredOwnerHandle {
             }
         }
     }
+}
+
+fn owner_process_is_alive(pid: u64) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(true)
 }
 
 /// Spawn (or adopt) a headless owner for a bench session and return a handle
