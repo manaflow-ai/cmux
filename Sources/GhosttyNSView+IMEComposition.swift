@@ -202,11 +202,15 @@ extension GhosttyNSView {
         return isSingleHangulCompatibilityJamo(accumulatedText[0])
     }
 
+    /// True for Apple's bundled Korean input sources (2-Set, 3-Set, ...). Third-party
+    /// Korean input methods manage their own composition and are left alone.
     private func isAppleKoreanInputMethodSource(_ inputSourceId: String?) -> Bool {
         guard let inputSourceId else { return false }
         return inputSourceId.hasPrefix("com.apple.inputmethod.Korean")
     }
 
+    /// True when `text` is exactly one Hangul compatibility jamo (U+3131-U+318E),
+    /// the shape a 2-Set keystroke has before it joins a syllable.
     private func isSingleHangulCompatibilityJamo(_ text: String) -> Bool {
         let scalars = text.unicodeScalars
         guard scalars.count == 1, let scalar = scalars.first else { return false }
@@ -231,20 +235,6 @@ extension GhosttyNSView {
     }
 
 #if DEBUG
-    func shouldReinterpretLoneJamoCommitForTesting(
-        markedTextBefore: Bool,
-        markedTextAfter: Bool,
-        accumulatedText: [String],
-        inputSourceId: String?
-    ) -> Bool {
-        shouldReinterpretLoneJamoCommit(
-            markedTextBefore: markedTextBefore,
-            markedTextAfter: markedTextAfter,
-            accumulatedText: accumulatedText,
-            inputSourceId: inputSourceId
-        )
-    }
-
     func shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
         markedTextBefore: String,
         markedSelectionBefore: NSRange,

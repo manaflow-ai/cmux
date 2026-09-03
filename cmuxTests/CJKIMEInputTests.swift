@@ -2344,12 +2344,14 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
 /// single event lets the now-initialized input method compose it normally.
 @MainActor
 final class KoreanIMEFirstKeyAfterInputSourceSwitchRegressionTests: XCTestCase {
+    /// A hosted terminal view inside a key window, ready to receive `keyDown`.
     private struct Harness {
         let window: NSWindow
         let view: GhosttyNSView
         let surface: TerminalSurface
     }
 
+    /// Builds a `TerminalSurface`, hosts it in a key window, and returns its `GhosttyNSView`.
     private func makeHarness() -> Harness? {
         _ = NSApplication.shared
 
@@ -2393,6 +2395,8 @@ final class KoreanIMEFirstKeyAfterInputSourceSwitchRegressionTests: XCTestCase {
         return Harness(window: window, view: view, surface: surface)
     }
 
+    /// Synthesizes an unmodified `keyDown` whose characters are what the Korean IME
+    /// would report for `keyCode`.
     private func makeJamoEvent(window: NSWindow, characters: String, keyCode: UInt16) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -2408,6 +2412,7 @@ final class KoreanIMEFirstKeyAfterInputSourceSwitchRegressionTests: XCTestCase {
         )
     }
 
+    /// Clears the debug seams installed by a test and hides its window.
     private func tearDown(_ harness: Harness) {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
         KeyboardLayout.debugInputSourceIdOverride = nil

@@ -6495,6 +6495,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Hands a key event to AppKit text input (IME, dead keys, key bindings).
+    /// DEBUG builds let `debugTextInputEventHandler` intercept the event first so
+    /// tests can script IME behavior; when it declines, the event falls through
+    /// to `interpretKeyEvents`.
+    private func runTextInputInterpretation(for event: NSEvent) {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            if !debugTextInputEventHandler(self, event) {
+                interpretKeyEvents([event])
+            }
+        } else {
+            interpretKeyEvents([event])
+        }
+#else
+        interpretKeyEvents([event])
+#endif
+    }
+
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
@@ -6703,18 +6721,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            let handled = debugTextInputEventHandler(self, textInputEvent)
-            if !handled {
-                interpretKeyEvents([textInputEvent])
-            }
-        } else {
-            interpretKeyEvents([textInputEvent])
-        }
-#else
-        interpretKeyEvents([textInputEvent])
-#endif
+        runTextInputInterpretation(for: textInputEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -6738,16 +6745,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyTextAccumulator = []
 #if DEBUG
             cmuxDebugLog("ime.reinterpretLoneJamoCommit keyCode=\(event.keyCode)")
-            if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-                if !debugTextInputEventHandler(self, textInputEvent) {
-                    interpretKeyEvents([textInputEvent])
-                }
-            } else {
-                interpretKeyEvents([textInputEvent])
-            }
-#else
-            interpretKeyEvents([textInputEvent])
 #endif
+            runTextInputInterpretation(for: textInputEvent)
         }
 
         // If the keyboard layout changed, an input method grabbed the event.
