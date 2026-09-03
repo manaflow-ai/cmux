@@ -923,6 +923,14 @@ impl WorkspaceRegistry {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// Return the highest sequence in the active or archived journal without
+    /// decoding any records. Reducer recovery uses this to reject a stale
+    /// snapshot cursor while remaining valid when the journal has compacted
+    /// its earliest records.
+    pub fn session_journal_head(&self) -> anyhow::Result<u64> {
+        query_session_journal_head(&self.connection)
+    }
+
     /// Persisted fold position of one journal reducer: (version, cursor,
     /// snapshot). A version mismatch on load discards the snapshot so the
     /// reducer re-folds from the journal head.
@@ -1081,16 +1089,7 @@ pub(super) fn query_session_journal_after(
         limit <= MAX_JOURNAL_PAGE_SIZE,
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
-           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
-         )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    let head_sequence = query_session_journal_head(connection)?;
     anyhow::ensure!(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
@@ -1138,6 +1137,18 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn query_session_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
 pub(super) fn query_session_journal_sequences(
@@ -2048,6 +2059,7 @@ mod tests {
     #[test]
     fn journal_cursor_and_page_limits_fail_closed() {
         let registry = WorkspaceRegistry::in_memory("limits").unwrap();
+        assert_eq!(registry.session_journal_head().unwrap(), 0);
         assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
         assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
         assert!(
@@ -2085,6 +2097,7 @@ mod tests {
         .unwrap();
         tx.commit().unwrap();
 
+        assert_eq!(registry.session_journal_head().unwrap(), 1);
         let page = reader.after(0, 1).unwrap();
         assert_eq!(page.head_sequence, 1);
         assert_eq!(page.records[0].kind, "workspace.focus");

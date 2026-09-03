@@ -1144,19 +1144,30 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
-    let (mut host, needs_repair) = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
-        Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            match AgentRoster::restore(&snapshot) {
-                Some(roster) => (AgentRosterHost { roster, cursor }, false),
-                // The cursor is meaningful only with the snapshot that was
-                // captured at the same fold boundary. Replaying from zero
-                // is the safe recovery path for malformed persisted state.
-                None => (AgentRosterHost::default(), true),
+    let (mut host, mut needs_repair) =
+        match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
+            Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
+                match AgentRoster::restore(&snapshot) {
+                    Some(roster) => (AgentRosterHost { roster, cursor }, false),
+                    // The cursor is meaningful only with the snapshot that was
+                    // captured at the same fold boundary. Replaying from zero
+                    // is the safe recovery path for malformed persisted state.
+                    None => (AgentRosterHost::default(), true),
+                }
             }
+            Some(_) => (AgentRosterHost::default(), true),
+            None => (AgentRosterHost::default(), false),
+        };
+    // A cursor beyond the current journal head cannot describe a retained
+    // snapshot boundary. Treat it like any other rejected checkpoint so a
+    // metadata write or journal repair cannot make startup fail permanently.
+    if host.cursor > 0 {
+        let journal_head = registry.session_journal_head()?;
+        if host.cursor > journal_head {
+            host = AgentRosterHost::default();
+            needs_repair = true;
         }
-        Some(_) => (AgentRosterHost::default(), true),
-        None => (AgentRosterHost::default(), false),
-    };
+    }
     let started_at = host.cursor;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
@@ -24101,7 +24112,7 @@ mod tests {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-ahead-cursor-{}", crate::workspace_registry::new_uuid_v4()));
         let session = "roster-ahead-cursor";
-        let (terminal_id, journal_head) = {
+        let terminal_id = {
             let registry = WorkspaceRegistry::open(&root, session).unwrap();
             let mux = Mux::from_workspace_registry(
                 session.into(),
@@ -24126,28 +24137,22 @@ mod tests {
             )
             .unwrap();
             mux.append_journal_ingress(&ingress, "test", "ahead-cursor-1").unwrap();
-            let journal_head = mux
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .session_journal_after(0, 1)
-                .unwrap()
-                .head_sequence;
-            assert!(journal_head > 0);
             mux.shutdown();
             drop(mux);
-            (terminal_id, journal_head)
+            terminal_id
         };
 
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let journal_head = registry.session_journal_head().unwrap();
+        assert!(journal_head > 0);
         // Keep a valid snapshot, but move its cursor beyond the retained
         // journal. Startup must reject that checkpoint and replay the journal
         // instead of returning a cursor.invalid error.
-        let registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                journal_head + 1,
+                journal_head.checked_add(1).expect("test journal head must not overflow"),
                 &crate::journal_reducers::AgentRoster::default().snapshot().to_string(),
             )
             .unwrap();
@@ -24173,17 +24178,18 @@ mod tests {
             .expect("an ahead cursor must replay the retained journal");
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "hook");
+        let (repaired_head, cursor, snapshot) = {
+            let registry = reopened.workspace_registry.lock().unwrap();
+            let (_, cursor, snapshot) = registry
+                .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+                .unwrap()
+                .expect("startup must repair the rejected cursor");
+            (registry.session_journal_head().unwrap(), cursor, snapshot)
+        };
+        assert_eq!(cursor, repaired_head);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
         reopened.shutdown();
         drop(reopened);
-
-        let registry = WorkspaceRegistry::open(&root, session).unwrap();
-        let (_, cursor, snapshot) = registry
-            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
-            .unwrap()
-            .expect("startup must repair the rejected cursor");
-        assert_eq!(cursor, journal_head);
-        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
-        drop(registry);
         std::fs::remove_dir_all(root).unwrap();
     }
 
