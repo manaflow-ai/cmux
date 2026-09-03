@@ -1851,6 +1851,8 @@
     "metaDescription": "Download cmux NIGHTLY, en separat app bygget automatisk fra det seneste main-commit. Kører ved siden af den stabile version med egne automatiske opdateringer.",
     "description": "cmux NIGHTLY bygges automatisk fra det seneste commit på main. Den har sit eget bundle-ID, så den kører ved siden af den stabile version uden konflikter. Brug den til at teste nye funktioner før de udkommer.",
     "download": "Download NIGHTLY til Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly builds kan indeholde fejl eller ufærdige funktioner. Hvis noget går galt, rapportér det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og skift tilbage til den stabile version."
   },
   "languageSwitcher": {

@@ -28,7 +28,7 @@ permissions:
 
 env:
   CREATE_DMG_VERSION: 8.0.0
-  # Last day the nightly also publishes a universal build for the legacy feed.
+  # Last day (inclusive, UTC) the nightly also publishes a universal build for the legacy feed.
   NIGHTLY_LEGACY_UNIVERSAL_UNTIL: "2026-10-01"
 
 jobs:
@@ -60,7 +60,7 @@ jobs:
             // Apple silicon) and self-heals to arm64 on the next update check.
             const legacyUniversalUntil = process.env.NIGHTLY_LEGACY_UNIVERSAL_UNTIL;
             const today = new Date().toISOString().slice(0, 10);
-            const publishUniversal = today < legacyUniversalUntil;
+            const publishUniversal = today <= legacyUniversalUntil;
             const variants = publishUniversal ? ['arm64', 'x86_64', 'universal'] : ['arm64', 'x86_64'];
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('legacy_variant', publishUniversal ? 'universal' : 'x86_64');

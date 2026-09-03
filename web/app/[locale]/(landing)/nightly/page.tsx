@@ -87,12 +87,12 @@ export default function NightlyPage() {
           {t("download")}
         </a>
         <p className="text-[13px] text-muted mt-3" style={{ lineHeight: 1.5 }}>
-          Apple silicon ·{" "}
+          {t("appleSilicon")} ·{" "}
           <a
             href="https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg"
             className="underline hover:opacity-85 transition-opacity"
           >
-            Intel
+            {t("intel")}
           </a>
         </p>
 

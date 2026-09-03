@@ -1855,6 +1855,8 @@
     "metaDescription": "ดาวน์โหลด cmux NIGHTLY แอปแยกที่สร้างอัตโนมัติจาก commit ล่าสุดบน main ทำงานควบคู่กับเวอร์ชันเสถียรพร้อมอัปเดตอัตโนมัติของตัวเอง",
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "languageSwitcher": {
