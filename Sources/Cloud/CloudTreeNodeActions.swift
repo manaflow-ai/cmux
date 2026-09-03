@@ -86,13 +86,19 @@ struct CloudTreeNodeActions {
                 // Row selection and refresh notifications can otherwise change the
                 // globally selected tab while a port endpoint is materializing.
                 let capturedWorkspaceID = selectedWorkspaceID()
+                let capturedPortWorkspaceID: UUID?
+                if resource.forwardedPort != nil {
+                    capturedPortWorkspaceID = catalog().preferredLocalWorkspaceID(
+                        for: resource,
+                        fallback: capturedWorkspaceID
+                    )
+                } else {
+                    capturedPortWorkspaceID = nil
+                }
                 run(openingLabel(resource.machine)) { catalog in
                     let workspaceID: UUID
                     if resource.forwardedPort != nil {
-                        guard let preferred = catalog.preferredLocalWorkspaceID(
-                            for: resource,
-                            fallback: capturedWorkspaceID
-                        ) else {
+                        guard let preferred = capturedPortWorkspaceID else {
                             throw SurfaceCatalogError.destinationNotFound(
                                 SurfaceCatalog.portDestinationUnavailableMessage(machine: resource.machine)
                             )

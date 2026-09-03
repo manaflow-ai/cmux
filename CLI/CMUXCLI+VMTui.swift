@@ -1210,19 +1210,25 @@ extension CMUXCLI {
         var workspaceIndexByID: [String: Int] = [:]
         for raw in (machine["remote_workspaces"] as? [[String: Any]]) ?? [] {
             guard let workspaceId = raw["id"] as? String, !workspaceId.isEmpty else { continue }
-            let index = workspaces.count
-            if workspaceIndexByID[workspaceId] == nil {
-                workspaceIndexByID[workspaceId] = index
+            if let index = workspaceIndexByID[workspaceId] {
+                // A defensive merge keeps malformed/replayed machine lists from
+                // rendering the same workspace twice.
+                if workspaces[index].name.isEmpty {
+                    workspaces[index].name = (raw["name"] as? String) ?? ""
+                }
+                workspaces[index].focused = workspaces[index].focused || (raw["focused"] as? Bool) == true
+            } else {
+                workspaceIndexByID[workspaceId] = workspaces.count
+                workspaces.append((
+                    id: workspaceId,
+                    name: (raw["name"] as? String) ?? "",
+                    index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
+                    focused: (raw["focused"] as? Bool) == true,
+                    terminals: [],
+                    browsers: [],
+                    displays: []
+                ))
             }
-            workspaces.append((
-                id: workspaceId,
-                name: (raw["name"] as? String) ?? "",
-                index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
-                focused: (raw["focused"] as? Bool) == true,
-                terminals: [],
-                browsers: [],
-                displays: []
-            ))
         }
         for resource in resources {
             // Every workspace view contributes a pointer row. The sidebar uses
@@ -1265,7 +1271,9 @@ extension CMUXCLI {
                 }
             }
         }
-        workspaces.sort { $0.index < $1.index }
+        workspaces.sort {
+            $0.index != $1.index ? $0.index < $1.index : $0.id < $1.id
+        }
         // The link state decides what an empty workspace list means: a machine that is
         // asleep, still connecting, or whose link failed has workspaces the tree simply
         // cannot see yet, and hiding that behind "none yet" hides the failure.
@@ -1311,10 +1319,9 @@ extension CMUXCLI {
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
         let ports = browsers.compactMap { browser -> (Int, String, [String: Any])? in
-            // Only the provider's canonical `port:<n>` resources belong in the
-            // machine Ports section. A daemon browser tab may visit localhost
-            // and carry the same numeric port, but its own browser row belongs
-            // to the workspace layout.
+            // Snapshot parsing folds localhost browser views into the provider's
+            // canonical `port:<n>` resource. Non-port daemon browsers remain
+            // workspace-only and therefore do not enter this section.
             guard let key = browser["key"] as? String,
                   key.hasPrefix("port:"),
                   let port = Int(key.dropFirst("port:".count)),

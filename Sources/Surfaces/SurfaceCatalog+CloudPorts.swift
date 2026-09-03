@@ -3,8 +3,8 @@ import Foundation
 
 extension SurfaceResourceID {
     /// The numeric port encoded by the canonical cloud forwarded-port identity.
-    /// Browser tabs that happen to visit localhost use a different provider key
-    /// and therefore remain ordinary browser resources.
+    /// Snapshot browser views that visit localhost are normalized to this key so
+    /// the machine port and its workspace row share one resource identity.
     var forwardedPort: Int? {
         guard kind == .browser, key.hasPrefix("port:") else { return nil }
         let value = key.dropFirst("port:".count)
@@ -100,12 +100,32 @@ extension SurfaceCatalog {
         for resourceID: SurfaceResourceID,
         fallback: UUID?
     ) -> UUID? {
-        let machine = resourceID.machine
-        let remoteWorkspaceIDs = Set(resources[resourceID]?.remoteWorkspaces.map(\.id) ?? [])
-        var relatedIDs = Set([resourceID])
+        // Keep the lookup useful when a refresh retired the resource after a row
+        // was rendered: a live projection still gives us an unambiguous owner.
+        let resource = resources[resourceID]
+        if let resource {
+            return preferredLocalWorkspaceID(for: resource, fallback: fallback)
+        }
+        return projections.first(where: { $0.resource == resourceID })?.workspaceID ?? fallback
+    }
+
+    /// Resolves the local workspace for a value captured from a tree snapshot.
+    /// Callers that begin an asynchronous open use this overload before yielding
+    /// so a later catalog replacement cannot erase the remote-workspace context.
+    func preferredLocalWorkspaceID(
+        for resource: SurfaceResource,
+        fallback: UUID?
+    ) -> UUID? {
+        let machine = resource.machine
+        let remoteWorkspaceIDs = Set(resource.remoteWorkspaces.map(\.id))
+        guard !remoteWorkspaceIDs.isEmpty else {
+            // A machine-pool port has no remote workspace owner. Never infer one
+            // from unrelated projections on the same machine.
+            return projections.first(where: { $0.resource == resource.id })?.workspaceID ?? fallback
+        }
+        var relatedIDs = Set([resource.id])
         relatedIDs.formUnion(resources.values.compactMap { candidate -> SurfaceResourceID? in
             guard candidate.machine == machine else { return nil }
-            if remoteWorkspaceIDs.isEmpty { return candidate.id }
             return candidate.remoteWorkspaces.contains { remoteWorkspaceIDs.contains($0.id) }
                 ? candidate.id
                 : nil
@@ -122,6 +142,28 @@ extension SurfaceCatalog {
                     : lhs.key.uuidString < rhs.key.uuidString
             }
             .first?.key ?? fallback
+    }
+
+    /// Keeps a port that was added or reopened while a provider refresh was
+    /// suspended. `replaceResources` is intentionally authoritative for the
+    /// provider snapshot, but it must not erase a just-started open (or a pane
+    /// that is still live) between the scan and publication of that snapshot.
+    func preservingConcurrentPortResources(
+        _ refreshed: [SurfaceResource],
+        on machine: SurfaceMachineID,
+        since previous: [SurfaceResource]
+    ) -> [SurfaceResource] {
+        let refreshedIDs = Set(refreshed.map(\.id))
+        let previousIDs = Set(previous.map(\.id))
+        var result = refreshed
+        for candidate in snapshot.resources(on: machine)
+        where candidate.id.isForwardedPort && !refreshedIDs.contains(candidate.id) {
+            let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
+            let remainsProjected = !projections(of: candidate.id).isEmpty
+            guard wasAddedDuringRefresh || remainsProjected else { continue }
+            result.append(candidate)
+        }
+        return result
     }
 }
 
@@ -181,5 +223,116 @@ extension CmuxTuiSurfaceProvider {
                 }
                 return CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL)
             }
+    }
+
+    /// Reconciles a valid cmux-tui snapshot with the machine-level port pool.
+    ///
+    /// A daemon browser whose URL points at localhost is another view of the
+    /// machine port, not a second resource. It is folded into the canonical
+    /// `browser/port:<n>` identity so the same value can be projected in the
+    /// machine's Ports group and under every remote workspace that contains a
+    /// view. A valid snapshot is authoritative for workspace membership, while
+    /// the port pool remains authoritative for discovery; an incomplete
+    /// snapshot never calls this function and therefore preserves the prior
+    /// metadata in the caller.
+    nonisolated static func mergeSnapshotResources(
+        pool: [SurfaceResource],
+        parsed: [SurfaceResource],
+        privateAddress: String?
+    ) -> [SurfaceResource] {
+        let priorPorts = Dictionary(
+            pool.filter { $0.id.isForwardedPort },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var parsedPortIDs = Set<SurfaceResourceID>()
+        var parsedResources: [SurfaceResource] = []
+        var portIndexes: [SurfaceResourceID: Int] = [:]
+
+        for resource in parsed {
+            guard resource.kind == .browser,
+                  let port = resource.port,
+                  (1...65_535).contains(port) else {
+                parsedResources.append(resource)
+                continue
+            }
+
+            let id = SurfaceResourceID(
+                machine: resource.machine,
+                kind: .browser,
+                key: SurfaceResourceID.portKey(port)
+            )
+            parsedPortIDs.insert(id)
+            if let index = portIndexes[id] {
+                var merged = parsedResources[index]
+                mergeRemoteViews(from: resource, into: &merged)
+                parsedResources[index] = merged
+                continue
+            }
+
+            var canonical = priorPorts[id]
+                ?? CmuxTuiSnapshotParser.portBrowser(machine: resource.machine, port: port)
+            canonical.id = id
+            canonical.port = port
+            // A fresh private address wins. If the address is absent, clear the
+            // direct URL so an address withdrawal cannot leave a stale link in
+            // the catalog; the provider endpoint cache remains independent.
+            if let privateAddress {
+                canonical.url = CmuxInternalHostnames.directPortURL(privateAddress: privateAddress, port: port)
+            } else {
+                canonical.url = nil
+            }
+            // Keep the daemon tab's useful title for the workspace pointer. The
+            // Ports row derives its label from `url`/`port`, so this does not
+            // change the machine-level port presentation.
+            if !resource.title.isEmpty {
+                canonical.title = resource.title
+            }
+            // Membership comes from this snapshot, never from the prior pass.
+            canonical.remoteWorkspace = nil
+            canonical.remoteViews = nil
+            mergeRemoteViews(from: resource, into: &canonical)
+            portIndexes[id] = parsedResources.count
+            parsedResources.append(canonical)
+        }
+
+        // Ports that were discovered by `ss` but are not represented by a
+        // daemon browser remain machine-pool resources. Their previous view
+        // metadata is cleared because this snapshot is authoritative.
+        let remainingPool = pool.filter { resource in
+            guard resource.id.isForwardedPort else { return true }
+            return !parsedPortIDs.contains(resource.id)
+        }.map { resource -> SurfaceResource in
+            guard resource.id.isForwardedPort else { return resource }
+            var cleared = resource
+            cleared.remoteWorkspace = nil
+            cleared.remoteViews = nil
+            return cleared
+        }
+
+        // If the snapshot itself discovered a port that the probe missed, its
+        // canonical resource is already in `parsedResources`; if it replaced a
+        // pooled port, the pooled copy was removed above. Display de-duplication
+        // remains the parser's existing invariant.
+        return CmuxTuiSnapshotParser.mergingDisplays(pool: remainingPool, parsed: parsedResources)
+    }
+
+    /// Adds a browser's daemon view metadata to a canonical port resource while
+    /// preserving the distinction between an unmodeled view list (`nil`) and a
+    /// live resource with no views (`[]`).
+    private nonisolated static func mergeRemoteViews(
+        from source: SurfaceResource,
+        into destination: inout SurfaceResource
+    ) {
+        if let incoming = source.remoteViews {
+            var combined = destination.remoteViews ?? []
+            var seen = Set(combined.map { "\($0.tabID)|\($0.workspace.id)" })
+            for view in incoming where seen.insert("\(view.tabID)|\(view.workspace.id)").inserted {
+                combined.append(view)
+            }
+            destination.remoteViews = combined
+            destination.remoteWorkspace = combined.first?.workspace
+        } else if destination.remoteViews == nil {
+            destination.remoteWorkspace = source.remoteWorkspace
+        }
     }
 }

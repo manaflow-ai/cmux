@@ -218,7 +218,11 @@ extension TerminalController {
             if let explicitWorkspaceID {
                 workspaceID = explicitWorkspaceID
             } else {
-                guard let preferred = catalog.preferredLocalWorkspaceID(
+                // Resolve on the catalog's actor before materialization. The
+                // provider call may suspend while a refresh replaces resources;
+                // carrying this value through the remainder of the request keeps
+                // the open anchored to the owner context.
+                guard let preferred = await catalog.preferredLocalWorkspaceID(
                     for: resource,
                     fallback: fallbackWorkspaceID
                 ) else {

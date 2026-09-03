@@ -513,14 +513,12 @@ enum CloudTreeNodeBuilder {
         // paste (`http://<private-ip>:<port>`) when the machine has a private
         // address; the bare `:<port>` otherwise. Click opens it as a browser
         // pane; the row's menu copies the link.
-        // A regular workspace-tab browser can happen to point at a localhost
-        // port too (`browser.port` derives from the URL), but only the
-        // canonical `port:<n>` identity belongs here. That identity remains in
-        // this machine index even when the daemon also reports a workspace
-        // pointer; the pointer is the same resource, not a duplicate. A daemon
-        // browser with neither a tab nor a port has no group of its own: the
-        // four groups are the machine's whole layout (it stays in the catalog
-        // for `cmux surface ls`).
+        // Snapshot parsing folds localhost browser views into the canonical
+        // `port:<n>` identity, so that identity remains in this machine index
+        // even when the daemon also reports a workspace pointer. Non-port
+        // browsers stay in their workspace layout; a browser with neither a
+        // tab nor a port has no group of its own (it remains addressable through
+        // `cmux surface ls`).
         let portBrowsers = resources
             .filter { $0.id.isForwardedPort }
             .sorted {

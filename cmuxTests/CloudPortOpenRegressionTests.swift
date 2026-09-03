@@ -164,6 +164,75 @@ struct CloudPortOpenRegressionTests {
         #expect(emptyNodes.first { $0.structureTag == "portsGroup" } == nil)
     }
 
+    @Test("A localhost browser view is folded into the canonical port in its cloud workspace")
+    func snapshotBrowserPortKeepsWorkspaceMembership() throws {
+        let snapshot: [String: Any] = [
+            "workspaces": [[
+                "id": workspace.id,
+                "name": workspace.name,
+                "index": workspace.index,
+                "focused": workspace.focused,
+            ]],
+            "screens": [["id": "screen_app", "workspace_id": workspace.id]],
+            "panes": [["id": "pane_app", "screen_id": "screen_app"]],
+            "tabs": [["id": "tab_port", "pane_id": "pane_app"]],
+            "terminals": [],
+            "browsers": [[
+                "id": "browser_http_tab",
+                "tab_id": "tab_port",
+                "url": "http://localhost:8000/health",
+                "title": "API health",
+                "status": "running",
+            ]],
+        ]
+        let parsed = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: machine)
+        #expect(parsed.count == 1)
+        #expect(parsed.first?.id.key == "browser_http_tab")
+        #expect(parsed.first?.port == 8000)
+        #expect(parsed.first?.remoteWorkspaces.map(\.id) == [workspace.id])
+
+        let merged = CmuxTuiSurfaceProvider.mergeSnapshotResources(
+            pool: [CmuxTuiSnapshotParser.portBrowser(
+                machine: machine,
+                port: 8000,
+                directURL: "http://10.0.0.7:8000"
+            )],
+            parsed: parsed,
+            privateAddress: "10.0.0.7"
+        )
+        let port = try #require(merged.first { $0.id.isForwardedPort })
+        #expect(port.id.key == "port:8000")
+        #expect(port.title == "API health", "the workspace pointer keeps the daemon browser title")
+        #expect(port.remoteWorkspaces.map(\.id) == [workspace.id])
+        #expect(port.remoteViews?.map(\.tabID) == ["tab_port"])
+        #expect(merged.contains { $0.id.key == "browser_http_tab" } == false)
+
+        let tree = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot()],
+            snapshot: SurfaceCatalogSnapshot(
+                machines: [machineInfo(workspaces: [workspace])],
+                resources: merged,
+                projections: []
+            ),
+            localWorkspaces: [],
+            includeLocalMachine: false
+        ))
+        let portsGroup = try #require(tree.first { $0.id == "machine:port-vm/ports" })
+        #expect(portsGroup.children.compactMap { $0.dragResource?.id } == [port.id])
+        #expect(tree.contains { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+
+        // A complete snapshot with no browser view retires the old workspace
+        // membership but keeps the listening port in the machine pool.
+        let cleared = CmuxTuiSurfaceProvider.mergeSnapshotResources(
+            pool: [port],
+            parsed: [],
+            privateAddress: "10.0.0.7"
+        )
+        let clearedPort = try #require(cleared.first { $0.id == port.id })
+        #expect(clearedPort.remoteWorkspaces.isEmpty)
+        #expect(clearedPort.remoteViews == nil)
+    }
+
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
     func portScanCompletenessControlsRefresh() throws {
         #expect(CmuxTuiSurfaceProvider.ports(from: VMExecResult(exitCode: 127, stdout: "", stderr: "ss unavailable")) == nil)
@@ -264,6 +333,22 @@ struct CloudPortOpenRegressionTests {
         #expect(second.reused)
         #expect(provider.materialized.count == 2, "the first explicit terminal projection is separate; the port itself is opened once")
         #expect(catalog.projections(of: port.id).count == 1)
+
+        // A pool-only port has no remote workspace owner; unrelated machine
+        // projections must not override the caller's selected workspace.
+        let poolPort = discoveredPort(9000)
+        catalog.upsert(poolPort)
+        #expect(catalog.preferredLocalWorkspaceID(for: poolPort, fallback: unrelatedWorkspaceID) == unrelatedWorkspaceID)
+
+        // A just-opened port must survive a provider snapshot that was captured
+        // before the upsert, even when its projection has not been recorded yet.
+        let captured = catalog.snapshot.resources(on: machine).filter { $0.id != poolPort.id }
+        let concurrent = catalog.preservingConcurrentPortResources(
+            captured,
+            on: machine,
+            since: captured
+        )
+        #expect(concurrent.contains { $0.id == poolPort.id })
     }
 
     @Test("Unsupported providers fail before a synthetic row or browser pane is created")

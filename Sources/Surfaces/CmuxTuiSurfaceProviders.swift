@@ -15,7 +15,11 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
-    private var refreshInFlight: Task<Void, Never>?
+    private var refreshInFlight: Task<Bool, Never>?
+    /// A forced refresh waits for an existing pass instead of starting a second
+    /// fleet read. This prevents an older page from unregistering a machine that
+    /// a newer page just added.
+    private var refreshGeneration: UInt64 = 0
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
 
@@ -59,18 +63,33 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     /// Re-reads the machine list and refreshes every provider (links, snapshots, ports).
-    func refresh(force: Bool) async {
-        if let inFlight = refreshInFlight, !force {
-            await inFlight.value
-            return
+    @discardableResult
+    func refresh(force: Bool) async -> Bool {
+        while true {
+            if let inFlight = refreshInFlight {
+                let listed = await inFlight.value
+                // A scheduled refresh can share the result. A forced caller
+                // must run one fresh pass after it, but never concurrently.
+                if !force { return listed }
+                continue
+            }
+
+            refreshGeneration &+= 1
+            let generation = refreshGeneration
+            let task = Task<Bool, Never> { [weak self] in
+                guard let self else { return false }
+                return await self.performRefresh(force: force, generation: generation)
+            }
+            refreshInFlight = task
+            let listed = await task.value
+            // `refreshGeneration` changes only when a new pass starts, and a
+            // new pass cannot start until this slot is cleared. Keeping the
+            // guard makes that invariant explicit for future callers.
+            if refreshGeneration == generation {
+                refreshInFlight = nil
+            }
+            return listed
         }
-        let task = Task<Void, Never> { [weak self] in
-            guard let self else { return }
-            await self.performRefresh(force: force)
-        }
-        refreshInFlight = task
-        await task.value
-        refreshInFlight = nil
     }
 
     func provider(machineID: String) -> CmuxTuiSurfaceProvider? {
@@ -101,9 +120,10 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     // MARK: - internals
 
-    private func performRefresh(force: Bool) async {
-        guard let catalog, let client = VMClient.shared else { return }
-        guard let page = try? await client.listPage() else { return }
+    private func performRefresh(force: Bool, generation: UInt64) async -> Bool {
+        guard let catalog, let client = VMClient.shared else { return false }
+        guard let page = try? await client.listPage() else { return false }
+        guard generation == refreshGeneration else { return false }
         let seen = Set(page.vms.map(\.id))
         for id in providers.keys where !seen.contains(id) {
             providers[id]?.stop()
@@ -111,6 +131,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             catalog.unregister(machine: .cloud(id))
         }
         await links.retain(machineIDs: seen)
+        guard generation == refreshGeneration else { return false }
         for summary in page.vms {
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
@@ -125,6 +146,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 group.addTask { @MainActor in await provider.refresh(force: force) }
             }
         }
+        return true
     }
 
     private func accessDidEnd() async {
@@ -302,7 +324,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 stats: nil,
                 remoteWorkspaces: info.remoteWorkspaces
             )
-            catalog.replaceResources(resources, on: machine, info: info)
+            catalog.replaceResources(
+                catalog.preservingConcurrentPortResources(resources, on: machine, since: previousResources),
+                on: machine,
+                info: info
+            )
             return
         }
         // The display opens over the HTTPS preview and never needs the link, so a
@@ -329,9 +355,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                object["workspaces"] is [[String: Any]],
                object["terminals"] is [[String: Any]] {
-                resources = CmuxTuiSnapshotParser.mergingDisplays(
+                resources = Self.mergeSnapshotResources(
                     pool: resources,
-                    parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                    parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine),
+                    privateAddress: summary.preferredPrivateAddress
                 )
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
@@ -402,7 +429,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard generation == refreshGeneration else { return }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         guard generation == refreshGeneration else { return }
-        catalog.replaceResources(resources, on: machine, info: info)
+        catalog.replaceResources(
+            catalog.preservingConcurrentPortResources(resources, on: machine, since: previousResources),
+            on: machine,
+            info: info
+        )
         reprojectRestoredPanes()
     }
 
