@@ -62,8 +62,8 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
     RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
-    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
-    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    RegistryCommit, RegistryLayoutNode, RegistryPane, RegistrySnapshot, RegistryTab,
+    RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
     ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
     WorkspaceMutation, WorkspaceRegistry,
@@ -16441,6 +16441,16 @@ impl Drop for Mux {
     }
 }
 
+fn expected_panes_by_screen(
+    panes: &[RegistryPane],
+) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
+    let mut panes_by_screen: HashMap<ScreenPublicId, HashSet<PanePublicId>> = HashMap::new();
+    for pane in panes {
+        panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
+    }
+    panes_by_screen
+}
+
 fn restore_resource_state(
     snapshot: RegistrySnapshot,
     topology: ResourceTopologySnapshot,
@@ -16613,13 +16623,11 @@ fn restore_resource_state(
 
     let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
     let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    let panes_by_screen = expected_panes_by_screen(&topology.panes);
+    let empty_expected_panes = HashSet::new();
     for screen in &topology.screens {
-        let expected_panes = topology
-            .panes
-            .iter()
-            .filter(|pane| pane.screen_id == screen.public_id)
-            .map(|pane| pane.public_id.clone())
-            .collect::<HashSet<_>>();
+        let expected_panes =
+            panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
         crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
@@ -19216,6 +19224,30 @@ mod tests {
                 .unwrap()
                 .to_string()
                 .contains("unknown projected split")
+        );
+    }
+
+    #[test]
+    fn restore_screen_pane_index_preserves_validation_inputs() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let first_screen = restore_screen_id(1);
+        let second_screen = restore_screen_id(2);
+
+        let mut duplicate_panes = topology.panes.clone();
+        duplicate_panes.push(duplicate_panes[0].clone());
+        let expected = expected_panes_by_screen(&duplicate_panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(4));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(1));
+        assert!(expected.get(&restore_screen_id(999)).is_none());
+
+        let mut mismatched = topology;
+        mismatched.panes[3].screen_id = second_screen.clone();
+        let expected = expected_panes_by_screen(&mismatched.panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(3));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(2));
+        assert_eq!(
+            restore_resource_state(snapshot, mismatched).err().unwrap().to_string(),
+            format!("screen {first_screen} layout does not cover its panes exactly once")
         );
     }
 
