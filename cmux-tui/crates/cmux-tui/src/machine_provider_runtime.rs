@@ -2476,13 +2476,13 @@ fn connect_provider_machine(
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
     connections.insert(key, open.clone());
     Ok(MachineConnection {
-            session,
-            _lease: Some(Box::new(ProviderMachineConnectionLease {
-                open,
-                key,
-                registry: Arc::clone(&registry),
-                closing: closing_connections,
-                close_worker,
+        session,
+        _lease: Some(Box::new(ProviderMachineConnectionLease {
+            open,
+            key,
+            registry: Arc::clone(&registry),
+            closing: closing_connections,
+            close_worker,
         })),
     })
 }
