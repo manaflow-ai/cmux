@@ -75,7 +75,8 @@ fn percentile(samples: &mut [f64], quantile: f64) -> Option<f64> {
         return None;
     }
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let rank = (quantile * (samples.len() as f64 - 1.0)).round() as usize;
+    let rank = (quantile.clamp(0.0, 1.0) * samples.len() as f64).ceil() as usize;
+    let rank = rank.saturating_sub(1);
     Some(samples[rank.min(samples.len() - 1)])
 }
 
@@ -1024,6 +1025,8 @@ mod tests {
         assert_eq!(percentile(&mut data.clone(), 0.5), Some(30.0));
         assert_eq!(percentile(&mut data, 1.0), Some(50.0));
         assert_eq!(percentile(&mut Vec::<f64>::new(), 0.5), None);
+        let mut pair = vec![10.0, 20.0];
+        assert_eq!(percentile(&mut pair, 0.5), Some(10.0));
     }
 
     #[test]

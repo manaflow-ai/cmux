@@ -1681,10 +1681,17 @@ fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
 fn parse_count(flags: &mut Flags, name: &str, default: usize) -> Result<usize, UsageError> {
     match flags.take(name) {
         None => Ok(default),
-        Some(value) => value
-            .parse::<usize>()
-            .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer"))),
-    }
+        Some(value) => {
+            let count = value
+                .parse::<usize>()
+                .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer")))?;
+            const MAX_BENCH_COUNT: usize = 100_000;
+            if count > MAX_BENCH_COUNT {
+                return Err(UsageError::new(format!("--{name} must be at most {MAX_BENCH_COUNT}")));
+            }
+            Ok(count)
+        }
+}
 }
 
 fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
