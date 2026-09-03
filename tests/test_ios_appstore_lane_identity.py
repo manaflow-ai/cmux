@@ -530,10 +530,23 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     return env
 
 
-def test_verify_ios_release_origins_uses_configured_plistbuddy(tmp: Path, fakebin: Path) -> None:
+def test_verify_ios_release_origins_does_not_trust_plistbuddy_override(
+    tmp: Path, fakebin: Path
+) -> None:
     app = tmp / "app"
     app.mkdir(parents=True, exist_ok=True)
-    (app / "Info.plist").write_text("not a plist", encoding="utf-8")
+    (app / "Info.plist").write_bytes(
+        plistlib.dumps(
+            {
+                "CFBundleIdentifier": "com.cmux.app",
+                "CMUXAuthEnvironment": "production",
+                "CMUXApiBaseURL": "https://cmux.com",
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+                "CMUXPresenceBaseURL": "https://presence.cmux.dev",
+                "CMUXDevTag": "",
+            }
+        )
+    )
     override = fakebin / "PlistBuddy-override"
     _write_executable(
         override,
@@ -562,8 +575,8 @@ esac
         tmp=tmp,
     )
     _check(
-        result.returncode == 0,
-        "production origin verifier uses the configured PlistBuddy implementation",
+        result.returncode != 0,
+        "production origin verifier ignores an untrusted PlistBuddy override",
     )
 
 
@@ -1552,7 +1565,7 @@ def main() -> None:
         tmp = Path(temp_dir)
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
-        test_verify_ios_release_origins_uses_configured_plistbuddy(
+        test_verify_ios_release_origins_does_not_trust_plistbuddy_override(
             tmp / "plistbuddy-override-test", fakebin
         )
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
