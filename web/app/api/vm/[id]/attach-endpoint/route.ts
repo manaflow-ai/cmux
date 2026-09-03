@@ -42,7 +42,7 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
-      // transport Blaxel machines serve. Clients that do not ask keep the legacy
+      // transport cmux Cloud machines serve. Clients that do not ask keep the legacy
       // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
       // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);

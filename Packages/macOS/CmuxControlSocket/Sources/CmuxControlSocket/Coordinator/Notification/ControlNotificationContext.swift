@@ -148,6 +148,40 @@ public protocol ControlNotificationContext: AnyObject {
     /// Enqueues clearing all notifications for `notification.clear`.
     func controlNotificationClear()
 
+    /// Clears notifications for a resolved workspace, optionally narrowed to
+    /// one surface. The routing selectors identify the TabManager/window in
+    /// multi-window callers; the workspace and surface ids are the authoritative
+    /// target selectors.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used to find the owning TabManager.
+    ///   - workspaceID: The workspace to clear.
+    ///   - surfaceID: The optional surface to clear within that workspace.
+    /// - Returns: The scoped clear resolution.
+    func controlNotificationClear(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlNotificationClearResolution
+
+    /// Clears the notification scope resolved for the calling terminal. This
+    /// uses the same preferred workspace/surface, TTY, and fallback ordering as
+    /// `notification.create_for_caller`, so a posting script can retract the
+    /// surface it addressed without matching notification content.
+    ///
+    /// - Parameters:
+    ///   - preferredWorkspaceID: An optional caller-provided workspace identity.
+    ///   - preferredSurfaceID: An optional caller-provided surface identity.
+    ///   - callerTTY: The caller's terminal name, when available.
+    ///   - preferTTY: Whether the TTY match outranks preferred identities.
+    /// - Returns: The scoped clear resolution.
+    func controlNotificationClearForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool
+    ) -> ControlNotificationClearResolution
+
     /// The localized notification-domain error strings, resolved against the
     /// app's `Localizable.xcstrings` (the package bundle lacks these keys, so
     /// the coordinator must not call `String(localized:)` itself — that would

@@ -16,11 +16,10 @@ pub(crate) mod terminal_grid;
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::{Position, Rect as RatatuiRect};
 use ratatui::style::{Color, Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Hit, RailKind};
 use crate::config::Action;
@@ -84,13 +83,13 @@ pub(crate) fn copy_buffer_row_cropped(
         .width
         .min(source_right.saturating_sub(source_left))
         .min(target_right.saturating_sub(target_rect.x));
-    let partial_left =
-        source_left > source.area.x && source[(source_left - 1, source_y)].symbol().width() > 1;
+    let partial_left = source_left > source.area.x
+        && source[(source_left - 1, source_y)].symbol().cell_width() > 1;
     for dx in 0..width {
         let source_cell = &source[(source_left + dx, source_y)];
         let target_cell = &mut target[(target_rect.x + dx, target_rect.y)];
         *target_cell = source_cell.clone();
-        let symbol_width = source_cell.symbol().width() as u16;
+        let symbol_width = source_cell.symbol().cell_width();
         if (dx == 0 && partial_left) || symbol_width > width.saturating_sub(dx) {
             target_cell.set_symbol(" ");
         }
@@ -226,12 +225,18 @@ fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
         }
     }
     let center_y = area.y.saturating_add(area.height / 2);
-    let title_width = name.width().min(area.width as usize);
-    let title_x = area.x.saturating_add(area.width.saturating_sub(title_width as u16) / 2);
-    buffer.set_stringn(title_x, center_y.saturating_sub(1), &name, title_width, title_style);
-    let status_width = status.width().min(area.width as usize);
-    let status_x = area.x.saturating_add(area.width.saturating_sub(status_width as u16) / 2);
-    buffer.set_stringn(status_x, center_y, status, status_width, style);
+    let title_width = name.cell_width().min(area.width);
+    let title_x = area.x.saturating_add(area.width.saturating_sub(title_width) / 2);
+    buffer.set_stringn(
+        title_x,
+        center_y.saturating_sub(1),
+        &name,
+        title_width as usize,
+        title_style,
+    );
+    let status_width = status.cell_width().min(area.width);
+    let status_x = area.x.saturating_add(area.width.saturating_sub(status_width) / 2);
+    buffer.set_stringn(status_x, center_y, status, status_width as usize, style);
     true
 }
 
@@ -278,7 +283,7 @@ fn draw_surface_status(app: &mut App, frame: &mut Frame) {
         return;
     }
     let copy_label = status_copy_label();
-    let copy_width = copy_label.width().min(area.width as usize) as u16;
+    let copy_width = copy_label.cell_width().min(area.width);
     let show_copy = area.width > copy_width.saturating_add(2);
     let message_width = if show_copy {
         area.width.saturating_sub(copy_width.saturating_add(1))
@@ -286,7 +291,7 @@ fn draw_surface_status(app: &mut App, frame: &mut Frame) {
         area.width
     };
     let text = status_display_text(message, message_width as usize);
-    let text_width = text.width() as u16;
+    let text_width = text.cell_width();
     let style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
     draw_interactive_status_message(
         app,
@@ -405,7 +410,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let mut hits = Vec::new();
     let put = |frame: &mut Frame, x: &mut u16, text: &str, style: Style| -> (u16, u16) {
         let start = *x;
-        let width = text.width().min(area.width.saturating_sub(*x) as usize) as u16;
+        let width = text.cell_width().min(area.width.saturating_sub(*x));
         if width > 0 {
             frame.buffer_mut().set_stringn(*x, status_y, text, width as usize, style);
             *x += width;
@@ -484,7 +489,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // over the pane border above this row.
     let available_label_width = area.width.saturating_sub(x) as usize;
     let copy_label = status_copy_label();
-    let copy_width = copy_label.width();
+    let copy_width = usize::from(copy_label.cell_width());
     let show_copy =
         app.status_message.is_some() && available_label_width > copy_width.saturating_add(3);
     let status_text = app.status_message.as_deref().map(|message| {
@@ -510,7 +515,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                     String::new()
                 }
             });
-    let label_w = label.width().min(area.width as usize) as u16;
+    let label_w = label.cell_width().min(area.width);
     // Right-aligned custom segments sit left of the label; draw them and
     // shrink the viewport track accordingly.
     let mut right_x = area.width.saturating_sub(label_w);
@@ -522,7 +527,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         if segment.text.is_empty() {
             continue;
         }
-        let width = (segment.text.width() as u16).min(right_x.saturating_sub(x));
+        let width = segment.text.cell_width().min(right_x.saturating_sub(x));
         if width == 0 {
             break;
         }
@@ -535,7 +540,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             segment_style(segment),
         );
         if let Some(separator) = right_separator {
-            let separator_width = (separator.width() as u16).min(right_x.saturating_sub(x));
+            let separator_width = separator.cell_width().min(right_x.saturating_sub(x));
             if separator_width == 0 {
                 break;
             }
@@ -593,7 +598,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             },
         );
         if let Some(status_text) = status_text {
-            let status_width = status_text.width() as u16;
+            let status_width = status_text.cell_width();
             draw_interactive_status_message(
                 app,
                 frame,
@@ -644,7 +649,7 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
         .display_label()
         .map(|label| format!(" {label} "))
         .unwrap_or_default();
-    let prefix_width = prefix.width() as u16;
+    let prefix_width = prefix.cell_width();
     if prefix_width > 0 && x.saturating_add(prefix_width) <= area.width {
         frame.buffer_mut().set_stringn(x, y, &prefix, prefix_width as usize, keycap);
         x += prefix_width;
@@ -680,8 +685,8 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
         let Some(key) = app.config.keys.prefixed_key_label(action) else { continue };
         let key = format!(" {key} ");
         let label = format!(" {} ", catalog().action_label(action));
-        let key_width = key.width() as u16;
-        let label_width = label.width() as u16;
+        let key_width = key.cell_width();
+        let label_width = label.cell_width();
         if x.saturating_add(key_width).saturating_add(label_width) > area.width {
             break;
         }
@@ -712,7 +717,7 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
     let byte_truncated = prefix_end < s.len();
     let bounded_prefix = &s[..prefix_end];
 
-    if !byte_truncated && bounded_prefix.width() <= max {
+    if !byte_truncated && usize::from(bounded_prefix.cell_width()) <= max {
         return bounded_prefix.to_string();
     }
 
@@ -733,7 +738,7 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         complete_prefix.len().min(content_byte_budget).saturating_add('…'.len_utf8()),
     );
     for grapheme in complete_prefix.graphemes(true) {
-        let grapheme_width = grapheme.width();
+        let grapheme_width = usize::from(grapheme.cell_width());
         if width.saturating_add(grapheme_width) > content_width
             || out.len().saturating_add(grapheme.len()) > content_byte_budget
         {
@@ -746,23 +751,45 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
-    let chars = input.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
-        return input.to_string();
-    }
-    if max_chars == 0 {
+pub(crate) fn middle_truncate(input: &str, max_width: usize) -> String {
+    if max_width == 0 {
         return String::new();
     }
-    if max_chars <= 3 {
-        return ".".repeat(max_chars);
+    if usize::from(input.cell_width()) <= max_width {
+        return input.to_string();
     }
-    let keep = max_chars - 3;
-    let front = keep.div_ceil(2);
-    let back = keep / 2;
-    let mut output = chars[..front].iter().collect::<String>();
+    if max_width <= 3 {
+        return ".".repeat(max_width);
+    }
+    let keep_width = max_width - 3;
+    let front_width = keep_width.div_ceil(2);
+    let back_width = keep_width / 2;
+    let graphemes = input.graphemes(true).collect::<Vec<_>>();
+    let mut front = String::new();
+    let mut width: usize = 0;
+    for grapheme in graphemes.iter().copied() {
+        let grapheme_width = usize::from(grapheme.cell_width());
+        if width.saturating_add(grapheme_width) > front_width {
+            break;
+        }
+        front.push_str(grapheme);
+        width += grapheme_width;
+    }
+    let mut back = Vec::new();
+    width = 0;
+    for grapheme in graphemes.iter().rev().copied() {
+        let grapheme_width = usize::from(grapheme.cell_width());
+        if width.saturating_add(grapheme_width) > back_width {
+            break;
+        }
+        back.push(grapheme);
+        width += grapheme_width;
+    }
+    let mut output = front;
     output.push_str("...");
-    output.extend(&chars[chars.len() - back..]);
+    for grapheme in back.iter().rev() {
+        output.push_str(grapheme);
+    }
     output
 }
 
@@ -783,6 +810,24 @@ mod tests {
         assert_eq!(middle_truncate("abcdefghi", 3), "...");
         assert_eq!(middle_truncate("abc", 3), "abc");
         assert_eq!(middle_truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn middle_truncation_zero_width_input_respects_zero_budget() {
+        assert_eq!(middle_truncate("\u{200b}", 0), "");
+    }
+
+    #[test]
+    fn middle_truncation_respects_graphemes_and_terminal_cells() {
+        assert_eq!(middle_truncate("界界界界", 7), "界...界");
+        assert_eq!(middle_truncate("e\u{301}clair", 5), "e\u{301}...r");
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn truncation_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        assert_eq!(middle_truncate("界ﾞ界ﾞ", 5), "...");
+        assert_eq!(truncate("界ﾞ界ﾞ", 5), "界ﾞ…");
     }
 
     #[test]

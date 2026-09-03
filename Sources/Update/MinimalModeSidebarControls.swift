@@ -45,10 +45,7 @@ enum TitlebarControlsHitRegions {
         let sidebarX = startX
         let notificationsX = sidebarX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
-        let newTabWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
-        let cloudMenuX = newTabX + newTabWidth
-        let cloudMenuWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
-        let focusBackX = cloudMenuX + cloudMenuWidth + config.spacing
+        let focusBackX = newTabX + config.buttonSize + config.spacing
         let focusForwardX = focusBackX + config.buttonSize + config.spacing
 
         let minX: CGFloat = switch slot {
@@ -58,21 +55,12 @@ enum TitlebarControlsHitRegions {
             notificationsX
         case .newTab:
             newTabX
-        case .cloudVM:
-            cloudMenuX
         case .focusHistoryBack:
             focusBackX
         case .focusHistoryForward:
             focusForwardX
         }
-        let width: CGFloat = switch slot {
-        case .newTab:
-            newTabWidth
-        case .cloudVM:
-            cloudMenuWidth
-        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
-            config.buttonSize
-        }
+        let width: CGFloat = config.buttonSize
         return minX...(minX + width)
     }
 
@@ -230,12 +218,6 @@ final class MinimalModeSidebarControlActionView: NSView {
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
-        case .cloudVM:
-            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
-                anchorView: self,
-                event: event,
-                debugSource: "titlebar.minimalSidebar.cloudMenu.rightClick"
-            )
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:

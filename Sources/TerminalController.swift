@@ -554,10 +554,25 @@ class TerminalController {
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleSocketReadSnapshotRefresh()
+                // These topology notifications are posted by MainActor-owned
+                // workspace/window mutations. A nil queue keeps invalidation
+                // synchronous at the notification boundary.
+                queue: nil
+            ) { [weak self] notification in
+                let topologyChanged = name == .mainWindowContextsDidChange
+                    || name == .workspaceOrderDidChange
+                    || (name == .workspacePaneGeometryDidChange
+                        && notification.userInfo?[GhosttyNotificationKey.topologyChanged] as? Bool == true)
+                // This observer is explicitly installed on the main queue.
+                // Invalidate before creating the deferred publication task so
+                // a queued socket read cannot observe a completed claim after
+                // the topology has already changed.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if topologyChanged {
+                        self.invalidateSocketHandleTopologyRefresh()
+                    }
+                    self.scheduleSocketReadSnapshotRefresh()
                 }
             }
         }
@@ -677,11 +692,11 @@ class TerminalController {
         }
     }
 
-    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () throws -> T) rethrows -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return try body()
     }
 
     /// The stack of socket command keys currently executing on this thread
@@ -1185,6 +1200,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "surface.read_selection" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 5
+                ) {
+                    await self.v2SurfaceReadSelection(params: parsedRequest.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -1197,7 +1220,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
@@ -1212,6 +1238,12 @@ class TerminalController {
                         )
                     }
                 }
+            }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
@@ -2967,6 +2999,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -4040,7 +4073,7 @@ class TerminalController {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
@@ -4104,6 +4137,7 @@ class TerminalController {
                 }
             }
         }
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 
     // MARK: - V2 Context Resolution
@@ -13035,6 +13069,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13073,6 +13114,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13127,6 +13175,7 @@ class TerminalController {
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
                     ),
+                    soundContext: meta?.soundContext,
                     correlationKey: meta?.correlationKey
                 )
                 return "OK"
@@ -13158,6 +13207,7 @@ class TerminalController {
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
                 ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13201,6 +13251,7 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

@@ -4,8 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createTranslator } from "use-intl/core";
 import {
   changelogPath,
+  changelogStaticVersionCount,
   changelogVersionDescription,
   changelogVersionPath,
+  changelogVersionsForPrerender,
   localizedChangelogPath,
   ChangelogStore,
   parseChangelog,
@@ -102,15 +104,23 @@ Release intro.
     expect(store.versions()[0]?.version).toBe("2.0.0");
   });
 
-  test("pre-renders a route for every version in the source changelog", () => {
+  test("pre-renders recent versions and keeps historical routes available", () => {
     const versions = changelogStore
       .versions()
       .map((release) => release.version);
+    const expectedStaticVersions = versions.slice(0, changelogStaticVersionCount);
 
     expect(generateStaticParams()).toEqual(
-      versions.map((version) => ({ version })),
+      expectedStaticVersions.map((version) => ({ version })),
     );
     expect(versions.length).toBeGreaterThan(80);
+    expect(expectedStaticVersions.length).toBe(changelogStaticVersionCount);
+    expect(changelogVersionsForPrerender(changelogStore.versions())).toHaveLength(
+      changelogStaticVersionCount,
+    );
+    expect(generateStaticParams()).not.toContainEqual({
+      version: versions.at(-1),
+    });
     expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
