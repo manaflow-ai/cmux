@@ -7,9 +7,11 @@ import {
   isRedirectableMethod,
   PUBLICATION_SESSION_TTL_MS,
   PUBLICATION_TRANSACTION_TTL_MS,
+  resolvePublicationForRequest,
   runPublicationAuth,
   type PublicationRequestEvaluation,
 } from "../../../../services/vm-publications/auth";
+import type { CloudVmPublicationTarget } from "../../../../services/vm-publications/repository";
 import {
   PUBLICATION_CALLBACK_PATH,
   PUBLICATION_SESSION_COOKIE,
@@ -19,7 +21,6 @@ import {
   parsePublicationTransactionCookie,
   publicationCookie,
   publicationCookieHeader,
-  publicationHostnameFromHeader,
   publicationSecretMatches,
   safePublicationReturnPath,
 } from "../../../../services/vm-publications/security";
@@ -30,6 +31,9 @@ const MAX_FORWARDED_URI_BYTES = 2_048;
 export type ForwardAuthHandlerDependencies = {
   readonly serviceSecret: string | undefined;
   readonly authPageOrigin: string | undefined;
+  /** The publication behind the edge's TLS rule id; the callback exchange is bound to its hostname. */
+  readonly resolve: (input: Parameters<typeof resolvePublicationForRequest>[0]) =>
+    Promise<CloudVmPublicationTarget | null>;
   readonly evaluate: (input: Parameters<typeof evaluatePublicationRequest>[0]) =>
     Promise<PublicationRequestEvaluation>;
   /** Runs only when a sign-in transaction is about to be minted; a Response short-circuits. */
@@ -54,6 +58,7 @@ const liveDependencies: ForwardAuthHandlerDependencies = {
   serviceSecret: env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
   authPageOrigin: normalizePublicationAuthOrigin(env.CMUX_VM_PUBLICATION_AUTH_ORIGIN) ??
     undefined,
+  resolve: (input) => runPublicationAuth(resolvePublicationForRequest(input)),
   evaluate: (input) => runPublicationAuth(evaluatePublicationRequest(input)),
   rateLimit: (input) => enforcePublicationSignInRateLimit({
     ...input,
@@ -90,6 +95,11 @@ export async function enforcePublicationSignInRateLimit(input: {
  * Freestyle's shared forward-auth target. It never authenticates from caller-
  * supplied forwarding headers: the write-only service credential is required
  * before any publication lookup or auth artifact is touched.
+ *
+ * The publication is identified by `x-freestyle-tls-rule-id` alone. Vercel
+ * replaces `x-forwarded-host` with the function's own host (cmux.com) before
+ * the route runs, so the value Freestyle sends never arrives; every hostname
+ * this route acts on is read from the resolved publication row instead.
  */
 export async function GET(request: Request): Promise<Response> {
   return handleForwardAuthRequest(request, liveDependencies);
@@ -118,9 +128,6 @@ export async function handleForwardAuthRequest(
     return response(null, 503);
   }
 
-  const hostname = publicationHostnameFromHeader(
-    request.headers.get("x-forwarded-host"),
-  );
   const providerTlsRuleId = request.headers
     .get("x-freestyle-tls-rule-id")
     ?.trim() ?? "";
@@ -129,7 +136,6 @@ export async function handleForwardAuthRequest(
     request.headers.get("x-forwarded-uri"),
   );
   if (
-    !hostname ||
     !TLS_RULE_ID_PATTERN.test(providerTlsRuleId) ||
     !method ||
     !forwardedUri
@@ -140,15 +146,16 @@ export async function handleForwardAuthRequest(
   try {
     if (forwardedUri.pathname === PUBLICATION_CALLBACK_PATH) {
       if (!isRedirectableMethod(method)) return response(null, 400);
+      const target = await dependencies.resolve({ providerTlsRuleId });
+      if (!target) return response(null, 404);
       return await callbackResponse(request, {
-        hostname,
+        hostname: target.publication.hostname,
         code: forwardedUri.searchParams.get("code") ?? "",
         state: forwardedUri.searchParams.get("state") ?? "",
       }, dependencies);
     }
 
     const evaluation = await dependencies.evaluate({
-      hostname,
       providerTlsRuleId,
       method,
       sessionToken: publicationCookie(
@@ -163,7 +170,10 @@ export async function handleForwardAuthRequest(
 
     // Minting a transaction is the one write an anonymous request can cause;
     // gate it before touching the database.
-    const limited = await dependencies.rateLimit?.({ request, hostname });
+    const limited = await dependencies.rateLimit?.({
+      request,
+      hostname: evaluation.target.publication.hostname,
+    });
     if (limited) return limited;
     const decision = await dependencies.begin({
       target: evaluation.target,

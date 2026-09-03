@@ -3444,8 +3444,31 @@ mod unix {
         frames
     }
 
-    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    /// Persist a local spawn path with host-authenticated provenance. A host
+    /// can outlive its daemon, so a raw OSC 7 URL here would become the next
+    /// surface's inherited spawn directory after reattachment.
+    fn snapshot_cwd(
+        term: &Terminal,
+        spawn_cwd: Option<&str>,
+        owner_token: &CapabilityToken,
+        protocol_version: u16,
+    ) -> Option<String> {
+        // OSC 7 is terminal-controlled metadata and cannot prove that a path
+        // belongs to this host. Use only the authenticated spawn fallback.
+        let _ = term;
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
+            return Some(path.to_string_lossy().into_owned());
+        }
+        Some(format!(
+            "{}{}:{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            encode_hex(owner_token.as_bytes()),
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
@@ -5447,7 +5470,7 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
+                    cwd: snapshot_cwd(&term, host.cwd.as_deref(), &host.owner_token, selected_version),
                 },
                 colors,
                 snapshot_sequence,
@@ -9243,13 +9266,36 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            let marker = format!(
+                "{}{}:/spawn",
+                crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+                encode_hex(owner_token.as_bytes())
+            );
+            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker.clone()));
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker.clone()));
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION), Some(marker));
+            assert_eq!(snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION), None);
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
+                assert_eq!(
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(std::path::PathBuf::from("/spawn"))
+                );
+            }
         }
 
         #[test]
