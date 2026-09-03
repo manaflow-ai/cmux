@@ -64,6 +64,7 @@ export type CoderouterExceptionInput = {
   readonly level: "error" | "warning";
   readonly error?: unknown;
   readonly handled?: boolean;
+  readonly userId?: string;
   readonly teamId?: string;
   readonly properties?: Readonly<Record<string, string | number | boolean | null | undefined>>;
 };
@@ -72,6 +73,7 @@ export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEv
   const frames = stackFrames(input.error);
   return {
     event: "$exception",
+    userId: input.userId,
     teamId: input.teamId,
     properties: {
       ...cleanTelemetryProperties(input.properties ?? {}),

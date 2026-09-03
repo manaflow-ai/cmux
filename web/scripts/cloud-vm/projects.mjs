@@ -43,17 +43,14 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_FREESTYLE_ENABLED",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
-  // Coderouter: the usage ledger (customer-facing usage, alert source), the
-  // credential vault key, and the isolated PostHog project that receives every
-  // trace and exception. Analytics fail closed without the key pair, so a
-  // missing value is a silent observability outage.
+  // Coderouter: the usage ledger (customer-facing usage, alert source) and
+  // the credential vault key. Coderouter analytics use the main PostHog
+  // project (POSTHOG_PROJECT_KEY has an in-code default).
   "CLICKHOUSE_DATABASE",
   "CLICKHOUSE_PASSWORD",
   "CLICKHOUSE_URL",
   "CLICKHOUSE_USER",
-  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
   "CODEROUTER_KMS_KEY_ID",
-  "POSTHOG_CODEROUTER_PROJECT_KEY",
   "FREESTYLE_API_KEY",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
@@ -113,6 +110,18 @@ export const legacyCloudVmEnvKeys = [
   "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
   "SUBROUTER_ALLOWED_TEAM_IDS",
   "CODEROUTER_HOSTED_PRO_REQUIRED",
+  // The isolated coderouter PostHog project (HMAC pseudonyms, PostHog
+  // Endpoints) was retired on 2026-09-03: coderouter events now go to the main
+  // cmux project keyed by Stack user id. The runtime ignores these keys.
+  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+  "POSTHOG_CODEROUTER_API_HOST",
+  "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+  "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+  "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+  "POSTHOG_CODEROUTER_INGEST_HOST",
+  "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+  "POSTHOG_CODEROUTER_PROJECT_ID",
+  "POSTHOG_CODEROUTER_PROJECT_KEY",
 ];
 
 export function normalizeTarget(value) {

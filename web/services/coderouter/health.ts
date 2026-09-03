@@ -1,8 +1,8 @@
 // Coderouter dependency health, for `GET /api/coderouter/health` (uptime
 // monitors) and the alert cron. Each check is bounded and reports a status,
 // never a value: no connection string, key id, or host name leaves the
-// process. `degraded` means the data plane still routes but usage or
-// analytics are dark; `down` means requests would fail.
+// process. `degraded` means the data plane still routes but the usage ledger
+// is dark; `down` means requests would fail.
 import { sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
@@ -11,7 +11,7 @@ import { clickHouseConfig, query as clickHouseQuery } from "./clickhouse";
 export type HealthStatus = "ok" | "degraded" | "down";
 
 export type HealthCheck = {
-  readonly name: "postgres" | "clickhouse" | "analytics_config" | "kms_config";
+  readonly name: "postgres" | "clickhouse" | "kms_config";
   readonly ok: boolean;
   /** Whether a failure takes the data plane down or only darkens telemetry. */
   readonly critical: boolean;
@@ -60,19 +60,10 @@ export async function coderouterHealth(
     timed("clickhouse", false, dependencies.timeoutMs, dependencies.pingClickHouse),
   ]);
   const env = dependencies.env;
-  const analyticsConfigured =
-    Boolean(env.POSTHOG_CODEROUTER_PROJECT_KEY?.trim()) &&
-    (env.CODEROUTER_ANALYTICS_SCOPE_SECRET?.trim().length ?? 0) >= 32;
   const kmsConfigured = Boolean(env.CODEROUTER_KMS_KEY_ID?.trim()) && Boolean(env.AWS_REGION?.trim());
   const checks: HealthCheck[] = [
     postgres,
     clickhouse,
-    {
-      name: "analytics_config",
-      ok: analyticsConfigured,
-      critical: false,
-      ...(analyticsConfigured ? {} : { reason: "missing_project_key_or_scope_secret" }),
-    },
     {
       name: "kms_config",
       ok: kmsConfigured,

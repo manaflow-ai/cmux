@@ -9,7 +9,6 @@ const healthy: CoderouterHealth = {
   checks: [
     { name: "postgres", ok: true, critical: true, latencyMs: 3 },
     { name: "clickhouse", ok: true, critical: false, latencyMs: 40 },
-    { name: "analytics_config", ok: true, critical: false },
     { name: "kms_config", ok: true, critical: true },
   ],
   checkedAt: "2026-09-03T00:00:00.000Z",
@@ -79,7 +78,7 @@ describe("coderouter alert checks", () => {
   test("tenants without a usable account are named, auth rejects use their own threshold", async () => {
     const { sent, run } = harness([
       { outcome: "no_usable_account", failure_stage: "account_selection", team_id: "team-a", provider: "codex", c: 6 },
-      { outcome: "no_usable_account", failure_stage: "account_selection", team_id: "team-b", provider: "claude", c: 4 },
+      { outcome: "no_usable_account", failure_stage: "provider_config", team_id: "team-b", provider: "claude", c: 4 },
       { outcome: "unauthorized", failure_stage: "auth", team_id: "", provider: "codex", c: 30 },
     ], healthy, webhook);
     await run();
@@ -95,8 +94,7 @@ describe("coderouter alert checks", () => {
       checks: [
         { name: "postgres", ok: false, critical: true, reason: "timeout" },
         { name: "clickhouse", ok: false, critical: false, reason: "not_configured" },
-        { name: "analytics_config", ok: true, critical: false },
-        { name: "kms_config", ok: true, critical: true },
+            { name: "kms_config", ok: true, critical: true },
       ],
     };
     const { sent, run } = harness([], down, webhook);

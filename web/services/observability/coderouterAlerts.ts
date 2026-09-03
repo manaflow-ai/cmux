@@ -138,7 +138,9 @@ export async function runCoderouterAlertChecks(
     const total = sum(rows);
     const operatorRows = rows.filter((row) => isOperatorFailure(row));
     const upstreamRows = rows.filter((row) => isUpstreamFailure(row));
-    const noAccountRows = rows.filter((row) => row.outcome === "no_usable_account" && row.failure_stage === "account_selection");
+    const noAccountRows = rows.filter((row) =>
+      row.outcome === "no_usable_account" &&
+      (row.failure_stage === "account_selection" || row.failure_stage === "provider_config"));
     const authRows = rows.filter((row) => row.outcome === "unauthorized");
 
     const operatorCount = sum(operatorRows);
@@ -211,7 +213,9 @@ function isOperatorFailure(row: RouteEventRow): boolean {
 function isUpstreamFailure(row: RouteEventRow): boolean {
   if (row.outcome === "upstream_error") return true;
   if (row.outcome === "provider_unavailable") {
-    return row.failure_stage === "upstream_transport" || row.failure_stage === "upstream_response";
+    return row.failure_stage === "upstream_transport" ||
+      row.failure_stage === "upstream_response" ||
+      row.failure_stage === "provider_config";
   }
   return row.outcome === "no_usable_account" &&
     (row.failure_stage === "credential_refresh" || row.failure_stage === "upstream_transport");

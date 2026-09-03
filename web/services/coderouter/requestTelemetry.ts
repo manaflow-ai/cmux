@@ -243,9 +243,10 @@ export type CoderouterFault = "none" | "caller" | "tenant" | "upstream" | "opera
 
 /**
  * Whose fault a terminal outcome is. Only `operator` pages anyone: RDS, KMS,
- * config and crashes are ours. `upstream` is a provider outage or rate limit
- * we failed over on and still lost. `tenant` is a team with no usable account.
- * `caller` is a bad token or a client error the guest must fix.
+ * config and crashes are ours. `upstream` is a provider outage, rate limit or
+ * bad provider catalog we failed over on and still lost. `tenant` is a team
+ * with no usable account (none added, all cooling down). `caller` is a bad
+ * token or a client error the guest must fix.
  */
 export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterFault {
   const { status } = outcome;
@@ -253,8 +254,11 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
   if (outcome.outcome === "unauthorized" || (status < 500 && status !== 429)) return "caller";
   switch (outcome.outcome) {
     case "route_crash":
+      return "operator";
     case "provider_unavailable":
-      return outcome.failureStage === "upstream_transport" || outcome.failureStage === "upstream_response"
+      return outcome.failureStage === "upstream_transport" ||
+          outcome.failureStage === "upstream_response" ||
+          outcome.failureStage === "provider_config"
         ? "upstream"
         : "operator";
     case "no_usable_account":
@@ -286,6 +290,7 @@ export function traceEvents(
   const fault = classifyCoderouterFault(outcome);
   const isError = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
+  const userId = context.identity?.stackUserId ?? context.userId;
   const common = {
     coderouter_request_id: context.requestId,
     coderouter_surface: context.surface,
@@ -302,6 +307,7 @@ export function traceEvents(
   const events: CoderouterRawEvent[] = [
     {
       event: "$ai_trace",
+      userId,
       teamId,
       timestamp: new Date(context.startedAtEpochMs).toISOString(),
       properties: {
@@ -323,6 +329,7 @@ export function traceEvents(
   for (const span of context.spans) {
     events.push({
       event: "$ai_span",
+      userId,
       teamId,
       timestamp: new Date(span.startedAtEpochMs).toISOString(),
       properties: {
@@ -349,6 +356,7 @@ export function traceEvents(
       level: fault === "operator" ? "error" : "warning",
       error: input.error,
       handled: input.error === undefined,
+      userId,
       teamId,
       properties: { ...common, $ai_trace_id: context.requestId },
     }));

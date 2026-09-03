@@ -34,14 +34,12 @@ describe("CodeRouter per-machine metrics", () => {
   test("stamps coderouter_vm_id on $ai_generation only for bound traffic", () => {
     const bound = analyticsTest.aiUsageProperties(
       { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5, vm_id: vmId },
-      "team-scope",
     );
     expect(bound).toMatchObject({ coderouter_vm_id: vmId });
     expect(bound).not.toHaveProperty("vm_id");
     expect(
       analyticsTest.aiUsageProperties(
         { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5 },
-        "team-scope",
       ),
     ).not.toHaveProperty("coderouter_vm_id");
     expect(

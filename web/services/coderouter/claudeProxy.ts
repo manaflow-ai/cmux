@@ -229,6 +229,7 @@ export function createClaudeCountTokensProxy(
       upstream.kind === "bedrock"
         ? bedrockCountTokens(dependencies, request, body.bytes, upstream)
         : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens"));
+    recordRoutedOutcome(routed, request);
     return routed.response;
   };
 }
@@ -254,6 +255,7 @@ export function createClaudeModelsProxy(
         AbortSignal.timeout(MODELS_TIMEOUT_MS),
       );
     });
+    recordRoutedOutcome(routed, request);
     return routed.response;
   };
 }
@@ -290,6 +292,15 @@ async function authenticateRoute(
         failureStage: "auth",
         responseStreamed: false,
         attemptCount: 0,
+      });
+    } else {
+      recordCoderouterOutcome({
+        outcome: "unauthorized",
+        failureStage: "auth",
+        status: 401,
+        provider: "claude",
+        agent: agentFromUserAgent(request.headers.get("user-agent")),
+        attempts: 0,
       });
     }
     return {
@@ -359,11 +370,14 @@ async function routeWithFailover(
       };
     }
     if (selection.kind === "none") {
+      // The team has not added a Claude account: a tenant state, not an
+      // outage, so it shares the `no_usable_account` outcome and is told
+      // apart by the `provider_config` stage.
       addCoderouterBreadcrumb("routing", "No Claude upstream account configured", { surface }, "warning");
       return {
         kind: "exhausted",
         attempts,
-        outcome: "provider_unavailable",
+        outcome: "no_usable_account",
         failureStage: "provider_config",
         response: anthropicError(
           503,
@@ -816,6 +830,35 @@ function requestIdHeader(headers: Headers): Record<string, string> {
 
 // Errors and analytics.
 
+/**
+ * Terminal outcome of a count_tokens or models call for the request context
+ * (PostHog trace, Axiom span). These surfaces are not ledger rows.
+ */
+function recordRoutedOutcome(routed: Routed, request: Request): void {
+  const agent = agentFromUserAgent(request.headers.get("user-agent"));
+  if (routed.kind === "exhausted") {
+    recordCoderouterOutcome({
+      outcome: routed.outcome,
+      failureStage: routed.failureStage,
+      status: routed.response.status,
+      provider: "claude",
+      agent,
+      attempts: routed.attempts,
+    });
+    return;
+  }
+  recordCoderouterOutcome({
+    outcome: routed.failed ? "upstream_error" : "success",
+    failureStage: routed.failed ? routed.failureStage : "none",
+    status: routed.response.status,
+    provider: "claude",
+    agent,
+    attempts: routed.attempts,
+    upstreamKind: routed.upstream.kind,
+    upstreamAccountId: routed.upstream.accountId,
+  });
+}
+
 export function anthropicError(
   status: number,
   type: string,
@@ -864,26 +907,6 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     upstreamKind: input.upstream?.kind,
     upstreamAccountId: input.upstream?.accountId,
   });
-  dependencies.capture({
-    event: "coderouter_route_health",
-    teamId: input.identity?.teamId,
-    properties: {
-      provider: "claude",
-      agent,
-      outcome: input.outcome,
-      failure_stage: input.failureStage,
-      status: input.status,
-      attempt_count: input.attemptCount,
-      refresh_retry_count: 0,
-      duration_ms: durationMs,
-      response_streamed: input.responseStreamed,
-      request_id: input.requestId,
-      ...(input.identity?.vmId ? { vm_id: input.identity.vmId } : {}),
-      ...(input.upstream
-        ? { upstream_kind: input.upstream.kind, upstream_account_id: input.upstream.accountId }
-        : {}),
-    },
-  });
   recordRouteEvent({
     requestId: input.requestId,
     teamId: input.identity?.teamId,
@@ -919,6 +942,7 @@ function captureModelUsage(
     usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
   dependencies.capture({
     event: "coderouter_model_request_completed",
+    userId: identity.stackUserId,
     teamId: identity.teamId,
     properties: {
       provider: "claude",

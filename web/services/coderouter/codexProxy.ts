@@ -371,18 +371,26 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         event: "coderouter_auth_rejected",
         properties: { surface: "models", reason: auth.reason },
       });
+      recordCoderouterOutcome({ outcome: "unauthorized", failureStage: "auth", status: 401, provider: "codex", attempts: 0 });
       return unauthorizedError(auth.reason);
     }
     const identity = auth.identity;
 
     const attempted: string[] = [];
     let upstream: Response | null = null;
+    let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" = "account_selection";
     for (let attempt = 0; attempt < 8; attempt++) {
+      const selectStartedAt = performance.now();
       const account = await dependencies.select(
         identity.teamId,
         "codex",
         attempted,
       );
+      recordCoderouterSpan({
+        name: "account_selection",
+        startedAt: selectStartedAt,
+        attributes: { provider: "codex", attempt: attempt + 1, healthy: account !== null },
+      });
       if (!account) break;
       attempted.push(account.id);
       let credential;
@@ -393,11 +401,13 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
           expectedRevision: account.vaultRevision,
         });
       } catch {
+        failureStage = "credential_refresh";
         continue;
       }
       if (credential.provider !== "codex") continue;
       const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
       upstreamUrl.search = new URL(request.url).search;
+      const upstreamStartedAt = performance.now();
       try {
         upstream = await dependencies.providerRead(() =>
           fetch(upstreamUrl, {
@@ -411,11 +421,24 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
             signal: AbortSignal.timeout(5_000),
           }),
         );
+        recordCoderouterSpan({
+          name: "upstream_attempt",
+          startedAt: upstreamStartedAt,
+          attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status, surface: "models" },
+        });
       } catch (error) {
+        failureStage = "upstream_transport";
+        recordCoderouterSpan({
+          name: "upstream_attempt",
+          startedAt: upstreamStartedAt,
+          error: error instanceof Error ? error.name : "transport",
+          attributes: { provider: "codex", attempt: attempt + 1, surface: "models" },
+        });
         reportCoderouterFailure("upstream_transport", error, {
           provider: "codex",
           operation: "models",
           attempt: attempt + 1,
+          request_id: currentCoderouterRequestId(),
         });
         continue;
       }
@@ -437,6 +460,13 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
       break;
     }
     if (!upstream) {
+      recordCoderouterOutcome({
+        outcome: "no_usable_account",
+        failureStage,
+        status: 503,
+        provider: "codex",
+        attempts: attempted.length,
+      });
       return jsonError(
         "no_usable_account",
         503,
@@ -445,6 +475,13 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         true,
       );
     }
+    recordCoderouterOutcome({
+      outcome: upstream.ok ? "success" : "upstream_error",
+      failureStage: upstream.ok ? "none" : "upstream_response",
+      status: upstream.status,
+      provider: "codex",
+      attempts: attempted.length,
+    });
     return new Response(upstream.body, {
       status: upstream.status,
       headers: {
@@ -598,25 +635,6 @@ function captureRouteHealth(input: {
     refreshRetries: input.refreshRetries,
     responseStreamed: input.responseStreamed,
   });
-  // Capture as soon as the terminal route result is known. This is deliberately
-  // independent of response consumption and token parsing.
-  captureCoderouterEvent({
-    event: "coderouter_route_health",
-    teamId: input.identity?.teamId,
-    properties: {
-      provider: "codex",
-      agent,
-      outcome: input.outcome,
-      failure_stage: failureStage,
-      status: input.status,
-      attempt_count: input.attempted,
-      refresh_retry_count: input.refreshRetries,
-      duration_ms: durationMs,
-      response_streamed: input.responseStreamed,
-      request_id: input.requestId,
-      ...vmIdProperty(input.identity?.vmId ?? null),
-    },
-  });
   recordRouteEvent({
     requestId: input.requestId,
     teamId: input.identity?.teamId,
@@ -647,6 +665,7 @@ function captureModelUsage(
   if (!usage || usage.totalTokens === 0) return;
   captureCoderouterEvent({
     event: "coderouter_model_request_completed",
+    userId: identity.stackUserId,
     teamId: identity.teamId,
     properties: {
       provider: "codex",

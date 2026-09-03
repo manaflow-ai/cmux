@@ -238,17 +238,19 @@ describe("required runtime env keys cover the production provider path", () => {
     }
   });
 
-  test("coderouter ledger, vault and analytics keys are required", () => {
+  test("coderouter ledger and vault keys are required; the retired isolated PostHog project is legacy", () => {
     for (const key of [
       "CLICKHOUSE_URL",
       "CLICKHOUSE_USER",
       "CLICKHOUSE_PASSWORD",
       "CLICKHOUSE_DATABASE",
       "CODEROUTER_KMS_KEY_ID",
-      "POSTHOG_CODEROUTER_PROJECT_KEY",
-      "CODEROUTER_ANALYTICS_SCOPE_SECRET",
     ]) {
       expect(requiredRuntimeEnvKeys).toContain(key);
+    }
+    for (const key of ["POSTHOG_CODEROUTER_PROJECT_KEY", "CODEROUTER_ANALYTICS_SCOPE_SECRET"]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
     }
   });
 

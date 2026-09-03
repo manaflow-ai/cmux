@@ -284,6 +284,7 @@ export async function proxyOpenCodeRequest(
     if (!usage || usage.totalTokens === 0) return;
     captureCoderouterEvent({
       event: "coderouter_model_request_completed",
+      userId: auth.stackUserId,
       teamId: auth.teamId,
       properties: {
         provider: "opencode-go",
@@ -501,23 +502,6 @@ function captureOpenCodeHealth(input: {
     attempts: input.attempts ?? 0,
     refreshRetries: 0,
     responseStreamed: input.responseStreamed ?? false,
-  });
-  captureCoderouterEvent({
-    event: "coderouter_route_health",
-    ...(input.identity ? { teamId: input.identity.teamId } : {}),
-    properties: {
-      provider: "opencode-go",
-      agent: "opencode",
-      outcome: input.outcome,
-      failure_stage: input.failureStage,
-      status: input.status,
-      duration_ms: durationMs,
-      attempt_count: input.attempts ?? 0,
-      refresh_retry_count: 0,
-      response_streamed: input.responseStreamed ?? false,
-      request_id: input.requestId,
-      ...vmIdProperty(input.identity?.vmId ?? null),
-    },
   });
   recordRouteEvent({
     requestId: input.requestId,

@@ -12,7 +12,7 @@ Every coderouter route runs inside `withCoderouterRoute` (`requestTelemetry.ts`)
 - `request_id` of the ClickHouse `route_events` and `usage_events` rows;
 - `cmux.coderouter.request_id` on the Axiom route span (and `trace_id` on the PostHog trace points back at Axiom).
 
-PostHog events, all in the isolated coderouter project (`POSTHOG_CODEROUTER_PROJECT_KEY`, ingest host `POSTHOG_CODEROUTER_INGEST_HOST`, production or `CODEROUTER_ANALYTICS_FORCE=1`), distinct id = HMAC team scope when the request authenticated, else `coderouter-server`:
+PostHog events go to the main cmux project (`POSTHOG_PROJECT_KEY` / `POSTHOG_HOST`, production or `CODEROUTER_ANALYTICS_FORCE=1`). The distinct id is the Stack user id whenever the request authenticated (the route token's owner, or the signed-in user on control-plane routes), so a person's coderouter requests sit on the same PostHog person as their cmux.com activity. The cmux web app already identifies visitors with the Stack user id (`services/analytics/stackIdentity.ts`); the macOS app still uses an anonymous PostHog id, so joining Mac app events needs a client-side `identify` there (follow-up). Unauthenticated events (auth rejects, alerts) use `coderouter-server` with person processing off. Team and VM ids travel as `team_id` and `coderouter_vm_id`. Until 2026-09-03 these events went to a separate project under HMAC pseudonyms; that project (549394) and its `POSTHOG_CODEROUTER_*` keys are retired, and its dashboards must be rebuilt in the cmux project.
 
 | event | when | key properties |
 | --- | --- | --- |
@@ -20,7 +20,9 @@ PostHog events, all in the isolated coderouter project (`POSTHOG_CODEROUTER_PROJ
 | `$ai_span` | each step: `auth`, `account_selection`, `credential`, `credential_refresh`, `upstream_attempt`, `provider_config` | `$ai_parent_id` = trace id, `$ai_latency`, `$ai_is_error`, `$ai_error` (failure code), `status`, `attempt`, `upstream_kind` |
 | `$ai_generation` | a model response with usage (`analytics.ts`) | tokens, cost estimate, `$ai_latency` to stream end, `$ai_http_status`, `$ai_stream`, `$ai_parent_id` = trace id |
 | `$exception` | every failure that is not the caller's fault, and every `reportCoderouterFailure` | `$exception_fingerprint`, `$exception_level`, `$exception_list` with the scrubbed message and, for thrown errors, raw stack frames |
-| `coderouter_route_health`, `coderouter_auth_rejected`, ... | unchanged bucketed product analytics | now also `coderouter_request_id` |
+| `coderouter_auth_rejected`, account and session lifecycle, CLI commands | unchanged closed-schema product analytics | now keyed by the Stack user, with `team_id` |
+
+The former `coderouter_route_health` event was folded into `$ai_trace`, which carries every field it had plus the fault class and the request id.
 
 Fault classification (`classifyCoderouterFault`) decides who is paged. `operator` (RDS, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
 
@@ -32,7 +34,7 @@ Investigating one failure: take the `x-coderouter-request-id`, open PostHog LLM 
 
 ## Health
 
-`GET /api/coderouter/health` (`health.ts`) is unauthenticated and value-free. It pings Postgres and ClickHouse with a 4 s bound and checks that the analytics key pair and the KMS key/region are configured. `200 {"status":"ok"|"degraded"}` when the data plane can route, `503 {"status":"down"}` when Postgres or KMS is missing. Point the uptime monitor at it.
+`GET /api/coderouter/health` (`health.ts`) is unauthenticated and value-free. It pings Postgres and ClickHouse with a 4 s bound and checks that the KMS key and region are configured. `200 {"status":"ok"|"degraded"}` when the data plane can route, `503 {"status":"down"}` when Postgres or KMS is missing. Point the uptime monitor at it.
 
 ## Alerts
 
@@ -49,10 +51,10 @@ Investigating one failure: take the `x-coderouter-request-id`, open PostHog LLM 
 
 Slack has no dedupe: a persistent condition repeats every run, which is intended for `critical`. With no webhook configured the alerts are counted as dropped, reported once through `reportCoderouterFailure("alerts")` and as a PostHog `coderouter_alert` event, and the cron response carries `configured: false`. Production has no webhook as of 2026-09-03; the env audit (`scripts/cloud-vm/projects.mjs`) requires one unless `CMUX_ALERTS_SINK_UNCONFIGURED_ACK` records the decision.
 
-PostHog-side alerting is configured in the PostHog project, not in code: an Error Tracking issue alert to Slack on new `coderouter*` issues, and an insight alert on `$ai_trace` where `coderouter_fault = operator`.
+Why the threshold checks stay in code rather than moving to PostHog insight alerts: PostHog evaluates insight alerts on an hourly or slower cadence and after ingestion lag, while the cron reads the ledger (the source of truth for what was routed) within five minutes, and its thresholds are versioned and tested here. PostHog owns the alert it is good at: an Error Tracking issue alert to Slack when a new `coderouter*` issue appears (configured in the PostHog project, not in code).
 
 ## Production checklist
 
-Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `POSTHOG_CODEROUTER_PROJECT_KEY`, `CODEROUTER_ANALYTICS_SCOPE_SECRET` (≥ 32 bytes), `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, `CRON_SECRET`, `CMUX_ALERTS_SLACK_WEBHOOK_URL`. Analytics fail closed without the key pair, so a missing value is a silent observability outage; the health endpoint reports it as `analytics_config`.
+Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, `CRON_SECRET`, `CMUX_ALERTS_SLACK_WEBHOOK_URL`. `POSTHOG_PROJECT_KEY` has an in-code default. The retired `POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` keys are flagged as legacy by the audit and can be deleted from Vercel.
 
 Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge.
