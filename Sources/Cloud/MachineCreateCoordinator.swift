@@ -247,7 +247,11 @@ final class MachineCreateCoordinator {
         var operation = operations[index]
         let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
         // The launcher's machine id comes only from the strict stdout protocol.
-        let createdMachineID = completion.machineId
+        // The launcher parses the bounded stdout transcript, while the
+        // progress handler may have seen the authoritative line before the
+        // transcript's oldest bytes were evicted. Keep that observed id as a
+        // fallback so an open failure never invites a duplicate create.
+        let createdMachineID = completion.machineId ?? operation.createdMachineID
         if let createdMachineID {
             operation.createdMachineID = createdMachineID
             operations[index].createdMachineID = createdMachineID
