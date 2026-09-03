@@ -571,6 +571,8 @@ enum CloudTreeNodeBuilder {
             kind: .workspacesGroup(machine: machine),
             children: rows
         )
+    }
+
     /// A machine's forwarded-port resources (`<machine>/browser/port:<n>`), by port number.
     /// Daemon browsers that merely point at a localhost URL keep their browser row.
     static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
