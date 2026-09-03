@@ -1656,7 +1656,7 @@ mod tests {
                 |_bytes| PipeIoControlResult::Completed(()),
                 move |_cols, _rows| {
                     if resize_case {
-                        PipeIoControlResult::Failed(crate::session::test_remote_transport_error())
+                        PipeIoControlResult::Failed(crate::session::test_remote_timeout_error())
                     } else {
                         PipeIoControlResult::Completed(true)
                     }
@@ -1665,13 +1665,17 @@ mod tests {
                     if resize_case {
                         PipeIoControlResult::Completed(())
                     } else {
-                        PipeIoControlResult::Failed(crate::session::test_remote_transport_error())
+                        PipeIoControlResult::Failed(anyhow::Error::new(io::Error::new(
+                            io::ErrorKind::ConnectionReset,
+                            "socket reset",
+                        )))
                     }
                 },
                 |line| diagnostics.push(line),
             );
 
             assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
+            assert!(lifecycle_receiver.try_recv().is_err());
             assert_eq!(diagnostics.len(), 1);
         }
     }
