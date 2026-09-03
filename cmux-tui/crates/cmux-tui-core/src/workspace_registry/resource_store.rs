@@ -883,7 +883,6 @@ impl WorkspaceRegistry {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
-        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
@@ -928,6 +927,7 @@ impl WorkspaceRegistry {
             result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
             "agent projection terminal does not match {terminal_id}"
         );
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
