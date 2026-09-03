@@ -282,7 +282,7 @@ describe("claude proxy direct Anthropic upstreams", () => {
     const usage = events.find((event) => event.event === "coderouter_model_request_completed");
     const { duration_ms: usageDurationMs, request_id: usageRequestId, ...usageProperties } = usage?.properties ?? {};
     expect(typeof usageDurationMs).toBe("number");
-    expect(String(usageRequestId)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(usageRequestId).toBe("unscoped");
     expect({ ...usage, properties: usageProperties }).toEqual({
       event: "coderouter_model_request_completed",
       teamId: "team-1",
@@ -303,7 +303,7 @@ describe("claude proxy direct Anthropic upstreams", () => {
         response_streamed: true,
       },
     });
-    expect(usageRequestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(usageRequestId).toBe("unscoped");
   });
 
   test("omits vm_id for an unbound CLI token", async () => {

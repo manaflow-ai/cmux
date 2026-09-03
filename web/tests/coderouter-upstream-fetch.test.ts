@@ -53,6 +53,31 @@ describe("fetchWithHeadersTimeout", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 
+  test("keeps caller cancellation connected after headers arrive", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    const fetchImpl = (async (_input: unknown, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined;
+      return new Response(new ReadableStream<Uint8Array>({
+        start() {
+          // Keep the body open so the post-header cancellation path remains
+          // observable.
+        },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const response = await fetchWithHeadersTimeout(
+      fetchImpl,
+      "https://upstream.test/v1",
+      { signal: controller.signal },
+      5_000,
+    );
+    expect(response.status).toBe(200);
+    expect(requestSignal?.aborted).toBe(false);
+    controller.abort();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   test("passes through fetch rejections unchanged", async () => {
     const fetchImpl = (async () => {
       throw new TypeError("fetch failed");

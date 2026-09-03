@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { coderouterHealth, type HealthDependencies, type HealthScheduler } from "../services/coderouter/health";
+import {
+  coderouterHealth,
+  createCachedCoderouterHealthProbe,
+  type HealthDependencies,
+  type HealthScheduler,
+} from "../services/coderouter/health";
 
 const configured = {
   CODEROUTER_KMS_KEY_ID: "alias/test",
@@ -38,6 +43,27 @@ function manualScheduler(): HealthScheduler & { fire: () => void } {
 }
 
 describe("coderouterHealth", () => {
+  test("coalesces concurrent probes and caches only for the configured short window", async () => {
+    let now = 0;
+    let calls = 0;
+    const probe = createCachedCoderouterHealthProbe(async () => {
+      calls += 1;
+      return coderouterHealth(dependencies());
+    }, { now: () => now, ttlMs: 5_000 });
+
+    const first = probe();
+    const second = probe();
+    await Promise.all([first, second]);
+    expect(calls).toBe(1);
+
+    now = 4_999;
+    await probe();
+    expect(calls).toBe(1);
+    now = 5_000;
+    await probe();
+    expect(calls).toBe(2);
+  });
+
   test("is ok when every dependency answers", async () => {
     const health = await coderouterHealth(dependencies());
     expect(health.status).toBe("ok");
