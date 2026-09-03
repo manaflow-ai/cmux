@@ -302,6 +302,27 @@ describe("withCoderouterRoute", () => {
     expect(trace.properties.$ai_is_error).toBe(true);
   });
 
+  test("does not treat an unrelated AbortError as a client close", async () => {
+    const route = withCoderouterRoute(
+      {
+        surface: "responses",
+        route: "/v1/responses",
+        unavailable: () => new Response("unavailable", { status: 503 }),
+      },
+      async () => {
+        throw new DOMException("server-side timeout", "AbortError");
+      },
+    );
+    const response = await route(
+      new Request("https://coderouter.dev/v1/responses", { method: "POST" }),
+      undefined,
+    );
+    expect(response.status).toBe(503);
+    const events = captured();
+    expect(events.filter((entry) => entry.event === "$exception")).toHaveLength(1);
+    expect(events.find((entry) => entry.event === "$ai_trace")!.properties.coderouter_outcome).toBe("route_crash");
+  });
+
   test("control-plane routes derive the outcome from the status", async () => {
     const route = coderouterControlRoute("accounts", "/api/coderouter/accounts", async () => new Response(null, { status: 500 }));
     const response = await route(new Request("https://cmux.com/api/coderouter/accounts"), undefined);
