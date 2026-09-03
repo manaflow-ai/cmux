@@ -109,8 +109,13 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             object: scrollView.contentView,
             queue: .main
         ) { [weak self, weak table] _ in
-            guard let self, let table, !self.isApplyingRows else { return }
-            self.reconcilePresentation(in: table)
+            // `queue: .main` guarantees synchronous delivery on the main
+            // actor; keep the AppKit reconciliation ordered with that runloop
+            // without introducing an asynchronous task hop.
+            MainActor.assumeIsolated {
+                guard let self, let table, !self.isApplyingRows else { return }
+                self.reconcilePresentation(in: table)
+            }
         }
         table.frame = scrollView.contentView.bounds
         table.autoresizingMask = [.width]
