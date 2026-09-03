@@ -542,18 +542,41 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private func appendBounded(_ data: Data, to buffer: inout Data, pending: inout Data) {
         var combined = pending
         combined.append(data)
-        var validCount = combined.count
-        while validCount > 0,
-              String(data: combined.prefix(validCount), encoding: .utf8) == nil {
-            validCount -= 1
-        }
-        pending = Data(combined.dropFirst(validCount).prefix(3))
-        buffer.append(combined.prefix(validCount))
+        let decoded = decodeUTF8(combined)
+        pending = decoded.pending
+        buffer.append(decoded.valid)
         let overflow = buffer.count - byteLimit
         if overflow > 0 {
             buffer.removeSubrange(0..<min(overflow, buffer.count))
         }
         while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
+    }
+
+    private func decodeUTF8(_ data: Data) -> (valid: Data, pending: Data) {
+        var valid = Data()
+        var index = 0
+        while index < data.count {
+            let byte = data[index]
+            let width: Int
+            switch byte {
+            case 0x00...0x7F: width = 1
+            case 0xC2...0xDF: width = 2
+            case 0xE0...0xEF: width = 3
+            case 0xF0...0xF4: width = 4
+            default:
+                index += 1
+                continue
+            }
+            guard index + width <= data.count else {
+                return (valid, Data(data[index...]))
+            }
+            let sequence = Data(data[index..<(index + width)])
+            if String(data: sequence, encoding: .utf8) != nil {
+                valid.append(sequence)
+            }
+            index += width
+        }
+        return (valid, Data())
     }
 
     private func finishPendingUTF8() {
