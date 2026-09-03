@@ -181,6 +181,7 @@ async function proxyCodexRequestWith(
     "account_selection";
   let upstream: Response | null = null;
   for (let attempt = 0; attempt < 8; attempt++) {
+    throwIfRequestAborted(request);
     if (remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
       runtime.now(),
@@ -222,6 +223,7 @@ async function proxyCodexRequestWith(
       );
       recordCoderouterSpan({ name: "credential", startedAt: credentialStartedAt, attributes: { provider: "codex", attempt: attempt + 1 } });
     } catch (error) {
+      if (request.signal.aborted) throw error;
       failureStage = "credential_refresh";
       const tag = error && typeof error === "object" && "_tag" in error
         ? String((error as { _tag: unknown })._tag)
@@ -237,6 +239,7 @@ async function proxyCodexRequestWith(
       throw error;
     }
     if (credential.provider !== "codex") continue;
+    throwIfRequestAborted(request);
     const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
       runtime.now(),
@@ -261,6 +264,7 @@ async function proxyCodexRequestWith(
         attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status },
       });
     } catch (error) {
+      if (request.signal.aborted) throw error;
       failureStage = "upstream_transport";
       recordCoderouterSpan({
         name: "upstream_attempt",
@@ -321,6 +325,7 @@ async function proxyCodexRequestWith(
           });
         }
       } catch (error) {
+        if (request.signal.aborted) throw error;
         failureStage = "credential_refresh";
         recordCoderouterSpan({
           name: "credential_refresh",
@@ -604,6 +609,11 @@ function rateLimitDelay(headers: Headers): number {
     if (seconds) return Math.ceil(Number(seconds) * 1_000);
   }
   return 60_000;
+}
+
+function throwIfRequestAborted(request: Request): void {
+  if (!request.signal.aborted) return;
+  throw request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 const AUTH_FAILURE_BREADCRUMBS: Record<RouteTokenAuthFailure, string> = {

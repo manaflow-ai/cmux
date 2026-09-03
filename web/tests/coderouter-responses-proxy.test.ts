@@ -190,7 +190,7 @@ describe("codex responses proxy session routing", () => {
   test("does not fail over after the caller cancels the request", async () => {
     const controller = new AbortController();
     const selected: string[] = [];
-    const abortingFetch = (async (_input: unknown, _init?: RequestInit) => {
+    const abortingFetch = (async () => {
       controller.abort();
       throw new DOMException("aborted", "AbortError");
     }) as typeof fetch;
