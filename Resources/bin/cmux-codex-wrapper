@@ -253,6 +253,154 @@ cmux_codex_global_skill_install_enabled() {
     return 0
 }
 
+cmux_codex_legacy_skill_aliases=()
+cmux_codex_legacy_skill_paths=()
+
+cmux_codex_append_legacy_skill_alias() {
+    local value="$1"
+    local existing
+    [[ -n "$value" ]] || return 0
+    for existing in "${cmux_codex_legacy_skill_aliases[@]}"; do
+        [[ "$existing" == "$value" ]] && return 0
+    done
+    cmux_codex_legacy_skill_aliases+=("$value")
+}
+
+cmux_codex_append_legacy_skill_path() {
+    local value="$1"
+    local existing
+    [[ -n "$value" ]] || return 0
+    for existing in "${cmux_codex_legacy_skill_paths[@]}"; do
+        [[ "$existing" == "$value" ]] && return 0
+    done
+    cmux_codex_legacy_skill_paths+=("$value")
+}
+
+cmux_codex_cmux_skill_target() {
+    # Only links that point into a cmux app's known skill resource are eligible
+    # for migration. Matching the resource suffix alone is not ownership proof:
+    # a user may have an unrelated app (or a user skill checkout) with the same
+    # directory name. Prefer the bundle identifier when the old app is still
+    # present, and use the app name only for dangling links left by an upgrade.
+    local target="$1"
+    local resource_name=""
+    case "$target" in
+        */Contents/Resources/codex-cua) resource_name="codex-cua" ;;
+        */Contents/Resources/cmux-computer-use) resource_name="cmux-computer-use" ;;
+        */Contents/Resources/cmux-cua) resource_name="cmux-cua" ;;
+        *) return 1 ;;
+    esac
+
+    local app_bundle="${target%/Contents/Resources/$resource_name}"
+    [[ "$app_bundle" == *.app ]] || return 1
+    local info_plist="$app_bundle/Contents/Info.plist"
+    if [[ -f "$info_plist" ]]; then
+        local bundle_id
+        bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null)" || return 1
+        [[ "$bundle_id" == com.cmuxterm.* ]]
+        return $?
+    fi
+
+    # A removed app leaves a dangling symlink, so its Info.plist cannot be
+    # checked. Requiring a cmux-prefixed app bundle name is conservative enough
+    # to recognize old cmux DEV/NIGHTLY bundles while rejecting generic app
+    # resources. Existing paths with an Info.plist always take the stronger
+    # bundle-id path above.
+    local app_name="${app_bundle##*/}"
+    app_name="${app_name%.app}"
+    app_name="$(printf '%s' "$app_name" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+    [[ "$app_name" == cmux* ]]
+}
+
+cmux_codex_legacy_skill_target_path() {
+    local alias_path="$1"
+    local target="$2"
+    if [[ "$target" = /* ]]; then
+        printf '%s' "$target"
+    else
+        printf '%s/%s' "${alias_path%/*}" "$target"
+    fi
+}
+
+cmux_codex_collect_legacy_skill_aliases() {
+    cmux_codex_legacy_skill_aliases=()
+    cmux_codex_legacy_skill_paths=()
+
+    local home="${HOME:-}"
+    [[ "$home" = /* ]] || return 0
+    local codex_home="${CODEX_HOME:-$home/.codex}"
+    [[ "$codex_home" = /* ]] || codex_home="$home/.codex"
+
+    # Keep the current resource path out of the stale-path rules. `-ef` also
+    # treats equivalent relative paths as the same directory when the target
+    # still exists; a missing old bundle remains conservatively disabled by
+    # its lexical path below.
+    local current_skill_dir=""
+    local self_dir resource_dir
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || self_dir=""
+    if [[ -n "$self_dir" ]]; then
+        resource_dir="${self_dir%/bin}"
+        current_skill_dir="$resource_dir/cmux-cua"
+    fi
+
+    local root alias_path alias_name target resolved_target
+    for root in "$home/.agents/skills" "$codex_home/skills"; do
+        [[ "$root" = /* ]] || continue
+        for alias_name in codex-cua cmux-computer-use cmux-cua; do
+            alias_path="$root/$alias_name"
+            [[ -L "$alias_path" ]] || continue
+            target="$(/usr/bin/readlink "$alias_path" 2>/dev/null || /bin/readlink "$alias_path" 2>/dev/null)" || target=""
+            [[ -n "$target" ]] || continue
+            resolved_target="$(cmux_codex_legacy_skill_target_path "$alias_path" "$target")"
+            if ! cmux_codex_cmux_skill_target "$resolved_target" \
+                 && ! cmux_codex_cmux_skill_target "$target"; then
+                continue
+            fi
+
+            # A stale target behind the canonical cmux-cua path is repaired by
+            # the installer below; do not queue that destination for unlinking
+            # or its replacement would be disabled by its old visible path.
+            if [[ "$alias_name" != "cmux-cua" ]]; then
+                cmux_codex_append_legacy_skill_alias "$alias_path"
+            fi
+            # A target ending in the old resource name has a distinct
+            # canonical path and can safely be disabled in a stale catalog.
+            # A renamed cmux-cua target is already canonical, so disabling its
+            # resolved path would disable the replacement skill too.
+            case "$resolved_target" in
+                */Contents/Resources/codex-cua|*/Contents/Resources/cmux-computer-use)
+                    if [[ "$alias_name" != "cmux-cua" ]]; then
+                        cmux_codex_append_legacy_skill_path "$alias_path/SKILL.md"
+                    fi
+                    cmux_codex_append_legacy_skill_path "$resolved_target/SKILL.md"
+                    ;;
+                */Contents/Resources/cmux-cua)
+                    if [[ -n "$current_skill_dir" ]] \
+                       && [[ "$resolved_target" != "$current_skill_dir" ]] \
+                       && ! { [[ -d "$resolved_target" && -d "$current_skill_dir" ]] \
+                             && [[ "$resolved_target" -ef "$current_skill_dir" ]]; }; then
+                        cmux_codex_append_legacy_skill_path "$resolved_target/SKILL.md"
+                    fi
+                    ;;
+            esac
+        done
+    done
+}
+
+cmux_codex_retire_legacy_skill_aliases() {
+    local alias_path target resolved_target
+    for alias_path in "${cmux_codex_legacy_skill_aliases[@]}"; do
+        [[ -L "$alias_path" ]] || continue
+        target="$(/usr/bin/readlink "$alias_path" 2>/dev/null || /bin/readlink "$alias_path" 2>/dev/null)" || target=""
+        [[ -n "$target" ]] || continue
+        resolved_target="$(cmux_codex_legacy_skill_target_path "$alias_path" "$target")"
+        if cmux_codex_cmux_skill_target "$resolved_target" \
+             || cmux_codex_cmux_skill_target "$target"; then
+            /bin/rm -f "$alias_path" 2>/dev/null || true
+        fi
+    done
+}
+
 cmux_codex_install_computer_use_skill() {
     # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
     # inside the signed cmux app and link it instead of copying stale versions.
@@ -261,7 +409,7 @@ cmux_codex_install_computer_use_skill() {
     # the namespaced invocation-scoped fallback.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+    local self_dir resource_dir source_dir skills_root destination target
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     source_dir="$resource_dir/cmux-cua"
@@ -271,29 +419,20 @@ cmux_codex_install_computer_use_skill() {
     destination="$skills_root/cmux-cua"
     /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
 
-    # Retire the pre-rename cmux-computer-use link so pickers do not show two
-    # copies of the same skill. Only a symlink into a cmux app bundle is
-    # removed; user-owned paths at that name are left alone.
-    legacy="$skills_root/cmux-computer-use"
-    if [[ -L "$legacy" ]]; then
-        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
-        case "$legacy_target" in
-            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
-                /bin/rm -f "$legacy" 2>/dev/null || true
-                ;;
-        esac
-    fi
+    # Retire only the aliases collected from cmux-owned app resources. The
+    # helper re-checks each target immediately before unlinking it.
+    cmux_codex_retire_legacy_skill_aliases
 
     if [[ -L "$destination" ]]; then
         target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-        case "$target" in
-            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
-                ;;
-            *)
-                return 1
-                ;;
-        esac
+        local resolved_target
+        resolved_target="$(cmux_codex_legacy_skill_target_path "$destination" "$target")"
+        if cmux_codex_cmux_skill_target "$resolved_target" \
+           || cmux_codex_cmux_skill_target "$target"; then
+            /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
+        else
+            return 1
+        fi
     elif [[ -e "$destination" ]]; then
         # A user-owned path wins; report not-installed so the invocation-scoped
         # fallback still delivers the current bundled skill.
@@ -351,22 +490,48 @@ cmux_codex_computer_use_enabled_for_invocation() {
     return 0
 }
 
+cmux_codex_emit_skill_resolution_args() {
+    local config=""
+    local separator=""
+    local path escaped_path skill_path
+    local has_rule=0
+
+    # Disable only stale paths that were proven to be cmux-owned aliases. A
+    # name-wide rule would hide a legitimate user skill and would also change
+    # the existing project/global collision semantics.
+    for path in "${cmux_codex_legacy_skill_paths[@]}"; do
+        [[ -n "$path" ]] || continue
+        escaped_path="$(cmux_computer_use_json_escape "$path")"
+        config="${config}${separator}{path=\"${escaped_path}\",enabled=false}"
+        separator=","
+        has_rule=1
+    done
+
+    # A stale alias changes the catalog identity across app-server/resume
+    # snapshots. Re-enable the current bundled document in the same
+    # path-scoped config so Codex rebuilds the snapshot and explicit
+    # `$cmux-cua` selection cannot fall through to an old name. The canonical
+    # entry is also the normal invocation-scoped fallback when the global link
+    # is unavailable.
+    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]] \
+       || (( ${#cmux_codex_legacy_skill_paths[@]} > 0 )); then
+        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
+        if [[ -n "$skill_path" ]]; then
+            escaped_path="$(cmux_computer_use_json_escape "$skill_path")"
+            config="${config}${separator}{path=\"${escaped_path}\",enabled=true}"
+            has_rule=1
+        fi
+    fi
+
+    (( has_rule == 1 )) || return 1
+    printf '%s\0' \
+        "-c" \
+        "skills.config=[${config}]"
+}
+
 cmux_codex_emit_computer_use_args() {
     cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
-    # Invocation-scoped fallback only: a skills.config entry displays
-    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
-    # along when the plain ~/.agents/skills/cmux-cua link already covers this
-    # session.
-    local skill_path
-    skill_path=""
-    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
-        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
-    fi
-    if [[ -n "$skill_path" ]]; then
-        printf '%s\0' \
-            "-c" \
-            "skills.config=[{path=\"$(cmux_computer_use_json_escape "$skill_path")\",enabled=true}]"
-    fi
+    cmux_codex_emit_skill_resolution_args || true
 
     # Skill discovery is useful while onboarding is still preparing the
     # helper. The MCP attachment itself remains fail-closed on cmux ownership,
@@ -655,6 +820,12 @@ cmux_codex_read_inject_args() {
 # the emitter skips its invocation-scoped skills.config fallback so the picker
 # shows one plain cmux-cua entry.
 CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
+if cmux_codex_computer_use_enabled_for_invocation "$@"; then
+    # Snapshot legacy aliases before any unlink. This gives resumed Codex
+    # processes path-specific disable rules even when their in-memory catalog
+    # still contains the old document.
+    cmux_codex_collect_legacy_skill_aliases
+fi
 if cmux_codex_global_skill_install_enabled \
       && cmux_codex_computer_use_enabled_for_invocation "$@"; then
     if cmux_codex_install_computer_use_skill; then
