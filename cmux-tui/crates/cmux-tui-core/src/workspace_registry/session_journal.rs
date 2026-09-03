@@ -1452,11 +1452,33 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     let decoder = GzDecoder::new(compressed.as_slice());
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
-    let mut reader = DigestReader::new(decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)));
+    let mut reader =
+        DigestReader::new(decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)));
     let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
         .with_context(|| format!("decode journal segment {segment_id}"))?;
-    anyhow::ensure!(reader.bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
-    anyhow::ensure!(reader.digest().as_slice() == expected_digest.as_slice(), "journal segment {segment_id} digest is invalid");
+    // Force the bounded gzip reader to reach EOF. This validates the gzip
+    // trailer even when the JSON decoder stops after the top-level value.
+    let mut trailing = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut trailing)?;
+        if count == 0 {
+            break;
+        }
+        anyhow::ensure!(
+            trailing[..count]
+                .iter()
+                .all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
+            "journal segment {segment_id} contains trailing data"
+        );
+    }
+    anyhow::ensure!(
+        reader.bytes_read == expected_bytes,
+        "journal segment {segment_id} length is invalid"
+    );
+    anyhow::ensure!(
+        reader.digest().as_slice() == expected_digest.as_slice(),
+        "journal segment {segment_id} digest is invalid"
+    );
     for record in &mut records {
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;
@@ -1479,10 +1501,18 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
 
-struct DigestReader<R> { inner: R, hasher: Sha256, bytes_read: usize }
+struct DigestReader<R> {
+    inner: R,
+    hasher: Sha256,
+    bytes_read: usize,
+}
 impl<R: Read> DigestReader<R> {
-    fn new(inner: R) -> Self { Self { inner, hasher: Sha256::new(), bytes_read: 0 } }
-    fn digest(self) -> sha2::digest::Output<Sha256> { self.hasher.finalize() }
+    fn new(inner: R) -> Self {
+        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
+    }
+    fn digest(self) -> sha2::digest::Output<Sha256> {
+        self.hasher.finalize()
+    }
 }
 impl<R: Read> Read for DigestReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
