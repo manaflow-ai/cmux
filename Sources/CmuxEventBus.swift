@@ -12,6 +12,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     let names: Set<String>
     let categories: Set<String>
     let maxPendingEvents: Int
+    private let deliveryFilter: @Sendable ([String: Any]) -> Bool
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
@@ -19,11 +20,18 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        maxPendingEvents: Int,
+        deliveryFilter: @escaping @Sendable ([String: Any]) -> Bool = { _ in true }
+    ) {
         self.id = id
         self.names = names
         self.categories = categories
         self.maxPendingEvents = max(1, maxPendingEvents)
+        self.deliveryFilter = deliveryFilter
     }
 
     func accepts(_ event: [String: Any]) -> Bool {
@@ -33,7 +41,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
         }
-        return true
+        return deliveryFilter(event)
     }
 
     var isClosed: Bool {
@@ -217,12 +225,14 @@ final class CmuxEventBus: @unchecked Sendable {
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
-        categories: Set<String>
+        categories: Set<String>,
+        deliveryFilter: @escaping @Sendable ([String: Any]) -> Bool = { _ in true }
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
             names: names,
             categories: categories,
-            maxPendingEvents: maxPendingEventsPerSubscription
+            maxPendingEvents: maxPendingEventsPerSubscription,
+            deliveryFilter: deliveryFilter
         )
 
         lock.lock()

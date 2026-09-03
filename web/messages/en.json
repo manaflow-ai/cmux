@@ -2117,6 +2117,9 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
+      "pluginBindingsTitle": "Plugin command bindings",
+      "pluginBindingsIntro": "Plugin command shortcuts use shortcuts.pluginBindings, keyed by the full namespaced plugin.<plugin-id>.<action-id> command id. Use the same string, two-item chord, or null syntax as built-in bindings.",
+      "pluginBindingsNote": "A saved plugin binding is ignored while its plugin is disabled, unapproved, missing, or no longer declares that action.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "computerUse": {
@@ -2221,6 +2224,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "pluginBindings": "Shortcut overrides for enabled plugin commands, keyed by the complete namespaced plugin.<plugin-id>.<action-id> command id. Values use the same single-stroke, chord, and null-to-unbind syntax as shortcuts.bindings.",
           "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         },
@@ -2370,6 +2374,9 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "pluginTitle": "Plugin command shortcuts",
+      "pluginIntro": "Enabled plugin commands appear in Settings > Keyboard Shortcuts. Their bindings are stored in cmux.json under shortcuts.pluginBindings using the complete namespaced command id.",
+      "pluginCallout": "Bindings stop routing immediately when a plugin is disabled or its permissions are revoked. A manifest default applies only until you save an explicit binding or unbind the command.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",

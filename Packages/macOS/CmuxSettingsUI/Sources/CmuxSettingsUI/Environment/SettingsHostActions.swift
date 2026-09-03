@@ -24,6 +24,29 @@ public protocol SettingsHostActions: AnyObject {
     /// Validates and prepares a custom notification sound before a matrix cell
     /// is persisted. Returning `false` keeps the previous cell untouched.
     func validateNotificationSoundFile(path: String) async -> Bool
+    /// Returns discovered plugins and their current approval state.
+    func pluginManagementDescriptors() -> [PluginManagementDescriptor]
+
+    /// Atomically approves all declared scopes and enables the reviewed plugin.
+    func approveAndEnablePlugin(_ pluginID: String)
+
+    /// Enables or disables a previously approved plugin.
+    func setPluginEnabled(_ enabled: Bool, pluginID: String)
+
+    /// Returns currently enabled plugin actions that should appear in the
+    /// shared keyboard-shortcut editor.
+    func pluginShortcutDescriptors() -> [PluginShortcutDescriptor]
+
+    /// Persists a dynamic plugin action shortcut through the host's shared
+    /// shortcut store. Hosts may treat `.unbound` as an explicit clear.
+    func setPluginShortcut(_ shortcut: StoredShortcut, actionID: String)
+
+    /// Returns the display name of an action that conflicts with a proposed
+    /// plugin binding, or `nil` when the binding can be saved.
+    func pluginShortcutConflict(
+        _ shortcut: StoredShortcut,
+        actionID: String
+    ) -> String?
 
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
@@ -293,6 +316,23 @@ public extension SettingsHostActions {
 
     /// Validates a candidate custom notification sound path on the host.
     func validateNotificationSoundFile(path: String) async -> Bool { false }
+    /// Default empty plugin management list.
+    func pluginManagementDescriptors() -> [PluginManagementDescriptor] { [] }
+
+    /// Default no-op approval for previews.
+    func approveAndEnablePlugin(_ pluginID: String) {}
+
+    /// Default no-op enablement for previews.
+    func setPluginEnabled(_ enabled: Bool, pluginID: String) {}
+
+    /// Default empty plugin list for previews and hosts without plugins.
+    func pluginShortcutDescriptors() -> [PluginShortcutDescriptor] { [] }
+
+    /// Default no-op plugin shortcut mutation for previews.
+    func setPluginShortcut(_ shortcut: StoredShortcut, actionID: String) {}
+
+    /// Default conflict-free result for previews.
+    func pluginShortcutConflict(_ shortcut: StoredShortcut, actionID: String) -> String? { nil }
 
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}

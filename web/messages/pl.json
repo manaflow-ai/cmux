@@ -1172,7 +1172,8 @@
         },
         "shortcuts": {
           "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
-          "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
+          "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control.",
+          "pluginBindings": "Zastępuje skróty dla włączonych poleceń wtyczek, wprowadzanych za pomocą pełnego identyfikatora polecenia plugin.<plugin-id>.<action-id> w przestrzeni nazw. Wartości używają tej samej składni pojedynczej kreski, akordu i null do unbind, co skróty.bindings."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1184,7 +1185,10 @@
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",
       "shortcutsWhenOperators": "operatory logiczne, porównania typowane, dopasowanie wyrażeniem regularnym i przynależność do listy. Porównania wiążą mocniej niż && i ||.",
-      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:"
+      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:",
+      "pluginBindingsTitle": "Powiązania poleceń wtyczki",
+      "pluginBindingsIntro": "Skróty poleceń wtyczki używają shortcuts.pluginBindings, wpisanego przez identyfikator polecenia plugin.<plugin-id>.<action-id> z pełną przestrzenią nazw. Użyj tej samej składni ciągu, akordu dwuelementowego lub składni o wartości null, co wbudowane powiązania.",
+      "pluginBindingsNote": "Zapisane powiązanie wtyczki jest ignorowane, jeśli jej wtyczka jest wyłączona, niezatwierdzona, brakuje jej lub nie deklaruje już tej akcji."
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",
@@ -1351,7 +1355,10 @@
         "wn-reload": "Przeładuj konfigurację",
         "wn-quit": "Zakończ"
       },
-      "metaTitle": "Skróty klawiszowe"
+      "metaTitle": "Skróty klawiszowe",
+      "pluginTitle": "Skróty poleceń wtyczki",
+      "pluginIntro": "Włączone polecenia wtyczki pojawiają się w Ustawieniach > Skróty klawiaturowe. Ich powiązania są przechowywane w cmux.json pod shortcuts.pluginBindings przy użyciu pełnego identyfikatora polecenia w przestrzeni nazw.",
+      "pluginCallout": "Powiązania zatrzymują routing natychmiast po wyłączeniu wtyczki lub cofnięciu jej uprawnień. Wartość domyślna manifestu ma zastosowanie tylko do momentu zapisania jawnego powiązania lub usunięcia powiązania polecenia."
     },
     "api": {
       "title": "Dokumentacja CLI",

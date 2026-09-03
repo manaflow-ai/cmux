@@ -29,6 +29,11 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+        if let status = CmuxPluginProcessLauncherMode(
+            arguments: CommandLine.arguments
+        ).runIfRequested() {
+            Darwin.exit(status)
+        }
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
@@ -50,6 +55,9 @@ struct cmuxApp: App {
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+    /// Process-wide plugin graph composed before the AppKit delegate is
+    /// published by `NSApplicationDelegateAdaptor`, then injected into it.
+    private let pluginRuntime: CmuxPluginRuntime
 
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
@@ -125,10 +133,12 @@ struct cmuxApp: App {
             backupTimestamp: secretMigrationTimestamp
         )
         let authComposition = MacAuthComposition()
+        let pluginRuntime = CmuxPluginRuntime()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
         self.authComposition = authComposition
+        self.pluginRuntime = pluginRuntime
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -222,7 +232,8 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                pluginRuntime: pluginRuntime
             )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -306,6 +317,7 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
+            pluginRuntime: pluginRuntime,
             auth: authComposition,
             computerUseRuntimeService: computerUseRuntimeService
         )

@@ -877,6 +877,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(\.cmuxPluginRuntime) var pluginRuntime
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -991,6 +992,7 @@ struct ContentView: View {
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
+    @State private var pluginSnapshotRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
@@ -2870,6 +2872,30 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
+        })
+
+        view = AnyView(view.task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .cmuxPluginManagementDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                pluginSnapshotRevision &+= 1
+                commandPaletteResultsRevision &+= 1
+            }
+        })
+
+        view = AnyView(view.task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .cmuxPluginShortcutsDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                commandPaletteResultsRevision &+= 1
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true,
+                    preservePendingActivation: true
+                )
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
@@ -5379,6 +5405,7 @@ struct ContentView: View {
         var hasher = Hasher()
         hasher.combine(commandsContext.snapshot.fingerprint())
         hasher.combine(cmuxConfigStore.configRevision)
+        hasher.combine(pluginSnapshotRevision)
         return hasher.finalize()
     }
 
@@ -8158,6 +8185,8 @@ struct ContentView: View {
         )
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        let pluginContributions = pluginCommandPaletteContributions()
+        let activePluginCommandIDs = Set(pluginContributions.map(\.commandId))
         for issue in cmuxConfigStore.configurationIssues {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -8169,6 +8198,7 @@ struct ContentView: View {
             )
         }
         for action in cmuxConfigStore.paletteCustomActions() {
+            guard !activePluginCommandIDs.contains(action.id) else { continue }
             let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
             let subtitleText = action.subtitle
                 .map { sanitizeCmuxConfigPaletteText($0) }
@@ -8184,10 +8214,12 @@ struct ContentView: View {
             )
         }
 
+        contributions.append(contentsOf: pluginContributions)
+
         return contributions
     }
 
-    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
+    func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
             "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
@@ -9019,12 +9051,18 @@ struct ContentView: View {
                 openCmuxConfigIssue(captured)
             }
         }
+        let activePluginCommandIDs = Set(
+            pluginCommandPaletteContributions().map(\.commandId)
+        )
         for action in cmuxConfigStore.paletteCustomActions() {
+            guard !activePluginCommandIDs.contains(action.id) else { continue }
             let captured = action
             registry.register(commandId: action.id) {
                 executeConfiguredAction(captured)
             }
         }
+
+        registerPluginCommandPaletteHandlers(&registry)
     }
 
     private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {

@@ -353,6 +353,15 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
+            # Production archive verification checks the built artifact, not
+            # the source configuration. Keep the fake archive's runtime
+            # origins explicit so this fixture exercises the same gate as a
+            # real Release archive.
+            "CMUXAuthEnvironment": "production",
+            "CMUXApiBaseURL": "https://cmux.com",
+            "CMUXIrohBrokerBaseURL": "https://cmux.com",
+            "CMUXPresenceBaseURL": "https://presence.cmux.dev",
+            "CMUXDevTag": "",
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -562,6 +571,11 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
+        "CMUXAuthEnvironment": "production",
+        "CMUXApiBaseURL": "https://cmux.com",
+        "CMUXIrohBrokerBaseURL": "https://cmux.com",
+        "CMUXPresenceBaseURL": "https://presence.cmux.dev",
+        "CMUXDevTag": "",
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)

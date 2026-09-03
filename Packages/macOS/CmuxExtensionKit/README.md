@@ -1,9 +1,185 @@
 # CMUX Extension Kit
 
-`CmuxExtensionKit` is the zero-dependency public SDK for CMUX sidebar extensions.
+`CmuxExtensionKit` is the zero-dependency public SDK for CMUX sidebar extensions
+and language-neutral, process-backed plugins.
 
-The current SDK supports sidebar extensions only. Its API exposes a stable
-workspace snapshot and typed action channels:
+## Process-backed plugins (API 3.0)
+
+The first plugin slice is intentionally small and complete: a plugin can
+subscribe to lifecycle events and register command-palette actions. Plugins
+run as ordinary child processes, so they can be written in Swift, Python,
+JavaScript, Rust, or any other language that can speak JSON over a Unix socket.
+
+### Directory layout
+
+Install each plugin below:
+
+```text
+~/Library/Application Support/cmux/plugins/<id>/
+├── manifest.json
+└── bin/plugin                 # executable declared by `entrypoint`
+```
+
+The directory name must exactly match `id`. CMUX ignores a missing directory,
+but keeps malformed manifests and missing executables as load errors in
+Settings. Entry points must be relative and must remain inside the plugin
+directory after symlink resolution.
+
+### Manifest
+
+```json
+{
+  "id": "dev.example.plugin",
+  "displayName": "Example Plugin",
+  "kind": "plugin",
+  "minimumAPIVersion": { "major": 3, "minor": 0 },
+  "pluginScopes": ["eventHooks", "paletteActions"],
+  "eventSubscriptions": ["workspace.created", "notification.created"],
+  "actions": [
+    { "id": "open-dashboard", "title": "Open Dashboard", "keywords": ["dashboard"] }
+  ],
+  "entrypoint": "bin/plugin"
+}
+```
+
+`eventHooks` and `paletteActions` are explicit capability families. Declaring
+an event or action without its family is rejected. Every plugin is disabled
+until the user reviews its requested scopes in Settings → Automation. A
+manifest, bundle-content, or declared-interpreter fingerprint change
+invalidates the previous approval. Approved processes launch from a
+revalidated private bundle snapshot. The complete launch snapshot is read-only,
+and open descriptors are retained for identity and content checks, so
+source-directory, sibling-file, or snapshot-path replacement fails closed
+before capabilities are released. Darwin does not provide a portable
+`fexecve` API, so the final process launch uses the verified snapshot path (or
+the resolved shebang interpreter path); the self-exec launcher performs one
+last descriptor/path identity check immediately before `execv`, and scripts
+receive the pinned entrypoint as a `/dev/fd/...` argument. Shebang interpreter
+bytes are copied into the private snapshot for approval and revalidation; the
+resolved interpreter and every ancestor directory must be root-owned and
+non-writable so a same-user process cannot swap that final path lookup. CMUX
+never changes the original interpreter file and watches it for changes until
+launch completes. Use an absolute, system- or administrator-installed
+interpreter path when writing scripts; user-local interpreters are rejected at
+launch.
+Use `TMPDIR` or another application-data location for plugin-generated files.
+Disabling a plugin preserves the reviewed grant but stops its process and event
+stream.
+The process-backed core slice keeps the original sidebar `readScopes` and
+`actionScopes` separate; declaring those sidebar-only scopes in a process
+plugin is rejected until a future host combines the two transports.
+
+Plugins are ordinary executables running as the signed-in macOS user, not
+sandboxed app extensions. The reviewed scopes limit data and actions exposed
+by cmux's plugin transport; they do not restrict the executable's normal
+filesystem or network access. Install plugins only from sources you trust.
+
+### Process environment
+
+When enabled, CMUX launches the validated entry point with these variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `CMUX_PLUGIN_ID` | Manifest `id`. |
+| `CMUX_PLUGIN_TOKEN` | In-memory capability token for this process. |
+| `CMUX_PLUGIN_SOCKET_PATH` | Active CMUX control-socket path. |
+| `CMUX_PLUGIN_MANIFEST_PATH` | Absolute path to `manifest.json`. |
+| `CMUX_PLUGIN_ENTRYPOINT_PATH` | Stable declared entrypoint path for resource discovery. |
+| `CMUX_PLUGIN_API_VERSION` | Plugin API selected by the host as `major.minor`. |
+| `CMUX_SOCKET_PATH` | Alias for the active socket path. |
+
+CMUX validates approved entrypoint/interpreter bytes through pinned file
+descriptors and launches from the sealed snapshot path. A script interpreter
+receives the pinned entrypoint as a `/dev/fd/...` argument, so `$0` or
+`__file__` may use that descriptor path. Plugins must resolve bundle-relative
+modules and resources from the directory containing
+`CMUX_PLUGIN_MANIFEST_PATH` (the process working directory), or use
+`CMUX_PLUGIN_ENTRYPOINT_PATH` when the declared entrypoint path itself is
+needed. Descriptor-backed verification and the stable path environment value
+are intentional parts of the API 3.0 security contract.
+
+### Event subscription
+
+Use the existing `events.stream` request. The host intersects requested names
+with the approved manifest declarations and rejects an invalid token or
+unapproved event before opening the stream:
+
+```json
+{
+  "id": "subscribe-1",
+  "method": "events.stream",
+  "params": {
+    "plugin_id": "dev.example.plugin",
+    "plugin_token": "$CMUX_PLUGIN_TOKEN",
+    "names": ["workspace.created", "notification.created", "plugin.action.invoked"],
+    "include_heartbeats": true
+  }
+}
+```
+
+Events use the existing `cmux-events` JSON-lines envelope (`protocol`,
+`version`, `boot_id`, `seq`, `name`, `category`, IDs, and `payload`). The stable
+lifecycle names are:
+
+`workspace.created`, `workspace.closed`, `pane.created`, `pane.closed`,
+`surface.created`, `surface.closed`, `agent.session.started`,
+`agent.session.state_changed`, `agent.session.ended`, `notification.created`,
+and `git.branch.changed`.
+
+`plugin.action.invoked` is an implicit private subscription granted by the
+`paletteActions` scope; it is not listed in `eventSubscriptions`. Include it in
+the stream request whenever the plugin declares actions, or omit `names` to
+subscribe to every event approved for that plugin. CMUX exposes the plugin's
+palette and keyboard actions only while that action receiver is connected, so
+an invocation is never knowingly routed into a disconnected process.
+
+### Action invocation
+
+Each action appears in the command palette as `plugin.<id>.<action>`. When the
+user invokes it (from the palette or its optional keyboard binding), CMUX sends
+the owning plugin a `plugin.action.invoked` event with this payload:
+
+```json
+{
+  "plugin_id": "dev.example.plugin",
+  "action_id": "open-dashboard",
+  "invocation_id": "…",
+  "occurred_at": "2026-01-01T00:00:00Z",
+  "context": {}
+}
+```
+
+Action shortcuts are editable in Settings → Keyboard Shortcuts and stored in
+the shared `~/.config/cmux/cmux.json` file under
+`shortcuts.pluginBindings`:
+
+```json
+{
+  "shortcuts": {
+    "pluginBindings": {
+      "plugin.dev.example.plugin.open-dashboard": "cmd+shift+d"
+    }
+  }
+}
+```
+
+The map uses the same modifier/key syntax as built-in shortcut bindings. A
+binding is namespaced by the complete `plugin.<id>.<action>` id, is checked for
+conflicts with built-in and other enabled plugin actions, and is ignored when
+the plugin is disabled or its approval is revoked.
+
+### Current limits and follow-ups
+
+`paneContent` and `workspaceBadges` are part of the manifest vocabulary for
+forward compatibility, but this core slice rejects them until the host wires
+browser/markdown pane hosting and workspace badge projection. Follow-up work
+should add those surfaces, per-plugin event backpressure/health controls, and
+an explicit permission-review sheet that lets users approve individual
+declarations instead of the current approve-all action.
+
+The original sidebar API remains available alongside the process-backed plugin
+transport. Sidebar extensions expose a stable workspace snapshot and typed
+action channels:
 
 - read the current sidebar snapshot
 - create, select, navigate, and close workspaces

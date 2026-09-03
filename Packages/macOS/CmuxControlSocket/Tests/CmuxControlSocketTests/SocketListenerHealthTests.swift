@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxControlSocket
@@ -40,5 +41,26 @@ import Testing
         )
         #expect(!health.isHealthy)
         #expect(health.failureSignals == ["socket_identity_mismatch"])
+    }
+
+    @Test func probeInputResolvesFilesystemIdentityOffTheServerReference() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-socket-health-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let missingSocketPath = directory.appendingPathComponent("listener", isDirectory: false).path
+        let probe = SocketListenerHealthProbeInput(
+            isRunning: false,
+            acceptLoopAlive: false,
+            listenerSocketPath: missingSocketPath,
+            expectedSocketPath: missingSocketPath,
+            boundSocketPathIdentity: SocketPathIdentity(device: 1, inode: 2)
+        )
+
+        let health = probe.resolve(using: SocketTransport())
+
+        #expect(!health.isHealthy)
+        #expect(health.failureSignals.contains("not_running"))
+        #expect(health.failureSignals.contains("socket_missing"))
     }
 }

@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
-          "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
+          "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control.",
+          "pluginBindings": "Prečice zaobilaze za omogućene naredbe dodatka, koje se označavaju potpunim ID-om komande plugin.<plugin-id>.<action-id> s prostorom imena. Vrijednosti koriste istu sintaksu jednog poteza, akorda i null-to-unbind kao i shortcuts.bindings."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
       "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",
       "shortcutsWhenOperators": "Booleovi operatori, tipizirana poređenja, regex podudaranje i pripadnost listi. Poređenja se vezuju jače od && i ||.",
-      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
+      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:",
+      "pluginBindingsTitle": "Vezivanje komandi dodatka",
+      "pluginBindingsIntro": "Prečice za naredbe dodatka koriste shortcuts.pluginBindings, koje se označavaju punim ID-om komande plugin.<plugin-id>.<action-id> s prostorom imena. Koristite isti niz, akord od dvije stavke ili sintaksu nule kao ugrađena povezivanja.",
+      "pluginBindingsNote": "Spremljeno povezivanje dodatka se zanemaruje dok je njegov dodatak onemogućen, neodobren, nedostaje ili više ne deklarira tu radnju."
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -1350,7 +1354,10 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "pluginTitle": "Komandne prečice dodatka",
+      "pluginIntro": "Omogućene komande dodatka pojavljuju se u Postavke > Prečice na tastaturi. Njihova povezivanja su pohranjena u cmux.json pod shortcuts.pluginBindings koristeći potpuni id komande u prostoru imena.",
+      "pluginCallout": "Vezivanja odmah zaustavljaju rutiranje kada je dodatak onemogućen ili mu se dozvole opozove. Zadana vrijednost manifesta se primjenjuje samo dok ne spremite eksplicitno vezivanje ili odvojite naredbu."
     },
     "api": {
       "title": "CLI Referenca",

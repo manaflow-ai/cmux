@@ -11,14 +11,22 @@ let package = Package(
             name: "CmuxExtensionKit",
             targets: ["CmuxExtensionKit"]
         ),
+        .library(
+            name: "CmuxPluginAuthorizationCore",
+            targets: ["CmuxPluginAuthorizationCore"]
+        ),
     ],
     targets: [
         .target(
-            name: "CmuxExtensionKit"
+            name: "CmuxPluginAuthorizationCore"
+        ),
+        .target(
+            name: "CmuxExtensionKit",
+            dependencies: ["CmuxPluginAuthorizationCore"]
         ),
         .testTarget(
             name: "CmuxExtensionKitTests",
-            dependencies: ["CmuxExtensionKit"]
+            dependencies: ["CmuxExtensionKit", "CmuxPluginAuthorizationCore"]
         ),
     ]
 )

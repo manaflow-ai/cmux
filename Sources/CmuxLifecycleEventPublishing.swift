@@ -203,6 +203,26 @@ extension Workspace {
         }
     }
 
+    func publishCmuxGitBranchChanged(
+        panelId: UUID,
+        branch: String?,
+        isDirty: Bool?,
+        previousBranch: String?
+    ) {
+        CmuxEventBus.shared.publish(
+            name: "git.branch.changed",
+            category: "git",
+            source: "workspace.git",
+            workspaceId: id.uuidString,
+            surfaceId: panelId.uuidString,
+            payload: [
+                "branch": branch ?? NSNull(),
+                "is_dirty": isDirty ?? NSNull(),
+                "previous_branch": previousBranch ?? NSNull(),
+            ]
+        )
+    }
+
     static func cmuxEventSurfaceKind(_ panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:

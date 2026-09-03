@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
-          "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
+          "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird.",
+          "pluginBindings": "Verknüpfungsüberschreibungen für aktivierte Plugin-Befehle, verschlüsselt durch die vollständige Namespace-Befehls-ID plugin.<plugin-id>.<action-id>. Werte verwenden dieselbe Einzelstrich-, Akkord- und Null-zu-Unbind-Syntax wie Shortcuts.bindings."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
       "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",
       "shortcutsWhenOperators": "boolesche Operatoren, typisierte Vergleiche, Regex-Abgleich und Listenzugehörigkeit. Vergleiche binden stärker als && und ||.",
-      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:"
+      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:",
+      "pluginBindingsTitle": "Plugin-Befehlsbindungen",
+      "pluginBindingsIntro": "Plugin-Befehlsverknüpfungen verwenden shortcuts.pluginBindings, verschlüsselt durch die vollständige Namespace-Befehls-ID plugin.<plugin-id>.<action-id>. Verwenden Sie dieselbe String-, Zwei-Elemente-Akkord- oder Null-Syntax wie integrierte Bindungen.",
+      "pluginBindingsNote": "Eine gespeicherte Plugin-Bindung wird ignoriert, solange ihr Plugin deaktiviert, nicht genehmigt oder fehlt oder diese Aktion nicht mehr deklariert."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",
@@ -1350,7 +1354,10 @@
         "wn-reload": "Konfiguration neu laden",
         "wn-quit": "Beenden"
       },
-      "metaTitle": "Tastenkürzel"
+      "metaTitle": "Tastenkürzel",
+      "pluginTitle": "Befehlsverknüpfungen für Plugins",
+      "pluginIntro": "Aktivierte Plugin-Befehle werden unter Einstellungen > Tastaturkürzel angezeigt. Ihre Bindungen werden in cmux.json unter shortcuts.pluginBindings unter Verwendung der vollständigen Namespace-Befehls-ID gespeichert.",
+      "pluginCallout": "Bindungen stoppen die Weiterleitung sofort, wenn ein Plugin deaktiviert oder seine Berechtigungen widerrufen werden. Ein Manifeststandard gilt nur, bis Sie eine explizite Bindung speichern oder die Bindung des Befehls aufheben."
     },
     "api": {
       "title": "CLI-Referenz",

@@ -1171,7 +1171,8 @@
         },
         "shortcuts": {
           "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
-          "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
+          "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede.",
+          "pluginBindings": "Snarveioverstyringer for aktiverte plugin-kommandoer, tastet inn av den fullstendige navneavstanden plugin.<plugin-id>.<action-id> kommando-ID. Verdier bruker samme enkeltslags-, akkord- og null-to-unbinding-syntaks som shortcuts.bindings."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1183,7 +1184,10 @@
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",
       "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-treff og listemedlemskap. Sammenligninger binder tettere enn && og ||.",
-      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:"
+      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:",
+      "pluginBindingsTitle": "Plugin-kommandobindinger",
+      "pluginBindingsIntro": "Plugin-kommandosnarveier bruker shortcuts.pluginBindings, tastet inn av plugin.<plugin-id>.<action-id>-kommando-IDen med full navn. Bruk samme streng, to-element akkord eller null syntaks som innebygde bindinger.",
+      "pluginBindingsNote": "En lagret plugin-binding ignoreres mens plugin-modulen er deaktivert, ikke godkjent, mangler eller ikke lenger erklærer den handlingen."
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",
@@ -1350,7 +1354,10 @@
         "wn-reload": "Last inn konfigurasjon på nytt",
         "wn-quit": "Avslutt"
       },
-      "metaTitle": "Tastatursnarveier"
+      "metaTitle": "Tastatursnarveier",
+      "pluginTitle": "Plugin-kommandosnarveier",
+      "pluginIntro": "Aktiverte plugin-kommandoer vises i Innstillinger > Tastatursnarveier. Bindingene deres er lagret i cmux.json under shortcuts.pluginBindings ved å bruke den komplette navneavstandskommando-ID.",
+      "pluginCallout": "Bindinger stopper ruting umiddelbart når en plugin er deaktivert eller dens tillatelser tilbakekalles. En manifest standard gjelder bare inntil du lagrer en eksplisitt binding eller fjerner bindingen til kommandoen."
     },
     "api": {
       "title": "CLI-referanse",
