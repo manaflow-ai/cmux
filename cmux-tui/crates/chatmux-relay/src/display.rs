@@ -9,7 +9,7 @@ pub(crate) const DIAGNOSTIC_FIELD_MAX_BYTES: usize = 256;
 /// by UTF-8 bytes and ends with an ellipsis when text was omitted. Protocol
 /// validation stays at the wire boundary; this function changes display only.
 pub(crate) fn terminal_text(value: &str) -> String {
-    value.to_owned()
+    terminal_text_with_limit(value, DIAGNOSTIC_FIELD_MAX_BYTES)
 }
 
 fn terminal_text_with_limit(value: &str, max_bytes: usize) -> String {
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn terminal_text_is_byte_bounded_without_splitting_unicode() {
         assert_eq!(terminal_text_with_limit("éééé", 7), "éé…");
-        assert_eq!(terminal_text_with_limit("\x1bAAAA", 8), "\\u{1B}…");
+        assert_eq!(terminal_text_with_limit("\x1bAAAA", 9), "\\u{1B}…");
         assert!(terminal_text(&"界".repeat(200)).len() <= DIAGNOSTIC_FIELD_MAX_BYTES);
     }
 }
