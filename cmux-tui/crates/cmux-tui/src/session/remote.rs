@@ -7092,6 +7092,35 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_replay_forward_returns_the_owned_payload_without_a_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let replay = vec![b'R'; 64];
+
+        assert_eq!(session.pipe_io_forward_replay(7, replay.clone()), Some(replay));
+    }
+
+    #[test]
+    fn pipe_io_replay_forward_consumes_the_owned_payload_for_a_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let replay = vec![b'R'; 64];
+
+        assert_eq!(session.pipe_io_forward_replay(7, replay.clone()), None);
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::replay(replay));
+    }
+
+    #[test]
     fn pipe_io_budget_keeps_same_length_oversized_replay_reserved() {
         let budget = PipeIoByteBudget::new(16);
         let mut first = PipeIoEvent::replay(vec![b'A'; 16]);
