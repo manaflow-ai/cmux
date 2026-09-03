@@ -218,7 +218,7 @@ mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
 }));
 
 mock.module("../services/coderouter/claudeUpstream", () => ({
-  describeClaudeUpstream: async () => null,
+  listClaudeAccounts: async () => [],
 }));
 
 mock.module("../app/[locale]/dashboard/components/claude-upstream-forms", () => ({
