@@ -364,7 +364,9 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
-computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`): the cmux app's
+in-process hub for its own machine links, and the optional system tunnel (`cmux vpn up`)
+for browsers, ssh, and `.internal` names. The
 route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
 state outbound-only firewall rules: no public inbound port at all. The VPC's single
 members-reach-each-other rule is what admits the owner's other machines and tunnels to the
