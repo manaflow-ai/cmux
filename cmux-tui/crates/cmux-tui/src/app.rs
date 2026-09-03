@@ -10320,9 +10320,11 @@ impl App {
             agents: spec
                 .includes(SidebarResourceKind::Agents)
                 .then_some(self.projection_agents_generation),
-            selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
-                .then_some(self.sidebar_workspace_selection)
-                .unwrap_or(0),
+            selected_workspace: if !spec.includes(SidebarResourceKind::Workspaces) {
+                self.sidebar_workspace_selection
+            } else {
+                0
+            },
             sidebar: self.sidebar_generation,
             rail: rail_generation,
         };
