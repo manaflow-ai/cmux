@@ -333,6 +333,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
 /// Render one configurable resource path as a dense native tree column.
 pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let Some(mut area) = app.projection_sidebar_area(view_index) else { return };
+    let rail_area = area;
     let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
     let rows = app.projection_rows(view_index);
     let actions = app.sidebar_action_rows(view_index);
@@ -496,8 +497,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             Hit::SidebarAction { view: view_index, action: action.target },
         ));
     }
-    app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Projection(view_index))));
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
+    app.hits.push((rail::row(rail_area, rail_area.y), Hit::RailPad(RailKind::Projection(view_index))));
+    app.hits.push((rail::divider(rail_area), Hit::RailResize(RailKind::Projection(view_index))));
 }
 
 /// Draw the horizontal rule of every vertical split divider and register
