@@ -43633,6 +43633,36 @@ mod tests {
     }
 
     #[test]
+    fn projection_workspace_target_follows_id_after_tree_reorder() {
+        let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
+            index: 0,
+            id: app.tree.workspaces()[0].id,
+        };
+        app.tree.workspaces_mut().swap(0, 1);
+        app.activate_projection_target(target).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.tree.active_workspace().map(|workspace| workspace.id), Some(target_id(target)));
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    fn target_id(target: crate::sidebar_projection::ProjectionTarget) -> cmux_tui_core::WorkspaceId {
+        match target {
+            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            _ => unreachable!("workspace target expected"),
+        }
+    }
+
+    #[test]
     fn empty_projection_uses_its_leaf_resource_label() {
         let mux = Mux::new("projection-empty-leaf-label-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
