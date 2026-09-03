@@ -79,7 +79,9 @@ impl ProviderCloseWorker {
                         };
                         {
                             let close = close;
-                            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
+                            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close))
+                                .is_err()
+                            {
                                 crate::client_log::stderr_log!(
                                     "provider",
                                     "cmux-tui: provider machine close task panicked"
