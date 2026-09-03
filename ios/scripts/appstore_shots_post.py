@@ -45,7 +45,13 @@ def identify(path: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def find_capture(captures_dir: Path, capture_class: str, source: str, locale: str) -> Path:
+def find_capture(
+    captures_dir: Path,
+    capture_class: str,
+    source: str,
+    locale: str,
+    capture_source: str = "any",
+) -> Path:
     """Locate `<Device Name>-<source>.png` for the device class (iphone/ipad),
     searching only the plan locale's directory when one exists so a
     multi-language capture cannot leak another locale into the staged set."""
@@ -57,10 +63,22 @@ def find_capture(captures_dir: Path, capture_class: str, source: str, locale: st
         for p in sorted(root.rglob(f"*-{source}.png"))
         if p.name.lower().startswith(capture_class)
     ]
+    if capture_source == "real":
+        # The real driver deliberately marks its files `Device Real-...` so a
+        # real post cannot accidentally stage a same-named fixture capture.
+        hits = [p for p in hits if " real-" in p.stem.lower()]
+    elif capture_source == "fixture":
+        hits = [p for p in hits if " real-" not in p.stem.lower()]
     if not hits:
+        qualifier = f" ({capture_source} source)" if capture_source != "any" else ""
+        capture_hint = (
+            "run `appstore-shots.sh capture-real --udid <sim-udid>` first"
+            if capture_source == "real"
+            else "run `appstore-shots.sh capture` first"
+        )
         sys.exit(
-            f"missing capture for {capture_class}/{source} ({locale}) under {captures_dir} "
-            "(run `appstore-shots.sh capture` first)"
+            f"missing capture for {capture_class}/{source}{qualifier} ({locale}) under {captures_dir} "
+            f"({capture_hint})"
         )
     return hits[0]
 
@@ -140,7 +158,7 @@ def transform_framed(src: Path, dst: Path, size: tuple[int, int], headline: str)
         )
 
 
-def stage(plan: dict, work: Path, skip_lockshot: bool) -> int:
+def stage(plan: dict, work: Path, skip_lockshot: bool, capture_source: str) -> int:
     captures = work / "captures"
     final = work / "final"
     # Start from a clean tree so a rerun (or --skip-lockshot) can never leave a
@@ -157,29 +175,50 @@ def stage(plan: dict, work: Path, skip_lockshot: bool) -> int:
             dst = out_dir / f"{shot['position']:02d}-{shot['slug']}.png"
             source = shot["source"]
             if source.startswith("lockshot:"):
-                src = work / "lockshot" / f"{source.split(':', 1)[1]}.png"
+                lock_name = source.split(":", 1)[1]
+                if capture_source == "real":
+                    src = work / "lockshot" / f"{lock_name}-real.png"
+                elif capture_source == "fixture":
+                    src = work / "lockshot" / f"{lock_name}-fixture.png"
+                else:
+                    src = work / "lockshot" / f"{lock_name}.png"
                 if not src.exists():
                     if skip_lockshot:
                         print(f"SKIP {display_type} #{shot['position']} ({source}): "
                               "lockshot capture missing", file=sys.stderr)
                         continue
+                    source_hint = (
+                        "run `appstore-shots.sh capture-real --udid <sim-udid>` first"
+                        if capture_source == "real"
+                        else "run `appstore-shots.sh lockshot` first"
+                    )
                     print(f"MISSING {display_type} #{shot['position']}: {src} "
-                          "(run `appstore-shots.sh lockshot`, or pass --skip-lockshot)",
+                          f"({source_hint}, or pass --skip-lockshot)",
                           file=sys.stderr)
                     failures += 1
                     continue
                 transform_fit(src, dst, size)
             elif spec["transform"] == "fit":
                 transform_fit(
-                    find_capture(captures, spec["capture_class"], source, locale), dst, size
+                    find_capture(
+                        captures, spec["capture_class"], source, locale, capture_source
+                    ),
+                    dst,
+                    size,
                 )
             elif spec["transform"] == "ipad_statusbar_crop":
                 transform_ipad_crop(
-                    find_capture(captures, spec["capture_class"], source, locale), dst, size
+                    find_capture(
+                        captures, spec["capture_class"], source, locale, capture_source
+                    ),
+                    dst,
+                    size,
                 )
             elif spec["transform"] == "framed":
                 transform_framed(
-                    find_capture(captures, spec["capture_class"], source, locale),
+                    find_capture(
+                        captures, spec["capture_class"], source, locale, capture_source
+                    ),
                     dst, size, shot["headline"],
                 )
             else:
@@ -218,11 +257,17 @@ def main() -> None:
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--skip-lockshot", action="store_true",
                         help="stage without the lock-screen reply shot")
+    parser.add_argument(
+        "--capture-source",
+        choices=("any", "real", "fixture"),
+        default="any",
+        help="choose real `Device Real-...` captures or preview fixtures",
+    )
     args = parser.parse_args()
 
     plan = json.loads(PLAN_PATH.read_text())
     if args.command == "stage":
-        failures = stage(plan, args.work, args.skip_lockshot)
+        failures = stage(plan, args.work, args.skip_lockshot, args.capture_source)
     else:
         failures = verify(plan, args.work)
     if failures:

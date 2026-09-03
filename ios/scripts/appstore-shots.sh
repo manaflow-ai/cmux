@@ -1,11 +1,11 @@
 #!/bin/bash
-# Deterministic App Store screenshot pipeline for cmux iOS.
+# App Store screenshot pipeline for cmux iOS.
 #
-# The set is defined by ios/fastlane/appstore-shots-plan.json and captured by
-# ios/cmuxUITests/SnapshotUITests.swift from in-app DEBUG preview fixtures
-# (recorded agent transcripts, mock workspace list, notification fixtures) —
-# no sign-in, Mac pairing, or network. Re-running after UI changes regenerates
-# the same screens with the current UI, which is the point.
+# The default `capture` command is deterministic and uses the hosted
+# SnapshotUITests fixture lane. `capture-real` drives a signed-in, paired
+# simulator against live Mac workspaces and marks those files `Device Real-...`.
+# Use `post --capture-source real` to make accidental fixture fallback
+# impossible when producing a real-content listing refresh.
 #
 # Capture runs on hosted CI (ios-screenshots.yml), NEVER as a local
 # `xcodebuild test` (repo policy: the cmux test host must not launch on a dev
@@ -15,8 +15,11 @@
 # Usage:
 #   appstore-shots.sh asc-snapshot           # download the live ASC set for reference
 #   appstore-shots.sh capture [--ref REF]    # dispatch CI capture + download raws
+#   appstore-shots.sh capture-real --udid UDID [--class iphone|ipad]
+#                                             # capture live paired workspaces
 #   appstore-shots.sh lockshot --app PATH    # lock-screen inline-reply shot (05)
-#   appstore-shots.sh post [--skip-lockshot] # stage final/<DISPLAY_TYPE>/ at ASC dims
+#   appstore-shots.sh post [--capture-source real|fixture]
+#                                             # stage final/<DISPLAY_TYPE>/ at ASC dims
 #   appstore-shots.sh verify                 # check staged set against the plan
 #   appstore-shots.sh upload --confirm       # upload staged set via asc CLI
 #
@@ -105,6 +108,15 @@ cmd_capture() {
   gh run download --repo "$REPO" "$run_id" -n ios-appstore-raw-captures -D "$WORK/captures"
   echo "raw captures in $WORK/captures:"
   find "$WORK/captures" -name '*.png' | sort
+}
+
+cmd_capture_real() {
+  need xcrun; need axe; need idb
+  [ -x "$HERE/appstore-shots-real.sh" ] || {
+    echo "missing executable real capture driver: $HERE/appstore-shots-real.sh" >&2
+    exit 1
+  }
+  "$HERE/appstore-shots-real.sh" "$@"
 }
 
 # Lock-screen inline-reply shot: launches the app with the reply-notification
@@ -211,6 +223,7 @@ if best:
 
   mkdir -p "$WORK/lockshot"
   xcrun simctl io "$udid" screenshot "$WORK/lockshot/05-LockReply.png"
+  cp "$WORK/lockshot/05-LockReply.png" "$WORK/lockshot/05-LockReply-fixture.png"
   echo "captured $WORK/lockshot/05-LockReply.png — inspect before staging"
 }
 
@@ -262,6 +275,7 @@ cmd_upload() {
 case "${1:-}" in
   asc-snapshot) shift; cmd_asc_snapshot "$@" ;;
   capture) shift; cmd_capture "$@" ;;
+  capture-real) shift; cmd_capture_real "$@" ;;
   lockshot) shift; cmd_lockshot "$@" ;;
   post) shift; cmd_post "$@" ;;
   verify) shift; cmd_verify "$@" ;;
