@@ -1513,8 +1513,7 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     if current.sender.is_some() {
         return;
     }
-    let (sender, receiver) =
-        std::sync::mpsc::sync_channel::<()>(REMOTE_REAPER_WAKE_CAPACITY);
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(REMOTE_REAPER_WAKE_CAPACITY);
     let worker_state = state.clone();
     #[cfg(test)]
     if current.fail_next_spawn {
