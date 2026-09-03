@@ -8825,12 +8825,13 @@ mod tests {
         let (snapshot_entered_tx, snapshot_entered_rx) = sync_channel(1);
         let (snapshot_tx, snapshot_rx) = sync_channel(1);
         let snapshot_surface = surface.clone();
+        let snapshot_revision_surface = snapshot_surface.clone();
         std::thread::spawn(move || {
             let snapshot = snapshot_surface
                 .try_with_terminal(|terminal| {
                     snapshot_entered_tx.send(()).unwrap();
                     let text = terminal.viewport_text().unwrap();
-                    let revision = snapshot_surface.terminal_stream_revision().unwrap();
+                    let revision = snapshot_revision_surface.terminal_stream_revision().unwrap();
                     (text, revision)
                 })
                 .unwrap();
