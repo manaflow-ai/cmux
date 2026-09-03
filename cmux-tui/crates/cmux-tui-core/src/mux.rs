@@ -18174,6 +18174,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
+    use crate::mux::terminal_effects::TERMINAL_EFFECT_WORKERS;
     use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
     use crate::workspace_registry::{
         RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
