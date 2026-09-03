@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
       "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging."
+      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "machines": {
+        "title": "Maskiner",
+        "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
+        "machineColumn": "Maskin",
+        "tokensColumn": "Tokens totalt",
+        "apiEquivalentColumn": "API-ekvivalent verdi",
+        "unnamed": "Maskin uten navn",
+        "empty": "Ingen maskiner har brukt coderouter de siste {days} dagene.",
+        "unavailable": "Bruk per maskin er midlertidig utilgjengelig.",
+        "estimateNote": "API-ekvivalent verdi er et estimat basert på offentlige listepriser, ikke faktisk forbruk."
+      }
     },
     "accountMenu": {
       "label": "Kontomeny",

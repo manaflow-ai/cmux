@@ -228,6 +228,11 @@ public abstract class GeneratedCmuxClient {
         return Tree.fromWire(result);
     }
 
+    public final MachineUsageResult machineUsage() throws CmuxException {
+        Object result = execute(Commands.MACHINE_USAGE, Map.of());
+        return MachineUsageResult.fromWire(result);
+    }
+
     public final EmptyResult markWorkspacesProviderManaged(MarkWorkspacesProviderManagedRequest request) throws CmuxException {
         Object result = execute(Commands.MARK_WORKSPACES_PROVIDER_MANAGED, request.toWire());
         return EmptyResult.fromWire(result);

@@ -4688,6 +4688,73 @@
     }
    },
    "additional_properties": false
+  },
+  "MachineUsage": {
+   "kind": "object",
+   "fields": {
+    "vm_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "period_days": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total_tokens": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "api_equivalent_usd": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "as_of": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "period_days is the trailing window length in days.",
+    "api_equivalent_usd is the list-price equivalent of the machine's model traffic in that window."
+   ]
+  },
+  "MachineUsageResult": {
+   "kind": "object",
+   "fields": {
+    "usage": {
+     "type": {
+      "kind": "ref",
+      "name": "MachineUsage"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "usage is null when the daemon has no readout (not a Cloud VM, endpoint unavailable, or usage not ready)."
+   ]
   }
  },
  "commands": {
@@ -9736,6 +9803,22 @@
    "constraints": [
     "Call only after the external provider durably accepts the rename."
    ]
+  },
+  "machine-usage": {
+   "authority": "control",
+   "since": 12,
+   "capability": "machine-usage-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineUsageResult"
+   },
+   "stream": null,
+   "constraints": []
   }
  },
  "events": {
@@ -12387,6 +12470,36 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
+   }
+  },
+  "machine-usage-changed": {
+   "since": 12,
+   "capability": "machine-usage-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "machine-usage-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "usage": {
+      "type": {
+       "kind": "ref",
+       "name": "MachineUsage"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
    }
   }
  }
