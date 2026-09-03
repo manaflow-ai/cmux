@@ -11685,7 +11685,7 @@ impl App {
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
             {
-                hook();
+                hook(self);
             }
             if let Some(event) = first {
                 action = self.handle_event_and_process_machine_requests(event, action)?;
@@ -28899,6 +28899,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             None,
         );
@@ -40289,7 +40290,7 @@ mod tests {
         app.shake_frames = 2;
         let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
         let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
-        app.timeout_drain_hook = Some(Box::new(move || {
+        app.timeout_drain_hook = Some(Box::new(move |_| {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
@@ -45293,9 +45294,9 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
             row_lines: 1,
-            scope: crate::config::SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -45380,6 +45381,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -45752,7 +45757,7 @@ mod tests {
         assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::Paint);
         assert_eq!(
             app.tree
-                .workspaces
+                .workspaces()
                 .iter()
                 .flat_map(|workspace| workspace.screens.iter())
                 .flat_map(|screen| screen.panes.iter())
