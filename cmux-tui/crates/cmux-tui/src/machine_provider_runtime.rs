@@ -1274,6 +1274,7 @@ impl ProviderMachineRuntime {
         let keys = self.keys.clone();
         let connections = self.connections.clone();
         let connection_registry = self.connection_registry.clone();
+        let closing_connections = self.closing_connections.clone();
         let close_worker = self.close_worker.clone();
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
@@ -2450,7 +2451,7 @@ fn connect_provider_machine(
     if closing_connections
         .lock()
         .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?
-        .contains_key(&key)
+        .contains(&key)
     {
         anyhow::bail!("provider machine connection is still closing");
     }
