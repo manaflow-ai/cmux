@@ -30,11 +30,10 @@ public struct CloudSectionView: View {
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: CloudMachine.self) { machine in
-            if let connection = controller.connection(for: machine) {
-                CloudTerminalCatalogView(connection: connection)
-            } else {
-                CloudTunnelUnavailableView()
-            }
+            // The catalog resolves its connection in a task, never in this
+            // builder: creating one here mutates observable state during body
+            // evaluation, which re-renders the stack and pops the push.
+            CloudTerminalCatalogView(machine: machine, controller: controller)
         }
         .refreshable { controller.refreshMachines() }
         .onAppear { controller.sectionDidAppear() }
