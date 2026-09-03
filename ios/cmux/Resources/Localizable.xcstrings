@@ -5685,6 +5685,17 @@
         }
       }
     },
+    "mobile.cloud.entry.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals on your cloud machines, no VPN needed"
+          }
+        }
+      }
+    },
     "mobile.cloud.error.controlPlane": {
       "extractionState": "manual",
       "localizations": {
