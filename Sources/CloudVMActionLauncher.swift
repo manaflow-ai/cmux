@@ -116,6 +116,7 @@ final class CloudVMActionLauncher {
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
             let result = outputCollector.finishResult()
+            outputDelivery?.finish()
             let output = result.output
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
@@ -387,11 +388,21 @@ private final class MainActorOutputCoalescer: @unchecked Sendable {
         let pair = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(128))
         continuation = pair.continuation
         Task {
+            var pending = Data()
             for await data in pair.stream {
-                var safeData = data
-                while !safeData.isEmpty && String(data: safeData, encoding: .utf8) == nil { safeData.removeLast() }
-                while let first = safeData.first, (first & 0xC0) == 0x80 { safeData.removeFirst() }
-                guard let text = String(data: safeData, encoding: .utf8), !text.isEmpty else { continue }
+                pending.append(data)
+                // Keep at most three trailing bytes, enough for an incomplete
+                // UTF-8 scalar. This prevents malformed or stalled streams
+                // from growing the decoder state without bound.
+                if pending.count > 4096 { pending = Data(pending.suffix(4096)) }
+                guard let split = Self.validPrefix(in: pending) else { continue }
+                let prefix = pending.prefix(split)
+                pending = Data(pending.dropFirst(split))
+                if let text = String(data: prefix, encoding: .utf8), !text.isEmpty {
+                    await MainActor.run { handler(text) }
+                }
+            }
+            if !pending.isEmpty, let text = String(data: pending, encoding: .utf8), !text.isEmpty {
                 await MainActor.run { handler(text) }
             }
         }
@@ -400,6 +411,17 @@ private final class MainActorOutputCoalescer: @unchecked Sendable {
     func enqueue(_ data: Data) {
         guard !data.isEmpty else { return }
         continuation.yield(data)
+    }
+
+    func finish() { continuation.finish() }
+
+    private static func validPrefix(in data: Data) -> Int? {
+        let maxTrailing = min(3, data.count)
+        for trailing in 0...maxTrailing {
+            let count = data.count - trailing
+            if String(data: data.prefix(count), encoding: .utf8) != nil { return count }
+        }
+        return nil
     }
 }
 
