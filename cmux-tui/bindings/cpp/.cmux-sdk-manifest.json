@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "include/cmux/raw/generated/commands.hpp",
-      "sha256": "308c89f9a070a999a7c11a6de6b5d0b4c202fd8b6de4cb93a216917050793e55",
-      "size": 15498
+      "sha256": "c50c6c563deb1d0eead9241815d286d4497266e9feb1d6c6328ed44feed5a4cb",
+      "size": 15600
     },
     {
       "path": "include/cmux/raw/generated/events.hpp",
@@ -17,8 +17,8 @@
     },
     {
       "path": "src/raw/generated/protocol.cpp",
-      "sha256": "0d2d9635866f87cbac78f857480de9ddc5e9eeb41b190cdab3179797e7404399",
-      "size": 863814
+      "sha256": "004d1b00ee246d603308747bfe0513a0756a92408df1f9ad4549b5a5a272491f",
+      "size": 864397
     }
   ],
   "format": 1,

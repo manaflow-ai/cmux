@@ -174,6 +174,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Consumes the link's `machine-stats` feed for the life of the link.
     private var statsWatcher: Task<Void, Never>?
     private var statsWatcherSocketPath: String?
+    private weak var statsWatcherLink: CloudMachineLink?
     private var statsWatcherGeneration = 0
     /// The newest host sample the daemon sent; nil without a live link or sampler.
     private var latestStats: VMStats?
@@ -228,6 +229,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         statsWatcher?.cancel()
         statsWatcher = nil
         statsWatcherSocketPath = nil
+        statsWatcherLink = nil
         statsWatcherGeneration += 1
         refreshDebounce?.cancel()
         refreshDebounce = nil
@@ -651,11 +653,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Each sample lands on the catalog's machine info directly (no session re-read);
     /// the Machines panel re-derives the row from the catalog change notification.
     private func watchStats(link: CloudMachineLink, socketPath: String) {
-        if statsWatcher != nil, statsWatcherSocketPath == socketPath { return }
+        if statsWatcher != nil, statsWatcherSocketPath == socketPath, statsWatcherLink === link { return }
         statsWatcher?.cancel()
         statsWatcherGeneration += 1
         let generation = statsWatcherGeneration
         statsWatcherSocketPath = socketPath
+        statsWatcherLink = link
         statsWatcher = Task { [weak self] in
             let stream = await link.stats
             for await sample in stream {
@@ -666,6 +669,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard self.statsWatcherGeneration == generation else { return }
             self.statsWatcher = nil
             self.statsWatcherSocketPath = nil
+            self.statsWatcherLink = nil
             self.applyStats(nil)
         }
     }

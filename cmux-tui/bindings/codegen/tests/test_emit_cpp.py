@@ -24,7 +24,8 @@ class CppEmitterTests(unittest.TestCase):
         generated = emit(load_ir_document(document))
         header = generated[PurePosixPath("include/cmux/raw/generated/commands.hpp")]
         self.assertIn("Result<StatsResult> machine_stats(", header)
-        self.assertIn("Result<EventStream> machine_stats_follow(", header)
+        self.assertIn("struct MachineStatsStream {", header)
+        self.assertIn("Result<MachineStatsStream> machine_stats_follow(", header)
 
     def test_predefined_macro_enum_values_use_safe_identifiers(self) -> None:
         document = copy.deepcopy(schema_document())

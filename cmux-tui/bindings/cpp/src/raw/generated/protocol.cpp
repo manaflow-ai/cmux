@@ -19028,7 +19028,7 @@ Result<MachineStatsResult> Client::machine_stats(
     return decode_value<MachineStatsResult>(response.value());
 }
 
-Result<EventStream> Client::machine_stats_follow(
+Result<MachineStatsStream> Client::machine_stats_follow(
     const MachineStatsRequest& request, RequestOptions options) {
     auto follow_request = request;
     follow_request.follow = true;
@@ -19036,7 +19036,15 @@ Result<EventStream> Client::machine_stats_follow(
     if (!encoded) return std::move(encoded).error();
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
-    return open_event_stream("machine-stats", *parameters.value(), "", options);
+    auto opened = core_.open_stream("machine-stats", *parameters.value(), "", options.timeout);
+    if (!opened) return std::move(opened).error();
+    const Json* initial = opened.value().initial_response();
+    if (!initial) return make_error(ErrorCode::protocol, "stream response missing initial result");
+    auto initial_result = decode_value<MachineStatsResult>(*initial);
+    if (!initial_result) return std::move(initial_result).error();
+    auto events = std::move(opened).value().map<Event>(
+        [](const Json& event) { return decode_value<Event>(event); });
+    return MachineStatsStream{std::move(initial_result).value(), std::move(events)};
 }
 
 Result<MachineUsageResult> Client::machine_usage(

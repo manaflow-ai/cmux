@@ -644,6 +644,18 @@ class CppEmitter:
             "",
             "[[nodiscard]] std::span<const CommandMetadata> command_metadata() noexcept;",
             "",
+        ]
+        for wire_name, command in self.ir.commands.items():
+            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                result = self.result_names[wire_name]
+                lines.extend([
+                    f"struct {_cpp_type_name(wire_name)}Stream {{",
+                    f"    {result} initial_result;",
+                    "    EventStream events;",
+                    "};",
+                    "",
+                ])
+        lines.extend([
             "class Client {",
             "public:",
             "    Client(const Client&) = delete;",
@@ -656,7 +668,7 @@ class CppEmitter:
             "    void close() noexcept { core_.close(); }",
             "    [[nodiscard]] bool closed() const noexcept { return core_.closed(); }",
             "",
-        ]
+        ])
         for wire_name, command in self.ir.commands.items():
             request = self.request_names[wire_name]
             result = self.result_names[wire_name]
@@ -670,7 +682,7 @@ class CppEmitter:
                 )
                 if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
                     lines.append(
-                        f"    [[nodiscard]] Result<EventStream> {method}_follow("
+                        f"    [[nodiscard]] Result<{_cpp_type_name(wire_name)}Stream> {method}_follow("
                         f"const {request}& request{default_request}, RequestOptions options = {{}});"
                     )
             else:
@@ -1151,7 +1163,7 @@ class CppEmitter:
                 terminal_text = "" if terminal is None else str(terminal)
                 lines.extend(
                     [
-                        f"Result<EventStream> Client::{method}_follow(",
+                        f"Result<{_cpp_type_name(wire_name)}Stream> Client::{method}_follow(",
                         f"    const {request}& request, RequestOptions options) {{",
                         f"    auto follow_request = request;",
                         "    follow_request.follow = true;",
@@ -1159,8 +1171,16 @@ class CppEmitter:
                         "    if (!encoded) return std::move(encoded).error();",
                         "    auto parameters = encoded.value().as_object();",
                         "    if (!parameters) return std::move(parameters).error();",
-                        f'    return open_event_stream("{wire_name}", *parameters.value(), '
-                        f'"{terminal_text}", options);',
+                        f'    auto opened = core_.open_stream("{wire_name}", *parameters.value(), '
+                        f'"{terminal_text}", options.timeout);',
+                        "    if (!opened) return std::move(opened).error();",
+                        "    const Json* initial = opened.value().initial_response();",
+                        '    if (!initial) return make_error(ErrorCode::protocol, "stream response missing initial result");',
+                        f"    auto initial_result = decode_value<{result}>(*initial);",
+                        "    if (!initial_result) return std::move(initial_result).error();",
+                        "    auto events = std::move(opened).value().map<Event>(",
+                        "        [](const Json& event) { return decode_value<Event>(event); });",
+                        f"    return {_cpp_type_name(wire_name)}Stream{{std::move(initial_result).value(), std::move(events)}};",
                         "}",
                         "",
                     ]

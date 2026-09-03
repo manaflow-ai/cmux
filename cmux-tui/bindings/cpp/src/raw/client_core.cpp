@@ -480,6 +480,7 @@ Result<JsonStream> ClientCore::open_stream(
             state->transport->close();
             return std::move(response).error();
         }
+        state->initial_response = std::move(response).value();
         break;
     }
 

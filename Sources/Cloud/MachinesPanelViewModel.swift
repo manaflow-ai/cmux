@@ -383,7 +383,14 @@ enum MachineSnapshotBuilder {
 /// through this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
-    @Published private(set) var machines: [MachineSnapshot] = []
+    @Published private(set) var machines: [MachineSnapshot] = [] {
+        didSet {
+            machineRowIndexes = Dictionary(
+                uniqueKeysWithValues: machines.enumerated().map { ($0.element.id, $0.offset) }
+            )
+        }
+    }
+    private var machineRowIndexes: [String: Int] = [:]
     @Published private(set) var plan: MachinePlanSnapshot?
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
@@ -553,7 +560,7 @@ final class MachinesPanelViewModel: ObservableObject {
         } else {
             catalog.machines.append(info)
         }
-        guard let index = machines.firstIndex(where: { $0.id == machine.cloudMachineID }) else { return }
+        guard let index = machineRowIndexes[machine.cloudMachineID] else { return }
         var snapshot = machines[index]
         snapshot.stats = MachineSnapshotBuilder.linkStats(from: info)
         machines[index] = snapshot
