@@ -1556,9 +1556,9 @@ fn enqueue_worker_reap_in_state(
     }
     let needs_start = state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none();
     if needs_start {
-        try_start_reaper(&state);
+        try_start_reaper(state);
         if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
-            reap_completed_workers(&state);
+            reap_completed_workers(state);
         }
     }
 }
@@ -1581,7 +1581,7 @@ fn wake_reaper_after_completion(state: &Arc<Mutex<ReaperState>>) {
         }
     };
     if needs_start {
-        try_start_reaper(&state);
+        try_start_reaper(state);
     }
 }
 
@@ -2378,7 +2378,7 @@ impl RemoteSession {
             .reserve_slot()
             .ok_or_else(|| anyhow::anyhow!("remote worker slots exhausted"))?;
         let reader_completion =
-            Arc::new(WorkerCompletion::with_slot(worker_runtime.clone(), Some(reader_slot)));
+            Arc::new(WorkerCompletion::with_slot(worker_runtime, Some(reader_slot)));
         let session = Arc::new(RemoteSession {
             interactive_writer,
             reader_worker: Mutex::new(None),
@@ -7088,7 +7088,7 @@ mod tests {
     #[test]
     fn reaper_restarts_after_sender_disconnect_and_drains_pending_workers() {
         let _reaper_guard = reaper_test_guard();
-        let state = reaper_state().clone();
+        let state = reaper_state();
         state.lock().unwrap().sender = None;
         let completion = Arc::new(WorkerCompletion::new());
         let worker_completion = completion.clone();
@@ -7102,7 +7102,7 @@ mod tests {
     #[test]
     fn completed_worker_retries_reaper_after_spawn_failure() {
         let _reaper_guard = reaper_test_guard();
-        let state = reaper_state().clone();
+        let state = reaper_state();
         state.lock().unwrap().sender = None;
 
         let release = Arc::new((Mutex::new(false), Condvar::new()));
@@ -7133,7 +7133,7 @@ mod tests {
     #[test]
     fn concurrent_reaper_enqueue_starts_one_owned_worker() {
         let _reaper_guard = reaper_test_guard();
-        let state = reaper_state().clone();
+        let state = reaper_state();
         state.lock().unwrap().sender = None;
 
         let worker_count = 16;
