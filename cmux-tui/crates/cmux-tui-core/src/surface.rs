@@ -1053,7 +1053,45 @@ struct RenderHub {
     built_generation: u64,
     latest: Option<Arc<SurfaceRenderFrame>>,
     initial_graphics: Option<InitialGraphicsSnapshot>,
+    final_initial: Option<Arc<SurfaceRenderFrame>>,
     taps: Vec<RenderTap>,
+}
+
+impl RenderHub {
+    fn build_attach_initial(
+        &mut self,
+        term: &Terminal,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        let shared = self.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+        let initial_graphics = match self.initial_graphics.as_ref() {
+            Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
+                cached.snapshot.clone()
+            }
+            _ => {
+                let snapshot = self.state.snapshot_kitty_graphics(term, true)?;
+                self.initial_graphics = Some(InitialGraphicsSnapshot {
+                    source: shared.frame.kitty_graphics.clone(),
+                    snapshot: snapshot.clone(),
+                });
+                snapshot
+            }
+        };
+        let mut initial = (*shared).clone();
+        initial.frame.kitty_graphics = initial_graphics;
+        Ok(Arc::new(initial))
+    }
+
+    fn final_attach_initial(
+        &mut self,
+        term: &Terminal,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        if let Some(initial) = self.final_initial.as_ref() {
+            return Ok(initial.clone());
+        }
+        let initial = self.build_attach_initial(term)?;
+        self.final_initial = Some(initial.clone());
+        Ok(initial)
+    }
 }
 
 struct InitialGraphicsSnapshot {
@@ -2461,6 +2499,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -2956,6 +2995,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -3999,6 +4039,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -4226,6 +4267,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -4521,6 +4563,7 @@ impl Surface {
                 render.state.clear_kitty_graphics_cache();
                 render.latest = None;
                 render.initial_graphics = None;
+                render.final_initial = None;
             }
             graphics_changed
         };
@@ -5620,22 +5663,11 @@ impl Surface {
         let (tap, stream) = RenderTap::pair(&pty.render);
         let (initial, registered) = {
             let mut render = pty.render.lock().unwrap();
-            let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
-            let initial_graphics = match render.initial_graphics.as_ref() {
-                Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
-                    cached.snapshot.clone()
-                }
-                _ => {
-                    let snapshot = render.state.snapshot_kitty_graphics(&term, true)?;
-                    render.initial_graphics = Some(InitialGraphicsSnapshot {
-                        source: shared.frame.kitty_graphics.clone(),
-                        snapshot: snapshot.clone(),
-                    });
-                    snapshot
-                }
+            let initial = if exited {
+                render.final_attach_initial(&term)?
+            } else {
+                render.build_attach_initial(&term)?
             };
-            let mut initial = (*shared).clone();
-            initial.frame.kitty_graphics = initial_graphics;
             let registered = if exited || pty.dead.load(Ordering::Acquire) {
                 drop(tap);
                 false
@@ -5643,7 +5675,7 @@ impl Surface {
                 render.taps.push(tap);
                 true
             };
-            (Arc::new(initial), registered)
+            (initial, registered)
         };
         let permit = if registered {
             permit
@@ -6588,6 +6620,7 @@ impl PtySurface {
                 }
                 render.built_generation = generation;
                 render.latest = Some(frame.clone());
+                render.final_initial = None;
                 render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())));
                 true
             }
