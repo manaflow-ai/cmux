@@ -21,8 +21,23 @@ export class VmOperationUnsupportedError extends Data.TaggedError("VmOperationUn
   readonly operation: string;
 }> {}
 
+/**
+ * Why a machine is reported as not found.
+ * `row_missing`: the control plane has no row the caller may see.
+ * `provider_missing`: the row existed but the provider no longer has the
+ * machine (deleted from the vendor dashboard, reclaimed, expired). The
+ * workflow marked the row destroyed before failing, so the caller's list
+ * refresh no longer shows it. Terminal either way: retrying cannot help.
+ */
+export type VmNotFoundReason = "row_missing" | "provider_missing";
+
 export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
+  readonly reason?: VmNotFoundReason;
+  /** Set with `provider_missing`: which vendor reported the machine gone. */
+  readonly provider?: ProviderId;
+  /** Set with `provider_missing`: the workflow operation that observed it. */
+  readonly operation?: string;
 }> {}
 
 /**

@@ -5,9 +5,12 @@ import {
   annotateVmErrorSpan,
   captureVmProvisionOutcome,
   isOperatorFaultVmError,
+  reportVmErrorResponse,
+  vmErrorFault,
   VM_ERROR_CODE_HEADER,
 } from "../services/vms/observability";
-import { vmErrorResponse } from "../services/vms/routeHelpers";
+import { ProviderError } from "../services/vms/drivers/types";
+import { providerFailureDiagnostics, vmErrorResponse } from "../services/vms/routeHelpers";
 
 function fakeSpan(): { span: Span; attributes: Record<string, unknown> } {
   const attributes: Record<string, unknown> = {};
@@ -102,6 +105,116 @@ describe("vm error choke point", () => {
     });
     expect(userFault.attributes["cmux.vm.error_code"]).toBe("vm_billing_team_required");
     expect(userFault.attributes["cmux.vm.error_operator_fault"]).toBe(false);
+  });
+});
+
+describe("vm error blame", () => {
+  function freestyleNotFound(vmId: string): ProviderError {
+    const wire = Object.assign(new Error(`not found: vm ${vmId}`), {
+      name: "FreestyleApiError",
+      code: "NOT_FOUND",
+      status: 404,
+      path: `/v5/vms/${vmId}`,
+    });
+    return new ProviderError("freestyle", `openCmuxRemote(${vmId}) failed`, wire);
+  }
+
+  test("provider diagnostics name the vendor and its raw wire answer", () => {
+    const diagnostics = providerFailureDiagnostics("freestyle", "openCmuxRemote", freestyleNotFound("crmulti-1"));
+    expect(diagnostics).toMatchObject({
+      provider: "freestyle",
+      blame: "freestyle",
+      fault: "vendor",
+      providerOperation: "openCmuxRemote",
+      providerCode: "NOT_FOUND",
+      providerStatus: 404,
+      providerPath: "/v5/vms/crmulti-1",
+      providerMessage: "not found: vm crmulti-1",
+    });
+    expect(diagnostics.internalReason).toBe(
+      "freestyle openCmuxRemote failed NOT_FOUND 404 /v5/vms/crmulti-1: not found: vm crmulti-1",
+    );
+    expect(diagnostics.causeChain).toEqual([
+      "ProviderError: [freestyle] openCmuxRemote(crmulti-1) failed",
+      "FreestyleApiError: not found: vm crmulti-1",
+    ]);
+  });
+
+  test("fault: user for 4xx, vendor when a provider is blamed, operator otherwise", () => {
+    expect(vmErrorFault({ error: "vm_invalid_request", status: 400 })).toBe("user");
+    expect(vmErrorFault({ error: "vm_not_found", status: 404, diagnostics: { provider: "freestyle" } })).toBe("user");
+    expect(vmErrorFault({
+      error: "vm_cloud_service_unavailable",
+      status: 502,
+      diagnostics: providerFailureDiagnostics("freestyle", "exec", new Error("boom")),
+    })).toBe("vendor");
+    expect(vmErrorFault({
+      error: "vm_cloud_state_unavailable",
+      status: 503,
+      diagnostics: { provider: "postgres", blame: "postgres", fault: "operator" },
+    })).toBe("operator");
+    expect(vmErrorFault({ error: "vm_create_failed", status: 500 })).toBe("operator");
+  });
+
+  test("the span and the log line carry the vendor's code, status and path", () => {
+    const { span, attributes } = fakeSpan();
+    const input = {
+      error: "vm_cloud_service_unavailable",
+      status: 502,
+      message: "cmux could not attach to this cmux Cloud machine yet.",
+      action: "Retry.",
+      reason: "cmux Cloud's machine host did not complete this request: VM not found",
+      phase: "attach" as const,
+      diagnostics: providerFailureDiagnostics("freestyle", "openCmuxRemote", freestyleNotFound("crmulti-2")),
+    };
+    annotateVmErrorSpan(span, input);
+    expect(attributes["cmux.vm.error_fault"]).toBe("vendor");
+    expect(attributes["cmux.vm.error_provider"]).toBe("freestyle");
+    expect(attributes["cmux.vm.error_provider_operation"]).toBe("openCmuxRemote");
+    expect(attributes["cmux.vm.error_provider_code"]).toBe("NOT_FOUND");
+    expect(attributes["cmux.vm.error_provider_status"]).toBe(404);
+    expect(attributes["cmux.vm.error_provider_path"]).toBe("/v5/vms/crmulti-2");
+    expect(attributes["cmux.vm.error_reason"]).toMatch(/^freestyle openCmuxRemote failed NOT_FOUND 404/);
+
+    const logged: unknown[][] = [];
+    const originalError = console.error;
+    console.error = ((...args: unknown[]) => {
+      logged.push(args);
+    }) as typeof console.error;
+    try {
+      reportVmErrorResponse(input);
+    } finally {
+      console.error = originalError;
+    }
+    const line = logged.find((args) => args[0] === "cmux.observability.error");
+    expect(line).toBeDefined();
+    const context = line?.[1] as Record<string, unknown>;
+    expect(context).toMatchObject({
+      code: "vm_cloud_service_unavailable",
+      fault: "vendor",
+      blame: "freestyle",
+      provider: "freestyle",
+      providerCode: "NOT_FOUND",
+      providerStatus: 404,
+      providerPath: "/v5/vms/crmulti-2",
+      user_facing_message: "cmux could not attach to this cmux Cloud machine yet.",
+    });
+    expect(String(line?.[2])).toContain("[vendor: freestyle] freestyle openCmuxRemote failed NOT_FOUND 404 /v5/vms/crmulti-2");
+  });
+
+  test("a 404 for a vendor-missing machine still keeps the vendor out of the response", async () => {
+    const response = vmErrorResponse({
+      error: "vm_not_found",
+      status: 404,
+      message: "cmux Cloud machine crmulti-3 no longer exists.",
+      action: "Create a new one.",
+      retryable: false,
+      details: { vmId: "crmulti-3", reason: "provider_missing", retryable: false },
+      diagnostics: { provider: "freestyle", providerOperation: "openCmuxRemote", internalReason: "freestyle no longer has machine crmulti-3" },
+    });
+    const raw = JSON.stringify(await response.json());
+    expect(raw).not.toMatch(/freestyle|internalReason|diagnostics/i);
+    expect(raw).toContain('"retryable":false');
   });
 });
 

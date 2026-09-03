@@ -35,6 +35,7 @@ import {
   isVmLimitExceededError,
   isVmModelPlaneError,
   isVmNotFoundError,
+  type VmNotFoundError,
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
@@ -160,7 +161,7 @@ export async function withAuthedVmApiRoute(
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
           status: 500,
-          message: "Cloud VM request failed unexpectedly.",
+          message: "cmux Cloud request failed unexpectedly.",
           action: "Try again. If it keeps failing, copy this error and contact support so we can inspect the server logs.",
           details: { route },
         }));
@@ -327,13 +328,47 @@ export function vmFreeAccessExpiredResponse(input: {
   });
 }
 
-export function notFoundVm(vmId: string): Response {
+export type NotFoundVmOptions = Pick<VmNotFoundError, "reason" | "provider" | "operation">;
+
+/**
+ * 404 for a machine the caller cannot reach. Terminal on purpose (`retryable:
+ * false`): an attach loop must stop here instead of hammering a machine that
+ * is not coming back. `reason: "provider_missing"` means the row existed and
+ * the vendor no longer has the machine; the workflow already marked the row
+ * destroyed, so a list refresh drops it. Which vendor said so stays in
+ * diagnostics for operators.
+ */
+export function notFoundVm(vmId: string, options: NotFoundVmOptions = {}): Response {
+  const providerMissing = options.reason === "provider_missing";
   return vmErrorResponse({
     error: "vm_not_found",
     status: 404,
-    message: `Cloud VM ${vmId} was not found.`,
-    action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
-    details: { vmId },
+    message: providerMissing
+      ? `cmux Cloud machine ${vmId} no longer exists. It was deleted or reclaimed, so cmux removed it from your machines.`
+      : `cmux Cloud machine ${vmId} was not found.`,
+    action: providerMissing
+      ? "Open another machine, or create a new one with `cmux vm new`. Retrying will not bring this machine back."
+      : "Run `cmux vm ls` to see your cmux Cloud machines. If the machine stopped while idle, start a new one with `cmux vm new`.",
+    phase: options.operation ? vmPhaseForOperation(options.operation) : undefined,
+    retryable: false,
+    displayTitle: providerMissing ? "Machine no longer exists" : "Machine not found",
+    displayMessage: providerMissing
+      ? "This cmux Cloud machine was deleted or reclaimed. cmux removed it from your machines."
+      : "cmux Cloud has no machine with this id for your account.",
+    severity: "error",
+    details: {
+      vmId,
+      retryable: false,
+      reason: options.reason ?? "row_missing",
+      ...(options.operation ? { operation: options.operation } : {}),
+    },
+    diagnostics: {
+      ...(options.provider ? { provider: options.provider } : {}),
+      ...(options.operation ? { providerOperation: options.operation } : {}),
+      ...(providerMissing
+        ? { internalReason: `${options.provider ?? "provider"} no longer has machine ${vmId}; row marked destroyed during ${options.operation ?? "lookup"}` }
+        : {}),
+    },
   });
 }
 
@@ -342,7 +377,9 @@ export function vmResourceErrorResponse(err: unknown, vmId: string): Response | 
   if (isVmFreeAccessExpiredError(err)) {
     return vmFreeAccessExpiredResponse({ vmId, windowDays: err.windowDays });
   }
-  if (isVmNotFoundError(err)) return notFoundVm(vmId);
+  if (isVmNotFoundError(err)) {
+    return notFoundVm(vmId, { reason: err.reason, provider: err.provider, operation: err.operation });
+  }
   return null;
 }
 
@@ -422,7 +459,7 @@ export function vmBillingTeamErrorResponse(err: {
     status: err.status,
     message: err.code === "vm_billing_team_not_found"
       ? "That team is not available for this account."
-      : "cmux needs to know which team should own this Cloud VM.",
+      : "cmux needs to know which team should own this cmux Cloud machine.",
     action: err.code === "vm_billing_team_not_found"
       ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
       : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
@@ -466,7 +503,7 @@ export function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      message: `This plan allows ${input.limit} active cmux Cloud machine${plural} at a time.`,
       action: input.retryAction,
       extra: { limit: input.limit },
       details: { limit: input.limit },
@@ -479,8 +516,8 @@ export function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
+      message: "cmux Cloud machines require a cmux Pro subscription.",
+      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to cmux Cloud machines.`,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -489,7 +526,7 @@ export function vmActiveLimitExceededResponse(input: {
   return vmErrorResponse({
     error: "vm_active_limit_exceeded",
     status: 402,
-    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    message: `The free plan includes ${input.limit} cmux Cloud machine${plural}.`,
     action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
@@ -517,7 +554,7 @@ export function vmCreateLikeErrorResponse(
     return vmErrorResponse({
       error: "vm_create_in_progress",
       status: 409,
-      message: "A Cloud VM create is already running for this request.",
+      message: "A cmux Cloud machine create is already running for this request.",
       action: `Wait for the first ${input.operation} to finish, then retry the same command.`,
       details: { idempotencyKeySet: !!err.idempotencyKey },
     });
@@ -526,7 +563,7 @@ export function vmCreateLikeErrorResponse(
     return vmErrorResponse({
       error: "vm_create_failed",
       status: 500,
-      message: `The Cloud VM ${input.operation} create attempt failed.`,
+      message: `The cmux Cloud ${input.operation} create attempt failed.`,
       action: `Retry with a fresh ${input.operation}. If it fails again, copy the details and contact support.`,
       details: { idempotencyKeySet: !!err.idempotencyKey },
     });
@@ -542,8 +579,8 @@ export function vmCreateLikeErrorResponse(
     return vmErrorResponse({
       error: "vm_snapshot_not_found",
       status: 404,
-      message: "Cloud VM snapshot was not found for this account.",
-      action: "Create a snapshot from one of this team's Cloud VMs, then retry restore with that snapshot id.",
+      message: "cmux Cloud snapshot was not found for this account.",
+      action: "Create a snapshot from one of this team's cmux Cloud machines, then retry restore with that snapshot id.",
       details: { snapshotId: err.snapshotId },
     });
   }
@@ -551,8 +588,8 @@ export function vmCreateLikeErrorResponse(
     return vmErrorResponse({
       error: "vm_create_credits_insufficient",
       status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      message: "This team has no cmux Cloud create credits left.",
+      action: "Upgrade the team's plan or ask an admin to add cmux Cloud create credits, then retry.",
       extra: { amount: err.amount },
       details: { amount: err.amount },
     });
@@ -575,7 +612,7 @@ export function vmModelPlaneErrorResponse(
   return vmErrorResponse({
     error: "vm_model_plane_unavailable",
     status: 503,
-    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    message: "cmux could not connect this cmux Cloud machine to coderouter, so no machine was created.",
     reason: "coderouter is unavailable.",
     action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
     phase,
@@ -584,6 +621,26 @@ export function vmModelPlaneErrorResponse(
     displayTitle: "coderouter is unavailable",
     displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
     details: { retryable: true },
+  });
+}
+
+/**
+ * The provisioning kill switch (`CMUX_VM_CREATE_DISABLED`, per-provider or
+ * global) is checked in four places; they all answer with this one response
+ * so the copy and retry contract cannot drift between routes.
+ */
+export function vmCreateDisabledResponse(reason?: string): Response {
+  return vmErrorResponse({
+    error: "vm_create_disabled",
+    status: 503,
+    message: "cmux Cloud machine creation is disabled for this environment.",
+    action: "Ask an admin to enable cmux Cloud machine creation, then retry.",
+    reason: reason ?? "cmux Cloud machine creation is disabled.",
+    phase: "create",
+    retryable: true,
+    displayTitle: "cmux Cloud machine creation is paused",
+    details: { retryable: true },
+    diagnostics: { blame: "cmux", fault: "operator", internalReason: reason ?? "vm create kill switch is on" },
   });
 }
 
@@ -607,7 +664,7 @@ export async function vmWorkflowErrorResponse(
       error: "account_deletion_in_progress",
       status: 409,
       message: "Account deletion is in progress.",
-      action: "Wait for account deletion to finish before creating Cloud VMs.",
+      action: "Wait for account deletion to finish before creating cmux Cloud machines.",
       phase: workflowError.phase ?? "create",
       retryable: true,
     });
@@ -618,7 +675,7 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_attach_transport_unsupported",
       status: 409,
-      message: `Cloud VM ${workflowError.vmId} does not serve the "${workflowError.requested}" attach transport.`,
+      message: `cmux Cloud machine ${workflowError.vmId} does not serve the "${workflowError.requested}" attach transport.`,
       action: `Request the attach endpoint with transport "cmux-remote" (supported: ${supported}), ` +
         "or update cmux — this machine runs the cmux-tui remote daemon only.",
       phase: "attach",
@@ -639,7 +696,7 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_private_network_unavailable",
       status: 409,
-      message: "Cloud VM private networking is not available in this environment.",
+      message: "cmux Cloud private networking is not available in this environment.",
       action:
         "Machines in this environment are reached at their public address, so no tunnel is needed. " +
         "Stop offering to set one up; retrying will not change this.",
@@ -656,7 +713,7 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_tunnel_not_found",
       status: 404,
-      message: "This computer is not enrolled on your Cloud VM network.",
+      message: "This computer is not enrolled on your cmux Cloud network.",
       action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
       phase: "network",
       retryable: false,
@@ -665,15 +722,7 @@ export async function vmWorkflowErrorResponse(
   }
 
   if (isVmCreateDisabledError(workflowError)) {
-    return vmErrorResponse({
-      error: "vm_create_disabled",
-      status: 503,
-      message: "Cloud VM creation is disabled for this environment.",
-      action: "Ask an admin to enable Cloud VM creation, then retry.",
-      reason: workflowError.reason,
-      phase: "create",
-      retryable: true,
-    });
+    return vmCreateDisabledResponse(workflowError.reason);
   }
 
   if (isVmProviderOperationError(workflowError)) {
@@ -694,14 +743,14 @@ export async function vmWorkflowErrorResponse(
       return vmErrorResponse({
         error: "vm_image_unavailable",
         status: 503,
-        message: "The Cloud VM image for this machine is not available in this environment.",
+        message: "The cmux Cloud image for this machine is not available in this environment.",
         reason: "The image this machine kind resolves to is not published for this environment.",
         action:
-          "Ask an admin to publish the Cloud VM image for this environment, then retry. " +
+          "Ask an admin to publish the cmux Cloud image for this environment, then retry. " +
           "A different machine kind (for example `cmux vm new --base`) may still be available.",
         phase,
         retryable: false,
-        displayTitle: "Cloud VM image unavailable",
+        displayTitle: "cmux Cloud image unavailable",
         details: {
           operation: workflowError.operation,
           retryable: false,
@@ -721,8 +770,8 @@ export async function vmWorkflowErrorResponse(
       status: 502,
       message: vmUnavailableMessage(phase),
       reason: providerMessage
-        ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
-        : "Cloud VM service is temporarily unavailable.",
+        ? `cmux Cloud's machine host did not complete this request: ${providerMessage}`
+        : "cmux Cloud's machine host did not complete this request.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
       phase,
       retryable: true,
@@ -735,6 +784,9 @@ export async function vmWorkflowErrorResponse(
         ...(providerCode ? { providerCode } : {}),
         ...(providerMessage ? { providerMessage } : {}),
       },
+      // Operator side: name the vendor and its raw answer. The response above
+      // never carries these (see expectNoCloudVmImplementationLeaks).
+      diagnostics: providerFailureDiagnostics(workflowError.provider, workflowError.operation, workflowError.cause),
     });
   }
 
@@ -742,14 +794,15 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
-      message: "Cloud VM state is temporarily unavailable.",
-      action: "Retry in a minute. If this keeps happening, contact support so we can check Cloud VM state for your account.",
+      message: "cmux Cloud machine state is temporarily unavailable.",
+      action: "Retry in a minute. If this keeps happening, contact support with the reference id so we can check cmux Cloud state for your account.",
       phase: vmPhaseForOperation(workflowError.operation),
       retryable: true,
       retryAfterSeconds: 60,
-      displayTitle: "Cloud VM state is unavailable",
-      displayMessage: "Retrying is safe. The VM state database did not answer this request.",
-      details: { operation: workflowError.operation },
+      displayTitle: "cmux Cloud state is unavailable",
+      displayMessage: "Retrying is safe. cmux Cloud's machine state did not answer this request.",
+      details: { operation: workflowError.operation, retryable: true },
+      diagnostics: dependencyFailureDiagnostics("postgres", workflowError.operation, workflowError.cause),
     });
   }
 
@@ -757,14 +810,15 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_billing_unavailable",
       status: 503,
-      message: "Cloud VM billing could not be checked right now.",
-      action: "Retry in a minute. If the problem persists, ask an admin to check this team's Cloud VM billing setup.",
+      message: "cmux Cloud billing could not be checked right now.",
+      action: "Retry in a minute. If the problem persists, ask an admin to check this team's cmux Cloud billing setup.",
       phase: "billing",
       retryable: true,
       retryAfterSeconds: 60,
-      displayTitle: "Cloud VM billing is unavailable",
+      displayTitle: "cmux Cloud billing is unavailable",
       displayMessage: "Retrying is safe. Billing state could not be checked for this request.",
-      details: { operation: workflowError.operation },
+      details: { operation: workflowError.operation, retryable: true },
+      diagnostics: dependencyFailureDiagnostics("stripe", workflowError.operation, workflowError.cause),
     });
   }
 
@@ -818,6 +872,117 @@ function providerImageNotFound(cause: unknown): boolean {
   return false;
 }
 
+/**
+ * Operator-facing blame for a failed vendor call: which vendor, which
+ * operation, and the vendor's raw code/status/path/message plus the cause
+ * chain, so a Sentry event or log line says "freestyle answered 404 on
+ * /v5/vms/<id>" instead of "Cloud VM service unavailable". Goes to
+ * `diagnostics` only; the response payload never carries it.
+ */
+export function providerFailureDiagnostics(
+  provider: string,
+  operation: string,
+  cause: unknown,
+): Record<string, unknown> {
+  return dependencyFailureDiagnostics(provider, operation, cause, "vendor");
+}
+
+export type VmDependencyFaultKind = "vendor" | "operator";
+
+/**
+ * Same shape for any dependency (provider vendor, Postgres, Stripe, coderouter):
+ * `blame` names the dependency, `fault` says whether it is a third party we
+ * pay (`vendor`) or something we run (`operator`).
+ */
+export function dependencyFailureDiagnostics(
+  dependency: string,
+  operation: string,
+  cause: unknown,
+  fault: VmDependencyFaultKind = "operator",
+): Record<string, unknown> {
+  const raw = rawCauseDetails(cause);
+  const chain = causeChain(cause);
+  const status = raw.status !== undefined ? ` ${raw.status}` : "";
+  const code = raw.code ? ` ${raw.code}` : "";
+  const path = raw.path ? ` ${raw.path}` : "";
+  const message = raw.message ? `: ${raw.message}` : "";
+  return {
+    provider: dependency,
+    blame: dependency,
+    fault,
+    providerOperation: operation,
+    ...(raw.code ? { providerCode: raw.code } : {}),
+    ...(raw.status !== undefined ? { providerStatus: raw.status } : {}),
+    ...(raw.path ? { providerPath: raw.path } : {}),
+    ...(raw.message ? { providerMessage: raw.message } : {}),
+    ...(chain.length ? { causeChain: chain } : {}),
+    internalReason: `${dependency} ${operation} failed${code}${status}${path}${message}`,
+  };
+}
+
+type RawCauseDetails = {
+  code?: string;
+  status?: number;
+  path?: string;
+  message?: string;
+};
+
+/** Innermost vendor answer in the cause chain: its code, HTTP status, path and message. */
+function rawCauseDetails(cause: unknown): RawCauseDetails {
+  let current: unknown = cause;
+  let details: RawCauseDetails = {};
+  for (let depth = 0; depth < 8 && current && typeof current === "object"; depth += 1) {
+    const record = current as {
+      code?: unknown;
+      status?: unknown;
+      statusCode?: unknown;
+      path?: unknown;
+      message?: unknown;
+      body?: { code?: unknown; message?: unknown };
+      response?: { status?: unknown };
+      cause?: unknown;
+    };
+    const code = typeof record.code === "string" ? record.code
+      : typeof record.body?.code === "string" ? record.body.code
+      : undefined;
+    const statusValue = record.status ?? record.statusCode ?? record.response?.status;
+    const status = typeof statusValue === "number" ? statusValue : undefined;
+    const path = typeof record.path === "string" ? record.path : undefined;
+    const message = typeof record.body?.message === "string" ? record.body.message
+      : typeof record.message === "string" ? record.message
+      : undefined;
+    // Deeper is closer to the wire; a vendor SDK error overrides the wrapper text.
+    details = {
+      ...details,
+      ...(code ? { code } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(path ? { path } : {}),
+      ...(message ? { message: message.slice(0, 500) } : {}),
+    };
+    current = record.cause;
+  }
+  return details;
+}
+
+function causeChain(cause: unknown): string[] {
+  const chain: string[] = [];
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current !== "object") {
+      chain.push(String(current).slice(0, 200));
+      break;
+    }
+    const record = current as { name?: unknown; _tag?: unknown; message?: unknown; cause?: unknown };
+    const name = typeof record._tag === "string" ? record._tag
+      : typeof record.name === "string" ? record.name
+      : "Error";
+    const message = typeof record.message === "string" ? record.message.slice(0, 200) : "";
+    chain.push(message ? `${name}: ${message}` : name);
+    current = record.cause;
+  }
+  return chain;
+}
+
 function providerCauseSummary(cause: unknown): { code?: string; message?: string } | null {
   let current: unknown = cause;
   let fallback: { code?: string; message?: string } | null = null;
@@ -825,9 +990,16 @@ function providerCauseSummary(cause: unknown): { code?: string; message?: string
     const record = current as {
       body?: { code?: unknown; message?: unknown };
       cause?: unknown;
+      code?: unknown;
       message?: unknown;
     };
-    const code = typeof record.body?.code === "string" ? record.body.code.trim() : "";
+    // SDK errors carry the vendor code at the top level (FreestyleApiError),
+    // HTTP wrappers under body.code; either wins over the wrapper's text.
+    const code = typeof record.body?.code === "string"
+      ? record.body.code.trim()
+      : typeof record.code === "string"
+        ? record.code.trim()
+        : "";
     const bodyMessage = typeof record.body?.message === "string" ? record.body.message.trim() : "";
     const message = typeof record.message === "string" ? record.message.trim() : "";
     const summaryMessage = bodyMessage || message;
@@ -849,16 +1021,18 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
     : "";
   switch (operation) {
     case "create":
-      return `${retryPrefix}Retry once. If it fails again, run \`cmux vm ls\` to check whether a VM was created, then try \`cmux vm new\` again or contact support.`;
+      return `${retryPrefix}Retry once. If it fails again, run \`cmux vm ls\` to check whether a machine was created, then try \`cmux vm new\` again or contact support with the reference id.`;
     case "openAttach":
     case "openSSH":
-      return `${retryPrefix}cmux is retrying attach while the Cloud VM service recovers. Run \`cmux vm ls\` to confirm the VM still exists.`;
+    case "openCmuxRemote":
+    case "approveCmuxRemoteEnrollment":
+      return `${retryPrefix}cmux is retrying attach while cmux Cloud recovers. Run \`cmux vm ls\` to confirm the machine still exists.`;
     case "exec":
-      return `${retryPrefix}Check that the VM is still running with \`cmux vm ls\`, then retry the command. For long commands, increase the exec timeout.`;
+      return `${retryPrefix}Check that the machine is still running with \`cmux vm ls\`, then retry the command. For long commands, increase the exec timeout.`;
     case "destroy":
-      return `${retryPrefix}Run \`cmux vm ls\` to see whether the VM is already gone. If it still appears, retry \`cmux vm rm <id>\`.`;
+      return `${retryPrefix}Run \`cmux vm ls\` to see whether the machine is already gone. If it still appears, retry \`cmux vm rm <id>\`.`;
     default:
-      return `${retryPrefix}Retry the command. If it keeps failing, copy this error and contact support.`;
+      return `${retryPrefix}Retry the command. If it keeps failing, contact support with the reference id from this error.`;
   }
 }
 
@@ -867,14 +1041,14 @@ function defaultVmDisplayTitle(input: VmErrorResponseInput): string {
   // failures; title it as the team problem it is instead of the generic
   // "operation already running" that pure-status mapping would produce.
   if (input.error === "vm_billing_team_required" || input.error === "vm_billing_team_not_found") {
-    return "Cloud VM team required";
+    return "cmux Cloud team required";
   }
-  if (input.status === 409) return "Cloud VM operation already running";
-  if (input.status === 404) return "Cloud VM not found";
-  if (input.status === 401 || input.status === 403) return "Cloud VM authentication required";
-  if (input.status === 402) return "Cloud VM limit reached";
-  if (input.status >= 500) return "Cloud VM temporarily unavailable";
-  return "Cloud VM request failed";
+  if (input.status === 409) return "cmux Cloud operation already running";
+  if (input.status === 404) return "cmux Cloud machine not found";
+  if (input.status === 401 || input.status === 403) return "cmux Cloud sign-in required";
+  if (input.status === 402) return "cmux Cloud limit reached";
+  if (input.status >= 500) return "cmux Cloud temporarily unavailable";
+  return "cmux Cloud request failed";
 }
 
 function normalizedRetryAfterSeconds(value: number | undefined): number | undefined {
@@ -884,7 +1058,10 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("openAttach")) return "attach";
+  if (operation.includes("CmuxRemote")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
+  if (operation.includes("openPort")) return "network";
+  if (operation.includes("getStats") || operation.includes("Sessions")) return "status";
   // Before the "create" check: createTunnel/createNetwork are network setup,
   // not machine creation, and a client that read them as "create" would show
   // machine-provisioning errors for a tunnel problem.
@@ -922,38 +1099,46 @@ function retryAfterForOperation(operation: string): number | undefined {
 function vmUnavailableTitle(phase: VmLifecyclePhase): string {
   switch (phase) {
     case "attach":
-      return "Reconnecting Cloud VM";
+      return "Reconnecting to cmux Cloud";
     case "ssh":
-      return "Refreshing Cloud VM credentials";
+      return "Refreshing cmux Cloud credentials";
     case "create":
-      return "Creating Cloud VM";
+      return "Creating cmux Cloud machine";
     case "restore":
-      return "Restoring Cloud VM";
+      return "Restoring cmux Cloud machine";
     case "fork":
-      return "Forking Cloud VM";
+      return "Forking cmux Cloud machine";
     case "exec":
-      return "Cloud VM command unavailable";
+      return "cmux Cloud command unavailable";
+    case "network":
+      return "cmux Cloud network unavailable";
+    case "status":
+      return "cmux Cloud status unavailable";
     default:
-      return "Cloud VM temporarily unavailable";
+      return "cmux Cloud temporarily unavailable";
   }
 }
 
 function vmUnavailableMessage(phase: VmLifecyclePhase): string {
   switch (phase) {
     case "attach":
-      return "cmux could not attach to the Cloud VM yet.";
+      return "cmux could not attach to this cmux Cloud machine yet.";
     case "ssh":
-      return "cmux could not refresh Cloud VM SSH credentials yet.";
+      return "cmux could not refresh cmux Cloud SSH credentials yet.";
     case "create":
-      return "cmux could not create the Cloud VM yet.";
+      return "cmux could not create the cmux Cloud machine yet.";
     case "restore":
-      return "cmux could not restore the Cloud VM yet.";
+      return "cmux could not restore the cmux Cloud machine yet.";
     case "fork":
-      return "cmux could not fork the Cloud VM yet.";
+      return "cmux could not fork the cmux Cloud machine yet.";
     case "exec":
-      return "cmux could not run the Cloud VM command yet.";
+      return "cmux could not run the command on this cmux Cloud machine yet.";
+    case "network":
+      return "cmux could not open the cmux Cloud network path yet.";
+    case "status":
+      return "cmux could not read this cmux Cloud machine's status yet.";
     default:
-      return "The Cloud VM service could not complete this request yet.";
+      return "cmux Cloud could not complete this request yet.";
   }
 }
 
@@ -970,7 +1155,7 @@ function sanitizedProviderMessage(message: string): string {
   if (/rate[_\s-]*limit|too many requests/i.test(normalized)) return "rate limited";
   if (/not found|deleted/i.test(normalized)) return "VM not found";
   return normalized
-    .replace(/freestyle/gi, "Cloud VM")
+    .replace(/freestyle/gi, "cmux Cloud")
     .slice(0, 240);
 }
 

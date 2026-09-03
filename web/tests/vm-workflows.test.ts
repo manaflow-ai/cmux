@@ -10,6 +10,7 @@ import {
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { ProviderError } from "../services/vms/drivers/types";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
@@ -41,6 +42,7 @@ import {
   createVm,
   destroyVm,
   execVm,
+  getVmStats,
   homeVolumeNameForUser,
   listUserVms,
   approveVmCmuxRemoteEnrollment,
@@ -132,6 +134,214 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  // The vendor's answer for a machine it no longer has: an SDK error with the
+  // HTTP status, its code and the path, wrapped the way the driver wraps it.
+  function providerMissingCause(vmId: string): ProviderError {
+    const wire = Object.assign(new Error(`not found: vm ${vmId}`), {
+      name: "FreestyleApiError",
+      code: "NOT_FOUND",
+      status: 404,
+      path: `/v5/vms/${vmId}`,
+    });
+    return new ProviderError("freestyle", `openCmuxRemote(${vmId}) failed`, wire);
+  }
+
+  test("attach against a machine the vendor no longer has marks the row destroyed and fails terminal not-found", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000201",
+      userId: "user-workflow-gone",
+      billingTeamId: "team-workflow-gone",
+      providerVmId: "crmulti-gone-0",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses, leases });
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () =>
+        Effect.suspend(() => {
+          statusCalls += 1;
+          return Effect.fail(
+            new VmProviderOperationError({
+              provider: "freestyle",
+              operation: "getStatus",
+              cause: providerMissingCause("crmulti-gone-0"),
+            }),
+          );
+        }),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: "crmulti-gone-0" })),
+      openCmuxRemote: () =>
+        Effect.fail(
+          new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "openCmuxRemote",
+            cause: providerMissingCause("crmulti-gone-0"),
+          }),
+        ),
+    };
+
+    const error = await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-gone",
+        teamIds: ["team-workflow-gone"],
+        providerVmId: "crmulti-gone-0",
+        deviceFingerprint: "fp-1",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(error).toMatchObject({
+      vmId: "crmulti-gone-0",
+      reason: "provider_missing",
+      provider: "freestyle",
+      operation: "openCmuxRemote",
+    });
+    // One probe for the running-row preflight, one to confirm the 404.
+    expect(statusCalls).toBe(2);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "crmulti-gone-0", status: "destroyed" },
+    ]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+    expect(usageEvents[0]?.metadata).toEqual({ source: "provider_missing", operation: "openCmuxRemote" });
+    expect(leases).toHaveLength(0);
+  });
+
+  test("a paused row whose resume preflight sees destroyed fails fast before the provider call", async () => {
+    // Freestyle's getStatus answers "destroyed" for a missing machine instead of
+    // throwing. Only a row we paused (or one still creating) is probed before
+    // the provider call; a running row skips the probe and is caught after.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000204",
+      userId: "user-workflow-gone-fast",
+      billingTeamId: "team-workflow-gone-fast",
+      providerVmId: "crmulti-gone-1",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    let attachCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("destroyed" as const),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: "crmulti-gone-1" })),
+      openCmuxRemote: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          return Effect.fail(
+            new VmProviderOperationError({
+              provider: "freestyle",
+              operation: "openCmuxRemote",
+              cause: providerMissingCause("crmulti-gone-1"),
+            }),
+          );
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-gone-fast",
+        teamIds: ["team-workflow-gone-fast"],
+        providerVmId: "crmulti-gone-1",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(error).toMatchObject({ vmId: "crmulti-gone-1", reason: "provider_missing", provider: "freestyle", operation: "openCmuxRemote" });
+    expect(attachCalls).toBe(0);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "crmulti-gone-1", status: "destroyed" },
+    ]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+  });
+
+  test("a provider 404 the status probe does not confirm stays a retryable provider error", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000202",
+      userId: "user-workflow-flaky",
+      billingTeamId: "team-workflow-flaky",
+      providerVmId: "crmulti-flaky-0",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: "crmulti-flaky-0" })),
+      exec: () =>
+        Effect.fail(
+          new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "exec",
+            // A daemon-side "not found" text, not the machine itself.
+            cause: new ProviderError("freestyle", "exec(crmulti-flaky-0) failed", Object.assign(new Error("vm file not found"), { status: 404 })),
+          }),
+        ),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-flaky",
+        teamIds: ["team-workflow-flaky"],
+        providerVmId: "crmulti-flaky-0",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("a status probe timeout while confirming a 404 keeps the original error", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000203",
+      userId: "user-workflow-slow",
+      billingTeamId: "team-workflow-slow",
+      providerVmId: "crmulti-slow-0",
+      status: "running",
+    });
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () =>
+        Effect.fail(
+          new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "getStatus",
+            cause: new Error("status probe timed out"),
+          }),
+        ),
+      getStats: () =>
+        Effect.fail(
+          new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "getStats",
+            cause: providerMissingCause("crmulti-slow-0"),
+          }),
+        ),
+    };
+
+    const error = await Effect.runPromise(
+      getVmStats({
+        userId: "user-workflow-slow",
+        teamIds: ["team-workflow-slow"],
+        providerVmId: "crmulti-slow-0",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect((error as VmProviderOperationError).operation).toBe("getStats");
+    expect(observedStatuses).toEqual([]);
+  });
+
   test("exec resumes a paused VM, retries once, and records one usage event", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000101",
