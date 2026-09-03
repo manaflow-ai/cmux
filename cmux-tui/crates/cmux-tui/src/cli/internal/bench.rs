@@ -597,8 +597,15 @@ fn drain_separate_typing(
     deadline: Instant,
 ) -> Result<(), String> {
     let mut pending_by_id: HashMap<u64, Instant> = pending.into_iter().collect();
+    let mut drain_error = None;
     while !pending_by_id.is_empty() {
-        let value = conn.read_value_until(deadline)?;
+        let value = match conn.read_value_until(deadline) {
+            Ok(value) => value,
+            Err(error) => {
+                drain_error = Some(error);
+                break;
+            }
+        };
         if value.get("event").is_some() {
             continue;
         }
@@ -863,7 +870,7 @@ fn drain_pending(
     for (sent, response, _kind, data) in completed_creates {
         record_create_result(conn, sent, response, data, socket, events, report, deadline);
     }
-    Ok(())
+    drain_error.map_or(Ok(()), Err)
 }
 
 #[allow(clippy::too_many_arguments)]
