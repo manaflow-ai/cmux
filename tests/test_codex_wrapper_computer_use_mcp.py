@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
@@ -19,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
 SOURCE_CLAUDE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+BUNDLED_CUA_DISPLAY_NAME = "cmux-cua (macOS driver)"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -49,6 +51,56 @@ def read_lines(path: Path) -> list[str]:
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def frontmatter_value(skill_file: Path, key: str) -> str | None:
+    """Read a scalar from a fixture skill's YAML frontmatter."""
+    in_frontmatter = False
+    for line in skill_file.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "---":
+            if in_frontmatter:
+                break
+            in_frontmatter = True
+            continue
+        if in_frontmatter and line.startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    return None
+
+
+def metadata_value(metadata_file: Path, key: str) -> str | None:
+    """Read a scalar from the generated agents/openai.yaml fixture."""
+    for line in metadata_file.read_text(encoding="utf-8").splitlines():
+        if line.strip().startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    return None
+
+
+def discover_skill_entries(*roots: Path) -> list[dict[str, str]]:
+    """Model Codex's filesystem catalog at the wrapper boundary.
+
+    The real catalog is owned by Codex. This intentionally small fixture keeps
+    the paths and frontmatter that cross the wrapper boundary observable so a
+    stale legacy entry can be tested without launching a GUI or a live agent.
+    """
+    entries: list[dict[str, str]] = []
+    for scope, root in enumerate(roots):
+        if not root.is_dir():
+            continue
+        for skill_dir in sorted(root.iterdir()):
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_file.is_file():
+                continue
+            name = frontmatter_value(skill_file, "name")
+            if not name:
+                continue
+            entries.append(
+                {
+                    "scope": str(scope),
+                    "name": name,
+                    "path": str(skill_file.resolve()),
+                }
+            )
+    return entries
 
 
 def arg_value(args: list[str], prefix: str) -> str | None:
@@ -159,6 +211,8 @@ def run_wrapper(
     global_skill_opt_out: bool = False,
     preexisting_legacy_link: bool = False,
     preexisting_skill_directory: bool = False,
+    preexisting_legacy_codex_link: bool = False,
+    preexisting_user_codex_directory: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -181,6 +235,29 @@ def run_wrapper(
             "Use the bundled Computer Use tools.\n",
             encoding="utf-8",
         )
+        bundled_metadata = bundled_skill / "agents" / "openai.yaml"
+        bundled_metadata.parent.mkdir(parents=True, exist_ok=True)
+        # This is an independent artifact fixture, not a read of the checked-in
+        # metadata. It models the label Codex consumes from a built bundle while
+        # keeping this resolver test focused on the executable boundary.
+        bundled_metadata.write_text(
+            "interface:\n"
+            f"  display_name: \"{BUNDLED_CUA_DISPLAY_NAME}\"\n"
+            "  short_description: \"Test bundled driver.\"\n",
+            encoding="utf-8",
+        )
+
+        legacy_bundle_skill = tmp / "cmux old.app" / "Contents" / "Resources" / "codex-cua"
+        if preexisting_legacy_codex_link:
+            legacy_bundle_skill.mkdir(parents=True)
+            (legacy_bundle_skill / "SKILL.md").write_text(
+                "---\n"
+                "name: codex-cua\n"
+                "description: Stale legacy cmux skill.\n"
+                "---\n\n"
+                "This fixture represents an old bundled alias.\n",
+                encoding="utf-8",
+            )
 
         args_log = tmp / "codex-args.log"
         socket_path = tmp / "cmux.sock"
@@ -245,7 +322,9 @@ exit 1
             env = os.environ.copy()
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
+            codex_home = sandbox_home / ".codex"
             env["HOME"] = str(sandbox_home)
+            env["CODEX_HOME"] = str(codex_home)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
             env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -269,6 +348,22 @@ exit 1
                 (skills_root / "cmux-computer-use").symlink_to(
                     "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
                 )
+            if preexisting_legacy_codex_link:
+                for root in (skills_root, codex_home / "skills"):
+                    root.mkdir(parents=True, exist_ok=True)
+                    (root / "codex-cua").symlink_to(legacy_bundle_skill)
+            if preexisting_user_codex_directory:
+                for root in (skills_root, codex_home / "skills"):
+                    owned = root / "codex-cua"
+                    owned.mkdir(parents=True, exist_ok=True)
+                    (owned / "SKILL.md").write_text(
+                        "---\n"
+                        "name: codex-cua\n"
+                        "description: User-owned skill.\n"
+                        "---\n\n"
+                        "user-owned legacy name\n",
+                        encoding="utf-8",
+                    )
             if preexisting_skill_directory:
                 owned = skills_root / "cmux-cua"
                 owned.mkdir(parents=True, exist_ok=True)
@@ -361,6 +456,8 @@ exit 1
                 / "cmux-cua"
             )
             legacy_skill = installed_skill.parent / "cmux-computer-use"
+            legacy_codex_skill = installed_skill.parent / "codex-cua"
+            codex_home_legacy_skill = codex_home / "skills" / "codex-cua"
             skill_probe: dict[str, object] = {
                 "exists": installed_skill.exists(),
                 "is_symlink": installed_skill.is_symlink(),
@@ -375,6 +472,38 @@ exit 1
                     else None
                 ),
                 "legacy_present": legacy_skill.exists() or legacy_skill.is_symlink(),
+                "legacy_codex_present": legacy_codex_skill.exists() or legacy_codex_skill.is_symlink(),
+                "legacy_codex_target": (
+                    os.readlink(legacy_codex_skill)
+                    if legacy_codex_skill.is_symlink()
+                    else None
+                ),
+                "legacy_codex_content": (
+                    (legacy_codex_skill / "SKILL.md").read_text(encoding="utf-8")
+                    if (legacy_codex_skill / "SKILL.md").is_file()
+                    else None
+                ),
+                "codex_home_legacy_present": (
+                    codex_home_legacy_skill.exists() or codex_home_legacy_skill.is_symlink()
+                ),
+                "codex_home_legacy_content": (
+                    (codex_home_legacy_skill / "SKILL.md").read_text(encoding="utf-8")
+                    if (codex_home_legacy_skill / "SKILL.md").is_file()
+                    else None
+                ),
+                "legacy_codex_target_skill_path": (
+                    str((legacy_bundle_skill / "SKILL.md").resolve())
+                    if preexisting_legacy_codex_link
+                    else None
+                ),
+                "catalog_entries": discover_skill_entries(
+                    skills_root,
+                    codex_home / "skills",
+                ),
+                "bundled_display_name": metadata_value(
+                    bundled_metadata,
+                    "display_name",
+                ),
             }
         finally:
             if test_socket is not None:
@@ -392,13 +521,35 @@ def args_config(args: list[str]) -> str | None:
 
 
 def configured_skill_path(args: list[str]) -> Path | None:
+    return next(
+        (Path(entry["path"]) for entry in configured_skill_entries(args) if entry["enabled"]),
+        None,
+    )
+
+
+def configured_skill_entries(args: list[str]) -> list[dict[str, object]]:
+    """Parse the path-scoped skill rules emitted by the Codex wrapper."""
     raw = arg_value(args, "skills.config=")
-    prefix = '[{path="'
-    suffix = '",enabled=true}]'
-    if raw is None or not raw.startswith(prefix) or not raw.endswith(suffix):
-        return None
-    escaped_path = raw[len(prefix) : -len(suffix)]
-    return Path(json.loads(f'"{escaped_path}"'))
+    if raw is None:
+        return []
+    entries: list[dict[str, object]] = []
+    for match in re.finditer(r'\{path="((?:\\.|[^"])*)",enabled=(true|false)\}', raw):
+        escaped_path, enabled = match.groups()
+        entries.append(
+            {
+                "path": json.loads(f'"{escaped_path}"'),
+                "enabled": enabled == "true",
+            }
+        )
+    return entries
+
+
+def skill_rule_map(args: list[str]) -> dict[str, bool]:
+    """Return normalized path enablement from a wrapper skills.config value."""
+    return {
+        str(Path(entry["path"]).resolve()): bool(entry["enabled"])
+        for entry in configured_skill_entries(args)
+    }
 
 
 def test_codex_gets_cmux_cua(failures: list[str]) -> None:
@@ -502,6 +653,137 @@ def test_codex_migrates_legacy_computer_use_link(failures: list[str]) -> None:
     expect(
         skill["exists"] is True and skill["is_symlink"] is True,
         f"expected the cmux-cua link installed after migration, got {skill}",
+        failures,
+    )
+
+
+def test_codex_resolves_explicit_cmux_cua_after_legacy_codex_migration(
+    failures: list[str],
+) -> None:
+    """Fresh and resumed launches must pin cmux-cua after stale alias cleanup.
+
+    The old alias is deliberately present in both Codex user roots. The
+    wrapper must retire only the cmux-owned links, emit path-scoped rules that
+    disable a cached old document, and leave the canonical bundled artifact
+    enabled. This models the boundary Codex uses for both a new session and a
+    resumed session without depending on model output or GUI state.
+    """
+    invocations = (
+        ("fresh", ["$cmux-cua", "open Calculator"]),
+        (
+            "resumed",
+            ["resume", "session-test", "$cmux-cua", "open Calculator"],
+        ),
+    )
+    for context, argv in invocations:
+        code, args, stderr, skill = run_wrapper(
+            argv,
+            preexisting_legacy_codex_link=True,
+        )
+        expect(code == 0, f"{context} legacy-resolution wrapper exited {code}: {stderr}", failures)
+        expect("$cmux-cua" in args, f"{context} explicit canonical mention was lost: {args}", failures)
+        expect("$codex-cua" not in args, f"{context} obsolete alias leaked into argv: {args}", failures)
+        expect(
+            skill["legacy_codex_present"] is False
+            and skill["codex_home_legacy_present"] is False,
+            f"{context} cmux-owned codex-cua aliases must be retired in every Codex root: {skill}",
+            failures,
+        )
+
+        stale_path = skill.get("legacy_codex_target_skill_path")
+        expect(
+            isinstance(stale_path, str),
+            f"{context} fixture did not expose the stale catalog path: {skill}",
+            failures,
+        )
+        rules = skill_rule_map(args)
+        if isinstance(stale_path, str):
+            expect(
+                rules.get(str(Path(stale_path).resolve())) is False,
+                f"{context} must disable the stale codex-cua path without a name-wide rule: {args}",
+                failures,
+            )
+        canonical_rules = [
+            path
+            for path, enabled in rules.items()
+            if enabled and path.endswith("/Contents/Resources/cmux-cua/SKILL.md")
+        ]
+        expect(
+            len(canonical_rules) == 1,
+            f"{context} must enable exactly the bundled cmux-cua document: {args}",
+            failures,
+        )
+
+        catalog = skill.get("catalog_entries")
+        expect(
+            isinstance(catalog, list)
+            and all(entry.get("name") != "codex-cua" for entry in catalog),
+            f"{context} current discovery must not advertise the obsolete alias: {catalog}",
+            failures,
+        )
+        # Keep a stale cached record in the fixture and apply the emitted
+        # path rules exactly as Codex does. A name-based disable would hide a
+        # user skill with the same name, so the old record must disappear by
+        # path while cmux-cua remains explicitly selectable.
+        stale_record = (
+            {"name": "codex-cua", "path": stale_path}
+            if isinstance(stale_path, str)
+            else None
+        )
+        records = ([stale_record] if stale_record is not None else []) + (
+            catalog if isinstance(catalog, list) else []
+        )
+        effective_records = [
+            record
+            for record in records
+            if rules.get(str(Path(record["path"]).resolve()), True)
+        ]
+        expect(
+            all(record.get("name") != "codex-cua" for record in effective_records),
+            f"{context} stale catalog records must be ignored by path: {effective_records}",
+            failures,
+        )
+        selected = next(
+            (record for record in effective_records if record.get("name") == "cmux-cua"),
+            None,
+        )
+        expect(
+            selected is not None
+            and str(selected.get("path", "")).endswith("/Contents/Resources/cmux-cua/SKILL.md"),
+            f"{context} explicit $cmux-cua must resolve to the bundled document: {effective_records}",
+            failures,
+        )
+        expect(
+            skill.get("bundled_display_name") == BUNDLED_CUA_DISPLAY_NAME,
+            f"{context} bundled picker label must stay canonical: {skill}",
+            failures,
+        )
+
+
+def test_codex_preserves_user_owned_legacy_codex_skill(failures: list[str]) -> None:
+    """A real user skill named codex-cua is never removed or overwritten."""
+    code, args, stderr, skill = run_wrapper(
+        ["$cmux-cua", "open Calculator"],
+        preexisting_user_codex_directory=True,
+    )
+    expect(code == 0, f"user-owned legacy wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["legacy_codex_present"] is True
+        and skill["legacy_codex_content"]
+        == "---\nname: codex-cua\ndescription: User-owned skill.\n---\n\nuser-owned legacy name\n",
+        f"user-owned .agents codex-cua skill must remain byte-for-byte intact: {skill}",
+        failures,
+    )
+    expect(
+        skill["codex_home_legacy_present"] is True
+        and skill["codex_home_legacy_content"]
+        == "---\nname: codex-cua\ndescription: User-owned skill.\n---\n\nuser-owned legacy name\n",
+        f"user-owned CODEX_HOME codex-cua skill must remain intact: {skill}",
+        failures,
+    )
+    expect(
+        "$codex-cua" not in args,
+        f"the wrapper must not synthesize an obsolete alias for a user-owned skill: {args}",
         failures,
     )
 
@@ -782,6 +1064,8 @@ def main() -> int:
     test_codex_gets_cmux_cua(failures)
     test_codex_skill_is_global_without_config_duplicate_by_default(failures)
     test_codex_migrates_legacy_computer_use_link(failures)
+    test_codex_resolves_explicit_cmux_cua_after_legacy_codex_migration(failures)
+    test_codex_preserves_user_owned_legacy_codex_skill(failures)
     test_codex_falls_back_to_config_for_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
