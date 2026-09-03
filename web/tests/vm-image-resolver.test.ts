@@ -156,8 +156,8 @@ describe("VM image resolver: request by kind", () => {
       expect(findVmImageKindDefault("freestyle", kind, 20480)?.size?.name).toBe("lgx");
     }
     expect(listVmImageKinds("freestyle", deployed, { memoryMb: 20480 })).toEqual([
-      { kind: "desktop", image: ladder.xl, size: vmImageSize("xl") },
-      { kind: "base", image: ladder.xl, size: vmImageSize("xl") },
+      { kind: "desktop", image: ladder.lgx, size: vmImageSize("lgx") },
+      { kind: "base", image: ladder.lgx, size: vmImageSize("lgx") },
     ]);
   });
 
