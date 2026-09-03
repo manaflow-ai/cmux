@@ -287,9 +287,10 @@ pub fn run(
         // retired terminal or reconnect after a lost daemon transport.
         return Ok(classify_claim_failure(remote, surface, &error));
     }
-    // Older daemons do not accept geometry in the attach request. Apply the
-    // requested initial size explicitly after claiming authority so the
-    // first replay uses the embedder's dimensions on that compatibility path.
+    // Older daemons receive a best-effort pre-attach size in
+    // `try_attach_pipe_io`. Re-apply it after claiming authority because a
+    // newer terminal-authority daemon may report the pre-attach sample as
+    // passive. An unchanged size does not produce a second replay.
     if !remote.supports_pipe_io_initial_size() {
         if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
             return Ok(attach_failure_exit_reason(&error));

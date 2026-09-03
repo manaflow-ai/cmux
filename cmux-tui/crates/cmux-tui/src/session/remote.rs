@@ -1822,6 +1822,16 @@ pub(crate) enum PipeIoSurfaceAttach {
     Deferred,
 }
 
+fn parse_pipe_io_resize_response(response: &Value) -> anyhow::Result<bool> {
+    match response.get("outcome").and_then(Value::as_str) {
+        Some("superseded") | Some("passive") => Ok(false),
+        Some("applied") | None => {
+            Ok(response.get("accepted").and_then(Value::as_bool).unwrap_or(true))
+        }
+        Some(other) => anyhow::bail!("unknown pipe-IO resize outcome {other}"),
+    }
+}
+
 /// Receive complete JSON protocol messages from one transport.
 ///
 /// Message framing belongs to the transport adapter: Unix sockets and SSH
@@ -3791,9 +3801,16 @@ impl RemoteSession {
         if !self.can_attach_after_overflow(id) {
             return Ok(PipeIoSurfaceAttach::Deferred);
         }
-        let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
-            self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
-        });
+        let requested_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1)));
+        let initial_size = requested_size.filter(|_| self.supports_pipe_io_initial_size());
+        if initial_size.is_none()
+            && let Some((cols, rows)) = requested_size
+        {
+            // Older daemons cannot size the PTY as part of attach. A generic
+            // resize is valid before the stream is opened and establishes the
+            // requested geometry before the daemon publishes its first replay.
+            self.resize_pipe_io_before_attach(id, cols, rows)?;
+        }
         let mut request = json!({"cmd": "attach-surface", "surface": id, "mode": "bytes"});
         if let Some((cols, rows)) = initial_size {
             request["cols"] = json!(cols);
@@ -3874,14 +3891,25 @@ impl RemoteSession {
                 "rows": desired.1,
             });
         }
-        let response = self.request(request)?;
-        match response.get("outcome").and_then(Value::as_str) {
-            Some("superseded") | Some("passive") => Ok(false),
-            Some("applied") | None => {
-                Ok(response.get("accepted").and_then(Value::as_bool).unwrap_or(true))
-            }
-            Some(other) => anyhow::bail!("unknown pipe-IO resize outcome {other}"),
-        }
+        parse_pipe_io_resize_response(&self.request(request)?)
+    }
+
+    /// Size a legacy attachment before opening its byte stream. This must use
+    /// the unleased command because the attachment lease does not exist yet.
+    pub(crate) fn resize_pipe_io_before_attach(
+        &self,
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        let desired = (cols.max(1), rows.max(1));
+        let response = self.request(json!({
+            "cmd": "resize-surface",
+            "surface": surface,
+            "cols": desired.0,
+            "rows": desired.1,
+        }))?;
+        parse_pipe_io_resize_response(&response)
     }
 
     /// Mirror for a surface, attaching on first use. Servers advertising
