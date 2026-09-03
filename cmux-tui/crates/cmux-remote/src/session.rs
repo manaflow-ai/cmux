@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -766,7 +766,11 @@ struct ScheduledSenderInner {
 impl Drop for ScheduledSenderInner {
     fn drop(&mut self) {
         self.cancel.cancel();
-        if let Some(tasks) = self.tasks.get_mut().as_mut() {
+        let tasks = match self.tasks.get_mut() {
+            Ok(tasks) => tasks,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(tasks) = tasks {
             for task in tasks {
                 task.abort();
             }
