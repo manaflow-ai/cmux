@@ -666,12 +666,13 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         .filter(|pid| *pid > 0)
         .map(|pid| pid as libc::pid_t)
         .ok_or_else(|| anyhow::anyhow!("PTY child did not provide a valid process ID"))?;
+    let process_group = master.process_group_leader().filter(|group| *group > 0).unwrap_or(pid);
     let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         lifecycle: Arc::clone(&lifecycle),
-        process_group: pid,
+        process_group,
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
