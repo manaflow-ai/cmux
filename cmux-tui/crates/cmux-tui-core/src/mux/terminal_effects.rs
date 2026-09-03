@@ -152,24 +152,52 @@ impl TerminalEffectExecutor {
         }
         self.wake.notify_all();
         let workers = std::mem::take(&mut *self.workers.lock().unwrap());
+        let mut inner = self.inner.lock().unwrap();
+        while !inner.running.is_empty() || !inner.queue.is_empty() {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let (next, _) = self.wake.wait_timeout(inner, deadline - now).unwrap();
+            inner = next;
+        }
+        let effects_finished = inner.running.is_empty() && inner.queue.is_empty();
+        drop(inner);
+
+        // Join every worker once its queue is drained. If an effect exceeds
+        // the shutdown budget, keep its JoinHandle in a small reaper thread
+        // instead of dropping a live handle. The worker owns an Arc of this
+        // executor, so the reaper is the owner that eventually breaks that
+        // cycle after the effect returns.
+        let mut deferred = Vec::new();
         for worker in workers {
             if worker.thread().id() == std::thread::current().id() {
-                continue;
-            }
-            let mut inner = self.inner.lock().unwrap();
-            while !inner.running.is_empty() || !inner.queue.is_empty() {
-                let now = Instant::now();
-                if now >= deadline {
-                    break;
-                }
-                let (next, _) = self.wake.wait_timeout(inner, deadline - now).unwrap();
-                inner = next;
-            }
-            drop(inner);
-            if worker.is_finished() {
+                deferred.push(worker);
+            } else if effects_finished {
                 let _ = worker.join();
+            } else {
+                deferred.push(worker);
             }
         }
+        if !deferred.is_empty() {
+            let _ = std::thread::Builder::new()
+                .name("terminal-effect-reaper".to_string())
+                .spawn(move || {
+                    for worker in deferred {
+                        let _ = worker.join();
+                    }
+                });
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn worker_count(&self) -> usize {
+        self.workers.lock().unwrap().len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        self.inner.lock().unwrap().shutting_down
     }
 
     fn worker_loop(self: Arc<Self>, mux: Weak<Mux>) {

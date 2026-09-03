@@ -17071,6 +17071,10 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        // `TerminalEffectExecutor` workers hold an Arc of the executor while
+        // waiting for work. Signal and join them before dropping the Mux so
+        // implicit teardown cannot leave worker threads behind.
+        self.terminal_effects.shutdown(Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
