@@ -10,6 +10,7 @@ import SwiftUI
 /// load, so the connecting state shows the same progress affordance.
 struct CloudTerminalCatalogView: View {
     @State var connection: CloudMachineConnection
+    @Environment(\.cloudSessionController) private var controller
 
     var body: some View {
         List {
@@ -31,6 +32,9 @@ struct CloudTerminalCatalogView: View {
         }
         .task { connection.refreshTerminals() }
         .refreshable { connection.refreshTerminals() }
+        // Hold the tunnel while pushed over the section (whose onDisappear fires).
+        .onAppear { controller?.sectionDidAppear() }
+        .onDisappear { controller?.sectionDidDisappear() }
     }
 
     private var terminalsSection: some View {
