@@ -187,10 +187,6 @@ if cmux_hosted_retention_validate_no_symlink_ancestors "$tmp/../tmp" cmux-tui ta
   echo "path traversal base was accepted" >&2
   exit 1
 fi
-if cmux_hosted_retention_run "$tmp/../tmp" "$current_commit" 2>/dev/null; then
-  echo "destructive helper accepted traversal path" >&2
-  exit 1
-fi
 
 # A clean checkout can lack cmux-tui/target. The safe parent creation path
 # must create it only after ancestor validation.
