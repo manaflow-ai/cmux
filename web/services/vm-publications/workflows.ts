@@ -311,8 +311,7 @@ export function verifyCustomDomain(input: {
     }
 
     if (domain.verificationState === "verified") {
-      yield* provider.requestWildcardCertificate(domain.hostname);
-      const wildcard = yield* provider.getWildcardCertificateStatus(domain.hostname);
+      const wildcard = yield* requestWildcardCertificateStatus(provider, domain.hostname);
       domain = yield* repository.updateDomainState({
         id: domain.id,
         ownerUserId,
@@ -334,6 +333,29 @@ export function verifyCustomDomain(input: {
       domainId: domain.id,
     });
     return customDomainDto(domain, targets);
+  });
+}
+
+/**
+ * Request the zone wildcard and read its status. Observed live: the request
+ * succeeds and issuance finishes within a minute, but the certificate list
+ * lags the request, so a fresh request that is not yet listed reports
+ * `pending` rather than `missing`.
+ */
+function requestWildcardCertificateStatus(
+  provider: VmPublicationProviderShape,
+  zone: string,
+) {
+  return Effect.gen(function* () {
+    const requested = yield* provider.requestWildcardCertificate(zone);
+    const status = yield* provider.getWildcardCertificateStatus(zone);
+    if (status.state !== "missing") return status;
+    return {
+      ...status,
+      state: "pending" as const,
+      ready: false,
+      certificate: requested,
+    };
   });
 }
 
@@ -1037,8 +1059,8 @@ function provisionReservedPublication(input: {
         // One verified owner-scoped zone gets one reusable wildcard. The call
         // is idempotent, so it also repairs a crash between local verification
         // promotion and the provider certificate request.
-        yield* input.provider.requestWildcardCertificate(domain.hostname);
-        const wildcard = yield* input.provider.getWildcardCertificateStatus(
+        const wildcard = yield* requestWildcardCertificateStatus(
+          input.provider,
           domain.hostname,
         );
         domain = yield* input.repository.updateDomainState({

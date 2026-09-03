@@ -1573,6 +1573,51 @@ describe("Cloud VM publication workflows", () => {
     });
   });
 
+  test("reports a freshly requested wildcard as pending while the inventory lags", async () => {
+    const verifiedZone = domain("custom", {
+      id: "zone-1",
+      hostname: "example.com",
+      verificationState: "verified",
+      certificateState: "missing",
+      providerVerificationId: zoneVerification.verificationId,
+      verificationRecords: Object.values(zoneVerification.dnsInstructions),
+    });
+    let persisted: string | undefined;
+    const repository = fakeRepository({
+      findOwnedDomainByHostname: () => Effect.succeed(verifiedZone),
+      updateDomainState: (input) => {
+        persisted = input.certificateState;
+        return Effect.succeed({ ...verifiedZone, certificateState: input.certificateState ?? "missing" });
+      },
+      listOwnedPublicationsForDomain: () => Effect.succeed([]),
+    });
+    const provider = fakeProvider({
+      requestWildcardCertificate: () => Effect.succeed({
+        domain: "example.com",
+        wildcard: true,
+        active: false,
+        notAfter: NOW.toISOString(),
+        generation: 0,
+      }),
+      getWildcardCertificateStatus: () => Effect.succeed({
+        hostname: "*.example.com",
+        state: "missing",
+        ready: false,
+        source: "none",
+        certificate: null,
+      }),
+    });
+
+    const result = await run(verifyCustomDomain({
+      principal: { userId: "owner-1", teamIds: [] },
+      hostname: "example.com",
+      now: NOW,
+    }), repository, provider);
+
+    expect(persisted).toBe("pending");
+    expect(result.certificateState).toBe("pending");
+  });
+
   test("verify by domain reports a pending zone while the proof is not visible yet", async () => {
     const calls: string[] = [];
     const pendingZone = domain("custom", {
