@@ -1374,7 +1374,20 @@ impl WorkerCompletion {
     }
 }
 
-const REMOTE_WORKER_SLOT_LIMIT: usize = 256;
+const REMOTE_WORKER_SLOT_FLOOR: usize = 256;
+
+fn remote_worker_slot_limit_for_warm_connections(warm_connections: usize) -> usize {
+    warm_connections.saturating_mul(2).max(REMOTE_WORKER_SLOT_FLOOR)
+}
+
+fn remote_worker_slot_limit() -> usize {
+    let warm_connections = std::env::var("CMUX_TUI_WARM_MACHINES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|limit| *limit >= 2)
+        .unwrap_or(5);
+    remote_worker_slot_limit_for_warm_connections(warm_connections)
+}
 
 struct WorkerAdmission {
     available: AtomicUsize,
@@ -1443,7 +1456,7 @@ fn process_reaper_state() -> Arc<Mutex<ReaperState>> {
 fn process_worker_admission() -> Arc<WorkerAdmission> {
     PROCESS_WORKER_ADMISSION
         .get_or_init(|| {
-            Arc::new(WorkerAdmission { available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT) })
+            Arc::new(WorkerAdmission { available: AtomicUsize::new(remote_worker_slot_limit()) })
         })
         .clone()
 }
@@ -1592,8 +1605,7 @@ fn enqueue_worker_reap_in_state(
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
-        if current.sender.is_some()
-            && let Some(sender) = current.sender.as_ref()
+        if let Some(sender) = current.sender.as_ref()
             && sender.send(()).is_err()
         {
             current.sender = None;
@@ -7180,12 +7192,15 @@ mod tests {
     #[test]
     fn completed_worker_retries_reaper_after_spawn_failure() {
         let _reaper_guard = reaper_test_guard();
-        let state = reaper_state();
+        let runtime = Arc::new(WorkerRuntime {
+            admission: process_worker_admission(),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
         state.lock().unwrap().sender = None;
 
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let completion =
-            Arc::new(WorkerCompletion::with_runtime(test_worker_runtime(), None, true));
+        let completion = Arc::new(WorkerCompletion::with_runtime(runtime.clone(), None, true));
         let worker_release = release.clone();
         let worker_completion = completion.clone();
         let handle = std::thread::spawn(move || {
@@ -7198,7 +7213,7 @@ mod tests {
         });
 
         state.lock().unwrap().fail_next_spawn = true;
-        enqueue_worker_reap(handle, completion.clone());
+        enqueue_worker_reap_in_state(&state, handle, completion.clone());
         assert!(!completion.was_joined(), "failed reaper spawn must retain the handle");
 
         let (released, changed) = &*release;
@@ -7248,6 +7263,12 @@ mod tests {
         assert!(admission.try_reserve().is_none());
         drop(slot);
         assert!(admission.try_reserve().is_some());
+    }
+
+    #[test]
+    fn worker_admission_scales_with_warm_connection_limit() {
+        assert_eq!(remote_worker_slot_limit_for_warm_connections(5), REMOTE_WORKER_SLOT_FLOOR);
+        assert_eq!(remote_worker_slot_limit_for_warm_connections(200), 400);
     }
 
     #[test]
