@@ -407,9 +407,6 @@ impl Connection {
     }
 
     fn publish_flow(&self, pause: bool) {
-        if self.finished.load(Ordering::SeqCst) {
-            return;
-        }
         self.flow_tx.send_if_modified(|current| {
             if *current == pause {
                 false
@@ -457,6 +454,17 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Stop admitting output before resuming a paused source. The writer
+        // drains only frames already admitted, so this transition cannot add
+        // new bytes to the queue during shutdown.
+        self.flow_tx.send_if_modified(|current| {
+            if *current {
+                *current = false;
+                true
+            } else {
+                false
+            }
+        });
         if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
             permit.send(WriterMessage::End);
         }
@@ -649,12 +657,12 @@ fn spawn_flow_worker(
                     // Read the watch value before exiting, and deliver a
                     // required pause while the attachment remains live.
                     let pause = *flow_rx.borrow();
-                    if pause && !applied_pause {
+                    if pause != applied_pause {
                         let frame = json!({
                             "version": PTY_PROTOCOL_VERSION,
                             "type": "pty_flow",
                             "ptyId": connection.pty_id,
-                            "pause": true,
+                            "pause": pause,
                         });
                         connection.manager.handle_frame(&frame, &context).await;
                     }
@@ -1319,6 +1327,37 @@ mod tests {
             "ptyId": connection.pty_id,
         });
         rig.manager.handle_frame(&close, &connection.frame_context()).await;
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn finish_resumes_a_source_paused_before_shutdown() {
+        let rig = rig().await;
+        let (connection, _writer_rx, flow_rx) = test_connection(&rig);
+        let pty = attach_test_pty(&rig, &connection).await;
+        let flow = spawn_flow_worker(Arc::clone(&connection), connection.frame_context(), flow_rx);
+
+        connection.publish_flow(true);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if pty.state.lock().unwrap().pause_calls == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("pause should reach the live attachment");
+
+        connection.finish();
+        tokio::time::timeout(FLOW_DRAIN_TIMEOUT, flow)
+            .await
+            .expect("flow worker drain")
+            .expect("flow worker join");
+
+        let state = pty.state.lock().unwrap();
+        assert_eq!(state.pause_calls, 1);
+        assert_eq!(state.resume_calls, 1, "shutdown must resume a paused source");
         rig.cancel.cancel();
     }
 
