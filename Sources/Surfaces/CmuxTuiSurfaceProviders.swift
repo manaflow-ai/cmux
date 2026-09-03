@@ -654,9 +654,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the Machines panel re-derives the row from the catalog change notification.
     private func watchStats(link: CloudMachineLink, socketPath: String) {
         if statsWatcher != nil, statsWatcherSocketPath == socketPath, statsWatcherLink === link { return }
-        if statsWatcher != nil {
+        let identityChanged = statsWatcherSocketPath != socketPath || statsWatcherLink !== link
+        if identityChanged {
             // A new link lifecycle must not display a sample produced by the
-            // old child while its replacement is still warming up.
+            // old child while its replacement is still warming up, even when
+            // the previous watcher already ended.
             applyStats(nil)
         }
         statsWatcher?.cancel()
