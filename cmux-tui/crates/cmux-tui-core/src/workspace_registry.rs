@@ -119,6 +119,8 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(test)]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 1024;
+#[cfg(unix)]
+const MAX_TERMINAL_HOST_RECORD_BYTES: u64 = 1024 * 1024;
 const RESOURCE_EFFECT_PEPPER_BYTES: usize = 32;
 const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
@@ -459,6 +461,11 @@ impl PersistentSessionStateResetter {
         persistent_session_state_dir(&self.state_root, session_name)
     }
 
+    /// Returns whether this process can enforce the reset deletion boundary.
+    pub fn checked_deletion_supported(&self) -> bool {
+        checked_reset_deletion_supported(&self.state_root)
+    }
+
     /// Builds a read-only reset preview for `session_name`.
     pub fn preview(
         &self,
@@ -525,10 +532,42 @@ impl PersistentSessionStateResetter {
             confirm_reset,
         )?;
         ensure_checked_reset_deletion_supported(root)?;
-        let _session_guard = acquire_existing_session_reset_guard(root, session_name)?;
-        let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
-        let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
-        let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+        #[cfg(all(unix, test))]
+        inject_reset_path_replacement_before_write(root, &RESET_REPLACE_STATE_ROOT_BEFORE_GUARD)?;
+        let session_guard = acquire_existing_session_reset_guard(root, session_name)?;
+        let lock_pending_reset_dirs =
+            pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
+        let lock_session_dir_exists =
+            validate_session_reset_dir_for_guard(&session_guard, &session_dir)?;
+        let lock_terminal_host_root_exists =
+            validate_terminal_host_reset_dir_for_guard(&session_guard, &terminal_host_root)?;
+        let confirmation_path_tokens = ResetConfirmationPathTokens::capture(
+            root,
+            &session_dir,
+            &terminal_host_root,
+            &lock_pending_reset_dirs,
+        );
+        #[cfg(all(unix, test))]
+        inject_reset_path_replacement_before_write(root, &RESET_REPLACE_STATE_ROOT_AFTER_GUARD)?;
+        #[cfg(all(unix, test))]
+        {
+            inject_reset_path_replacement_before_write(
+                &session_dir,
+                &RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK,
+            )?;
+            inject_reset_path_replacement_before_write(
+                &terminal_host_root,
+                &RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK,
+            )?;
+            inject_reset_directory_swap_before_lock(
+                &session_dir,
+                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
+            )?;
+            inject_reset_directory_swap_before_lock(
+                &terminal_host_root,
+                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
+            )?;
+        }
         if !lock_session_dir_exists
             && !lock_terminal_host_root_exists
             && lock_pending_reset_dirs.is_empty()
@@ -536,32 +575,74 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            Some(SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?)
+            Some(acquire_session_writer_reset_lease(&session_guard, &session_dir)?)
         } else {
             None
         };
-        let _terminal_host_reset_lock = if lock_terminal_host_root_exists {
-            crate::terminal_host_runtime::acquire_terminal_host_reset_lock(&terminal_host_root)?
+        let terminal_host_reset_lock = if lock_terminal_host_root_exists {
+            acquire_terminal_host_reset_lock_for_guard(&session_guard, &terminal_host_root)?
         } else {
             None
         };
         let _terminal_host_reset_leases = if lock_terminal_host_root_exists {
-            prepare_terminal_host_root_for_reset(&terminal_host_root)?
+            let reset_lock = terminal_host_reset_lock.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("terminal host state still has live or unverified hosts")
+            })?;
+            prepare_terminal_host_root_for_reset_at(&terminal_host_root, reset_lock)?
         } else {
             Vec::new()
         };
-        let pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
-        let session_dir_exists = validate_session_reset_dir(&session_dir)?;
-        let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+        #[cfg(all(unix, test))]
+        {
+            restore_reset_directory_after_lock(
+                &session_dir,
+                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
+            )?;
+            restore_reset_directory_after_lock(
+                &terminal_host_root,
+                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
+            )?;
+        }
+        #[cfg(unix)]
+        {
+            if lock_session_dir_exists {
+                validate_locked_reset_child_directory_for_guard(
+                    &session_guard,
+                    &session_dir,
+                    session_reset_locked_directory(lease.as_ref(), &session_dir)?,
+                )?;
+            }
+            if lock_terminal_host_root_exists {
+                validate_locked_reset_child_directory_for_guard(
+                    &session_guard,
+                    &terminal_host_root,
+                    terminal_host_reset_locked_directory(
+                        terminal_host_reset_lock.as_ref(),
+                        &terminal_host_root,
+                    )?,
+                )?;
+            }
+        }
+        let pending_reset_dirs =
+            pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
+        let session_dir_exists =
+            validate_session_reset_dir_for_guard(&session_guard, &session_dir)?;
+        let terminal_host_root_exists =
+            validate_terminal_host_reset_dir_for_guard(&session_guard, &terminal_host_root)?;
         if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
-        let confirmation = require_reset_confirmation(
-            root,
+        let confirmation_request = ResetConfirmationRequest {
+            state_root: root,
             session_name,
-            &session_dir,
-            &terminal_host_root,
-            &pending_reset_dirs,
+            session_dir: &session_dir,
+            terminal_host_root: &terminal_host_root,
+            pending_reset_dirs: &pending_reset_dirs,
+            path_tokens: &confirmation_path_tokens,
+        };
+        let confirmation = require_reset_confirmation_for_guard(
+            &session_guard,
+            &confirmation_request,
             confirm_reset,
         )?;
         if pending_reset_dirs.len() != confirmation.pending_reset_dir_fingerprints.len() {
@@ -570,34 +651,42 @@ impl PersistentSessionStateResetter {
         for (reset_dir, expected_fingerprint) in
             pending_reset_dirs.iter().zip(&confirmation.pending_reset_dir_fingerprints)
         {
-            ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
+            ensure_reset_dir_fingerprint_for_guard(
+                &session_guard,
+                &reset_dir.path,
+                "pending",
+                expected_fingerprint,
+            )?;
         }
         if let Some(lease) = &lease {
-            validate_session_lock_file(&lease.path, &lease.file)?;
+            lease.validate_current()?;
         }
         let session_reset_dir = if session_dir_exists {
-            Some(rename_session_dir_for_reset(
+            Some(rename_session_dir_for_guard(
+                &session_guard,
                 root,
                 session_name,
                 &session_dir,
                 &confirmation.session_fingerprint,
+                lease.as_ref(),
             )?)
         } else {
             None
         };
         let terminal_host_reset_dir = if terminal_host_root_exists {
-            Some(rename_terminal_host_dir_for_reset(
+            Some(rename_terminal_host_dir_for_guard(
+                &session_guard,
                 root,
                 session_name,
                 &terminal_host_root,
                 &confirmation.terminal_host_fingerprint,
+                terminal_host_reset_lock.as_ref(),
             )?)
         } else {
             None
         };
         #[cfg(test)]
         inject_reset_recreated_session_dir_after_staging(&session_dir)?;
-        drop(lease);
         for (reset_dir, expected_fingerprint) in
             pending_reset_dirs.iter().zip(&confirmation.pending_reset_dir_fingerprints)
         {
@@ -605,38 +694,52 @@ impl PersistentSessionStateResetter {
                 PendingSessionResetKind::Session => "workspace session state",
                 PendingSessionResetKind::TerminalHosts => "terminal host state",
             };
-            remove_reset_dir_all(&reset_dir.path, label, "pending", expected_fingerprint)?;
+            remove_reset_dir_all_for_guard(
+                &session_guard,
+                &reset_dir.path,
+                label,
+                "pending",
+                expected_fingerprint,
+                None,
+            )?;
             match reset_dir.kind {
                 PendingSessionResetKind::Session => reset.removed_session_state = true,
                 PendingSessionResetKind::TerminalHosts => reset.removed_terminal_hosts = true,
             }
         }
         if let Some(reset_dir) = session_reset_dir {
-            remove_reset_dir_all(
+            remove_reset_dir_all_for_guard(
+                &session_guard,
                 &reset_dir,
                 "workspace session state",
                 "session",
                 &confirmation.session_fingerprint,
+                session_reset_lock_file_for_deletion(lease.as_ref()),
             )?;
             reset.removed_session_state = true;
         }
-        if reset.removed_session_state && validate_session_reset_dir(&session_dir)? {
+        if reset.removed_session_state
+            && validate_session_reset_dir_for_guard(&session_guard, &session_dir)?
+        {
             anyhow::bail!("reset path changed during reset: {}", session_dir.display());
         }
         if let Some(reset_dir) = terminal_host_reset_dir {
-            remove_reset_dir_all(
+            remove_reset_dir_all_for_guard(
+                &session_guard,
                 &reset_dir,
                 "terminal host state",
                 "terminal-hosts",
                 &confirmation.terminal_host_fingerprint,
+                terminal_host_reset_lock_file_for_deletion(terminal_host_reset_lock.as_ref()),
             )?;
             reset.removed_terminal_hosts = true;
         }
-        if reset.removed_terminal_hosts && validate_terminal_host_reset_dir(&terminal_host_root)? {
+        if reset.removed_terminal_hosts
+            && validate_terminal_host_reset_dir_for_guard(&session_guard, &terminal_host_root)?
+        {
             anyhow::bail!("reset path changed during reset: {}", terminal_host_root.display());
         }
-        platform::sync_directory(root)
-            .with_context(|| format!("sync workspace state root {}", root.display()))?;
+        sync_reset_root_for_guard(&session_guard, root)?;
         Ok(reset)
     }
 }
@@ -739,6 +842,72 @@ struct ResetConfirmationSnapshot {
     pending_reset_dir_fingerprints: Vec<String>,
 }
 
+struct ResetConfirmationRequest<'a> {
+    state_root: &'a Path,
+    session_name: &'a str,
+    session_dir: &'a Path,
+    terminal_host_root: &'a Path,
+    pending_reset_dirs: &'a [PendingSessionResetDir],
+    path_tokens: &'a ResetConfirmationPathTokens,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResetConfirmationPathTokens {
+    state_root_path: PathBuf,
+    state_root: String,
+    session_dir_path: PathBuf,
+    session_dir: String,
+    terminal_host_root_path: PathBuf,
+    terminal_host_root: String,
+    pending_reset_dirs: Vec<(PathBuf, String)>,
+}
+
+impl ResetConfirmationPathTokens {
+    fn capture(
+        state_root: &Path,
+        session_dir: &Path,
+        terminal_host_root: &Path,
+        pending_reset_dirs: &[PendingSessionResetDir],
+    ) -> Self {
+        Self {
+            state_root_path: state_root.to_path_buf(),
+            state_root: canonical_reset_path_token(state_root),
+            session_dir_path: session_dir.to_path_buf(),
+            session_dir: canonical_reset_path_token(session_dir),
+            terminal_host_root_path: terminal_host_root.to_path_buf(),
+            terminal_host_root: canonical_reset_path_token(terminal_host_root),
+            pending_reset_dirs: pending_reset_dirs
+                .iter()
+                .map(|reset_dir| {
+                    (reset_dir.path.clone(), canonical_reset_path_token(&reset_dir.path))
+                })
+                .collect(),
+        }
+    }
+
+    fn validate_paths(
+        &self,
+        state_root: &Path,
+        session_dir: &Path,
+        terminal_host_root: &Path,
+        pending_reset_dirs: &[PendingSessionResetDir],
+    ) -> anyhow::Result<()> {
+        if self.state_root_path != state_root
+            || self.session_dir_path != session_dir
+            || self.terminal_host_root_path != terminal_host_root
+            || self.pending_reset_dirs.len() != pending_reset_dirs.len()
+            || self
+                .pending_reset_dirs
+                .iter()
+                .zip(pending_reset_dirs)
+                .any(|((expected, _), current)| expected != &current.path)
+        {
+            anyhow::bail!("reset target paths changed during reset")
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResetDirectoryManifest {
     fingerprint: String,
@@ -786,6 +955,237 @@ fn pending_session_reset_dirs(
     Ok(reset_dirs)
 }
 
+#[cfg(unix)]
+fn pending_session_reset_dirs_at(
+    root_directory: &File,
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<Vec<PendingSessionResetDir>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+
+    let root_device = root_directory.metadata()?.dev();
+    let storage_component = session_storage_component(session_name);
+    let prefix = format!(".reset-{storage_component}-");
+    let suffix = ".deleting";
+    let mut reset_dirs = Vec::new();
+    for file_name in reset_dir_child_names(root_directory, root, "workspace state root")? {
+        let Some(file_name_text) = file_name.to_str() else {
+            continue;
+        };
+        if !file_name_text.starts_with(&prefix) || !file_name_text.ends_with(suffix) {
+            continue;
+        }
+        let rest = &file_name_text[prefix.len()..file_name_text.len() - suffix.len()];
+        let Some(kind) = pending_session_reset_kind(rest) else {
+            continue;
+        };
+        let path = root.join(&file_name);
+        let stat = reset_child_stat(root_directory.as_raw_fd(), &file_name, &path)?;
+        if !reset_stat_is_dir(&stat) {
+            anyhow::bail!("private reset path is not a directory: {}", path.display());
+        }
+        ensure_reset_device_boundary(&path, Some(root_device), Some(reset_stat_device(&stat)))?;
+        reset_dirs.push(PendingSessionResetDir { path, kind });
+    }
+    reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(reset_dirs)
+}
+
+#[cfg(unix)]
+fn validate_reset_child_dir_at(
+    root_directory: &File,
+    path: &Path,
+    label: &str,
+) -> anyhow::Result<bool> {
+    use std::os::fd::AsRawFd;
+
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("{label} has no file name: {}", path.display()))?;
+    let stat = match reset_child_stat(root_directory.as_raw_fd(), name, path) {
+        Ok(stat) => stat,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
+    if !reset_stat_is_dir(&stat) {
+        anyhow::bail!("{label} is not a directory: {}", path.display());
+    }
+    Ok(true)
+}
+
+#[cfg(unix)]
+fn reset_dir_manifest_at(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    label: &str,
+    path: &Path,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<ResetDirectoryManifest> {
+    use std::os::fd::AsRawFd;
+
+    let stat = match reset_child_stat(parent.as_raw_fd(), name, path) {
+        Ok(stat) => stat,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            let entry = format!("{}=missing", reset_manifest_path_key(Path::new(".")));
+            budget.add_entry(path)?;
+            budget.add_manifest_bytes(path, entry.len())?;
+            return Ok(ResetDirectoryManifest {
+                fingerprint: format!("{label}:{entry}"),
+                entries: [entry].into_iter().collect(),
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    budget.add_entry(path)?;
+    let root_entry = if reset_stable_root_identity(label) && reset_stat_is_dir(&stat) {
+        format!(
+            "{}=dir:dev={},ino={},uid={}",
+            reset_manifest_path_key(Path::new(".")),
+            reset_stat_device(&stat),
+            reset_stat_inode(&stat),
+            stat.st_uid
+        )
+    } else {
+        reset_child_fingerprint_entry(
+            parent.as_raw_fd(),
+            name,
+            Path::new("."),
+            path,
+            &stat,
+            budget,
+        )?
+    };
+    let mut entries = Vec::new();
+    push_reset_manifest_entry(&mut entries, root_entry, budget, path)?;
+    if reset_stat_is_dir(&stat) {
+        let directory = open_reset_child_dir(parent.as_raw_fd(), name, path)?;
+        let opened = directory.metadata()?;
+        if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+        }
+        collect_reset_directory_fingerprints_at(
+            &directory,
+            path,
+            Path::new("."),
+            reset_ignored_root_child(label),
+            reset_stat_device(&stat),
+            budget,
+            &mut entries,
+        )?;
+        let current = reset_child_stat(parent.as_raw_fd(), name, path)?;
+        if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+        }
+    }
+    entries.sort();
+    let fingerprint = format!("{label}:{}", entries.join(","));
+    Ok(ResetDirectoryManifest { fingerprint, entries: entries.into_iter().collect() })
+}
+
+#[cfg(unix)]
+fn collect_reset_directory_fingerprints_at(
+    directory: &File,
+    display_path: &Path,
+    relative_path: &Path,
+    ignored_root_child: Option<&str>,
+    root_device: u64,
+    budget: &mut ResetFingerprintBudget,
+    entries: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let mut names = reset_dir_child_names(directory, display_path, "reset path")?;
+    names.sort();
+    budget.check_queued_child(names.len().saturating_sub(1), display_path)?;
+    for name in names {
+        if relative_path == Path::new(".")
+            && ignored_root_child.is_some_and(|ignored| name == std::ffi::OsStr::new(ignored))
+        {
+            continue;
+        }
+        let child_display = display_path.join(&name);
+        let child_relative = relative_path.join(&name);
+        budget.check_queued_child(0, &child_display)?;
+        let stat = reset_child_stat(directory.as_raw_fd(), &name, &child_display)?;
+        ensure_reset_device_boundary(
+            &child_display,
+            Some(root_device),
+            Some(reset_stat_device(&stat)),
+        )?;
+        budget.add_entry(&child_display)?;
+        let entry = reset_child_fingerprint_entry(
+            directory.as_raw_fd(),
+            &name,
+            &child_relative,
+            &child_display,
+            &stat,
+            budget,
+        )?;
+        push_reset_manifest_entry(entries, entry, budget, &child_display)?;
+        if reset_stat_is_dir(&stat) {
+            let child_directory =
+                open_reset_child_dir(directory.as_raw_fd(), &name, &child_display)?;
+            let opened = child_directory.metadata()?;
+            if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(&stat) {
+                anyhow::bail!("reset path changed during fingerprint: {}", child_display.display());
+            }
+            collect_reset_directory_fingerprints_at(
+                &child_directory,
+                &child_display,
+                &child_relative,
+                ignored_root_child,
+                root_device,
+                budget,
+                entries,
+            )?;
+            let current = reset_child_stat(directory.as_raw_fd(), &name, &child_display)?;
+            if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
+                anyhow::bail!("reset path changed during fingerprint: {}", child_display.display());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn reset_dir_fingerprint_at(
+    parent: &File,
+    path: &Path,
+    label: &str,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", path.display()))?;
+    Ok(reset_dir_manifest_at(parent, name, label, path, budget)?.fingerprint)
+}
+
+#[cfg(unix)]
+fn ensure_reset_dir_fingerprint_at(
+    parent: &File,
+    path: &Path,
+    label: &str,
+    expected: &str,
+) -> anyhow::Result<()> {
+    let mut budget = ResetFingerprintBudget::default();
+    let current = reset_dir_fingerprint_at(parent, path, label, &mut budget)?;
+    if current == expected {
+        return Ok(());
+    }
+    anyhow::bail!("reset path changed during reset: {}", path.display())
+}
+
 fn workspace_state_root_exists(root: &Path) -> anyhow::Result<bool> {
     let metadata = match fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
@@ -826,6 +1226,7 @@ fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+#[cfg(any(not(unix), test))]
 fn rename_session_dir_for_reset(
     root: &Path,
     session_name: &str,
@@ -842,6 +1243,7 @@ fn rename_session_dir_for_reset(
     )
 }
 
+#[cfg(any(not(unix), test))]
 fn rename_terminal_host_dir_for_reset(
     root: &Path,
     session_name: &str,
@@ -858,6 +1260,146 @@ fn rename_terminal_host_dir_for_reset(
     )
 }
 
+#[cfg(unix)]
+fn rename_session_dir_for_reset_at(
+    root_directory: &File,
+    root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    expected_fingerprint: &str,
+    locked_directory: &File,
+) -> anyhow::Result<PathBuf> {
+    rename_reset_dir_for_deletion_at(
+        root_directory,
+        root,
+        session_name,
+        ("session", "workspace session state"),
+        session_dir,
+        expected_fingerprint,
+        locked_directory,
+    )
+}
+
+#[cfg(unix)]
+fn rename_terminal_host_dir_for_reset_at(
+    root_directory: &File,
+    root: &Path,
+    session_name: &str,
+    terminal_host_root: &Path,
+    expected_fingerprint: &str,
+    locked_directory: &File,
+) -> anyhow::Result<PathBuf> {
+    rename_reset_dir_for_deletion_at(
+        root_directory,
+        root,
+        session_name,
+        ("terminal-hosts", "terminal host state"),
+        terminal_host_root,
+        expected_fingerprint,
+        locked_directory,
+    )
+}
+
+#[cfg(unix)]
+fn rename_reset_dir_for_deletion_at(
+    root_directory: &File,
+    root: &Path,
+    session_name: &str,
+    kind_and_label: (&str, &str),
+    source: &Path,
+    expected_fingerprint: &str,
+    locked_directory: &File,
+) -> anyhow::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+
+    let (kind, label) = kind_and_label;
+    let source_name = source
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", source.display()))?;
+    let storage_component = session_storage_component(session_name);
+    for _ in 0..16 {
+        let candidate_name = std::ffi::OsString::from(format!(
+            ".reset-{storage_component}-{kind}-{}.deleting",
+            try_new_uuid_v4()?
+        ));
+        let candidate = root.join(&candidate_name);
+        ensure_reset_dir_fingerprint_at(root_directory, source, kind, expected_fingerprint)?;
+        validate_reset_child_directory_at(root_directory, source_name, source, locked_directory)?;
+        match reset_rename_child_exclusive(
+            root_directory.as_raw_fd(),
+            source_name,
+            &candidate_name,
+            source,
+            &candidate,
+        ) {
+            Ok(()) => {
+                let validation = validate_reset_child_directory_at(
+                    root_directory,
+                    &candidate_name,
+                    &candidate,
+                    locked_directory,
+                )
+                .and_then(|()| {
+                    ensure_reset_dir_fingerprint_at(
+                        root_directory,
+                        &candidate,
+                        kind,
+                        expected_fingerprint,
+                    )
+                });
+                if let Err(error) = validation {
+                    restore_reset_staged_child(
+                        root_directory.as_raw_fd(),
+                        &candidate_name,
+                        source_name,
+                        &candidate,
+                        source,
+                    )
+                    .with_context(|| {
+                        format!(
+                            "preserve changed reset path {} after validation failed: {error:#}",
+                            source.display()
+                        )
+                    })?;
+                    return Err(error);
+                }
+                sync_private_reset_rename_at(root_directory, root, &candidate, label)?;
+                return Ok(candidate);
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
+}
+
+#[cfg(unix)]
+fn sync_private_reset_rename_at(
+    root_directory: &File,
+    _root: &Path,
+    candidate: &Path,
+    label: &str,
+) -> anyhow::Result<()> {
+    #[cfg(test)]
+    {
+        let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap();
+        if failure_root.as_deref() == Some(_root) {
+            *failure_root = None;
+            anyhow::bail!("injected private reset rename sync failure");
+        }
+    }
+    root_directory
+        .sync_all()
+        .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
+}
+
+#[cfg(any(not(unix), test))]
 fn rename_reset_dir_for_deletion(
     root: &Path,
     session_name: &str,
@@ -897,6 +1439,7 @@ fn rename_reset_dir_for_deletion(
     anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
 }
 
+#[cfg(any(not(unix), test))]
 fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyhow::Result<()> {
     #[cfg(test)]
     {
@@ -910,6 +1453,7 @@ fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyh
         .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
 }
 
+#[cfg(any(not(unix), test))]
 fn ensure_reset_dir_fingerprint(
     path: &Path,
     fingerprint_label: &str,
@@ -967,6 +1511,74 @@ fn reset_confirmation_snapshot(
     for reset_dir in pending_reset_dirs {
         update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(&reset_dir.path));
         let fingerprint = reset_dir_fingerprint("pending", &reset_dir.path, &mut budget)?;
+        update_reset_confirmation_part(&mut hash, &fingerprint);
+        pending_reset_dir_fingerprints.push(fingerprint);
+    }
+    let digest = hash.finalize();
+    Ok(ResetConfirmationSnapshot {
+        confirm_reset: digest[..12].iter().map(|byte| format!("{byte:02x}")).collect(),
+        session_fingerprint,
+        terminal_host_fingerprint,
+        pending_reset_dir_fingerprints,
+    })
+}
+
+#[cfg(unix)]
+fn require_reset_confirmation_at(
+    root_directory: &File,
+    request: &ResetConfirmationRequest<'_>,
+    confirm_reset: Option<&str>,
+) -> anyhow::Result<ResetConfirmationSnapshot> {
+    let confirmation = reset_confirmation_snapshot_at(
+        root_directory,
+        request.state_root,
+        request.session_name,
+        request.session_dir,
+        request.terminal_host_root,
+        request.pending_reset_dirs,
+        request.path_tokens,
+    )?;
+    if confirm_reset == Some(confirmation.confirm_reset.as_str()) {
+        return Ok(confirmation);
+    }
+    anyhow::bail!("reset confirmation is required")
+}
+
+#[cfg(unix)]
+fn reset_confirmation_snapshot_at(
+    root_directory: &File,
+    state_root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    terminal_host_root: &Path,
+    pending_reset_dirs: &[PendingSessionResetDir],
+    path_tokens: &ResetConfirmationPathTokens,
+) -> anyhow::Result<ResetConfirmationSnapshot> {
+    path_tokens.validate_paths(state_root, session_dir, terminal_host_root, pending_reset_dirs)?;
+    let mut hash = Sha256::new();
+    let mut budget = ResetFingerprintBudget::default();
+    update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
+    update_reset_confirmation_part(&mut hash, session_name);
+    update_reset_confirmation_part(&mut hash, &path_tokens.state_root);
+    update_reset_confirmation_part(&mut hash, &path_tokens.session_dir);
+    update_reset_confirmation_part(&mut hash, &path_tokens.terminal_host_root);
+    let session_fingerprint =
+        reset_dir_fingerprint_at(root_directory, session_dir, "session", &mut budget)?;
+    update_reset_confirmation_part(&mut hash, &session_fingerprint);
+    let terminal_host_fingerprint = reset_dir_fingerprint_at(
+        root_directory,
+        terminal_host_root,
+        "terminal-hosts",
+        &mut budget,
+    )?;
+    update_reset_confirmation_part(&mut hash, &terminal_host_fingerprint);
+    let mut pending_reset_dir_fingerprints = Vec::with_capacity(pending_reset_dirs.len());
+    for (reset_dir, (_, path_token)) in
+        pending_reset_dirs.iter().zip(&path_tokens.pending_reset_dirs)
+    {
+        update_reset_confirmation_part(&mut hash, path_token);
+        let fingerprint =
+            reset_dir_fingerprint_at(root_directory, &reset_dir.path, "pending", &mut budget)?;
         update_reset_confirmation_part(&mut hash, &fingerprint);
         pending_reset_dir_fingerprints.push(fingerprint);
     }
@@ -1246,7 +1858,7 @@ fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
     None
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn remove_reset_dir_all(
     path: &Path,
     label: &str,
@@ -1288,7 +1900,7 @@ fn remove_reset_dir_all(
         label,
         root_device,
         &manifest.entries,
-        reset_ignored_root_child(fingerprint_label),
+        None,
     )?;
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect {label} {}", path.display()))?;
@@ -1300,6 +1912,83 @@ fn remove_reset_dir_all(
 }
 
 #[cfg(unix)]
+struct ResetIgnoredRootChild<'a> {
+    name: &'static str,
+    file: &'a File,
+}
+
+#[cfg(unix)]
+impl ResetIgnoredRootChild<'_> {
+    fn validate_stat(&self, relative_path: &Path, stat: &libc::stat) -> anyhow::Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+
+        if relative_path != Path::new(".").join(self.name) {
+            return Ok(false);
+        }
+        let metadata = self.file.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || !reset_stat_is_file(stat)
+            || metadata.dev() != reset_stat_device(stat)
+            || metadata.ino() != reset_stat_inode(stat)
+        {
+            anyhow::bail!("reset lock path changed during reset: {}", relative_path.display());
+        }
+        Ok(true)
+    }
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_all_at(
+    root_directory: &File,
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected_fingerprint: &str,
+    ignored_root_child: Option<ResetIgnoredRootChild<'_>>,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", path.display()))?;
+    let mut budget = ResetFingerprintBudget::default();
+    let manifest =
+        reset_dir_manifest_at(root_directory, name, fingerprint_label, path, &mut budget)?;
+    if manifest.fingerprint != expected_fingerprint {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    let stat = reset_child_stat(root_directory.as_raw_fd(), name, path)?;
+    if !reset_stat_is_dir(&stat) {
+        anyhow::bail!("{label} is not a directory: {}", path.display());
+    }
+    let directory = open_reset_child_dir(root_directory.as_raw_fd(), name, path)?;
+    let opened = directory.metadata()?;
+    if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(&stat) {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    #[cfg(test)]
+    inject_reset_ignored_lock_replacement(path, fingerprint_label, ignored_root_child.as_ref())?;
+    remove_reset_dir_children_from_handle(
+        &directory,
+        path,
+        Path::new("."),
+        label,
+        reset_stat_device(&stat),
+        &manifest.entries,
+        ignored_root_child.as_ref(),
+    )?;
+    let current = reset_child_stat(root_directory.as_raw_fd(), name, path)?;
+    if !reset_stat_is_dir(&current)
+        || reset_stat_device(&current) != reset_stat_device(&stat)
+        || reset_stat_inode(&current) != reset_stat_inode(&stat)
+    {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    reset_unlink_child(root_directory.as_raw_fd(), name, path, libc::AT_REMOVEDIR)
+}
+
+#[cfg(unix)]
 fn remove_reset_dir_children_from_handle(
     directory: &File,
     display_path: &Path,
@@ -1307,7 +1996,7 @@ fn remove_reset_dir_children_from_handle(
     label: &str,
     root_device: u64,
     expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
 ) -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
@@ -1358,14 +2047,20 @@ fn remove_reset_dir_children_from_handle(
             expected_entries,
             ignored_root_child,
         ) {
-            return Err(restore_changed_reset_child(
+            restore_reset_staged_child(
                 directory.as_raw_fd(),
                 &staged_child.name,
                 &child_name,
                 &staged_child.display_path,
                 &child_display,
-                error,
-            ));
+            )
+            .with_context(|| {
+                format!(
+                    "preserve changed reset path {} after validation failed: {error:#}",
+                    child_display.display()
+                )
+            })?;
+            return Err(error);
         }
         if reset_stat_is_dir(&staged_child.stat) {
             let child_directory = open_reset_child_dir(
@@ -1444,6 +2139,32 @@ fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(all(unix, test))]
+fn inject_reset_ignored_lock_replacement(
+    staged_root: &Path,
+    fingerprint_label: &str,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
+) -> anyhow::Result<()> {
+    let mut replacement = RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap();
+    let Some((root, label)) = replacement.as_ref() else {
+        return Ok(());
+    };
+    if staged_root.parent() != Some(root.as_path()) || fingerprint_label != label {
+        return Ok(());
+    }
+    let ignored = ignored_root_child
+        .ok_or_else(|| anyhow::anyhow!("injected reset lock identity is missing"))?;
+    let lock_path = staged_root.join(ignored.name);
+    fs::remove_file(&lock_path)
+        .with_context(|| format!("remove injected reset lock {}", lock_path.display()))?;
+    fs::create_dir(&lock_path)
+        .with_context(|| format!("replace injected reset lock {}", lock_path.display()))?;
+    fs::write(lock_path.join("sentinel"), b"preserve")
+        .with_context(|| format!("write injected reset lock directory {}", lock_path.display()))?;
+    *replacement = None;
+    Ok(())
+}
+
 #[cfg(test)]
 fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
     let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
@@ -1494,18 +2215,14 @@ fn stage_reset_child_for_deletion(
                     || reset_stat_inode(&stat) != reset_stat_inode(expected)
                     || reset_stat_kind(&stat) != reset_stat_kind(expected)
                 {
-                    let error = anyhow::anyhow!(
-                        "reset path changed during reset: {}",
-                        display_path.display()
-                    );
-                    return Err(restore_changed_reset_child(
+                    restore_reset_staged_child(
                         parent_fd,
                         &private_name,
                         name,
                         &private_display,
                         display_path,
-                        error,
-                    ));
+                    )?;
+                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
                 }
                 return Ok(ResetStagedChild {
                     name: private_name,
@@ -1527,27 +2244,27 @@ fn stage_reset_child_for_deletion(
 }
 
 #[cfg(unix)]
-fn restore_changed_reset_child(
+fn restore_reset_staged_child(
     parent_fd: std::os::fd::RawFd,
-    private_name: &std::ffi::OsStr,
+    staged_name: &std::ffi::OsStr,
     original_name: &std::ffi::OsStr,
-    private_display: &Path,
+    staged_display: &Path,
     original_display: &Path,
-    verification_error: anyhow::Error,
-) -> anyhow::Error {
-    match reset_rename_child_exclusive(
+) -> anyhow::Result<()> {
+    reset_rename_child_exclusive(
         parent_fd,
-        private_name,
+        staged_name,
         original_name,
-        private_display,
+        staged_display,
         original_display,
-    ) {
-        Ok(()) => verification_error,
-        Err(restore_error) => anyhow::anyhow!(
-            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
-            original_display.display()
-        ),
-    }
+    )
+    .with_context(|| {
+        format!(
+            "restore changed reset path {} from retained private path {}",
+            original_display.display(),
+            staged_display.display()
+        )
+    })
 }
 
 #[cfg(unix)]
@@ -1558,10 +2275,10 @@ fn ensure_reset_manifest_entry(
     display_path: &Path,
     stat: &libc::stat,
     expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
 ) -> anyhow::Result<()> {
     if let Some(ignored) = ignored_root_child
-        && relative_path == Path::new(".").join(ignored)
+        && ignored.validate_stat(relative_path, stat)?
     {
         return Ok(());
     }
@@ -1702,6 +2419,9 @@ fn reset_dir_child_names(
         if name == b"." || name == b".." {
             continue;
         }
+        if names.len() >= MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+            return Err(reset_confirmation_scan_limit_error("paths", display_path));
+        }
         names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
     }
     Ok(names)
@@ -1819,7 +2539,133 @@ fn open_reset_child_file(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[repr(C)]
+struct ResetOpenHow {
+    flags: u64,
+    mode: u64,
+    resolve: u64,
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn open_reset_child_dir(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    const RESOLVE_NO_XDEV: u64 = 0x01;
+    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+    const RESOLVE_BENEATH: u64 = 0x08;
+
+    let name = reset_child_c_string(name, display_path)?;
+    let how = ResetOpenHow {
+        flags: (libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY) as u64,
+        mode: 0,
+        resolve: RESOLVE_NO_XDEV | RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH,
+    };
+    loop {
+        // SAFETY: openat2 reads a nul-terminated child name and immutable open_how value.
+        let descriptor = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                parent_fd,
+                name.as_ptr(),
+                &how as *const ResetOpenHow,
+                size_of::<ResetOpenHow>(),
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat2 returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor as std::os::fd::RawFd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return open_reset_child_dir_after_openat2_error(
+            parent_fd,
+            name.as_c_str(),
+            display_path,
+            error,
+        );
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn open_reset_child_dir_after_openat2_error(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::CStr,
+    display_path: &Path,
+    error: std::io::Error,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let Some(error_code) = error.raw_os_error() else {
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+    };
+    if !matches!(error_code, libc::ENOSYS | libc::EPERM | libc::EACCES | libc::EINVAL) {
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent descriptor.
+        let descriptor = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            let directory = unsafe { File::from_raw_fd(descriptor) };
+            let parent_mount = reset_descriptor_mount_id(parent_fd, display_path)?;
+            let child_mount = reset_descriptor_mount_id(directory.as_raw_fd(), display_path)?;
+            if parent_mount != child_mount {
+                return Err(std::io::Error::from_raw_os_error(libc::EXDEV))
+                    .with_context(|| format!("open reset dir {}", display_path.display()));
+            }
+            return Ok(directory);
+        }
+        let fallback_error = std::io::Error::last_os_error();
+        if fallback_error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(fallback_error)
+            .with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reset_descriptor_mount_id(
+    descriptor: std::os::fd::RawFd,
+    display_path: &Path,
+) -> anyhow::Result<u64> {
+    const MAX_RESET_FDINFO_BYTES: u64 = 4096;
+
+    let fdinfo_path = format!("/proc/self/fdinfo/{descriptor}");
+    let mut file = File::open(&fdinfo_path)
+        .with_context(|| format!("inspect reset mount for {}", display_path.display()))?;
+    let mut fdinfo = String::new();
+    (&mut file)
+        .take(MAX_RESET_FDINFO_BYTES + 1)
+        .read_to_string(&mut fdinfo)
+        .with_context(|| format!("read reset mount for {}", display_path.display()))?;
+    if fdinfo.len() as u64 > MAX_RESET_FDINFO_BYTES {
+        anyhow::bail!("reset mount metadata is too large: {fdinfo_path}");
+    }
+    let value = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .ok_or_else(|| anyhow::anyhow!("reset mount id is unavailable: {fdinfo_path}"))?;
+    value
+        .trim()
+        .parse::<u64>()
+        .with_context(|| format!("parse reset mount id for {}", display_path.display()))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 fn open_reset_child_dir(
     parent_fd: std::os::fd::RawFd,
     name: &std::ffi::OsStr,
@@ -1839,7 +2685,23 @@ fn open_reset_child_dir(
         };
         if fd >= 0 {
             // SAFETY: openat returned a new owned file descriptor.
-            return Ok(unsafe { File::from_raw_fd(fd) });
+            let directory = unsafe { File::from_raw_fd(fd) };
+            let mut parent_stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            // SAFETY: fstat writes one stat value for this valid parent descriptor.
+            if unsafe { libc::fstat(parent_fd, parent_stat.as_mut_ptr()) } != 0 {
+                return Err(std::io::Error::last_os_error()).with_context(|| {
+                    format!("inspect reset dir parent for {}", display_path.display())
+                });
+            }
+            // SAFETY: fstat initialized parent_stat on success.
+            let parent_stat = unsafe { parent_stat.assume_init() };
+            let child_metadata = directory.metadata()?;
+            ensure_reset_device_boundary(
+                display_path,
+                Some(reset_stat_device(&parent_stat)),
+                reset_metadata_device(&child_metadata),
+            )?;
+            return Ok(directory);
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
@@ -2030,36 +2892,42 @@ fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
     )
 }
 
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime
+    widen_reset_stat_i64(stat.st_mtime)
 }
 
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_sec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime
+    widen_reset_stat_i64(stat.st_mtime)
 }
 
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))
+))]
+fn reset_stat_mtime_seconds(_stat: &libc::stat) -> i64 {
+    0
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime_nsec
+    widen_reset_stat_i64(stat.st_mtime_nsec)
 }
 
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_nsec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime_nsec
+    widen_reset_stat_i64(stat.st_mtime_nsec)
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))
+))]
+fn reset_stat_mtime_nanoseconds(_stat: &libc::stat) -> i64 {
+    0
 }
 
 #[cfg(unix)]
@@ -2076,7 +2944,17 @@ fn reset_stat_device(stat: &libc::stat) -> u64 {
 
 #[cfg(unix)]
 fn reset_stat_inode(stat: &libc::stat) -> u64 {
-    stat.st_ino
+    widen_reset_stat_u64(stat.st_ino)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))]
+fn widen_reset_stat_i64<T: Into<i64>>(value: T) -> i64 {
+    value.into()
+}
+
+#[cfg(unix)]
+fn widen_reset_stat_u64<T: Into<u64>>(value: T) -> u64 {
+    value.into()
 }
 
 #[cfg(not(unix))]
@@ -2098,31 +2976,42 @@ fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
             return unsupported_checked_reset_deletion(root, "saved state");
         }
     }
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-    {
-        let _ = root;
+    if checked_reset_deletion_supported(root) {
         Ok(())
-    }
-    #[cfg(not(any(
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android"
-    )))]
-    {
+    } else {
         unsupported_checked_reset_deletion(root, "saved state")
     }
 }
 
-#[cfg(any(
-    test,
-    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
-))]
 fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
     anyhow::bail!(
         "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
         path.display()
     )
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn checked_reset_deletion_supported(root: &Path) -> bool {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    open_verified_reset_directory(root, "workspace state root")
+        .is_ok_and(|parent| open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok())
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn checked_reset_deletion_supported(root: &Path) -> bool {
+    open_verified_reset_directory(root, "workspace state root").is_ok()
+}
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
+fn checked_reset_deletion_supported(_root: &Path) -> bool {
+    false
 }
 
 fn reset_path_fingerprint(
@@ -5037,6 +5926,9 @@ static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathB
 #[cfg(test)]
 static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE: std::sync::Mutex<Option<(PathBuf, String)>> =
+    std::sync::Mutex::new(None);
 
 #[cfg(test)]
 static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: std::sync::Mutex<Option<PathBuf>> =
@@ -5047,10 +5939,377 @@ static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>
 #[cfg(test)]
 static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_STATE_ROOT_BEFORE_GUARD: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_STATE_ROOT_AFTER_GUARD: std::sync::Mutex<Option<(PathBuf, PathBuf, PathBuf)>> =
+    std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_AFTER_GUARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(all(unix, test))]
+static RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK: std::sync::Mutex<
+    Option<ResetDirectorySwapRestore>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK: std::sync::Mutex<
+    Option<ResetDirectorySwapRestore>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(all(unix, test))]
+struct ResetDirectorySwapRestore {
+    target: PathBuf,
+    original: PathBuf,
+    replacement: PathBuf,
+    locked_replacement: PathBuf,
+}
+
+struct SessionResetGuard {
+    _lease: SessionLease,
+    #[cfg(unix)]
+    root: File,
+}
+
+#[cfg(unix)]
+fn pending_session_reset_dirs_for_guard(
+    guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<Vec<PendingSessionResetDir>> {
+    pending_session_reset_dirs_at(&guard.root, root, session_name)
+}
+
+#[cfg(not(unix))]
+fn pending_session_reset_dirs_for_guard(
+    _guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<Vec<PendingSessionResetDir>> {
+    pending_session_reset_dirs(root, session_name)
+}
+
+#[cfg(unix)]
+fn validate_session_reset_dir_for_guard(
+    guard: &SessionResetGuard,
+    session_dir: &Path,
+) -> anyhow::Result<bool> {
+    validate_reset_child_dir_at(&guard.root, session_dir, "workspace session state path")
+}
+
+#[cfg(not(unix))]
+fn validate_session_reset_dir_for_guard(
+    _guard: &SessionResetGuard,
+    session_dir: &Path,
+) -> anyhow::Result<bool> {
+    validate_session_reset_dir(session_dir)
+}
+
+#[cfg(unix)]
+fn validate_terminal_host_reset_dir_for_guard(
+    guard: &SessionResetGuard,
+    terminal_host_root: &Path,
+) -> anyhow::Result<bool> {
+    validate_reset_child_dir_at(&guard.root, terminal_host_root, "terminal host state path")
+}
+
+#[cfg(not(unix))]
+fn validate_terminal_host_reset_dir_for_guard(
+    _guard: &SessionResetGuard,
+    terminal_host_root: &Path,
+) -> anyhow::Result<bool> {
+    validate_terminal_host_reset_dir(terminal_host_root)
+}
+
+#[cfg(unix)]
+fn require_reset_confirmation_for_guard(
+    guard: &SessionResetGuard,
+    request: &ResetConfirmationRequest<'_>,
+    confirm_reset: Option<&str>,
+) -> anyhow::Result<ResetConfirmationSnapshot> {
+    require_reset_confirmation_at(&guard.root, request, confirm_reset)
+}
+
+#[cfg(not(unix))]
+fn require_reset_confirmation_for_guard(
+    _guard: &SessionResetGuard,
+    request: &ResetConfirmationRequest<'_>,
+    confirm_reset: Option<&str>,
+) -> anyhow::Result<ResetConfirmationSnapshot> {
+    require_reset_confirmation(
+        request.state_root,
+        request.session_name,
+        request.session_dir,
+        request.terminal_host_root,
+        request.pending_reset_dirs,
+        confirm_reset,
+    )
+}
+
+#[cfg(unix)]
+fn ensure_reset_dir_fingerprint_for_guard(
+    guard: &SessionResetGuard,
+    path: &Path,
+    label: &str,
+    expected: &str,
+) -> anyhow::Result<()> {
+    ensure_reset_dir_fingerprint_at(&guard.root, path, label, expected)
+}
+
+#[cfg(not(unix))]
+fn ensure_reset_dir_fingerprint_for_guard(
+    _guard: &SessionResetGuard,
+    path: &Path,
+    label: &str,
+    expected: &str,
+) -> anyhow::Result<()> {
+    ensure_reset_dir_fingerprint(path, label, expected)
+}
+
+#[cfg(unix)]
+fn rename_session_dir_for_guard(
+    guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    expected: &str,
+    lease: Option<&SessionLease>,
+) -> anyhow::Result<PathBuf> {
+    rename_session_dir_for_reset_at(
+        &guard.root,
+        root,
+        session_name,
+        session_dir,
+        expected,
+        session_reset_locked_directory(lease, session_dir)?,
+    )
+}
+
+#[cfg(not(unix))]
+fn rename_session_dir_for_guard(
+    _guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    expected: &str,
+    _lease: Option<&SessionLease>,
+) -> anyhow::Result<PathBuf> {
+    rename_session_dir_for_reset(root, session_name, session_dir, expected)
+}
+
+#[cfg(unix)]
+fn rename_terminal_host_dir_for_guard(
+    guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+    terminal_host_root: &Path,
+    expected: &str,
+    reset_lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> anyhow::Result<PathBuf> {
+    rename_terminal_host_dir_for_reset_at(
+        &guard.root,
+        root,
+        session_name,
+        terminal_host_root,
+        expected,
+        terminal_host_reset_locked_directory(reset_lock, terminal_host_root)?,
+    )
+}
+
+#[cfg(not(unix))]
+fn rename_terminal_host_dir_for_guard(
+    _guard: &SessionResetGuard,
+    root: &Path,
+    session_name: &str,
+    terminal_host_root: &Path,
+    expected: &str,
+    _reset_lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> anyhow::Result<PathBuf> {
+    rename_terminal_host_dir_for_reset(root, session_name, terminal_host_root, expected)
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_all_for_guard(
+    guard: &SessionResetGuard,
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected: &str,
+    ignored_lock_file: Option<&File>,
+) -> anyhow::Result<()> {
+    let ignored_name = reset_ignored_root_child(fingerprint_label);
+    let ignored_root_child = match (ignored_name, ignored_lock_file) {
+        (Some(name), Some(file)) => Some(ResetIgnoredRootChild { name, file }),
+        (None, None) => None,
+        _ => anyhow::bail!("reset lock identity is missing for {label} {}", path.display()),
+    };
+    remove_reset_dir_all_at(
+        &guard.root,
+        path,
+        label,
+        fingerprint_label,
+        expected,
+        ignored_root_child,
+    )
+}
+
+#[cfg(not(unix))]
+fn remove_reset_dir_all_for_guard(
+    _guard: &SessionResetGuard,
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected: &str,
+    _ignored_lock_file: Option<&File>,
+) -> anyhow::Result<()> {
+    remove_reset_dir_all(path, label, fingerprint_label, expected)
+}
+
+#[cfg(unix)]
+fn session_reset_locked_directory<'a>(
+    lease: Option<&'a SessionLease>,
+    session_dir: &Path,
+) -> anyhow::Result<&'a File> {
+    lease.and_then(SessionLease::reset_directory).ok_or_else(|| {
+        anyhow::anyhow!(
+            "reset lock identity is missing for workspace session state {}",
+            session_dir.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn terminal_host_reset_locked_directory<'a>(
+    reset_lock: Option<&'a crate::terminal_host_runtime::TerminalHostResetLock>,
+    terminal_host_root: &Path,
+) -> anyhow::Result<&'a File> {
+    reset_lock.map(|lock| lock.root_directory()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "reset lock identity is missing for terminal host state {}",
+            terminal_host_root.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn validate_locked_reset_child_directory_for_guard(
+    guard: &SessionResetGuard,
+    path: &Path,
+    locked_directory: &File,
+) -> anyhow::Result<()> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", path.display()))?;
+    validate_reset_child_directory_at(&guard.root, name, path, locked_directory)
+}
+
+#[cfg(unix)]
+fn session_reset_lock_file_for_deletion(lease: Option<&SessionLease>) -> Option<&File> {
+    lease.map(SessionLease::reset_lock_file)
+}
+
+#[cfg(not(unix))]
+fn session_reset_lock_file_for_deletion(_lease: Option<&SessionLease>) -> Option<&File> {
+    None
+}
+
+#[cfg(unix)]
+fn terminal_host_reset_lock_file_for_deletion(
+    lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> Option<&File> {
+    lock.map(crate::terminal_host_runtime::TerminalHostResetLock::lock_file)
+}
+
+#[cfg(not(unix))]
+fn terminal_host_reset_lock_file_for_deletion(
+    _lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> Option<&File> {
+    None
+}
+
+#[cfg(unix)]
+fn sync_reset_root_for_guard(guard: &SessionResetGuard, root: &Path) -> anyhow::Result<()> {
+    guard.root.sync_all().with_context(|| format!("sync workspace state root {}", root.display()))
+}
+
+#[cfg(not(unix))]
+fn sync_reset_root_for_guard(_guard: &SessionResetGuard, root: &Path) -> anyhow::Result<()> {
+    platform::sync_directory(root)
+        .with_context(|| format!("sync workspace state root {}", root.display()))
+}
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
     acquire_existing_session_guard(root, session_name)
+}
+
+#[cfg(all(unix, test))]
+fn inject_reset_path_replacement_before_write(
+    path: &Path,
+    hook: &std::sync::Mutex<Option<(PathBuf, PathBuf, PathBuf)>>,
+) -> anyhow::Result<()> {
+    let mut replacement = hook.lock().unwrap();
+    let Some((target, moved, outside)) = replacement.take() else {
+        return Ok(());
+    };
+    if target != path {
+        *replacement = Some((target, moved, outside));
+        return Ok(());
+    }
+    fs::rename(&target, &moved)
+        .with_context(|| format!("move injected reset path {}", target.display()))?;
+    std::os::unix::fs::symlink(&outside, &target).with_context(|| {
+        format!("replace injected reset path {} with symbolic link", target.display())
+    })?;
+    Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn inject_reset_directory_swap_before_lock(
+    path: &Path,
+    hook: &std::sync::Mutex<Option<ResetDirectorySwapRestore>>,
+) -> anyhow::Result<()> {
+    let swap = hook.lock().unwrap();
+    let Some(swap) = swap.as_ref() else {
+        return Ok(());
+    };
+    if swap.target != path {
+        return Ok(());
+    }
+    fs::rename(&swap.target, &swap.original)
+        .with_context(|| format!("move injected reset path {}", swap.target.display()))?;
+    fs::rename(&swap.replacement, &swap.target)
+        .with_context(|| format!("install injected reset replacement {}", swap.target.display()))?;
+    Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn restore_reset_directory_after_lock(
+    path: &Path,
+    hook: &std::sync::Mutex<Option<ResetDirectorySwapRestore>>,
+) -> anyhow::Result<()> {
+    let mut pending_swap = hook.lock().unwrap();
+    let Some(swap) = pending_swap.as_ref() else {
+        return Ok(());
+    };
+    if swap.target != path {
+        return Ok(());
+    }
+    let swap = pending_swap.take().expect("checked injected reset swap");
+    fs::rename(&swap.target, &swap.locked_replacement).with_context(|| {
+        format!("move injected locked reset replacement {}", swap.target.display())
+    })?;
+    fs::rename(&swap.original, &swap.target)
+        .with_context(|| format!("restore injected reset path {}", swap.target.display()))?;
+    Ok(())
 }
 
 fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
@@ -5058,11 +6317,200 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
     acquire_session_guard_from_private_dir(root, session_name, false)
 }
 
+#[cfg(unix)]
 fn acquire_existing_session_reset_guard(
     root: &Path,
     session_name: &str,
+) -> anyhow::Result<SessionResetGuard> {
+    use std::ffi::{OsStr, OsString};
+
+    let (root_directory, lock_directory, lock_dir) = prepare_existing_session_guard_dir_at(root)?;
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let _coordinator = SessionLease::acquire_coordinator_at(
+        &lock_directory,
+        OsStr::new(SESSION_GUARD_COORDINATOR_FILE),
+        &coordinator_path,
+    )
+    .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
+    let lock_name = OsString::from(format!("{}.lock", session_storage_component(session_name)));
+    let lock_path = lock_dir.join(&lock_name);
+    let lease = SessionLease::acquire_at(&lock_directory, &lock_name, &lock_path)?;
+    validate_reset_child_directory_at(
+        &root_directory,
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+        &lock_directory,
+    )?;
+    validate_reset_directory_path(root, "workspace state root", &root_directory)?;
+    Ok(SessionResetGuard { _lease: lease, root: root_directory })
+}
+
+#[cfg(not(unix))]
+fn acquire_existing_session_reset_guard(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionResetGuard> {
+    Ok(SessionResetGuard {
+        _lease: acquire_session_guard_from_private_dir(root, session_name, true)?,
+    })
+}
+
+#[cfg(unix)]
+fn prepare_existing_session_guard_dir_at(root: &Path) -> anyhow::Result<(File, File, PathBuf)> {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+
+    let root_directory = open_verified_reset_directory(root, "workspace state root")?;
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    create_reset_child_directory_at(
+        root_directory.as_raw_fd(),
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+    )?;
+    let lock_directory =
+        open_reset_child_dir(root_directory.as_raw_fd(), OsStr::new(SESSION_GUARD_DIR), &lock_dir)?;
+    lock_directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    lock_directory.sync_all()?;
+    root_directory.sync_all()?;
+    validate_reset_child_directory_at(
+        &root_directory,
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+        &lock_directory,
+    )?;
+    validate_reset_directory_path(root, "workspace state root", &root_directory)?;
+    Ok((root_directory, lock_directory, lock_dir))
+}
+
+#[cfg(unix)]
+fn acquire_session_writer_reset_lease(
+    guard: &SessionResetGuard,
+    session_dir: &Path,
 ) -> anyhow::Result<SessionLease> {
-    acquire_session_guard_from_private_dir(root, session_name, true)
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let name = session_dir.file_name().ok_or_else(|| {
+        anyhow::anyhow!("workspace session state path has no file name: {}", session_dir.display())
+    })?;
+    let directory = open_reset_child_dir(guard.root.as_raw_fd(), name, session_dir)?;
+    let path = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    let lease = SessionLease::acquire_at(&directory, OsStr::new(SESSION_WRITER_LOCK_FILE), &path)?;
+    validate_reset_child_directory_at(&guard.root, name, session_dir, &directory)?;
+    Ok(lease)
+}
+
+#[cfg(not(unix))]
+fn acquire_session_writer_reset_lease(
+    _guard: &SessionResetGuard,
+    session_dir: &Path,
+) -> anyhow::Result<SessionLease> {
+    SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))
+}
+
+#[cfg(unix)]
+fn acquire_terminal_host_reset_lock_for_guard(
+    guard: &SessionResetGuard,
+    terminal_host_root: &Path,
+) -> anyhow::Result<Option<crate::terminal_host_runtime::TerminalHostResetLock>> {
+    use std::os::fd::AsRawFd;
+
+    let name = terminal_host_root.file_name().ok_or_else(|| {
+        anyhow::anyhow!(
+            "terminal host state path has no file name: {}",
+            terminal_host_root.display()
+        )
+    })?;
+    let directory = open_reset_child_dir(guard.root.as_raw_fd(), name, terminal_host_root)?;
+    crate::terminal_host_runtime::acquire_terminal_host_reset_lock_from_directory(
+        terminal_host_root,
+        directory,
+    )
+}
+
+#[cfg(not(unix))]
+fn acquire_terminal_host_reset_lock_for_guard(
+    _guard: &SessionResetGuard,
+    terminal_host_root: &Path,
+) -> anyhow::Result<Option<crate::terminal_host_runtime::TerminalHostResetLock>> {
+    crate::terminal_host_runtime::acquire_terminal_host_reset_lock(terminal_host_root)
+}
+
+#[cfg(unix)]
+fn open_verified_reset_directory(path: &Path, label: &str) -> anyhow::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {label} {}", path.display()))?;
+    validate_reset_directory_path(path, label, &directory)?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn validate_reset_directory_path(path: &Path, label: &str, directory: &File) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path_metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    let directory_metadata = directory.metadata()?;
+    if !path_metadata.file_type().is_dir()
+        || !directory_metadata.file_type().is_dir()
+        || path_metadata.dev() != directory_metadata.dev()
+        || path_metadata.ino() != directory_metadata.ino()
+    {
+        anyhow::bail!("{label} changed while opening: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_reset_child_directory_at(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<()> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: mkdirat reads a nul-terminated child name relative to a
+        // valid directory descriptor.
+        let result = unsafe { libc::mkdirat(parent_fd, name.as_ptr(), 0o700) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Ok(());
+        }
+        return Err(error).with_context(|| format!("create reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn validate_reset_child_directory_at(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    directory: &File,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+
+    let current = open_reset_child_dir(parent.as_raw_fd(), name, display_path)?;
+    let expected_metadata = directory.metadata()?;
+    let current_metadata = current.metadata()?;
+    if expected_metadata.dev() != current_metadata.dev()
+        || expected_metadata.ino() != current_metadata.ino()
+    {
+        anyhow::bail!("reset directory changed while opening: {}", display_path.display());
+    }
+    Ok(())
 }
 
 fn acquire_session_guard_from_private_dir(
@@ -5117,28 +6565,31 @@ fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn prepare_terminal_host_root_for_reset(
+fn prepare_terminal_host_root_for_reset_at(
     root: &Path,
+    reset_lock: &crate::terminal_host_runtime::TerminalHostResetLock,
 ) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
+    use std::ffi::OsString;
     use std::os::unix::fs::MetadataExt;
 
-    let records = crate::terminal_host_runtime::load_terminal_host_records_for_reset(root)
+    let directory = reset_lock.root_directory();
+    let records = load_terminal_host_records_for_reset_at(directory, root)
         .context("terminal host state still has live or unverified hosts")?;
-    let expected_uid = fs::metadata(root)?.uid();
+    let expected_uid = directory.metadata()?.uid();
     let mut live_marker_leases = Vec::new();
     let expected_live_markers = records
         .iter()
         .filter(|(_, record)| record.record_version >= 2)
-        .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
+        .filter_map(|(record_path, record)| {
+            terminal_host_live_marker_path(record_path, record).file_name().map(OsString::from)
+        })
         .collect::<HashSet<_>>();
-    for entry in fs::read_dir(root)
-        .with_context(|| format!("read terminal host state {}", root.display()))?
-    {
-        let path = entry?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("live")
-            && !expected_live_markers.contains(&path)
+    for name in reset_dir_child_names(directory, root, "terminal host state")? {
+        let path = root.join(&name);
+        if Path::new(&name).extension().and_then(|value| value.to_str()) == Some("live")
+            && !expected_live_markers.contains(&name)
         {
-            match lock_verified_dead_live_marker(&path, expected_uid)? {
+            match lock_verified_dead_live_marker_at(directory, &name, &path, expected_uid)? {
                 TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
                 TerminalHostLiveMarkerLock::Missing => {}
                 TerminalHostLiveMarkerLock::Unsafe => {
@@ -5150,11 +6601,19 @@ fn prepare_terminal_host_root_for_reset(
     #[cfg(test)]
     inject_legacy_terminal_host_record_removal_before_liveness(root)?;
     for (record_path, record) in &records {
-        match crate::terminal_host_runtime::terminal_host_record_liveness(record_path, record)? {
+        match crate::terminal_host_runtime::terminal_host_record_liveness_from_directory(
+            directory,
+            record_path,
+            record,
+        )? {
             TerminalHostLiveness::Dead => {
                 if record.record_version >= 2 {
                     let marker = terminal_host_live_marker_path(record_path, record);
-                    match lock_verified_dead_live_marker(&marker, expected_uid)? {
+                    let name = marker.file_name().ok_or_else(|| {
+                        anyhow::anyhow!("terminal-host liveness path has no file name")
+                    })?;
+                    match lock_verified_dead_live_marker_at(directory, name, &marker, expected_uid)?
+                    {
                         TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
                         TerminalHostLiveMarkerLock::Missing => {}
                         TerminalHostLiveMarkerLock::Unsafe => {
@@ -5169,6 +6628,65 @@ fn prepare_terminal_host_root_for_reset(
         }
     }
     Ok(live_marker_leases)
+}
+
+#[cfg(all(unix, test))]
+fn prepare_terminal_host_root_for_reset(
+    root: &Path,
+) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
+    let reset_lock = crate::terminal_host_runtime::acquire_terminal_host_reset_lock(root)?
+        .ok_or_else(|| anyhow::anyhow!("terminal host state still has live or unverified hosts"))?;
+    prepare_terminal_host_root_for_reset_at(root, &reset_lock)
+}
+
+#[cfg(unix)]
+fn load_terminal_host_records_for_reset_at(
+    directory: &File,
+    root: &Path,
+) -> anyhow::Result<Vec<(PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>> {
+    use std::os::fd::AsRawFd;
+
+    let mut records = Vec::new();
+    let mut identities = HashSet::new();
+    for name in reset_dir_child_names(directory, root, "terminal host state")? {
+        if Path::new(&name).extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let path = root.join(&name);
+        let stat = reset_child_stat(directory.as_raw_fd(), &name, &path)?;
+        if !reset_stat_is_file(&stat) {
+            anyhow::bail!("terminal-host record is not a file: {}", path.display());
+        }
+        let mut file = open_reset_child_file(directory.as_raw_fd(), &name, &path)?;
+        let metadata = file.metadata()?;
+        if reset_metadata_fingerprint(&metadata) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("terminal-host record changed while opening: {}", path.display());
+        }
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(MAX_TERMINAL_HOST_RECORD_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("read terminal-host record {}", path.display()))?;
+        if bytes.len() as u64 > MAX_TERMINAL_HOST_RECORD_BYTES {
+            anyhow::bail!("terminal-host record is too large: {}", path.display());
+        }
+        let current = reset_child_stat(directory.as_raw_fd(), &name, &path)?;
+        if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("terminal-host record changed while reading: {}", path.display());
+        }
+        let record =
+            serde_json::from_slice::<crate::terminal_host_runtime::TerminalHostRecord>(&bytes)
+                .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+        crate::terminal_host_runtime::validate_terminal_host_record_from_directory(
+            directory, &path, &file, &record,
+        )
+        .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+        if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+            anyhow::bail!("duplicate terminal-host identity in {}", path.display());
+        }
+        records.push((path, record));
+    }
+    Ok(records)
 }
 
 #[cfg(all(unix, test))]
@@ -5207,24 +6725,37 @@ enum TerminalHostLiveMarkerLock {
 }
 
 #[cfg(unix)]
-fn lock_verified_dead_live_marker(
+fn lock_verified_dead_live_marker_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
     path: &Path,
     expected_uid: u32,
 ) -> anyhow::Result<TerminalHostLiveMarkerLock> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::MetadataExt;
 
-    let file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-    {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    let encoded_name = reset_child_c_string(name, path)?;
+    let file = loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid directory fd.
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                encoded_name.as_ptr(),
+                libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            break unsafe { File::from_raw_fd(descriptor) };
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() == std::io::ErrorKind::NotFound {
             return Ok(TerminalHostLiveMarkerLock::Missing);
         }
-        Err(_) => return Ok(TerminalHostLiveMarkerLock::Unsafe),
+        return Ok(TerminalHostLiveMarkerLock::Unsafe);
     };
     let metadata = file.metadata()?;
     if !metadata.file_type().is_file()
@@ -5235,17 +6766,23 @@ fn lock_verified_dead_live_marker(
         return Ok(TerminalHostLiveMarkerLock::Unsafe);
     }
     loop {
-        // SAFETY: flock only observes/changes the advisory lock on this valid file descriptor.
+        // SAFETY: flock only observes or changes the advisory lock on this valid descriptor.
         let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if result == 0 {
-            let current = match fs::symlink_metadata(path) {
+            let current = match reset_child_stat(directory.as_raw_fd(), name, path) {
                 Ok(current) => current,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+                {
                     return Ok(TerminalHostLiveMarkerLock::Missing);
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(error),
             };
-            if current.dev() != metadata.dev() || current.ino() != metadata.ino() {
+            if reset_stat_device(&current) != metadata.dev()
+                || reset_stat_inode(&current) != metadata.ino()
+            {
                 return Ok(TerminalHostLiveMarkerLock::Unsafe);
             }
             return Ok(TerminalHostLiveMarkerLock::Locked(TerminalHostLiveMarkerLease {
@@ -5260,12 +6797,28 @@ fn lock_verified_dead_live_marker(
     }
 }
 
+#[cfg(all(unix, test))]
+fn lock_verified_dead_live_marker(
+    path: &Path,
+    expected_uid: u32,
+) -> anyhow::Result<TerminalHostLiveMarkerLock> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("terminal-host liveness path has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("terminal-host liveness path has no file name"))?;
+    let directory = open_verified_reset_directory(parent, "terminal host state")?;
+    lock_verified_dead_live_marker_at(&directory, name, path, expected_uid)
+}
+
 #[cfg(not(unix))]
 struct OrphanLiveMarkerLease;
 
 #[cfg(not(unix))]
-fn prepare_terminal_host_root_for_reset(
+fn prepare_terminal_host_root_for_reset_at(
     _root: &Path,
+    _reset_lock: &crate::terminal_host_runtime::TerminalHostResetLock,
 ) -> anyhow::Result<Vec<OrphanLiveMarkerLease>> {
     anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
@@ -5486,10 +7039,34 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
 struct SessionLease {
     file: File,
     path: PathBuf,
+    _directory: Option<File>,
     coordinator_waiter_dir: Option<PathBuf>,
+    #[cfg(unix)]
+    coordinator_waiter_directory: Option<File>,
 }
 
 impl SessionLease {
+    #[cfg(unix)]
+    fn reset_lock_file(&self) -> &File {
+        &self.file
+    }
+
+    #[cfg(unix)]
+    fn reset_directory(&self) -> Option<&File> {
+        self._directory.as_ref()
+    }
+
+    fn validate_current(&self) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        if let Some(directory) = &self._directory {
+            let name = self.path.file_name().ok_or_else(|| {
+                anyhow::anyhow!("session lock path has no file name: {}", self.path.display())
+            })?;
+            return validate_session_lock_file_at(directory, name, &self.path, &self.file);
+        }
+        validate_session_lock_file(&self.path, &self.file)
+    }
+
     fn acquire(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -5497,7 +7074,14 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
-        Ok(Self { file, path: path.to_path_buf(), coordinator_waiter_dir: None })
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: None,
+            coordinator_waiter_dir: None,
+            #[cfg(unix)]
+            coordinator_waiter_directory: None,
+        })
     }
 
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
@@ -5580,7 +7164,10 @@ impl SessionLease {
         Self {
             file,
             path: path.to_path_buf(),
+            _directory: None,
             coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
+            #[cfg(unix)]
+            coordinator_waiter_directory: None,
         }
     }
 }
@@ -5598,6 +7185,10 @@ struct SessionCoordinatorWaiter {
     #[cfg(not(unix))]
     socket: std::net::UdpSocket,
     registration_path: PathBuf,
+    #[cfg(unix)]
+    registration_directory: Option<File>,
+    #[cfg(unix)]
+    registration_name: Option<std::ffi::OsString>,
     #[cfg(not(unix))]
     token: String,
 }
@@ -5665,6 +7256,8 @@ impl SessionCoordinatorWaiter {
                     signal_reader,
                     _signal_anchor: signal_anchor,
                     registration_path,
+                    registration_directory: None,
+                    registration_name: None,
                 });
             }
         }
@@ -5709,6 +7302,103 @@ impl SessionCoordinatorWaiter {
                     return Err(error.into());
                 }
                 return Ok(Self { socket, registration_path, token });
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn register_at(directory: &File, waiter_dir: &Path) -> anyhow::Result<Self> {
+        use std::os::fd::AsRawFd;
+        use std::sync::atomic::Ordering;
+
+        loop {
+            let sequence =
+                SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let token = format!("{:x}-{sequence:x}", std::process::id());
+            let registration_name = std::ffi::OsString::from(format!("{token}.waiter"));
+            let temporary_name = std::ffi::OsString::from(format!(".{token}.tmp"));
+            let registration_path = waiter_dir.join(&registration_name);
+            let temporary_path = waiter_dir.join(&temporary_name);
+            let fifo_name = reset_child_c_string(&temporary_name, &temporary_path)?;
+            // SAFETY: fifo_name is a valid child name relative to the verified waiter directory.
+            let created =
+                unsafe { libc::mkfifoat(directory.as_raw_fd(), fifo_name.as_ptr(), 0o600) };
+            if created != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    continue;
+                }
+                return Err(error).with_context(|| {
+                    format!("create session coordinator waiter {}", temporary_path.display())
+                });
+            }
+
+            let signal_reader = match open_session_coordinator_waiter_at(
+                directory,
+                &temporary_name,
+                &temporary_path,
+                false,
+            ) {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let _ = reset_unlink_child(
+                        directory.as_raw_fd(),
+                        &temporary_name,
+                        &temporary_path,
+                        0,
+                    );
+                    return Err(error);
+                }
+            };
+            let signal_anchor = match open_session_coordinator_waiter_at(
+                directory,
+                &temporary_name,
+                &temporary_path,
+                true,
+            ) {
+                Ok(anchor) => anchor,
+                Err(error) => {
+                    let _ = reset_unlink_child(
+                        directory.as_raw_fd(),
+                        &temporary_name,
+                        &temporary_path,
+                        0,
+                    );
+                    return Err(error);
+                }
+            };
+            let registration = reset_child_c_string(&registration_name, &registration_path)?;
+            loop {
+                // SAFETY: both names are valid children of the verified waiter directory.
+                let renamed = unsafe {
+                    libc::renameat(
+                        directory.as_raw_fd(),
+                        fifo_name.as_ptr(),
+                        directory.as_raw_fd(),
+                        registration.as_ptr(),
+                    )
+                };
+                if renamed == 0 {
+                    return Ok(Self {
+                        signal_reader,
+                        _signal_anchor: signal_anchor,
+                        registration_path,
+                        registration_directory: Some(directory.try_clone()?),
+                        registration_name: Some(registration_name),
+                    });
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                let _ =
+                    reset_unlink_child(directory.as_raw_fd(), &temporary_name, &temporary_path, 0);
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    break;
+                }
+                return Err(error).with_context(|| {
+                    format!("register session coordinator waiter {}", registration_path.display())
+                });
             }
         }
     }
@@ -5791,8 +7481,46 @@ impl SessionCoordinatorWaiter {
     }
 }
 
+#[cfg(unix)]
+fn open_session_coordinator_waiter_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    write: bool,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = reset_child_c_string(name, display_path)?;
+    let access = if write { libc::O_WRONLY } else { libc::O_RDONLY };
+    let flags = access | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
+    loop {
+        // SAFETY: openat reads a valid child name relative to the verified waiter directory.
+        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| {
+            format!("open session coordinator waiter {}", display_path.display())
+        });
+    }
+}
+
 impl Drop for SessionCoordinatorWaiter {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        if let (Some(directory), Some(name)) =
+            (&self.registration_directory, &self.registration_name)
+        {
+            use std::os::fd::AsRawFd;
+
+            let _ = reset_unlink_child(directory.as_raw_fd(), name, &self.registration_path, 0);
+            return;
+        }
         let _ = fs::remove_file(&self.registration_path);
     }
 }
@@ -5827,6 +7555,22 @@ fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<(
     }
     platform::restrict_directory(waiter_dir)?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn prepare_session_coordinator_waiter_dir_at(
+    parent: &File,
+    waiter_dir: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+
+    let name = std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR);
+    create_reset_child_directory_at(parent.as_raw_fd(), name, waiter_dir)?;
+    let directory = open_reset_child_dir(parent.as_raw_fd(), name, waiter_dir)?;
+    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    validate_reset_child_directory_at(parent, name, waiter_dir, &directory)?;
+    Ok(directory)
 }
 
 fn publish_session_coordinator_available(waiter_dir: &Path) {
@@ -5913,6 +7657,238 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn publish_session_coordinator_available_at(waiter_directory: &File, waiter_dir: &Path) {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let Ok(names) =
+        reset_dir_child_names(waiter_directory, waiter_dir, "session coordinator waiter directory")
+    else {
+        return;
+    };
+    for name in names.into_iter().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
+        let path = waiter_dir.join(&name);
+        let extension = Path::new(&name).extension().and_then(|value| value.to_str());
+        let Ok(stat) = reset_child_stat(waiter_directory.as_raw_fd(), &name, &path) else {
+            continue;
+        };
+        if extension == Some("tmp") {
+            let is_temporary_waiter =
+                matches!(reset_stat_kind(&stat), libc::S_IFREG | libc::S_IFIFO);
+            let modified =
+                u64::try_from(reset_stat_mtime_seconds(&stat)).ok().and_then(|seconds| {
+                    u32::try_from(reset_stat_mtime_nanoseconds(&stat)).ok().and_then(
+                        |nanoseconds| {
+                            std::time::UNIX_EPOCH
+                                .checked_add(std::time::Duration::new(seconds, nanoseconds))
+                        },
+                    )
+                });
+            let is_stale = is_temporary_waiter
+                && modified
+                    .and_then(|value| value.elapsed().ok())
+                    .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
+            if is_stale {
+                let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+            }
+            continue;
+        }
+        if extension != Some("waiter") {
+            continue;
+        }
+        if reset_stat_kind(&stat) != libc::S_IFIFO {
+            let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+            continue;
+        }
+        let published = open_session_coordinator_waiter_at(waiter_directory, &name, &path, true)
+            .and_then(|mut signal| {
+                let metadata = signal.metadata()?;
+                if !metadata.file_type().is_fifo()
+                    || metadata.dev() != reset_stat_device(&stat)
+                    || metadata.ino() != reset_stat_inode(&stat)
+                {
+                    anyhow::bail!(
+                        "session coordinator waiter changed while opening: {}",
+                        path.display()
+                    );
+                }
+                signal.write_all(&[1])?;
+                Ok(())
+            })
+            .is_ok();
+        let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+        if published {
+            break;
+        }
+    }
+}
+
+impl SessionLease {
+    #[cfg(unix)]
+    fn acquire_at(directory: &File, name: &std::ffi::OsStr, path: &Path) -> anyhow::Result<Self> {
+        let file = open_session_lock_file_at(directory, name, path, true)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        FileExt::try_lock(&file).with_context(|| {
+            format!("workspace session is already owned by another daemon: {}", path.display())
+        })?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: Some(directory.try_clone()?),
+            coordinator_waiter_dir: None,
+            coordinator_waiter_directory: None,
+        })
+    }
+
+    #[cfg(unix)]
+    fn acquire_coordinator_at(
+        directory: &File,
+        name: &std::ffi::OsStr,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
+        let file = open_session_lock_file_at(directory, name, path, true)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        let waiter_dir = session_guard_coordinator_waiter_dir(path);
+        let waiter_directory = prepare_session_coordinator_waiter_dir_at(directory, &waiter_dir)?;
+        let deadline = std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT;
+        loop {
+            match FileExt::try_lock(&file) {
+                Ok(()) => {
+                    validate_session_lock_file_at(directory, name, path, &file)?;
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
+                }
+                Err(fs4::TryLockError::WouldBlock) => {
+                    if std::time::Instant::now() >= deadline {
+                        return session_coordinator_busy(path);
+                    }
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+
+            let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_dir)
+                .with_context(|| {
+                    format!("register workspace session coordinator waiter: {}", path.display())
+                })?;
+
+            match FileExt::try_lock(&file) {
+                Ok(()) => {
+                    validate_session_lock_file_at(directory, name, path, &file)?;
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
+                }
+                Err(fs4::TryLockError::WouldBlock) => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+
+            if waiter.wait_until(deadline).with_context(|| {
+                format!("wait for workspace session coordinator: {}", path.display())
+            })? {
+                continue;
+            }
+
+            match FileExt::try_lock(&file) {
+                Ok(()) => {
+                    validate_session_lock_file_at(directory, name, path, &file)?;
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
+                }
+                Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn coordinator_at(
+        file: File,
+        directory: &File,
+        waiter_directory: &File,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: Some(directory.try_clone()?),
+            coordinator_waiter_dir: None,
+            coordinator_waiter_directory: Some(waiter_directory.try_clone()?),
+        })
+    }
+}
+
+#[cfg(unix)]
+fn open_session_lock_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    path: &Path,
+    create: bool,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = reset_child_c_string(name, path)?;
+    let mut flags = libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+    if create {
+        flags |= libc::O_CREAT;
+    }
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a
+        // valid directory descriptor and returns a new owned descriptor.
+        let descriptor =
+            unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags, 0o600) };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).with_context(|| format!("open session lock {}", path.display()));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn validate_session_lock_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    path: &Path,
+    file: &File,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let directory_metadata = directory.metadata()?;
+    let file_metadata = file.metadata()?;
+    if !file_metadata.file_type().is_file()
+        || file_metadata.uid() != directory_metadata.uid()
+        || file_metadata.nlink() != 1
+    {
+        anyhow::bail!("session lock path is unsafe: {}", path.display());
+    }
+    let current = open_session_lock_file_at(directory, name, path, false)?;
+    let current_metadata = current.metadata()?;
+    if current_metadata.dev() != file_metadata.dev()
+        || current_metadata.ino() != file_metadata.ino()
+    {
+        anyhow::bail!("session lock path changed while opening: {}", path.display());
+    }
+    Ok(())
+}
+
 fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
@@ -5960,10 +7936,16 @@ fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
 
 impl Drop for SessionLease {
     fn drop(&mut self) {
-        if FileExt::unlock(&self.file).is_ok()
-            && let Some(waiter_dir) = &self.coordinator_waiter_dir
-        {
-            publish_session_coordinator_available(waiter_dir);
+        if FileExt::unlock(&self.file).is_ok() {
+            #[cfg(unix)]
+            if let Some(waiter_directory) = &self.coordinator_waiter_directory {
+                let waiter_dir = session_guard_coordinator_waiter_dir(&self.path);
+                publish_session_coordinator_available_at(waiter_directory, &waiter_dir);
+                return;
+            }
+            if let Some(waiter_dir) = &self.coordinator_waiter_dir {
+                publish_session_coordinator_available(waiter_dir);
+            }
         }
         let _ = &self.path;
     }

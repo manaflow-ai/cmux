@@ -11,6 +11,31 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+#[cfg(unix)]
+fn assert_reset_fifo_open_is_nonblocking(path: &Path, open: impl FnOnce() -> File) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileTypeExt;
+
+    let writer_path = path.to_path_buf();
+    let (writer_opened, writer_ready) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        let file = OpenOptions::new().write(true).open(writer_path).unwrap();
+        writer_opened.send(()).unwrap();
+        file
+    });
+    let reader = open();
+    writer_ready
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("FIFO writer did not observe the reset reader");
+    assert!(reader.metadata().unwrap().file_type().is_fifo());
+    // SAFETY: fcntl only reads flags from this valid, owned descriptor.
+    let flags = unsafe { libc::fcntl(reader.as_raw_fd(), libc::F_GETFL) };
+    assert!(flags >= 0, "could not inspect reset reader flags");
+    assert_ne!(flags & libc::O_NONBLOCK, 0, "reset file inspection can block on a raced FIFO");
+    drop(reader);
+    drop(writer.join().unwrap());
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -343,6 +368,31 @@ fn reset_delete_rejects_child_replaced_after_verification() {
 
 #[cfg(unix)]
 #[test]
+fn reset_delete_rejects_writer_lock_replaced_by_directory() {
+    let root = temp_root("reset-delete-rejects-replaced-writer-lock");
+    let session = "reset-delete-rejects-replaced-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap() =
+        Some((root.clone(), "session".to_string()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("reset lock path changed"), "{error:#}");
+    let pending = pending_session_reset_dirs(&root, session).unwrap();
+    assert_eq!(pending.len(), 1);
+    let replaced_lock = pending[0].path.join(SESSION_WRITER_LOCK_FILE);
+    assert!(replaced_lock.is_dir());
+    assert_eq!(fs::read(replaced_lock.join("sentinel")).unwrap(), b"preserve");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_dir_child_names_rewinds_between_scans() {
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -361,6 +411,121 @@ fn reset_dir_child_names_rewinds_between_scans() {
     assert_eq!(first, vec![std::ffi::OsString::from("child")]);
     assert_eq!(second, vec![std::ffi::OsString::from("child")]);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_open_rejects_mount_boundary() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let root = File::open("/").unwrap();
+    let error =
+        open_reset_child_dir(root.as_raw_fd(), OsStr::new("proc"), Path::new("/proc")).unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::EXDEV),
+        "{error:#}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn reset_child_directory_open_rejects_macos_dev_mount_boundary() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let parent = File::open("/").unwrap();
+    let error =
+        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("dev"), Path::new("/dev")).unwrap_err();
+
+    assert!(error.to_string().contains("crosses filesystem boundary"), "{error:#}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_fallback_handles_unavailable_openat2() {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-openat2-fallback");
+    let child = root.join("child");
+    fs::create_dir_all(&child).unwrap();
+    let root_directory = File::open(&root).unwrap();
+    let name = CString::new("child").unwrap();
+    for error_code in [libc::ENOSYS, libc::EPERM] {
+        let directory = open_reset_child_dir_after_openat2_error(
+            root_directory.as_raw_fd(),
+            name.as_c_str(),
+            &child,
+            std::io::Error::from_raw_os_error(error_code),
+        )
+        .unwrap();
+        assert!(directory.metadata().unwrap().is_dir());
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_fallback_rejects_mount_boundary() {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    let root = File::open("/").unwrap();
+    let name = CString::new("proc").unwrap();
+    let error = open_reset_child_dir_after_openat2_error(
+        root.as_raw_fd(),
+        name.as_c_str(),
+        Path::new("/proc"),
+        std::io::Error::from_raw_os_error(libc::ENOSYS),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::EXDEV),
+        "{error:#}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn checked_reset_deletion_support_uses_state_root() {
+    let root = temp_root("reset-capability-state-root");
+    fs::create_dir_all(&root).unwrap();
+
+    assert!(PersistentSessionStateResetter::new(root.as_path()).checked_deletion_supported());
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "capability probe leaked an entry");
+    assert!(
+        !PersistentSessionStateResetter::new(root.join("missing")).checked_deletion_supported()
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn checked_reset_deletion_support_does_not_require_writable_state_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let root = temp_root("reset-capability-read-only-state-root");
+    fs::create_dir_all(&root).unwrap();
+    let original_permissions = fs::metadata(&root).unwrap().permissions();
+    let mut read_only_permissions = original_permissions.clone();
+    read_only_permissions.set_mode(0o500);
+    fs::set_permissions(&root, read_only_permissions).unwrap();
+
+    let supported =
+        PersistentSessionStateResetter::new(root.as_path()).checked_deletion_supported();
+
+    fs::set_permissions(&root, original_permissions).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(supported, "capability detection must not create probe files");
 }
 
 #[test]
@@ -814,6 +979,409 @@ fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_state_root_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-state-root-symlink-swap");
+    let outside = temp_root("reset-state-root-symlink-swap-outside");
+    let moved_root = temp_root("reset-state-root-before-guard");
+    let session = "reset-state-root-symlink-swap";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_BEFORE_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_STATE_ROOT_BEFORE_GUARD.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("workspace state root"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_GUARD_DIR).exists());
+    assert!(moved_root.join(session_storage_component(session)).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_state_root_swap_after_guard_stays_on_verified_directory() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-state-root-swap-after-guard");
+    let outside = temp_root("reset-state-root-swap-after-guard-outside");
+    let moved_root = temp_root("reset-state-root-after-guard");
+    let session = "reset-state-root-swap-after-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() = None;
+
+    assert!(reset.removed_session_state);
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_GUARD_DIR).exists());
+    assert!(!outside.join(session_storage_component(session)).exists());
+    assert!(!moved_root.join(session_storage_component(session)).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-live-host-root-swap-after-guard");
+    let outside = temp_root("reset-live-host-root-swap-after-guard-outside");
+    let moved_root = temp_root("reset-live-host-root-after-guard");
+    let session = "reset-live-host-root-swap-after-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: TERMINAL_ONE.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+        supports_terminate_ack: false,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("live or unverified hosts"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert!(!outside.join(host_root.file_name().unwrap()).exists());
+    assert!(moved_root.join(host_root.file_name().unwrap()).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    drop(live_file);
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_session_dir_swap_and_restore_after_writer_lock_keeps_original_state() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-session-swap-restore-after-writer-lock");
+    let session = "reset-session-swap-restore-after-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let original = session_dir.with_file_name("session-original-before-writer-lock");
+    let replacement = session_dir.with_file_name("session-writer-lock-replacement");
+    let locked_replacement = session_dir.with_file_name("session-locked-replacement");
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&replacement).unwrap();
+    fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK.lock().unwrap() =
+        Some(ResetDirectorySwapRestore {
+            target: session_dir.clone(),
+            original: original.clone(),
+            replacement: replacement.clone(),
+            locked_replacement: locked_replacement.clone(),
+        });
+
+    let reset_result = resetter.reset(session, Some(&preview.confirm_reset));
+    *RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK.lock().unwrap() = None;
+    drop(hook_guard);
+    let error = reset_result.unwrap_err();
+
+    assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
+    assert_eq!(fs::read(session_dir.join(WORKSPACE_REGISTRY_FILE)).unwrap(), b"db");
+    assert!(!original.exists());
+    assert!(!replacement.exists());
+    assert!(locked_replacement.join(SESSION_WRITER_LOCK_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+
+    fs::remove_dir_all(locked_replacement).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_root_swap_and_restore_after_lock_keeps_live_state() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-terminal-host-swap-restore-after-lock");
+    let session = "reset-terminal-host-swap-restore-after-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    let original = host_root.with_file_name("terminal-host-original-before-lock");
+    let replacement = host_root.with_file_name("terminal-host-lock-replacement");
+    let locked_replacement = host_root.with_file_name("terminal-host-locked-replacement");
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: TERMINAL_ONE.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+        supports_terminate_ack: false,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    fs::create_dir_all(&replacement).unwrap();
+    fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK.lock().unwrap() =
+        Some(ResetDirectorySwapRestore {
+            target: host_root.clone(),
+            original: original.clone(),
+            replacement: replacement.clone(),
+            locked_replacement: locked_replacement.clone(),
+        });
+
+    let reset_result = resetter.reset(session, Some(&preview.confirm_reset));
+    *RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK.lock().unwrap() = None;
+    drop(hook_guard);
+    let error = reset_result.unwrap_err();
+
+    assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
+    assert!(host_root.join(record_path.file_name().unwrap()).exists());
+    assert!(host_root.join(live_path.file_name().unwrap()).exists());
+    assert!(!original.exists());
+    assert!(!replacement.exists());
+    assert!(locked_replacement.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+
+    drop(live_file);
+    fs::remove_dir_all(locked_replacement).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_hard_linked_session_guard_coordinator_before_chmod() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-hard-linked-session-guard-coordinator");
+    let outside = temp_root("reset-hard-linked-session-guard-coordinator-outside");
+    let session = "reset-hard-linked-session-guard-coordinator";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&lock_dir).unwrap();
+    fs::set_permissions(&lock_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("coordinator-target");
+    fs::write(&outside_file, b"outside").unwrap();
+    fs::set_permissions(&outside_file, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::hard_link(&outside_file, lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("session lock path is unsafe"), "{error:#}");
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside_file).unwrap().mode() & 0o777, 0o644);
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_hard_linked_session_guard_before_chmod() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-hard-linked-session-guard");
+    let outside = temp_root("reset-hard-linked-session-guard-outside");
+    let session = "reset-hard-linked-session-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&lock_dir).unwrap();
+    fs::set_permissions(&lock_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("session-target");
+    fs::write(&outside_file, b"outside").unwrap();
+    fs::set_permissions(&outside_file, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::hard_link(&outside_file, session_guard_lock_path(&lock_dir, session)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("session lock path is unsafe"), "{error:#}");
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside_file).unwrap().mode() & 0o777, 0o644);
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-session-dir-symlink-swap");
+    let outside = temp_root("reset-session-dir-symlink-swap-outside");
+    let session = "reset-session-dir-symlink-swap";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let moved_session_dir = session_dir.with_file_name("session-before-writer-lock");
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() =
+        Some((session_dir.clone(), moved_session_dir.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = None;
+
+    assert_reset_symlink_rejection(&error);
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_WRITER_LOCK_FILE).exists());
+    assert!(moved_session_dir.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert!(fs::symlink_metadata(&session_dir).unwrap().file_type().is_symlink());
+
+    fs::remove_file(session_dir).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-terminal-host-root-symlink-swap");
+    let outside = temp_root("reset-terminal-host-root-symlink-swap-outside");
+    let session = "reset-terminal-host-root-symlink-swap";
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
+    let moved_host_root = host_root.with_file_name("terminal-host-root-before-lock");
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() =
+        Some((host_root.clone(), moved_host_root.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
+
+    assert_reset_symlink_rejection(&error);
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());
+    assert!(moved_host_root.join("stale-sidecar").exists());
+    assert!(fs::symlink_metadata(&host_root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(host_root).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn assert_reset_symlink_rejection(error: &anyhow::Error) {
+    let raw_os_error =
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error);
+    if cfg!(any(target_os = "ios", target_os = "macos")) {
+        assert!(
+            matches!(raw_os_error, Some(code) if code == libc::ENOTDIR || code == libc::ELOOP),
+            "{error:#}"
+        );
+    } else {
+        assert_eq!(raw_os_error, Some(libc::ELOOP), "{error:#}");
+    }
+}
+
 #[test]
 fn reset_preview_rejects_confirmation_manifest_path_budget() {
     let root = temp_root("reset-manifest-path-budget");
@@ -994,6 +1562,45 @@ fn reset_directory_scan_clears_stale_errno_before_readdir() {
 
 #[cfg(unix)]
 #[test]
+fn reset_file_open_is_nonblocking_from_directory() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = temp_root("reset-directory-file-nonblocking");
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("record.json");
+    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: encoded is a valid path and the mode grants access only to this user.
+    assert_eq!(unsafe { libc::mkfifo(encoded.as_ptr(), 0o600) }, 0);
+    let directory = File::open(&root).unwrap();
+
+    assert_reset_fifo_open_is_nonblocking(&path, || {
+        open_reset_child_file(directory.as_raw_fd(), OsStr::new("record.json"), &path).unwrap()
+    });
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_file_open_is_nonblocking_from_path() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = temp_root("reset-path-file-nonblocking");
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("record.json");
+    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: encoded is a valid path and the mode grants access only to this user.
+    assert_eq!(unsafe { libc::mkfifo(encoded.as_ptr(), 0o600) }, 0);
+
+    assert_reset_fifo_open_is_nonblocking(&path, || open_reset_fingerprint_file(&path).unwrap());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_guard_rejects_symlinked_lock_directory() {
     use std::os::unix::fs::symlink;
 
@@ -1056,6 +1663,54 @@ fn session_guard_coordinator_owner_publishes_lock_availability() {
     drop(acquired);
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_guard_waiter_stays_in_verified_directory_after_root_swap() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::symlink;
+
+    let root = temp_root("session-guard-waiter-root-swap");
+    let moved = temp_root("session-guard-waiter-root-swap-moved");
+    let outside = temp_root("session-guard-waiter-root-swap-outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let (_root_directory, lock_directory, lock_dir) =
+        prepare_existing_session_guard_dir_at(&root).unwrap();
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let coordinator_name = coordinator_path.file_name().unwrap();
+    let coordinator =
+        SessionLease::acquire_coordinator_at(&lock_directory, coordinator_name, &coordinator_path)
+            .unwrap();
+    fs::rename(&root, &moved).unwrap();
+    symlink(&outside, &root).unwrap();
+    let waiter_path = session_guard_coordinator_waiter_dir(&lock_dir);
+
+    let waiter_directory = open_reset_child_dir(
+        lock_directory.as_raw_fd(),
+        std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+        &waiter_path,
+    )
+    .unwrap();
+    let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_path).unwrap();
+
+    let retained_waiters = moved.join(SESSION_GUARD_DIR).join(SESSION_GUARD_COORDINATOR_WAITER_DIR);
+    assert!(fs::read_dir(&retained_waiters).unwrap().next().is_some());
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    drop(coordinator);
+    assert!(
+        waiter
+            .wait_until(std::time::Instant::now() + std::time::Duration::from_secs(2))
+            .expect("wait for descriptor-relative coordinator publication"),
+        "coordinator owner did not publish through the verified directory"
+    );
+    drop(waiter);
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved).unwrap();
+    fs::remove_dir_all(outside).unwrap();
 }
 
 #[test]
