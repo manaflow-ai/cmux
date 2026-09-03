@@ -437,6 +437,91 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(state.commands.contains { $0.contains(#""method":"auth.status""#) })
     }
 
+    private static func subscription(id: String, provider: String, label: String, sessions: Int = 0, usedPercent: Int? = nil) -> [String: Any] {
+        var account: [String: Any] = [
+            "id": id,
+            "provider": provider,
+            "providerAccountId": "acct-\(label)",
+            "label": label,
+            "state": "active",
+            "credentialExpiresAt": NSNull(),
+            "lastFailureCode": NSNull(),
+            "cooldownUntil": NSNull(),
+            "activeSessions": sessions,
+        ]
+        if let usedPercent {
+            account["usage"] = ["rate_limit": ["primary_window": ["used_percent": usedPercent], "secondary_window": ["used_percent": 12]]]
+        }
+        return account
+    }
+
+    func testCoderouterSubscriptionsListPrintsUsageAndSessions() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", "list"],
+            socketName: "coderouter-subs-list"
+        ) { method, _ in
+            guard method == "coderouter.accounts.list" else { return nil }
+            return self.okResponse([
+                "teamId": "team_local",
+                "accounts": [
+                    Self.subscription(id: Self.accountA, provider: "codex", label: "a@x.dev", sessions: 2, usedPercent: 40),
+                    Self.subscription(id: Self.accountB, provider: "opencode-go", label: "b@x.dev"),
+                ],
+            ])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            result.stdout,
+            """
+            Subscription accounts (2):
+              \(Self.accountA)  codex a@x.dev  active  sessions=2  used 5h 40% / week 12%
+              \(Self.accountB)  opencode-go b@x.dev  active  sessions=0
+
+            """
+        )
+        XCTAssertTrue(state.commands.contains { $0.contains(#""method":"coderouter.accounts.list""#) })
+    }
+
+    func testCoderouterSubscriptionsRemoveResolvesALabel() throws {
+        nonisolated(unsafe) var removedIDs: [String] = []
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "subs", "remove", "b@x.dev"],
+            socketName: "coderouter-subs-remove"
+        ) { method, params in
+            switch method {
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": [
+                    Self.subscription(id: Self.accountA, provider: "codex", label: "a@x.dev"),
+                    Self.subscription(id: Self.accountB, provider: "codex", label: "b@x.dev"),
+                ]])
+            case "coderouter.accounts.remove":
+                removedIDs.append((params["accountId"] as? String) ?? "")
+                return self.okResponse(["removed": true, "lastAccount": false, "legacyCleanupPending": false])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(removedIDs, [Self.accountB])
+        XCTAssertEqual(result.stdout, "OK removed codex b@x.dev\n")
+    }
+
+    func testCoderouterSubscriptionsAddWithoutTheCodeRouterCLIPrintsTheNpxCommand() throws {
+        let emptyPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: emptyPath) }
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", "add", "codex"],
+            socketName: "coderouter-subs-add",
+            extraEnvironment: ["PATH": emptyPath.path],
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertEqual(result.status, 127, result.stderr)
+        XCTAssertTrue(result.stderr.contains("npx coderouter@latest add codex"), result.stderr)
+        XCTAssertFalse(state.commands.contains { $0.contains("coderouter.accounts") })
+    }
+
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
         // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
         // point is that the socket is never consulted for a non-cmux verb.

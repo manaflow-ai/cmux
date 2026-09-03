@@ -35,6 +35,11 @@ import {
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
 import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
+import {
+  CoderouterAccountsSection,
+  type CoderouterAccountView,
+} from "../components/coderouter-accounts";
+import { accountsWithUsage } from "@/services/coderouter/usage";
 
 // Account authorization and the hosted account list must stay fresh for each
 // request. Keep the current tab visible while this page resolves instead of
@@ -178,10 +183,11 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
-  const [accountState, metrics, claudeUpstream] = await Promise.all([
+  const [accountState, metrics, claudeUpstream, coderouterAccounts] = await Promise.all([
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
     loadClaudeUpstream(selectedTeam.id),
+    loadCoderouterAccounts(selectedTeam.id),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -219,6 +225,13 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         locale={locale}
         metrics={metrics}
         teamName={selectedTeam.name}
+      />
+
+      <CoderouterAccountsSection
+        teamId={selectedTeam.id}
+        accounts={coderouterAccounts.kind === "ok" ? coderouterAccounts.accounts : []}
+        canManage={selectedTeam.manageAccounts}
+        loadFailed={coderouterAccounts.kind === "error"}
       />
 
       <ClaudeUpstreamSection
@@ -536,6 +549,20 @@ async function loadAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+type CoderouterAccountsState =
+  | { readonly kind: "ok"; readonly accounts: readonly CoderouterAccountView[] }
+  | { readonly kind: "error" };
+
+/** `coderouter_accounts` (Codex, OpenCode Go) with the provider usage fan-out. */
+async function loadCoderouterAccounts(teamId: string): Promise<CoderouterAccountsState> {
+  try {
+    const result = await accountsWithUsage(teamId);
+    return { kind: "ok", accounts: result.accounts };
   } catch {
     return { kind: "error" };
   }

@@ -4923,11 +4923,11 @@ struct CMUXCLI {
     }
 
     private func localizedCoderouterCommands() -> String {
-        let defaultValue = "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)"
+        let defaultValue = "coderouter <status|machines|claude|subscriptions> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
             localized: "cli.coderouter.commands",
-            defaultValue: "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)",
+            defaultValue: "coderouter <status|machines|claude|subscriptions> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)",
             bundle: bundle
         )
         let explicitValue = CMUXDiffViewerLocalization.string(
@@ -4973,7 +4973,7 @@ struct CMUXCLI {
     /// normal terminal semantics. The argv is built directly; arguments such
     /// as prompts, paths, and shell metacharacters are never interpreted by a
     /// shell.
-    private func runCoderouterAlias(commandArgs: [String]) throws {
+    func runCoderouterAlias(commandArgs: [String]) throws {
         let candidates = ["coderouter", "cr"]
         guard let executablePath = candidates.lazy
             .compactMap({ resolveExecutableInPath($0) })

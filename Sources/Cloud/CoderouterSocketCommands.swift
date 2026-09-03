@@ -6,6 +6,9 @@ import Foundation
 // this handler -> cmux backend and nowhere else. A team holds many Claude
 // upstream accounts: `add` appends, `remove` and `update` address one by id,
 // `clear` drops them all. `set` stays as an alias of `add` for older CLIs.
+// `coderouter.accounts.*` are the subscription accounts (ChatGPT Codex,
+// OpenCode Go) that `cr add codex` fills; cmux lists and removes them, the
+// OAuth device flow to add one stays in the CodeRouter CLI.
 // Every other `cmux coderouter` or `cmux cr` invocation is exec'd into the
 // installed CodeRouter CLI before the socket is opened (see `runCoderouterAlias`).
 extension TerminalController {
@@ -61,6 +64,19 @@ extension TerminalController {
         case "coderouter.claude_upstream.clear":
             return coderouterCall(id: id) {
                 let result = try await CoderouterClient.shared.clearClaudeAccounts(teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "coderouter.accounts.list":
+            return coderouterCall(id: id) {
+                let result = try await CoderouterClient.shared.subscriptionAccounts(teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "coderouter.accounts.remove":
+            guard let accountID = Self.coderouterString(params["accountId"]) else {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.accounts.remove requires `accountId`.")
+            }
+            return coderouterCall(id: id) {
+                let result = try await CoderouterClient.shared.removeSubscriptionAccount(id: accountID, teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "coderouter.machines":

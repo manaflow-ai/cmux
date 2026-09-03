@@ -9,7 +9,7 @@ import Foundation
 // is exec'd into the installed CodeRouter CLI before any socket is opened.
 extension CMUXCLI {
     static let coderouterUsage = """
-        Usage: cmux coderouter <status|machines|claude> [options]
+        Usage: cmux coderouter <status|machines|claude|subscriptions> [options]
 
         Team settings for the cmux coderouter model plane that Cloud machines
         route codex, claude, pi, and opencode through. Any other verb, and every
@@ -50,6 +50,18 @@ extension CMUXCLI {
           cmux coderouter claude clear [--team <id>] [--json]
               Remove every Claude upstream account of the team.
 
+          cmux coderouter subscriptions list [--team <id>] [--json]
+              The ChatGPT Codex and OpenCode Go subscription accounts coderouter
+              spreads Codex sessions across: id, provider, label, state, usage
+              windows, bound sessions. Alias: subs.
+
+          cmux coderouter subscriptions add [codex|opencode]
+              Add a subscription through the CodeRouter CLI's sign-in flow
+              (`cr add codex`); prints the npx command when cr is not installed.
+
+          cmux coderouter subscriptions remove <account> [--team <id>] [--json]
+              Remove one subscription account by id, label, or provider account id.
+
         A team routes each Cloud machine to one of its accounts and moves it to
         another when that account is rate limited, rejected, or unavailable.
         Requires `cmux auth login` and a team where you can manage coderouter.
@@ -65,7 +77,7 @@ extension CMUXCLI {
     /// else keeps the pre-existing passthrough into the installed CodeRouter CLI,
     /// so `cmux coderouter accounts`, `cmux coderouter login`, and a bare
     /// `cmux coderouter` behave exactly as before.
-    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "help", "--help", "-h"]
+    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "subscriptions", "subs", "help", "--help", "-h"]
 
     static func isCmuxOwnedCoderouterInvocation(_ args: [String]) -> Bool {
         guard let first = args.first?.lowercased() else { return false }
@@ -102,6 +114,9 @@ extension CMUXCLI {
                     payload["team_id"] = accountsResponse["teamId"] ?? NSNull()
                     payload["claude_accounts"] = accountsResponse["accounts"] ?? []
                 }
+                if signedIn, let subscriptions = try? client.sendV2(method: "coderouter.accounts.list", params: teamParams(teamOpt)) {
+                    payload["subscription_accounts"] = subscriptions["accounts"] ?? []
+                }
                 if let accountsError { payload["claude_accounts_error"] = accountsError }
                 print(jsonString(payload))
                 return
@@ -122,6 +137,9 @@ extension CMUXCLI {
             } else if let accountsResponse {
                 printClaudeAccounts(accountsResponse)
             }
+            if let subscriptions = try? client.sendV2(method: "coderouter.accounts.list", params: teamParams(teamOpt)) {
+                printSubscriptionAccounts(subscriptions)
+            }
 
         case "machines", "machine":
             let (teamOpt, remaining) = parseOption(rest, name: "--team")
@@ -135,6 +153,9 @@ extension CMUXCLI {
 
         case "claude":
             try runCoderouterClaudeCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+
+        case "subscriptions", "subs":
+            try runCoderouterSubscriptionsCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
         default:
             throw CLIError(message: """
@@ -378,6 +399,134 @@ extension CMUXCLI {
             throw CLIError(message: "No input received.")
         }
         return trimmed
+    }
+
+    // MARK: Subscription accounts (ChatGPT Codex, OpenCode Go)
+
+    private func runCoderouterSubscriptionsCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let sub = commandArgs.first?.lowercased() ?? "list"
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "help", "--help", "-h":
+            print(Self.coderouterUsage)
+
+        case "list", "ls", "show", "status":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter subscriptions list")
+            let response = try client.sendV2(method: "coderouter.accounts.list", params: teamParams(teamOpt))
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            printSubscriptionAccounts(response)
+
+        case "add":
+            // The ChatGPT / OpenCode sign-in flow lives in the CodeRouter CLI;
+            // cmux hands off to it so there is one place that owns those OAuth steps.
+            let provider = rest.first?.lowercased() ?? "codex"
+            guard rest.count <= 1, ["codex", "opencode"].contains(provider) else {
+                throw CLIError(message: "coderouter subscriptions add takes an optional provider: codex (default) or opencode.")
+            }
+            do {
+                try runCoderouterAlias(commandArgs: ["add", provider])
+            } catch let error as CLIError where error.exitCode == 127 {
+                throw CLIError(
+                    message: "The CodeRouter CLI is not installed. Add the subscription with:\n  npx coderouter@latest add \(provider)\nThen run `cmux coderouter subscriptions list`.",
+                    exitCode: 127
+                )
+            }
+
+        case "remove", "rm", "delete":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            let selector = try singleCoderouterSelector(remaining, command: "coderouter subscriptions remove")
+            let account = try resolveSubscriptionAccount(selector, client: client, teamOpt: teamOpt)
+            var params = teamParams(teamOpt)
+            params["accountId"] = account.id
+            let response = try client.sendV2(method: "coderouter.accounts.remove", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            if (response["removed"] as? Bool) == true {
+                print("OK removed \(account.summary)")
+                if (response["lastAccount"] as? Bool) == true {
+                    print("That was the last subscription: Codex sessions from Cloud machines fail until one is added.")
+                }
+            } else {
+                print("No subscription account \(account.summary) exists.")
+            }
+
+        default:
+            throw CLIError(message: """
+                Unknown coderouter subscriptions subcommand: \(sub)
+
+                \(Self.coderouterUsage)
+                """)
+        }
+    }
+
+    private func resolveSubscriptionAccount(_ selector: String, client: SocketClient, teamOpt: String?) throws -> ClaudeAccountRef {
+        let range = NSRange(selector.startIndex..<selector.endIndex, in: selector)
+        if Self.claudeAccountIDPattern.firstMatch(in: selector, range: range) != nil {
+            return ClaudeAccountRef(id: selector.lowercased(), summary: Self.sanitizeForTerminal(selector))
+        }
+        let response = try client.sendV2(method: "coderouter.accounts.list", params: teamParams(teamOpt))
+        let accounts = (response["accounts"] as? [[String: Any]]) ?? []
+        let needle = selector.lowercased()
+        let matches = accounts.filter { account in
+            [(account["label"] as? String), (account["providerAccountId"] as? String), (account["id"] as? String)]
+                .compactMap { $0?.lowercased() }
+                .contains(needle)
+        }
+        guard matches.count == 1, let match = matches.first, let id = match["id"] as? String else {
+            if matches.isEmpty {
+                throw CLIError(message: "No subscription account matches '\(Self.sanitizeForTerminal(selector))'. Run `cmux coderouter subscriptions list` and use the id, label, or provider account id.")
+            }
+            throw CLIError(message: "'\(Self.sanitizeForTerminal(selector))' matches \(matches.count) subscription accounts. Use the id from `cmux coderouter subscriptions list`.")
+        }
+        return ClaudeAccountRef(id: id, summary: Self.subscriptionSummary(match))
+    }
+
+    private static func subscriptionSummary(_ account: [String: Any]) -> String {
+        let provider = sanitizeForTerminal((account["provider"] as? String) ?? "?")
+        let label = (account["label"] as? String).map(sanitizeForTerminal) ?? ""
+        return "\(provider)\(label.isEmpty ? "" : " \(label)")"
+    }
+
+    private func printSubscriptionAccounts(_ response: [String: Any]) {
+        let accounts = (response["accounts"] as? [[String: Any]]) ?? []
+        guard !accounts.isEmpty else {
+            print("Subscription accounts: none. Codex on Cloud machines needs one:")
+            print("  cmux coderouter subscriptions add codex")
+            return
+        }
+        print("Subscription accounts (\(accounts.count)):")
+        for account in accounts {
+            let id = Self.sanitizeForTerminal((account["id"] as? String) ?? "?")
+            var health = Self.sanitizeForTerminal((account["state"] as? String) ?? "?")
+            if let cooldown = account["cooldownUntil"] as? String, !cooldown.isEmpty,
+               let until = ISO8601DateFormatter.coderouterFlexible.date(from: cooldown), until > Date() {
+                health = "cooling down \(Int(until.timeIntervalSinceNow.rounded(.up)))s"
+            }
+            if let code = (account["lastFailureCode"] as? String).map(Self.sanitizeForTerminal), !code.isEmpty {
+                health += ", \(code)"
+            }
+            let sessions = Self.intValue(account["activeSessions"]) ?? 0
+            var usageText = ""
+            if let usage = account["usage"] as? [String: Any], let rate = usage["rate_limit"] as? [String: Any] {
+                var windows: [String] = []
+                if let primary = rate["primary_window"] as? [String: Any], let used = Self.doubleValue(primary["used_percent"]) {
+                    windows.append("5h \(Int(used.rounded()))%")
+                }
+                if let secondary = rate["secondary_window"] as? [String: Any], let used = Self.doubleValue(secondary["used_percent"]) {
+                    windows.append("week \(Int(used.rounded()))%")
+                }
+                if !windows.isEmpty { usageText = "  used " + windows.joined(separator: " / ") }
+            } else if let error = (account["usageError"] as? String).map(Self.sanitizeForTerminal), !error.isEmpty {
+                usageText = "  usage unavailable (\(error))"
+            }
+            print("  \(id)  \(Self.subscriptionSummary(account))  \(health)  sessions=\(sessions)\(usageText)")
+        }
     }
 
     // MARK: Account listing and selection

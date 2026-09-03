@@ -8,6 +8,9 @@ let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
+const coderouterAccountCalls: string[] = [];
+let coderouterAccounts: unknown[] = [];
+const renderedCoderouterAccounts: { count: number; loadFailed: boolean }[] = [];
 let selectedTeamId: string | null = "team-1";
 let scopedTeamId: string | null = null;
 let authorizedTeams: Array<{
@@ -217,6 +220,26 @@ mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
   DeleteAiAccountButton: () => null,
 }));
 
+mock.module("../services/coderouter/usage", () => ({
+  accountsWithUsage: async (teamId: string) => {
+    coderouterAccountCalls.push(teamId);
+    return {
+      accounts: coderouterAccounts,
+      usageAsOf: "2026-09-02T10:00:00.000Z",
+      usageGeneratedAtMs: Date.now(),
+      cacheMaxAgeSeconds: 30,
+      timing: { rdsMs: 0, usageMs: 0 },
+    };
+  },
+}));
+
+mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
+  CoderouterAccountsSection: (props: { accounts: readonly unknown[]; loadFailed: boolean }) => {
+    renderedCoderouterAccounts.push({ count: props.accounts.length, loadFailed: props.loadFailed });
+    return null;
+  },
+}));
+
 mock.module("../services/coderouter/claudeUpstream", () => ({
   listClaudeAccounts: async () => [],
 }));
@@ -236,6 +259,9 @@ describe("coderouter dashboard", () => {
     cutoverReady = true;
     hostedControlConfigured = true;
     hostedExchangeCalls = 0;
+    coderouterAccountCalls.length = 0;
+    coderouterAccounts = [];
+    renderedCoderouterAccounts.length = 0;
     metricsTeamIds.length = 0;
     machineMetricsCalls.length = 0;
     machineMetricsKind = "ready";
@@ -345,6 +371,21 @@ describe("coderouter dashboard", () => {
     expect(html).toContain("$4.25");
     expect(html).toContain("No prompts, outputs, account labels, or member identities");
     expect(html).not.toContain("stack-user");
+  });
+
+  test("renders the coderouter subscription accounts of the selected team", async () => {
+    coderouterAccounts = [
+      { id: "acct-1", provider: "codex", providerAccountId: "u1", label: "a@x.dev", state: "active", credentialExpiresAt: null, lastFailureCode: null, cooldownUntil: null, activeSessions: 2 },
+      { id: "acct-2", provider: "codex", providerAccountId: "u2", label: "b@x.dev", state: "active", credentialExpiresAt: null, lastFailureCode: null, cooldownUntil: null, activeSessions: 0 },
+    ];
+    authorizationAvailable = true;
+    const page = await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ team: "team-1" }),
+    });
+    renderToStaticMarkup(page);
+    expect(coderouterAccountCalls).toEqual(["team-1"]);
+    expect(renderedCoderouterAccounts).toEqual([{ count: 2, loadFailed: false }]);
   });
 
   test("renders the Machines card for owned machines only", async () => {

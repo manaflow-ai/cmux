@@ -85,7 +85,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
-| `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
+| `coderouter`, `cr` | `cmux coderouter <status|machines|claude|subscriptions>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts, the Codex/OpenCode subscription accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -342,8 +342,11 @@ CodeRouter subcommands (cmux-owned; anything else passes through to the installe
 | `coderouter claude remove <account>` | Remove one account. `<account>` is the id, or a label or masked identifier that matches exactly one account (ambiguity is an error naming the count). Idempotent. Aliases `rm`, `delete`. |
 | `coderouter claude disable <account>`, `coderouter claude enable <account>` | Take an account out of routing, or put it back, via `coderouter.claude_upstream.update`. Same selector rules as `remove`. |
 | `coderouter claude clear` | Remove every Claude upstream account of the team (`No Claude upstream accounts were set.` when none). Aliases `remove-all`, `unset`. Supports `--team <id>` and `--json`. |
+| `coderouter subscriptions list` | The team's subscription accounts (ChatGPT Codex, OpenCode Go) from `GET /api/coderouter/accounts`: id, provider, label, state or cooldown, bound sessions, usage windows. Aliases `subs`, `ls`, `show`. Supports `--team <id>` and `--json`. |
+| `coderouter subscriptions add [codex|opencode]` | Execs `cr add <provider>` (the CodeRouter CLI owns the sign-in flow). Without `cr` on PATH, exits 127 and prints `npx coderouter@latest add <provider>`. Never touches the socket. |
+| `coderouter subscriptions remove <account>` | Remove one subscription account via `coderouter.accounts.remove`. `<account>` is the id, or a label / provider account id matching exactly one account. |
 
-Socket methods: `coderouter.claude_upstream.get|add|update|remove|clear` (`set` is an alias of `add`), `coderouter.machines`. Sign-in failures surface as the `auth_required` code, like `vm`.
+Socket methods: `coderouter.claude_upstream.get|add|update|remove|clear` (`set` is an alias of `add`), `coderouter.accounts.list|remove`, `coderouter.machines`. Sign-in failures surface as the `auth_required` code, like `vm`.
 
 Theme subcommands:
 
@@ -678,7 +681,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
-- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`
+- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|subscriptions> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`

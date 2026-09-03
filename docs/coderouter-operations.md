@@ -220,6 +220,16 @@ remove all; `PUT` is an alias of `POST`) and `PATCH/DELETE /api/coderouter/claud
 add, enable/disable, and remove. Rows migrated from the single-upstream table keep their
 `aad_version 1` ciphertext binding and get a masked identifier on first read.
 
+## Subscription accounts on the dashboard and CLI
+
+The Codex leg spreads sessions across the team's `coderouter_accounts` (ChatGPT Codex, OpenCode
+Go), filled by `cr add codex` / `cr add opencode`. The cmux.com coderouter dashboard lists them
+(provider, label, state or cooldown, bound sessions, 5-hour and weekly usage windows) with a remove
+action, next to the Claude upstream accounts; the older hosted-subrouter tenant table below it is a
+separate legacy store. On the CLI: `cmux coderouter subscriptions list|remove <account>`, and
+`cmux coderouter subscriptions add [codex|opencode]` hands off to the CodeRouter CLI (the OAuth
+device flow lives there); `cmux coderouter status` prints both account lists.
+
 ## Verifying the edge model plane locally
 
 `web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a

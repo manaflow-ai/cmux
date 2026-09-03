@@ -151,6 +151,27 @@ actor CoderouterClient {
         return try bridgedJSONObject(data)
     }
 
+    /// The team's subscription accounts (ChatGPT Codex, OpenCode Go) from
+    /// `GET /api/coderouter/accounts`: `{ teamId, accounts: [{ id, provider,
+    /// providerAccountId, label, state, cooldownUntil, lastFailureCode,
+    /// activeSessions, usage?, usageError? }], usageAsOf }`.
+    func subscriptionAccounts(teamID: String?) async throws -> JSONValue {
+        let (data, http) = try await request("GET", path: "/api/coderouter/accounts", teamID: teamID)
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Removes one subscription account. A 404 is reported as `removed: false`.
+    func removeSubscriptionAccount(id accountID: String, teamID: String?) async throws -> JSONValue {
+        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let (data, http) = try await request("DELETE", path: "/api/coderouter/accounts/\(escaped)", teamID: teamID)
+        if http.statusCode == 404 {
+            return .object(["removed": .bool(false)])
+        }
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
     /// Percent-encode a caller-provided value as a single URL path segment;
     /// `/`, `.`, and `..` would otherwise change the backend route.
     private func pathSegment(_ value: String, fieldName: String) throws -> String {
