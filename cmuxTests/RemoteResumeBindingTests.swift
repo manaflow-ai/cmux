@@ -682,7 +682,7 @@ struct RemoteResumeBindingTests {
             let envelope = try v2Envelope(requestData: rewritten)
             #expect(
                 envelope["ok"] as? Bool == false,
-                String(describing: envelope)
+                Comment(rawValue: String(describing: envelope))
             )
             let error = try #require(envelope["error"] as? [String: Any])
             return try #require(error["code"] as? String)
