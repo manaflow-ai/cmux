@@ -894,6 +894,7 @@ impl FrameLink for LaneMuxLink {
                     match tokio::time::timeout(PHYSICAL_LINK_CLOSE_TIMEOUT, link.close()).await {
                         Ok(result) => result,
                         Err(_) => {
+                            link.abort_close();
                             Err(LinkError::Transport("timed out closing physical link".into()))
                         }
                     }
