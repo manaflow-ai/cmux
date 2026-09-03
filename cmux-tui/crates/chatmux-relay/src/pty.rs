@@ -1713,8 +1713,8 @@ impl Inner {
             match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, gate.lock_async()).await {
                 Ok(guard) => guard,
                 Err(_) => {
-                    send_pty_error(context, pty_id, code, message);
                     self.force_retire(pty_id, Some(generation), Some(publication_gate));
+                    send_pty_error(context, pty_id, code, message);
                     return;
                 }
             };
