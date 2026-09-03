@@ -1,30 +1,26 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
+import {
+  freestyleDaemonHealthyCommand,
+  freestyleStartDaemonCommand,
+} from "../services/vms/drivers/freestyle";
 
-const freestyleDriverSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/freestyle.ts"),
-  "utf8",
-);
-
-describe("Freestyle Cloud VM shell repair", () => {
-  test("daemon creation and repair use the managed cloud shell", () => {
-    expect(freestyleDriverSource).toContain(
-      'const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell"',
-    );
-    expect(freestyleDriverSource).toContain('"--shell",\n        CMUX_CLOUD_SHELL_PATH');
-    expect(freestyleDriverSource).toContain(
-      "ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} --shell /usr/local/bin/cmux-cloud-shell",
-    );
-    expect(freestyleDriverSource).not.toContain('"--shell",\n        "/bin/bash"');
+describe("Freestyle Cloud VM daemon repair", () => {
+  test("health checks require the managed daemon and its dual-stack listener", () => {
+    const healthy = freestyleDaemonHealthyCommand();
+    // [s]tart keeps the pattern from matching the exec shell that carries it.
+    expect(healthy).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");
+    // Instance-binding images: healthy also means bound to this machine's id.
+    expect(healthy).toContain("[ ! -f /etc/cmux/bake-instance-id ] ||");
+    expect(healthy).toContain("/etc/cmux/daemon-instance-id");
+    expect(healthy).toContain("/latest/meta-data/instance-id");
   });
 
-  test("healthy websocket daemons are still repaired when shell integration is missing", () => {
-    expect(freestyleDriverSource).toContain("readFreestyleCloudShellState(vm)");
-    expect(freestyleDriverSource).toContain("service-shell-not-managed");
-    expect(freestyleDriverSource).toContain("cmux-user-missing");
-    expect(freestyleDriverSource).toContain("home-zshrc-missing");
-    expect(freestyleDriverSource).toContain("freestyleCloudShellSetupCommands()");
+  test("repair restores the managed dual-stack daemon", () => {
+    const command = freestyleStartDaemonCommand();
+    expect(command).toContain("cmux-tui-daemon.service");
+    expect(command).toContain("CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
+    expect(command).toContain("systemctl daemon-reload");
+    expect(command).toContain("systemctl restart cmux-tui-daemon");
+    expect(command).toContain("--remote-ws [::]:1337");
   });
 });

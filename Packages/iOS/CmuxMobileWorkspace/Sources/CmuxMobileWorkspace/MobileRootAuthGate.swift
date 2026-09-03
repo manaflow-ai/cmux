@@ -23,16 +23,29 @@ public struct MobileRootAuthGate {
         stackAuthenticated || attachTicketAuthenticated
     }
 
-    /// Whether the root should remain on the sign-in surface while Stack auth
-    /// is absent or its cached session is still being validated. A live attach
-    /// ticket is an explicit exception because it must proceed directly to the
-    /// shell to complete the attach flow.
+    /// Whether the root should remain on the sign-in surface.
+    ///
+    /// Sign-in owns the screen while Stack auth is absent. A primed cached
+    /// session — authenticated from the persisted identity while launch
+    /// validation is still in flight — mounts the authenticated shell
+    /// immediately, whose restoring inputs cover the validation window;
+    /// keeping sign-in up instead showed a loading sign-in screen on every
+    /// launch for the whole network round trip. The one exception is an
+    /// unfinished first-run onboarding: onboarding must not present for a
+    /// cached identity that may still be rejected, and the pre-onboarding
+    /// shell would flash the add-device surface, so sign-in keeps the screen
+    /// (showing its restore status) until validation settles. A live attach
+    /// ticket always proceeds directly to the shell to complete the attach
+    /// flow.
     public static func shouldShowSignIn(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false,
-        isRestoringSession: Bool
+        isRestoringSession: Bool,
+        onboardingPending: Bool = false
     ) -> Bool {
-        (!stackAuthenticated || isRestoringSession) && !attachTicketAuthenticated
+        if attachTicketAuthenticated { return false }
+        if !stackAuthenticated { return true }
+        return isRestoringSession && onboardingPending
     }
 
     /// Whether the restoring-session UI should be shown.
