@@ -60,6 +60,16 @@
     "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
     "backToSignIn": "ត្រឡប់ទៅការចូល"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "ពពក cmux",
+    "title": "អ្នកមិនមានសិទ្ធិចូលប្រើទេ",
+    "signedOutBody": "ចូលគណនី cmux ដើម្បីមើលគេហទំព័រនេះ។",
+    "signIn": "ចូលគណនី cmux",
+    "signedInAs": "បានចូលជា {identity}",
+    "invalidTitle": "តំណចូលប្រើនេះមិនត្រឹមត្រូវទេ",
+    "invalidBody": "ត្រឡប់ទៅគេហទំព័រ ហើយព្យាយាមម្តងទៀត។",
+    "footer": "សិទ្ធិចូលប្រើត្រូវបានគ្រប់គ្រងដោយ cmux។"
+  },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",
     "viewOnGitHub": "មើលនៅលើ GitHub",

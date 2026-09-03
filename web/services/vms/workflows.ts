@@ -120,7 +120,6 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
  * credential. Provisioned once the VM row exists, before the provider call.
  */
 export type VmModelPlaneMaterials = {
-  readonly envs: Readonly<Record<string, string>>;
   readonly edgeRules: readonly VmEdgeRule[];
 };
 
@@ -506,7 +505,6 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         imageSize: input.imageSize,
-        envs: materials?.envs,
         edgeRules: materials?.edgeRules,
         ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
