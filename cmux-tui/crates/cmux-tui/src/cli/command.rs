@@ -2949,7 +2949,10 @@ mod tests {
 
     #[test]
     fn server_stats_typo_suggests_stats_action() {
-        let error = parse(&strings(&["server", "stat"])).unwrap_err();
+        let error = match parse(&strings(&["server", "stat"])) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown server action must be rejected"),
+        };
         assert!(error.0.contains("Did you mean `stats`?"), "{error}");
     }
 
