@@ -549,7 +549,10 @@ enum PtyChildCommand {
     Kill,
     ExitReady,
     ObserveFailed,
+    ObserveUnavailable,
 }
+
+const PTY_OBSERVER_MAX_FAILURES: usize = 8;
 
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
@@ -719,14 +722,24 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let wait_lifecycle = Arc::clone(&lifecycle);
     let observer_tx = command_tx;
     std::thread::spawn(move || {
+        let mut failures = 0;
         loop {
             match wait_for_child_exit_without_reaping(pid) {
                 Ok(()) => {
-                    let _ = observer_tx.send(PtyChildCommand::ExitReady);
+                    if observer_tx.send(PtyChildCommand::ExitReady).is_err() {
+                        break;
+                    }
                     break;
                 }
                 Err(_) => {
-                    let _ = observer_tx.send(PtyChildCommand::ObserveFailed);
+                    failures += 1;
+                    if failures >= PTY_OBSERVER_MAX_FAILURES {
+                        let _ = observer_tx.send(PtyChildCommand::ObserveUnavailable);
+                        break;
+                    }
+                    if observer_tx.send(PtyChildCommand::ObserveFailed).is_err() {
+                        break;
+                    }
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
@@ -744,6 +757,11 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                 }
                 Ok(PtyChildCommand::ObserveFailed) => {
                     wait_lifecycle.mark_reap_pending();
+                }
+                Ok(PtyChildCommand::ObserveUnavailable) => {
+                    let _ = wait_lifecycle.begin_termination();
+                    let _ = child.kill();
+                    break;
                 }
                 Ok(PtyChildCommand::Kill) => {
                     let _ = child.kill();
