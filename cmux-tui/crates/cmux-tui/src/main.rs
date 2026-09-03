@@ -13,6 +13,8 @@ mod app;
 mod browser_input;
 mod cli;
 mod client_log;
+#[cfg(unix)]
+mod coderouter_usage;
 mod config;
 mod host_colors;
 mod keys;
@@ -2136,6 +2138,10 @@ fn run_server(
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+    // Cloud VMs carry coderouter identity in their model-plane env; every
+    // other host resolves no source and gets no poller.
+    #[cfg(unix)]
+    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2178,6 +2184,10 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    #[cfg(unix)]
+    if let Some(poller) = machine_usage_poller {
+        poller.stop();
+    }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]

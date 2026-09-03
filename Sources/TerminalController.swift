@@ -1713,6 +1713,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("coderouter."):
+            return socketWorkerCoderouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2906,6 +2908,10 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "coderouter.claude_upstream.get",
+            "coderouter.claude_upstream.set",
+            "coderouter.claude_upstream.clear",
+            "coderouter.machines",
             "window.list",
             "window.current",
             "window.focus",
@@ -3976,7 +3982,13 @@ class TerminalController {
               !code.isEmpty else {
             return nil
         }
-        return ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        // The server trace id (support reference) travels with the structured
+        // error so the CLI and scripts can log it without parsing display text.
+        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
+            payload["trace_id"] = traceId
+        }
+        return payload
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {

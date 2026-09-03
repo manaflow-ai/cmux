@@ -23,6 +23,10 @@ declare module "bun:test" {
     ): MockFunction<T>;
     module: (specifier: string, factory: () => unknown) => void;
   };
+  type SpiedFunction<T extends (...args: never[]) => unknown> = T & {
+    mock: { calls: Parameters<T>[] };
+    mockRestore: () => void;
+  };
 
   export const afterAll: LifecycleHook;
   export const afterEach: LifecycleHook;
@@ -31,11 +35,15 @@ declare module "bun:test" {
   export const describe: TestFunction;
   export const expect: {
     (actual: unknown): Matchers;
-    arrayContaining: (value: unknown[]) => unknown;
     objectContaining: (value: unknown) => unknown;
+    arrayContaining: (value: readonly unknown[]) => unknown;
     stringContaining: (value: string) => unknown;
   };
   export const mock: Mock;
   export const setSystemTime: (time?: Date | number) => void;
+  export const spyOn: <T extends object, K extends keyof T>(
+    target: T,
+    method: K,
+  ) => SpiedFunction<Extract<T[K], (...args: never[]) => unknown>>;
   export const test: TestFunction;
 }

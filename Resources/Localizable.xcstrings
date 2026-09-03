@@ -36372,6 +36372,31 @@
         }
       }
     },
+    "cli.coderouter.commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (إعدادات مستوى النماذج للفريق؛ تُمرَّر الأوامر الأخرى كما هي)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (postavke modelne ravni tima; ostale komande se prosljeđuju)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modelplan-indstillinger; andre kommandoer sendes videre)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (Team-Einstellungen der Modellebene; andere Befehle werden durchgereicht)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ajustes del plano de modelos del equipo; los demás verbos se pasan sin cambios)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (réglages du plan de modèles de l'équipe ; les autres verbes sont transmis tels quels)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (impostazioni del piano modelli del team; gli altri comandi passano inalterati)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (チームのモデルプレーン設定。その他のサブコマンドはそのまま渡されます)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ការកំណត់ model plane របស់ក្រុម; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (팀 모델 플레인 설정; 다른 하위 명령은 그대로 전달됩니다)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modellplan-innstillinger; andre kommandoer sendes videre)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ustawienia płaszczyzny modeli zespołu; pozostałe polecenia są przekazywane dalej)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (configurações do plano de modelos da equipe; outros verbos são repassados)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (настройки модельного плана команды; остальные команды передаются как есть)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (การตั้งค่า model plane ของทีม; คำสั่งอื่นส่งผ่านตามเดิม)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ekibin model düzlemi ayarları; diğer komutlar olduğu gibi iletilir)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (налаштування модельного плану команди; інші команди передаються без змін)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (团队模型平面设置；其他子命令原样透传)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (團隊模型平面設定；其他子命令原樣透傳)" } }
+      }
+    },
     "cli.coderouter.error.launchFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -126332,6 +126357,23 @@
         }
       }
     },
+    "cloudVM.error.reference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reference: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照番号: %@"
+          }
+        }
+      }
+    },
     "cloudVM.error.requiresPro.action": {
       "extractionState": "manual",
       "localizations": {
@@ -127229,6 +127271,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "スリープ中 · スリープ中は無料"
+          }
+        }
+      }
+    },
+    "machines.usage.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ tokens · %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ トークン · %3$@"
+          }
+        }
+      }
+    },
+    "machines.usage.period.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dd"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d日"
           }
         }
       }
@@ -255591,6 +255667,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增工作區"
+          }
+        }
+      }
+    },
+    "titlebar.newWorkspace.menu.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meni novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu for nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü „Neuer Arbeitsbereich“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Menu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menú de nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Nuova area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースメニュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간 메뉴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meny for nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu nowej przestrzeni roboczej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu de Nova Área de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนูเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Çalışma Alanı Menüsü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню нової робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建工作区菜单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增工作區選單"
+          }
+        }
+      }
+    },
+    "titlebar.newWorkspace.menu.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcije novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstillinger for nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionen für neuen Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspace options"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options du nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opzioni nuova area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースのオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간 옵션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternativer for nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcje nowej przestrzeni roboczej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opções de nova área de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметры нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเลือกเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı seçenekleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметри нової робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建工作区选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增工作區選項"
           }
         }
       }

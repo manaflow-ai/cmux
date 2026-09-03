@@ -1045,6 +1045,7 @@ async fn relay_session(
                             home: runtime.home.clone(),
                             env: scrubbed_env(&runtime.base_env),
                             file_slots: Arc::clone(&runtime.file_action_slots),
+                            process_cancellation: connection_cancellation.clone(),
                             #[cfg(test)]
                             test_file_operation_barrier: None,
                         };

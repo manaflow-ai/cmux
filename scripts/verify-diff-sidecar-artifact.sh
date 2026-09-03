@@ -36,8 +36,13 @@ if (( SIZE_BYTES > MAX_BYTES )); then
   exit 1
 fi
 
+ACTUAL_ARCHS="$(lipo -archs "$BINARY" | tr ' ' '\n' | sort | xargs)"
+EXPECTED_ARCHS="$(printf '%s\n' $ARCHS | sort | xargs)"
+if [ "$ACTUAL_ARCHS" != "$EXPECTED_ARCHS" ]; then
+  echo "error: diff sidecar slices are '$ACTUAL_ARCHS', expected exactly '$EXPECTED_ARCHS'" >&2
+  exit 1
+fi
 for arch in $ARCHS; do
-  lipo "$BINARY" -verify_arch "$arch"
   MINOS="$(otool -arch "$arch" -l "$BINARY" | awk '/LC_BUILD_VERSION/{found=1; next} found && /minos / && !printed {print $2; printed=1}')"
   if [[ "$MINOS" != "14.0" ]]; then
     echo "error: $arch diff sidecar has macOS minimum $MINOS, expected 14.0" >&2

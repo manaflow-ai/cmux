@@ -62,8 +62,8 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
     RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
-    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
-    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    RegistryCommit, RegistryLayoutNode, RegistryPane, RegistrySnapshot, RegistryTab,
+    RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
     ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
     WorkspaceMutation, WorkspaceRegistry,
@@ -920,8 +920,24 @@ pub enum MuxEvent {
     PairingResolved {
         request: u64,
     },
+    /// The daemon's machine-level model spend readout changed. `None` means
+    /// the readout is unavailable and frontends must hide it.
+    MachineUsageChanged(Option<MachineUsage>),
     /// Every workspace is gone.
     Empty,
+}
+
+/// Machine-level model spend for the machine hosting this daemon, as
+/// reported by coderouter for the trailing `period_days` window. Frontends
+/// show it as an informational readout beside the machine identity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineUsage {
+    pub vm_id: String,
+    pub period_days: u32,
+    pub total_tokens: u64,
+    pub api_equivalent_usd: f64,
+    /// Server-side timestamp of the snapshot, when known.
+    pub as_of: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1715,6 +1731,8 @@ type KittyImageBudgetOperationHook =
     Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits, Instant) -> anyhow::Result<()> + Send + Sync>;
 #[cfg(test)]
 type TerminalSpawnAfterCellPixelSnapshotHook = Arc<dyn Fn(bool) + Send + Sync>;
+#[cfg(test)]
+type TerminalSpawnBeforeCellPixelReconcileHook = Arc<dyn Fn(&Arc<Surface>) + Send + Sync>;
 
 type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
 
@@ -2059,6 +2077,9 @@ pub struct Mux {
     terminal_spawn_after_cell_pixel_snapshot:
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
     #[cfg(test)]
+    terminal_spawn_before_cell_pixel_reconcile:
+        Mutex<Option<TerminalSpawnBeforeCellPixelReconcileHook>>,
+    #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
     pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
@@ -2098,6 +2119,7 @@ pub struct Mux {
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
+    machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
@@ -2435,6 +2457,8 @@ impl Mux {
             #[cfg(test)]
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
             #[cfg(test)]
+            terminal_spawn_before_cell_pixel_reconcile: Mutex::new(None),
+            #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
             pending_terminal_hosts: Mutex::new(HashMap::new()),
             reserved_in_process_terminals: Mutex::new(HashMap::new()),
@@ -2484,6 +2508,7 @@ impl Mux {
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
+            machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -2954,7 +2979,6 @@ impl Mux {
                 &terminal_id,
                 TerminalLifecycle::Adopting,
                 Some(&record.incarnation),
-                None,
             ) {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
@@ -3354,7 +3378,6 @@ impl Mux {
                                 &terminal_id,
                                 TerminalLifecycle::Adopting,
                                 Some(&record.incarnation),
-                                None,
                             )
                             .is_err()
                         {
@@ -5813,8 +5836,7 @@ impl Mux {
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
 
-        let database_path =
-            self.workspace_registry.lock().unwrap().session_journal_database_path();
+        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
         if let Some(database_path) = database_path {
             let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
             let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
@@ -6340,7 +6362,6 @@ impl Mux {
         terminal_id: &str,
         lifecycle: TerminalLifecycle,
         incarnation: Option<&str>,
-        exit: Option<Value>,
     ) -> anyhow::Result<(RegistryTerminal, u64)> {
         anyhow::ensure!(
             lifecycle != TerminalLifecycle::Exited,
@@ -6354,7 +6375,7 @@ impl Mux {
             terminal_id,
             lifecycle,
             incarnation,
-            exit,
+            None,
         )?;
         self.emit_terminal_registry_changed(&registry, result.1);
         Ok(result)
@@ -6748,6 +6769,27 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), Some(reservation))
     }
 
+    fn persist_terminal_cell_pixel_reconcile_failure(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<()> {
+        let detail = format!("{error:#}");
+        eprintln!(
+            "cmux-tui: terminal {terminal_id} cell-pixel reconciliation failed before \
+             publication: {}",
+            detail.escape_debug()
+        );
+        self.persist_terminal_exit(
+            terminal_id,
+            incarnation,
+            &TerminalExit::unknown("cell-pixel-reconcile-failed"),
+        )
+        .context("could not persist terminal exit after cell-pixel reconciliation failed")?;
+        Ok(())
+    }
+
     fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -6878,7 +6920,7 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
-            let ready_revision = {
+            {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let ready = commit_terminal_lifecycle(
                     &mut registry,
@@ -6897,25 +6939,18 @@ impl Mux {
                     }
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
-                ready_revision
-            };
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.transition_terminal_lifecycle(
-                            "terminal-exited",
-                            "terminal-cell-pixel-reconcile-failed",
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
-                            TerminalLifecycle::Exited,
                             Some(&identity.incarnation),
-                            Some(serde_json::json!({
-                                "reason":"cell-pixel-reconcile-failed",
-                                "error":error.to_string(),
-                                "ready_revision":ready_revision,
-                            })),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -7017,16 +7052,23 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, revision);
             }
+            #[cfg(test)]
+            if let Some(hook) =
+                self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone()
+            {
+                hook(&surface);
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.persist_terminal_exit(
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
                             Some(&incarnation),
-                            &TerminalExit::unknown(format!("cell-pixel-reconcile-failed: {error}")),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -9540,6 +9582,25 @@ impl Mux {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
         options.browser_session_name = self.session.clone();
+    }
+
+    /// The latest machine-level model spend readout, or `None` when the
+    /// daemon has no usable readout.
+    pub fn machine_usage(&self) -> Option<MachineUsage> {
+        self.machine_usage.lock().unwrap().clone()
+    }
+
+    /// Replace the machine-level spend readout. Subscribers are told only
+    /// when the readout actually changed, so a steady poll stays silent.
+    pub fn set_machine_usage(&self, usage: Option<MachineUsage>) {
+        {
+            let mut current = self.machine_usage.lock().unwrap();
+            if *current == usage {
+                return;
+            }
+            *current = usage.clone();
+        }
+        self.emit(MuxEvent::MachineUsageChanged(usage));
     }
 
     pub fn configure_sidebar_plugin(&self, options: Option<SidebarPluginOptions>) {
@@ -16417,6 +16478,16 @@ impl Drop for Mux {
     }
 }
 
+fn expected_panes_by_screen(
+    panes: &[RegistryPane],
+) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
+    let mut panes_by_screen: HashMap<ScreenPublicId, HashSet<PanePublicId>> = HashMap::new();
+    for pane in panes {
+        panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
+    }
+    panes_by_screen
+}
+
 fn restore_resource_state(
     snapshot: RegistrySnapshot,
     topology: ResourceTopologySnapshot,
@@ -16589,13 +16660,11 @@ fn restore_resource_state(
 
     let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
     let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    let panes_by_screen = expected_panes_by_screen(&topology.panes);
+    let empty_expected_panes = HashSet::new();
     for screen in &topology.screens {
-        let expected_panes = topology
-            .panes
-            .iter()
-            .filter(|pane| pane.screen_id == screen.public_id)
-            .map(|pane| pane.public_id.clone())
-            .collect::<HashSet<_>>();
+        let expected_panes =
+            panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
         crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
@@ -19195,6 +19264,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restore_screen_pane_index_preserves_validation_inputs() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let first_screen = restore_screen_id(1);
+        let second_screen = restore_screen_id(2);
+
+        let mut duplicate_panes = topology.panes.clone();
+        duplicate_panes.push(duplicate_panes[0].clone());
+        let expected = expected_panes_by_screen(&duplicate_panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(4));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(1));
+        assert!(expected.get(&restore_screen_id(999)).is_none());
+
+        let mut mismatched = topology;
+        mismatched.panes[3].screen_id = second_screen.clone();
+        let expected = expected_panes_by_screen(&mismatched.panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(3));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(2));
+        assert_eq!(
+            restore_resource_state(snapshot, mismatched).err().unwrap().to_string(),
+            format!("screen {first_screen} layout does not cover its panes exactly once")
+        );
+    }
+
     fn resource_restore_patch(
         snapshot: &RegistrySnapshot,
         topology: &ResourceTopologySnapshot,
@@ -20059,6 +20152,93 @@ mod tests {
         assert_eq!(*observed_unlocked.lock().unwrap(), vec![true]);
         assert_eq!(mux.cell_pixel_size(), (9, 18));
         assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    fn spawn_terminal_with_cell_pixel_failure(
+        mux: &Arc<Mux>,
+        fail_exit_persistence: bool,
+    ) -> (String, anyhow::Result<Arc<Surface>>) {
+        *mux.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |unlocked| {
+                assert!(unlocked, "terminal spawn retained the cell-pixel lifecycle lock");
+                mux.upgrade().unwrap().set_cell_pixel_size(9, 18);
+            }
+        }));
+        *mux.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |surface| {
+                surface.fail_next_test_master_resize();
+                if fail_exit_persistence {
+                    mux.upgrade()
+                        .unwrap()
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .set_terminal_exit_failure(true)
+                        .unwrap();
+                }
+            }
+        }));
+        let workspace =
+            mux.create_empty_workspace(Some("cell-pixel-failure".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal_hex = terminal_id.to_hex();
+        let reservation = TerminalReservationRequest {
+            terminal_id,
+            mutation: WorkspaceMutation::new("cell-pixel-failure", "test").unwrap(),
+            fingerprint: serde_json::json!({"test":"cell-pixel-failure"}),
+            expected_generation: None,
+            expected_revision: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let result = mux.spawn_surface_in_workspace_reserved(
+            &workspace.key,
+            None,
+            Some((80, 24)),
+            None,
+            reservation,
+        );
+        (terminal_hex, result)
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_uses_stable_exit_reason() {
+        let mux = test_mux();
+        let (terminal_id, result) = spawn_terminal_with_cell_pixel_failure(&mux, false);
+
+        let error = result.expect_err("injected cell-pixel failure must abort terminal creation");
+        assert!(format!("{error:#}").contains("injected PTY master resize failure"));
+        let exited = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(&terminal_id)
+            .unwrap()
+            .unwrap()
+            .exit
+            .unwrap();
+        assert_eq!(
+            exited["outcome"],
+            serde_json::json!({
+                "kind":"unknown",
+                "reason":"cell-pixel-reconcile-failed",
+            })
+        );
+        assert!(!exited.to_string().contains("injected PTY master resize failure"));
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_propagates_exit_persistence_error() {
+        let mux = test_mux();
+        let (_, result) = spawn_terminal_with_cell_pixel_failure(&mux, true);
+
+        let error = result.expect_err("injected persistence failure must abort terminal creation");
+        assert!(
+            format!("{error:#}")
+                .contains("could not persist terminal exit after cell-pixel reconciliation failed"),
+            "unexpected terminal creation error: {error:#}"
+        );
     }
 
     #[test]
@@ -27714,7 +27894,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Adopting,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
@@ -27815,7 +27994,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Running,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
 

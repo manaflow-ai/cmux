@@ -331,10 +331,7 @@ impl JournalRestoreCursor {
         )?;
         let segment = statement
             .query_row(
-                params![
-                    i64::try_from(self.source_sequence)?,
-                    self.next_segment_start,
-                ],
+                params![i64::try_from(self.source_sequence)?, self.next_segment_start,],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
             .optional()?;
