@@ -2847,7 +2847,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
+            let change = GhosttyTitleChange(notification: notification)
+            // An advancing spinner cannot change the titlebar text.
+            guard change?.isSpinnerFrameOnly != true else { return }
+            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: change?.tabId) else { return }
             scheduleTitlebarTextRefresh()
         })
 
