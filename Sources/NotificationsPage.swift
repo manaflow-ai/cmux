@@ -10,6 +10,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     @State private var phonePushConfigurationState =
         PhonePushClient.shared.configurationState
 
@@ -33,8 +34,17 @@ struct NotificationsPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear(perform: setInitialFocus)
+        .background(ghosttyBackgroundColor)
+        .onAppear {
+            refreshGhosttyBackground()
+            setInitialFocus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshGhosttyBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            refreshGhosttyBackground()
+        }
         .onChange(of: notificationStore.notifications.first?.id) {
             setInitialFocus()
         }
@@ -44,6 +54,10 @@ struct NotificationsPage: View {
         .onChange(of: isVisibleInUI) {
             setInitialFocus()
         }
+    }
+
+    private func refreshGhosttyBackground() {
+        ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     private var notificationsList: some View {
