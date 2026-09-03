@@ -34,8 +34,8 @@ fn main() -> ExitCode {
     let session = env::var("CMUX_TUI_SESSION_ID").unwrap_or_else(|_| "main".into());
     let plugin_id = match required_plugin_id(env::var("CMUX_PLUGIN_ID").ok()) {
         Ok(value) => value,
-        _ => {
-            eprintln!("cmux-agent-screen-detection: CMUX_PLUGIN_ID is required");
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: {error}");
             return ExitCode::FAILURE;
         }
     };
@@ -48,11 +48,16 @@ fn main() -> ExitCode {
     }
 }
 
-fn required_plugin_id(value: Option<String>) -> Result<String, &'static str> {
-    match value {
-        Some(value) if !value.trim().is_empty() => Ok(value),
-        _ => Err("CMUX_PLUGIN_ID is required"),
+fn required_plugin_id(value: Option<String>) -> Result<String, String> {
+    let Some(value) = value else {
+        return Err("CMUX_PLUGIN_ID is required".into());
+    };
+    if value.trim().is_empty() {
+        return Err("CMUX_PLUGIN_ID must not be blank".into());
     }
+    cmux_agent_screen_detection::scanner::validate_plugin_id(&value)
+        .map_err(|error| format!("invalid CMUX_PLUGIN_ID: {error}"))?;
+    Ok(value)
 }
 
 fn run_list() -> ExitCode {

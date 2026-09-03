@@ -43,6 +43,7 @@ const PROCESS_ACQUISITION_SLOW_RECHECK: Duration = Duration::from_secs(2);
 const RETRY_BACKOFF_MIN: Duration = Duration::from_millis(250);
 const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(5);
 const PLUGIN_VERSION: u32 = 1;
+const RESERVED_AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 
 /// An exact journal request retained after an uncertain transport outcome.
 /// Keeping the envelope and key together is required by the journal's
@@ -119,6 +120,7 @@ enum PublishResult {
 
 /// Runs until the daemon closes the socket or the process is terminated.
 pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), String> {
+    validate_plugin_id(plugin_id)?;
     let plugin_generation =
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
@@ -147,6 +149,20 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
     }
 }
 
+/// Validate the producer namespace before entering the reconnect loop.
+///
+/// The SDK owns the structural grammar used by the daemon. The reserved hook
+/// producer is a daemon-owned namespace, so a standalone plugin rejects it
+/// before it can create a permanent registration retry loop.
+pub fn validate_plugin_id(plugin_id: &str) -> Result<(), String> {
+    if plugin_id == RESERVED_AGENT_HOOK_PRODUCER_ID {
+        return Err(format!(
+            "plugin id {plugin_id:?} is reserved for the built-in agent hook producer"
+        ));
+    }
+    producer_manifest(plugin_id).validate().map_err(|error| error.to_string())
+}
+
 fn configured_session_selector(session_name: &str) -> Result<Selector<SessionId>, String> {
     if session_name.trim().is_empty() {
         return Err("CMUX_TUI_SESSION_ID must not be empty".into());
@@ -159,8 +175,21 @@ fn configured_session_selector(session_name: &str) -> Result<Selector<SessionId>
 }
 
 fn register_manifest(session: &Session, plugin_id: &str) -> Result<(), String> {
+    let manifest = producer_manifest(plugin_id);
+    manifest.validate().map_err(|error| error.to_string())?;
+    session
+        .put_journal_producer_manifest(
+            &manifest,
+            MutationOptions::new(format!("manifest-{plugin_id}-{PLUGIN_VERSION}"))
+                .map_err(|error| error.to_string())?,
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn producer_manifest(plugin_id: &str) -> JournalProducerManifest {
     let namespace = format!("plugin.{plugin_id}");
-    let manifest = JournalProducerManifest {
+    JournalProducerManifest {
         producer_id: plugin_id.to_string(),
         namespace: namespace.clone(),
         manifest_version: PLUGIN_VERSION,
@@ -170,15 +199,7 @@ fn register_manifest(session: &Session, plugin_id: &str) -> Result<(), String> {
             event_schema(&format!("{namespace}.agent.state.changed")),
             event_schema(&format!("{namespace}.agent.session.ended")),
         ],
-    };
-    session
-        .put_journal_producer_manifest(
-            &manifest,
-            MutationOptions::new(format!("manifest-{plugin_id}-{PLUGIN_VERSION}"))
-                .map_err(|error| error.to_string())?,
-        )
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    }
 }
 
 fn event_schema(kind: &str) -> JournalEventSchema {
