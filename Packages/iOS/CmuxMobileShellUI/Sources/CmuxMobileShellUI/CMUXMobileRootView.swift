@@ -43,6 +43,9 @@ struct CMUXMobileRootView: View {
     /// previews and package hosts keep the store's compiled-in fallback.
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
         MobileMacCompatCenter?
+    /// Set only after the first remote policy refresh (or the no-center
+    /// preview path) completes, so startup auto-connect cannot race it.
+    @State private var didRefreshMacCompatPolicy = false
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
@@ -304,18 +307,6 @@ struct CMUXMobileRootView: View {
             // lifecycle callbacks, so it cannot start a duplicate dial.
             await finishAuthenticationBootstrapAndConnect()
         }
-        #if os(iOS)
-        .task {
-            // Push the cached (or baked) Mac minimum-version list into the
-            // store before its first admission check, then refresh from
-            // /api/mobile-mac-compat and push the update. Connections that
-            // race the fetch still enforce the compiled-in fallback.
-            guard let macCompatCenter else { return }
-            store.macCompatPolicy = macCompatCenter.policy
-            await macCompatCenter.refresh()
-            store.macCompatPolicy = macCompatCenter.policy
-        }
-        #endif
         .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
@@ -1089,7 +1080,17 @@ struct CMUXMobileRootView: View {
     }
 
     private func finishAuthenticationBootstrapAndConnect() async {
+        #if os(iOS)
+        // Fetch policy in parallel with auth restore, but do not publish the
+        // bootstrapped connection state until the fetch has settled. This
+        // removes the startup window where a stricter remote floor could be
+        // bypassed by auto-connect.
+        async let macCompatRefresh: Void = refreshMacCompatibilityIfNeeded()
+        #endif
         await authManager.awaitBootstrapped()
+        #if os(iOS)
+        await macCompatRefresh
+        #endif
         guard !Task.isCancelled else { return }
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
@@ -1099,6 +1100,23 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
         }
     }
+
+    #if os(iOS)
+    /// Installs the cached/baked policy immediately, then refreshes it once
+    /// before startup admission. A missing center is the preview/package-host
+    /// path and is considered ready because the store already uses `.baked`.
+    private func refreshMacCompatibilityIfNeeded() async {
+        guard !didRefreshMacCompatPolicy else { return }
+        guard let macCompatCenter else {
+            didRefreshMacCompatPolicy = true
+            return
+        }
+        store.macCompatPolicy = macCompatCenter.policy
+        await macCompatCenter.refresh()
+        store.macCompatPolicy = macCompatCenter.policy
+        didRefreshMacCompatPolicy = true
+    }
+    #endif
 
     private func accountScopeDidChangeAfterBootstrap() {
         guard didFinishAuthBootstrap,
