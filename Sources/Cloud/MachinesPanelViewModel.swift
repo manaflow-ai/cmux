@@ -445,12 +445,17 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator = .shared) {
-        self.createCoordinator = createCoordinator
-        pendingCreates = createCoordinator.operations
+    init(createCoordinator: MachineCreateCoordinator? = nil) {
+        // Resolve the shared coordinator inside the main-actor initializer.
+        // Default argument expressions run at the call site and may be
+        // nonisolated, which would otherwise read `MachineCreateCoordinator`
+        // across an actor boundary.
+        let coordinator = createCoordinator ?? MachineCreateCoordinator.shared
+        self.createCoordinator = coordinator
+        pendingCreates = coordinator.operations
         createChangeObserver = NotificationCenter.default.addObserver(
             forName: MachineCreateCoordinator.didChangeNotification,
-            object: createCoordinator,
+            object: coordinator,
             queue: .main
         ) { [weak self] notification in
             let finished = notification.userInfo?[MachineCreateCoordinator.finishedUserInfoKey] as? MachineCreateCoordinator.Finished
