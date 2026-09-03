@@ -158,6 +158,9 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
         index += 1;
     }
 
+    if !live && live_target.is_some() {
+        return print_error("--terminal requires --live".into());
+    }
     if live {
         if process.is_some() || screen_path.is_some() || !title.is_empty() || !progress.is_empty() {
             return print_error(
@@ -321,7 +324,7 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
-    use super::required_plugin_id;
+    use super::{required_plugin_id, run_explain};
 
     #[test]
     fn plugin_id_requires_a_nonblank_supervisor_namespace() {
@@ -348,5 +351,15 @@ mod tests {
         }
         assert!(required_plugin_id(Some(too_long)).is_err());
         assert!(required_plugin_id(Some("screen_detector-2".into())).is_ok());
+    }
+
+    #[test]
+    fn live_terminal_selector_is_not_silently_ignored_in_file_mode() {
+        assert_eq!(run_explain(vec![
+            "--terminal".into(),
+            "term_11111111111111111111111111111111".into(),
+            "codex".into(),
+            "/tmp/screen".into(),
+        ]), std::process::ExitCode::FAILURE);
     }
 }
