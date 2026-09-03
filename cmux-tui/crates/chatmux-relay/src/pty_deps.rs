@@ -726,18 +726,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     break;
                 }
                 Err(error) => {
-                    if !matches!(error.raw_os_error(), Some(libc::ECHILD | libc::ESRCH)) {
-                        if observer_tx.send(PtyChildCommand::ObserveFailed).is_err() {
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(100));
-                        continue;
-                    }
                     failures += 1;
                     if failures >= PTY_OBSERVER_MAX_FAILURES {
                         let _ = observer_tx.send(PtyChildCommand::ObserveUnavailable);
                         break;
                     }
+                    let _ = error;
                     if observer_tx.send(PtyChildCommand::ObserveFailed).is_err() {
                         break;
                     }
@@ -760,9 +754,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     wait_lifecycle.mark_reap_pending();
                 }
                 Ok(PtyChildCommand::ObserveUnavailable) => {
-                    let _ = wait_lifecycle.begin_termination();
-                    force_kill_process_group(pid, process_group);
-                    let _ = child.kill();
+                    if wait_lifecycle.begin_termination() {
+                        force_kill_process_group(pid, process_group);
+                        let _ = child.kill();
+                    } else {
+                        wait_lifecycle.mark_reap_pending();
+                    }
                     break;
                 }
                 Ok(PtyChildCommand::Kill) => {
