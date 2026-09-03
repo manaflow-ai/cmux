@@ -406,9 +406,9 @@ mod unix {
                     break;
                 }
                 #[cfg(test)]
-                if let Some(waiting) =
-                    shared.read_waiting.lock().expect("control read waiter lock").take()
-                {
+                let waiting = shared.read_waiting.lock().expect("control read waiter lock").take();
+                #[cfg(test)]
+                if let Some(waiting) = waiting {
                     let _ = waiting.send(());
                     tokio::task::yield_now().await;
                 }
@@ -1068,11 +1068,17 @@ mod tests {
             .expect("connect close race socket");
         accepted_rx.await.expect("wait for close race server");
         let (started_tx, started_rx) = oneshot::channel();
+        let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+        let started_tx_for_handler = Arc::clone(&started_tx);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let release_rx = Arc::new(Mutex::new(release_rx));
         let release_rx_for_handler = Arc::clone(&release_rx);
         control.on_close(Box::new(move || {
-            let _ = started_tx.send(());
+            if let Some(started_tx) =
+                started_tx_for_handler.lock().expect("started sender lock").take()
+            {
+                let _ = started_tx.send(());
+            }
             release_rx_for_handler
                 .lock()
                 .expect("release receiver lock")

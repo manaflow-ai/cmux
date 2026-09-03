@@ -755,6 +755,7 @@ impl Drop for OpeningReservation {
     }
 }
 
+#[derive(Clone)]
 pub struct PtyManager {
     inner: Arc<Inner>,
 }
