@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -34,7 +34,7 @@ use ghostty_vt::{
     MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides,
     TerminalPointerSemanticSnapshot, parse_color,
 };
-use parking_lot::Mutex as ParkingMutex;
+use parking_lot::{Condvar as ParkingCondvar, Mutex as ParkingMutex};
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -1297,8 +1297,8 @@ fn latency_percentile(
 }
 
 struct InteractiveWriterShared {
-    state: Mutex<InteractiveWriteQueueState>,
-    changed: Condvar,
+    state: ParkingMutex<InteractiveWriteQueueState>,
+    changed: ParkingCondvar,
     metrics: InteractiveWriteMetrics,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
@@ -1323,8 +1323,8 @@ impl InteractiveWriter {
         abort: Arc<dyn RemoteTransportAbort>,
     ) -> io::Result<Self> {
         let shared = Arc::new(InteractiveWriterShared {
-            state: Mutex::new(InteractiveWriteQueueState::default()),
-            changed: Condvar::new(),
+            state: ParkingMutex::new(InteractiveWriteQueueState::default()),
+            changed: ParkingCondvar::new(),
             metrics: InteractiveWriteMetrics::default(),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
@@ -1344,11 +1344,7 @@ impl InteractiveWriter {
         let mut write =
             InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
         let message_bytes = write.message.len();
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let mut state = self.shared.state.lock();
         if let Some(failure) = &state.failure {
             return Err(failure.to_error());
         }
@@ -1393,24 +1389,16 @@ impl InteractiveWriter {
             InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
         let message_bytes = write.message.len();
         loop {
-            let mut state = match self.shared.state.try_lock() {
-                Ok(state) => state,
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    return Err(io::Error::other("interactive writer queue is poisoned"));
-                }
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        return self.queue_admission_timeout(measure_latency);
-                    }
-                    // std::sync::Mutex has no timed lock. Yield in short
-                    // bounded intervals so a transient holder is not
-                    // rejected, while the absolute request deadline remains
-                    // authoritative.
-                    std::thread::sleep(remaining.min(Duration::from_millis(1)));
-                    continue;
-                }
+            let Some(mut state) = self.shared.state.try_lock_until(deadline) else {
+                return self.queue_admission_timeout(measure_latency);
             };
+
+            // `try_lock_until` may acquire an uncontended mutex even when the
+            // deadline has just elapsed. Keep the deadline authoritative for
+            // queue admission, including this final lock/check boundary.
+            if Instant::now() >= deadline {
+                return self.queue_admission_timeout(measure_latency);
+            }
 
             if let Some(failure) = &state.failure {
                 return Err(failure.to_error());
@@ -1424,21 +1412,15 @@ impl InteractiveWriter {
             let queue_full = state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
                 || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes);
             if queue_full {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    return self.queue_admission_timeout(measure_latency);
-                }
-                let (_next, timeout) = self
-                    .shared
-                    .changed
-                    .wait_timeout(state, remaining)
-                    .unwrap_or_else(|poison| poison.into_inner());
-                if timeout.timed_out() {
+                if self.shared.changed.wait_until(&mut state, deadline).timed_out() {
                     return self.queue_admission_timeout(measure_latency);
                 }
                 continue;
             }
 
+            if Instant::now() >= deadline {
+                return self.queue_admission_timeout(measure_latency);
+            }
             let sequence = state.last_enqueued_sequence.checked_add(1).ok_or_else(|| {
                 io::Error::other("interactive writer sequence space is exhausted")
             })?;
@@ -1463,11 +1445,7 @@ impl InteractiveWriter {
     }
 
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
-        let state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let state = self.shared.state.lock();
         Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
     }
 
@@ -1475,11 +1453,7 @@ impl InteractiveWriter {
         #[cfg(test)]
         self.await_wait_until_written_gate(sequence);
         let deadline = Instant::now() + timeout;
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let mut state = self.shared.state.lock();
         loop {
             if state.last_written_sequence >= sequence {
                 return Ok(());
@@ -1494,13 +1468,7 @@ impl InteractiveWriter {
                     "ordered remote write did not complete before its deadline",
                 ));
             }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out()
+            if self.shared.changed.wait_until(&mut state, deadline).timed_out()
                 && state.last_written_sequence < sequence
                 && state.failure.is_none()
             {
@@ -1538,7 +1506,7 @@ impl InteractiveWriter {
     }
 
     fn request_close(&self) {
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut state = self.shared.state.lock();
         state.closed = true;
         drop(state);
         self.shared.changed.notify_one();
@@ -1546,7 +1514,7 @@ impl InteractiveWriter {
 
     fn abort(&self, error: &io::Error) {
         {
-            let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            let mut state = self.shared.state.lock();
             state.closed = true;
             state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
             state.writes.clear();
@@ -1559,19 +1527,13 @@ impl InteractiveWriter {
     fn close(&self) {
         self.request_close();
         let deadline = Instant::now() + remote_write_timeout();
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut state = self.shared.state.lock();
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out() {
+            if self.shared.changed.wait_until(&mut state, deadline).timed_out() {
                 break;
             }
         }
@@ -1589,8 +1551,7 @@ impl InteractiveWriter {
 impl Drop for InteractiveWriter {
     fn drop(&mut self) {
         self.request_close();
-        let writer_closed =
-            self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner()).writer_closed;
+        let writer_closed = self.shared.state.lock().writer_closed;
         if !writer_closed {
             self.abort(&io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -1606,14 +1567,14 @@ fn interactive_writer_worker(
 ) {
     loop {
         let write = {
-            let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            let mut state = shared.state.lock();
             while state.writes.is_empty() && !state.closed && state.failure.is_none() {
-                state = shared.changed.wait(state).unwrap_or_else(|poison| poison.into_inner());
+                shared.changed.wait(&mut state);
             }
             let Some(write) = state.writes.pop_front() else {
                 drop(state);
                 let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.writer_closed = true;
                 drop(state);
                 shared.changed.notify_all();
@@ -1629,7 +1590,7 @@ fn interactive_writer_worker(
                 if write.measure_latency {
                     shared.metrics.record_latency(write.enqueued_at.elapsed());
                 }
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.last_written_sequence = write.sequence;
                 drop(state);
                 shared.changed.notify_all();
@@ -1639,7 +1600,7 @@ fn interactive_writer_worker(
                     shared.metrics.write_failures.fetch_add(1, Ordering::Relaxed);
                 }
                 let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(&error));
                 state.writes.clear();
                 state.queued_bytes = 0;
@@ -8402,7 +8363,7 @@ mod tests {
             "expected shutdown after the ordered write completed, got {error:?}"
         );
         release.join().unwrap();
-        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock();
         assert!(writer_state.last_written_sequence >= sequence);
         drop(writer_state);
         assert!(!output.lock().unwrap().is_empty());
@@ -8436,7 +8397,7 @@ mod tests {
         resume_wait_tx.send(()).unwrap();
         finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
-        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock();
         assert!(writer_state.last_written_sequence >= sequence);
         drop(writer_state);
         assert!(!output.lock().unwrap().is_empty());
@@ -8458,7 +8419,7 @@ mod tests {
         assert!(started.elapsed() < remote_write_timeout() * 5);
         let deadline = Instant::now() + remote_write_timeout();
         loop {
-            let state = session.interactive_writer.shared.state.lock().unwrap();
+            let state = session.interactive_writer.shared.state.lock();
             if state.writer_closed {
                 assert!(state.writes.is_empty());
                 assert_eq!(state.queued_bytes, 0);
@@ -8512,7 +8473,7 @@ mod tests {
         let state = control.state.0.lock().unwrap();
         assert!(state.aborted);
         drop(state);
-        let state = session.interactive_writer.shared.state.lock().unwrap();
+        let state = session.interactive_writer.shared.state.lock();
         assert!(state.writer_closed);
         assert!(matches!(
             state.failure,
@@ -8555,7 +8516,7 @@ mod tests {
         for waiter in waiters {
             waiter.join().unwrap();
         }
-        let state = session.interactive_writer.shared.state.lock().unwrap();
+        let state = session.interactive_writer.shared.state.lock();
         assert!(state.writes.is_empty());
         assert_eq!(state.queued_bytes, 0);
         assert!(state.writer_closed);
@@ -8742,7 +8703,7 @@ mod tests {
     #[test]
     fn bounded_request_rejects_a_contended_writer_queue_without_waiting() {
         let session = test_session(Box::new(SilentWriter));
-        let queue_guard = session.interactive_writer.shared.state.lock().unwrap();
+        let queue_guard = session.interactive_writer.shared.state.lock();
         let request_session = session.clone();
         let (finished_tx, finished_rx) = channel();
         let deadline = Instant::now() + Duration::from_millis(20);
@@ -8785,7 +8746,7 @@ mod tests {
     #[test]
     fn normal_input_waits_through_brief_writer_queue_contention() {
         let session = test_session(Box::new(SilentWriter));
-        let queue_guard = session.interactive_writer.shared.state.lock().unwrap();
+        let queue_guard = session.interactive_writer.shared.state.lock();
         let input_session = session.clone();
         let (finished_tx, finished_rx) = channel();
         let input = std::thread::spawn(move || {
