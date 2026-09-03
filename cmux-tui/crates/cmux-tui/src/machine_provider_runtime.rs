@@ -156,11 +156,11 @@ impl Drop for ProviderMachineConnectionLease {
         let client = Arc::clone(&self.open.client);
         let connection_id = self.open.connection_id.clone();
         let registry_connection_id = connection_id.clone();
-        let key = self.key.clone();
+        let key = self.key;
         let registry = Arc::clone(&self.registry);
         let closing = Arc::clone(&self.closing);
         if let Ok(mut closing_keys) = closing.lock() {
-            closing_keys.insert(key.clone());
+            closing_keys.insert(key);
         }
         let permit = self.close_permit.take().expect("provider connection owns a close permit");
         if let Err(error) = self.close_worker.schedule_reserved(
