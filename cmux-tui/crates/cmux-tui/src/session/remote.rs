@@ -7032,7 +7032,7 @@ mod tests {
     }
 
     #[test]
-    fn dropping_session_waits_for_blocked_reader_worker() {
+    fn dropping_session_reaps_blocked_reader_worker_without_waiting() {
         let _reaper_guard = reaper_test_guard();
         let (responses, response_rx) = channel();
         let release = Arc::new((Mutex::new(false), Condvar::new()));
@@ -7060,12 +7060,12 @@ mod tests {
         let started = Instant::now();
         drop(session);
         assert!(
-            started.elapsed() >= Duration::from_millis(40),
-            "dropping the session returned before the reader worker exited"
+            started.elapsed() < Duration::from_millis(40),
+            "dropping the session waited for the reader worker"
         );
         reader_exited_rx
             .recv_timeout(Duration::from_millis(100))
-            .expect("reader worker did not exit before session drop returned");
+            .expect("reader worker did not exit after session drop returned");
     }
 
     fn wait_for_worker_join(completion: &WorkerCompletion) {
