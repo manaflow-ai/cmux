@@ -289,6 +289,66 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func restoreFailsClosedBeyondTheExpiredPolicyReuseGrace() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .automatic,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        let expired = await stores.service.restore(
+            accountID: "account-a",
+            trustRoot: try fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now.addingTimeInterval(
+                3_600 + CmxIrohRelayPolicyService.defaultExpiredPolicyReuseGrace + 1
+            )
+        )
+
+        #expect(expired.source == .managedUnavailable)
+        #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
+    }
+
+    @Test
+    func expiredPolicyGraceNeverBypassesSignatureVerification() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .automatic,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        // A trust root that rejects the cached policy's signing key must
+        // fail closed even inside the expiry grace window: the grace covers
+        // only time, never a rejected credential.
+        let rejected = await stores.service.restore(
+            accountID: "account-a",
+            trustRoot: try fixture.secondTrustRoot,
+            relayCredential: nil,
+            now: fixture.now.addingTimeInterval(3_600 + 300)
+        )
+
+        #expect(rejected.source == .managedUnavailable)
+        #expect(rejected.endpointRelayProfile.allowedRelayURLs.isEmpty)
+    }
+
+    @Test
     func cacheRestoresUntilSignedExpiryAndSupportsStagedKeyRotation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
@@ -324,14 +384,51 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(restored.usedCachedPolicy)
         #expect(restored.managedSnapshot?.policy.sequence == 2)
 
-        let expired = await stores.service.restore(
+        // Immediately past the signed expiry the last-good policy stays
+        // dialable inside the bounded reuse grace (cmux#10375); the graced
+        // state is reported as `.policyExpired` without zeroing routes.
+        let graced = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.secondTrustRoot,
             relayCredential: fixture.relayCredential(),
             now: fixture.now.addingTimeInterval(3_600)
         )
-        #expect(expired.source == .managedUnavailable)
-        #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(graced.source == .managed)
+        #expect(graced.usedCachedPolicy)
+        #expect(!graced.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
+    }
+
+    @Test
+    func restoreKeepsRecentlyExpiredLastGoodPolicyRoutesForDialing() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .automatic,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        // The one-hour policy expired five minutes ago and the broker refresh
+        // failed (cmux#10375). Restoring must keep the last-good catalog
+        // dialable instead of publishing a zero-route managed profile; the
+        // relay itself remains the authority on credential validity.
+        let restored = await stores.service.restore(
+            accountID: "account-a",
+            trustRoot: try fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now.addingTimeInterval(3_600 + 300)
+        )
+
+        #expect(restored.source == .managed)
+        #expect(restored.usedCachedPolicy)
+        #expect(restored.endpointRelayProfile.allowedRelayURLs == Set(fixture.relayURLs))
         #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
     }
 

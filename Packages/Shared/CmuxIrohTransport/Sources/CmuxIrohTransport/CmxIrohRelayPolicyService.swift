@@ -6,10 +6,18 @@ public actor CmxIrohRelayPolicyService {
     private typealias Resolution = CmxIrohRelayPolicyResolutionResult
     private typealias Resolver = CmxIrohRelayPolicyResolution
 
+    /// Bounded fail-open window in which ``restore`` keeps a recently-expired
+    /// last-good managed policy dialable after a failed refresh (cmux#10375).
+    /// A failed policy refresh must degrade to the last verified catalog, not
+    /// to a zero-route profile; the relay itself remains the authority on
+    /// credential validity and rejects a truly stale token.
+    public static let defaultExpiredPolicyReuseGrace: TimeInterval = 6 * 60 * 60
+
     private let policyCache: CmxIrohRelayPolicyCache
     private let preferenceStore: CmxIrohRelayPreferenceStore
     private let credentialStore: CmxIrohCustomRelayCredentialStore
     private let broker: (any CmxIrohRelayPolicyServing)?
+    private let expiredPolicyReuseGrace: TimeInterval
     private var currentEffective: CmxIrohEffectiveRelayPolicy?
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
@@ -20,12 +28,15 @@ public actor CmxIrohRelayPolicyService {
         policyCache: CmxIrohRelayPolicyCache = CmxIrohRelayPolicyCache(),
         preferenceStore: CmxIrohRelayPreferenceStore = CmxIrohRelayPreferenceStore(),
         credentialStore: CmxIrohCustomRelayCredentialStore = CmxIrohCustomRelayCredentialStore(),
-        broker: (any CmxIrohRelayPolicyServing)? = nil
+        broker: (any CmxIrohRelayPolicyServing)? = nil,
+        expiredPolicyReuseGrace: TimeInterval = CmxIrohRelayPolicyService
+            .defaultExpiredPolicyReuseGrace
     ) {
         self.policyCache = policyCache
         self.preferenceStore = preferenceStore
         self.credentialStore = credentialStore
         self.broker = broker
+        self.expiredPolicyReuseGrace = max(0, expiredPolicyReuseGrace)
     }
 
     /// Fetches and installs the broker's current relay bootstrap response.
@@ -196,7 +207,15 @@ public actor CmxIrohRelayPolicyService {
         }
 
         do {
-            guard let policy = try await policyCache.load(trustRoot: trustRoot, now: now) else {
+            // Restore is the failed-refresh fallback path, so it alone grants
+            // the bounded expired-policy grace: a recently-expired last-good
+            // catalog must stay dialable instead of zeroing every relay route
+            // (cmux#10375). The graced state is visible as `.policyExpired`.
+            guard let policy = try await policyCache.load(
+                trustRoot: trustRoot,
+                now: now,
+                expiredPolicyReuseGrace: expiredPolicyReuseGrace
+            ) else {
                 return publishUnavailable(
                     configuration: persisted.requested,
                     revision: persisted.revision,
@@ -205,6 +224,8 @@ public actor CmxIrohRelayPolicyService {
                     failure: .policyUnavailable
                 )
             }
+            let policyIsExpired = TimeInterval(policy.expiresAt)
+                <= now.timeIntervalSince1970
             let resolution = await Resolver.resolve(
                 configuration: persisted.requested,
                 revision: persisted.revision,
@@ -218,7 +239,9 @@ public actor CmxIrohRelayPolicyService {
             return commit(
                 Resolution(
                     effective: resolution.effective,
-                    failure: cleanupFailure ?? resolution.failure
+                    failure: policyIsExpired
+                        ? .policyExpired
+                        : cleanupFailure ?? resolution.failure
                 ),
                 operation: operation
             )

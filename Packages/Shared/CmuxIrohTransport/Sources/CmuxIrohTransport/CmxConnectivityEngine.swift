@@ -26,6 +26,9 @@ public actor CmxConnectivityEngine {
     private let installRouteSnapshot: RouteSnapshotInstaller?
     private let diagnosticLog: DiagnosticLog?
     private let clock: any CmxIrohRelayClock
+    /// Deadline for each dial phase (public paths, private fallback, and the
+    /// admission barrier) of every peer session this engine creates.
+    private let dialPhaseTimeout: Duration
     private var desiredActive = false
     private var lifecycleRevision: UInt64 = 0
     private var endpointGeneration: UInt64?
@@ -59,7 +62,8 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        dialPhaseTimeout: Duration = .seconds(5)
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         supervisor = CmxIrohEndpointSupervisor(
@@ -72,6 +76,7 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.dialPhaseTimeout = dialPhaseTimeout
     }
 
     /// Creates a stopped endpoint-only engine for a host acceptor.
@@ -90,6 +95,7 @@ public actor CmxConnectivityEngine {
         installRouteSnapshot = nil
         diagnosticLog = nil
         clock = CmxIrohSystemRelayClock()
+        dialPhaseTimeout = .seconds(5)
     }
 
     init(
@@ -99,7 +105,8 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        dialPhaseTimeout: Duration = .seconds(5)
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         self.supervisor = supervisor
@@ -109,6 +116,7 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.dialPhaseTimeout = dialPhaseTimeout
     }
 
     /// Returns the current immutable UI-safe state.
@@ -533,6 +541,7 @@ public actor CmxConnectivityEngine {
         let protocolConfiguration = protocolConfiguration
         let diagnosticLog = diagnosticLog
         let clock = clock
+        let dialPhaseTimeout = dialPhaseTimeout
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in
@@ -551,6 +560,7 @@ public actor CmxConnectivityEngine {
                             basedOn: context
                         )
                     },
+                    dialPhaseTimeout: dialPhaseTimeout,
                     protocolConfiguration: protocolConfiguration,
                     diagnostics: diagnosticLog
                 )

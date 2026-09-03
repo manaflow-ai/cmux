@@ -431,56 +431,71 @@ public actor CmxIrohClientSession {
 
         do {
             try Task.checkCancellation()
-            guard await establishedConnection.remoteIdentity() == targetIdentity else {
-                throw CmxIrohClientSessionError.remoteIdentityMismatch
-            }
-            try await establishedConnection.setIncomingStreamLimits(
-                maximumBidirectionalStreamCount: 0,
-                maximumUnidirectionalStreamCount: 0
-            )
-            let stream = try await establishedConnection.openBidirectionalStream()
-            let header = try CmxIrohStreamHeader(
-                lane: .control,
-                credential: credential
-            )
-            try await stream.sendStream.send(headerCodec.encode(header))
-            let admission = try await readAdmissionFrame(from: stream.receiveStream)
-            switch admission.frame {
-            case .acceptedPendingNatTraversal, .acceptedRelayOnly:
-                if admission.frame == .acceptedPendingNatTraversal {
-                    try Task.checkCancellation()
-                    try await establishedConnection.authorizeNatTraversal()
-                }
-                try Task.checkCancellation()
-                try await stream.sendStream.send(
-                    admissionCodec.encodeFrame(.clientReady)
+            // A half-ready peer can accept the QUIC connection and then never
+            // serve the admission frames. Bound the whole barrier like a dial
+            // phase so a silent peer hands control back to recovery instead
+            // of holding the redial owner open-endedly (cmux#9724).
+            return try await boundedByDialPhase { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.performAdmissionBarrier(
+                    on: establishedConnection
                 )
-                let confirmation = try await readAdmissionFrame(
-                    from: stream.receiveStream,
-                    initialBuffer: admission.trailingBytes
-                )
-                switch confirmation.frame {
-                case .serverReady:
-                    break
-                case let .denied(code):
-                    throw CmxIrohClientSessionError.admissionDenied(code: code)
-                case .acceptedPendingNatTraversal, .acceptedRelayOnly, .clientReady:
-                    throw CmxIrohClientSessionError.invalidAdmissionFrame
-                }
-                try Task.checkCancellation()
-                return CmxIrohConnectedControl(
-                    connection: establishedConnection,
-                    stream: stream,
-                    initialReceiveBuffer: confirmation.trailingBytes
-                )
-            case let .denied(code):
-                throw CmxIrohClientSessionError.admissionDenied(code: code)
-            case .clientReady, .serverReady:
-                throw CmxIrohClientSessionError.invalidAdmissionFrame
             }
         } catch {
             await establishedConnection.close(errorCode: 1, reason: "admission_failed")
             throw error
+        }
+    }
+
+    private func performAdmissionBarrier(
+        on establishedConnection: any CmxIrohConnection
+    ) async throws -> CmxIrohConnectedControl {
+        guard await establishedConnection.remoteIdentity() == targetIdentity else {
+            throw CmxIrohClientSessionError.remoteIdentityMismatch
+        }
+        try await establishedConnection.setIncomingStreamLimits(
+            maximumBidirectionalStreamCount: 0,
+            maximumUnidirectionalStreamCount: 0
+        )
+        let stream = try await establishedConnection.openBidirectionalStream()
+        let header = try CmxIrohStreamHeader(
+            lane: .control,
+            credential: credential
+        )
+        try await stream.sendStream.send(headerCodec.encode(header))
+        let admission = try await readAdmissionFrame(from: stream.receiveStream)
+        switch admission.frame {
+        case .acceptedPendingNatTraversal, .acceptedRelayOnly:
+            if admission.frame == .acceptedPendingNatTraversal {
+                try Task.checkCancellation()
+                try await establishedConnection.authorizeNatTraversal()
+            }
+            try Task.checkCancellation()
+            try await stream.sendStream.send(
+                admissionCodec.encodeFrame(.clientReady)
+            )
+            let confirmation = try await readAdmissionFrame(
+                from: stream.receiveStream,
+                initialBuffer: admission.trailingBytes
+            )
+            switch confirmation.frame {
+            case .serverReady:
+                break
+            case let .denied(code):
+                throw CmxIrohClientSessionError.admissionDenied(code: code)
+            case .acceptedPendingNatTraversal, .acceptedRelayOnly, .clientReady:
+                throw CmxIrohClientSessionError.invalidAdmissionFrame
+            }
+            try Task.checkCancellation()
+            return CmxIrohConnectedControl(
+                connection: establishedConnection,
+                stream: stream,
+                initialReceiveBuffer: confirmation.trailingBytes
+            )
+        case let .denied(code):
+            throw CmxIrohClientSessionError.admissionDenied(code: code)
+        case .clientReady, .serverReady:
+            throw CmxIrohClientSessionError.invalidAdmissionFrame
         }
     }
 
@@ -498,22 +513,32 @@ public actor CmxIrohClientSession {
     ) async throws -> any CmxIrohConnection {
         let endpoint = endpoint
         let alpn = protocolConfiguration.alpn
+        return try await boundedByDialPhase {
+            try await endpoint.connect(to: address, alpn: alpn)
+        }
+    }
+
+    /// Races one dial-phase operation against the injected phase bound. The
+    /// operation must cancel cooperatively; on timeout the loser is cancelled
+    /// and the phase fails typed so the redial machinery supersedes it
+    /// instead of wedging behind it (cmux#8531).
+    private func boundedByDialPhase<Value: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
         let bound = dialPhaseTimeout
-        return try await withThrowingTaskGroup(
-            of: (any CmxIrohConnection)?.self
-        ) { group in
+        return try await withThrowingTaskGroup(of: Value?.self) { group in
             group.addTask {
-                try await endpoint.connect(to: address, alpn: alpn)
+                try await operation()
             }
             group.addTask {
                 try await ContinuousClock().sleep(for: bound)
                 return nil
             }
             defer { group.cancelAll() }
-            guard let first = try await group.next(), let connection = first else {
+            guard let first = try await group.next(), let value = first else {
                 throw CmxIrohClientSessionError.dialTimedOut
             }
-            return connection
+            return value
         }
     }
 

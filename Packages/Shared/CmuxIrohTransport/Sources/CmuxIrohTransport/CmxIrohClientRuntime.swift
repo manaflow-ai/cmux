@@ -172,7 +172,8 @@ public actor CmxIrohClientRuntime {
             supervisor: supervisor,
             contextProvider: contextRouter,
             protocolConfiguration: protocolConfiguration,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            dialPhaseTimeout: configuration.dialPhaseTimeout
         )
         self.supervisor = supervisor
         self.connectivityEngine = connectivityEngine
