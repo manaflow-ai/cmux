@@ -81,13 +81,36 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
-   * Machine-level environment injected at create time (e.g. the coderouter
-   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
-   * be secrets: drivers must pass them to the provider's create call only and
-   * never echo them into VMHandle.providerMetadata, which is persisted.
-   * Providers without machine-level env support ignore it.
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
+   */
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
+   * Machine-level environment delivered at create time (the coderouter
+   * model-plane env: OPENAI_BASE_URL plus placeholder keys). Treat values as
+   * secrets anyway: drivers pass them to the provider's create call or write
+   * them into the guest only, and never echo them into
+   * VMHandle.providerMetadata, which is persisted. Providers without
+   * machine-level env support ignore it.
    */
   envs?: Readonly<Record<string, string>>;
+  /**
+   * Per-domain request headers the provider's TLS edge injects into every
+   * request the guest makes to `domain` (the coderouter route token and the
+   * VM id). Header values are secrets: drivers pass them to the provider's
+   * create call only, never persist them, and never write them into the guest.
+   * Providers without an injecting edge must refuse them rather than drop them.
+   */
+  edgeRules?: readonly VmEdgeRule[];
+  /**
+   * Scheduler for work that must not delay the create response: the guest
+   * probe that waits for the provider's TLS edge to activate the coderouter
+   * rule (Freestyle takes seconds). The route passes its after-response hook;
+   * a caller without one (scripts, tests) gets the work awaited inline.
+   */
+  afterResponse?: (work: () => Promise<void>) => void;
   /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
@@ -103,7 +126,16 @@ export type ProviderNetworkRef = {
   readonly id: string;
 };
 
-export type RestoreOptions = {
+/** One edge header-injection rule; see CreateOptions.edgeRules. */
+export type VmEdgeRule = {
+  /** Exact host name the guest dials (no port, no scheme). */
+  readonly domain: string;
+  /** Headers the edge sets on every request to `domain`, overwriting the guest's. */
+  readonly headers: Readonly<Record<string, string>>;
+};
+
+/** Create-time inputs a restore-from-snapshot shares with a fresh create. */
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata" | "afterResponse"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };

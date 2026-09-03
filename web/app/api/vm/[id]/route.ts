@@ -8,6 +8,7 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
 import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 
 
 export async function GET(
@@ -134,6 +135,7 @@ export async function DELETE(
           billingTeamId: account.entitlements.billingTeamId,
           teamIds: user.teamIds,
           providerVmId: id,
+          modelPlane: vmModelPlaneRevoker(),
         }));
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

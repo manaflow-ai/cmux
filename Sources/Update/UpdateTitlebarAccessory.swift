@@ -1174,24 +1174,16 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
+            TitlebarNewWorkspaceSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
+                onNewTab: {
                     #if DEBUG
                     cmuxDebugLog("titlebar.newTab")
                     #endif
                     onNewTab()
-                },
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
                 }
-            ) {
-                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+            )
 
             TitlebarControlButton(
                 config: config,
@@ -1597,6 +1589,11 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
+                case .newWorkspaceMenu:
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        debugSource: "titlebar.minimalSidebar.newWorkspaceMenu"
+                    )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
                         preferredWindow: hostWindowForFocusHistoryNavigation
@@ -2745,6 +2742,9 @@ final class UpdateTitlebarAccessoryController {
 
     private func prewarmTitlebarSymbols() {
         let iconSizes = TitlebarControlsStyle.allCases.map { $0.config.iconSize }
+        let dropdownSizes = TitlebarControlsStyle.allCases.map {
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: $0.config)
+        }
         RenderableSystemSymbol.prewarmAppKitImages(
             systemNames: ["bell", "arrow.left", "arrow.right"],
             pointSizes: iconSizes,
@@ -2754,6 +2754,11 @@ final class UpdateTitlebarAccessoryController {
             systemNames: ["plus"],
             pointSizes: iconSizes,
             weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.down"],
+            pointSizes: dropdownSizes,
+            weight: .bold
         )
         RenderableSystemSymbol.prewarmAppKitImages(
             systemNames: ["arrow.down.to.line"],

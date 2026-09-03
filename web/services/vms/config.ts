@@ -70,16 +70,6 @@ export function allowUnmanifestedImages(env: VmRuntimeEnv = process.env): boolea
   return isTrueFlag(env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES) || !isDeployedRuntime(env);
 }
 
-/**
- * Model-plane credential delivery through the provider's TLS edge (an egress
- * header transform: the edge injects the coderouter token into the guest's
- * calls, so the credential never exists inside the VM). Opt-in until validated
- * against the live edge; the persisted env-file delivery stays the default,
- * and rolling the flag back only affects later creates.
- */
-export function vmModelPlaneEdgeInjectionEnabled(env: VmRuntimeEnv = process.env): boolean {
-  return isTrueFlag(env.CMUX_VM_MODEL_PLANE_EDGE_INJECTION);
-}
 
 function isFalseFlag(value: string | undefined): boolean {
   if (value === undefined) return false;

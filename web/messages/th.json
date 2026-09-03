@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "จัดการบัญชี AI ที่แชร์และกำหนดเส้นทางคำขอด้วย coderouter",
       "title": "coderouter",
-      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน"
+      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
+      "machines": {
+        "title": "เครื่อง",
+        "description": "การใช้งาน coderouter แยกตามเครื่องของ {team} ในช่วง {days} วันที่ผ่านมา",
+        "machineColumn": "เครื่อง",
+        "tokensColumn": "โทเค็นทั้งหมด",
+        "apiEquivalentColumn": "มูลค่าเทียบเท่า API",
+        "unnamed": "เครื่องที่ไม่มีชื่อ",
+        "empty": "ไม่มีเครื่องใดใช้ coderouter ในช่วง {days} วันที่ผ่านมา",
+        "unavailable": "ข้อมูลการใช้งานแยกตามเครื่องไม่พร้อมใช้งานชั่วคราว",
+        "estimateNote": "มูลค่าเทียบเท่า API เป็นค่าประมาณจากราคาประกาศสาธารณะ ไม่ใช่ค่าใช้จ่ายจริง"
+      }
     },
     "accountMenu": {
       "label": "เมนูบัญชี",
@@ -1855,6 +1866,8 @@
     "metaDescription": "ดาวน์โหลด cmux NIGHTLY แอปแยกที่สร้างอัตโนมัติจาก commit ล่าสุดบน main ทำงานควบคู่กับเวอร์ชันเสถียรพร้อมอัปเดตอัตโนมัติของตัวเอง",
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "languageSwitcher": {

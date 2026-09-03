@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
       "title": "coderouter",
-      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام."
+      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
+      "machines": {
+        "title": "الأجهزة",
+        "description": "استخدام coderouter لكل جهاز لفريق {team} خلال آخر {days} يومًا.",
+        "machineColumn": "الجهاز",
+        "tokensColumn": "إجمالي الرموز",
+        "apiEquivalentColumn": "القيمة المكافئة لواجهة API",
+        "unnamed": "جهاز بدون اسم",
+        "empty": "لم يستخدم أي جهاز coderouter خلال آخر {days} يومًا.",
+        "unavailable": "استخدام الأجهزة غير متاح مؤقتًا.",
+        "estimateNote": "القيمة المكافئة لواجهة API تقدير يستند إلى الأسعار المعلنة وليس الإنفاق الفعلي."
+      }
     },
     "accountMenu": {
       "label": "قائمة الحساب",
@@ -1851,6 +1862,8 @@
     "metaDescription": "حمّل cmux NIGHTLY، تطبيق مستقل يُبنى تلقائياً من أحدث commit على main. يعمل بجانب النسخة المستقرة مع تحديثات تلقائية خاصة به.",
     "description": "يُبنى cmux NIGHTLY تلقائياً من أحدث commit على main. يمتلك معرّف حزمة خاص به، لذا يعمل بجانب النسخة المستقرة دون تعارض. استخدمه لاختبار الميزات الجديدة قبل إصدارها.",
     "download": "تحميل NIGHTLY لنظام Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "قد تحتوي الإصدارات الليلية على أخطاء أو ميزات غير مكتملة. إذا حدثت مشكلة، أبلغ عنها على <githubLink>GitHub</githubLink> أو في <discordLink>#nightly-bugs على Discord</discordLink> وارجع إلى النسخة المستقرة."
   },
   "languageSwitcher": {

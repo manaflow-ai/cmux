@@ -28,6 +28,8 @@ permissions:
 
 env:
   CREATE_DMG_VERSION: 8.0.0
+  # Last day (inclusive, UTC) the nightly also publishes a universal build for the legacy feed.
+  NIGHTLY_LEGACY_UNIVERSAL_UNTIL: "2026-10-01"
 
 jobs:
   decide:
@@ -37,15 +39,31 @@ jobs:
       head_sha: ${{ steps.decide.outputs.head_sha }}
       short_sha: ${{ steps.decide.outputs.short_sha }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
+      variants: ${{ steps.decide.outputs.variants }}
+      legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
+          NIGHTLY_LEGACY_UNIVERSAL_UNTIL: ${{ env.NIGHTLY_LEGACY_UNIVERSAL_UNTIL }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
+            // Nightly ships one thin DMG per architecture. The legacy `appcast.xml`
+            // feed and `cmux-nightly-macos.dmg` name keep serving a universal build
+            // until NIGHTLY_LEGACY_UNIVERSAL_UNTIL so installs that predate the
+            // per-architecture feeds update once more and migrate through the
+            // app's architecture-aware feed resolver. After that date the legacy
+            // names serve the x86_64 build, which launches on every Mac (Rosetta on
+            // Apple silicon) and self-heals to arm64 on the next update check.
+            const legacyUniversalUntil = process.env.NIGHTLY_LEGACY_UNIVERSAL_UNTIL;
+            const today = new Date().toISOString().slice(0, 10);
+            const publishUniversal = today <= legacyUniversalUntil;
+            const variants = publishUniversal ? ['arm64', 'x86_64', 'universal'] : ['arm64', 'x86_64'];
+            core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('legacy_variant', publishUniversal ? 'universal' : 'x86_64');
             const { owner, repo } = context.repo;
             const requestedRef = context.ref.startsWith('refs/heads/')
               ? context.ref.replace('refs/heads/', '')
@@ -94,6 +112,8 @@ jobs:
                 [{data: 'force build', header: true}, String(forceBuild)],
                 [{data: 'should build', header: true}, String(shouldBuild)],
                 [{data: 'should publish', header: true}, String(isMainRef)],
+                [{data: 'variants', header: true}, variants.join(', ')],
+                [{data: 'legacy feed variant', header: true}, publishUniversal ? 'universal' : 'x86_64'],
               ])
               .write();
 
@@ -338,6 +358,13 @@ jobs:
             rm -rf "$cache_path"
           fi
 
+      # Bundle once here, not per sign variant, so every variant carries the same
+      # cmux-tui build and the download happens a single time.
+      - name: Bundle the cmux-tui client
+        run: |
+          set -euo pipefail
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+
       - name: Strip unsigned nightly app before transfer
         run: |
           set -euo pipefail
@@ -384,9 +411,16 @@ jobs:
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     timeout-minutes: 60
+    # One universal Xcode build feeds every variant: the thin variants are cut
+    # from it with lipo, so each user downloads only their architecture.
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      NIGHTLY_VARIANT: ${{ matrix.variant }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -482,34 +516,11 @@ jobs:
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
-      - name: Bundle the cmux-tui client
-        run: |
-          set -euo pipefail
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
-
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail
           CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
-      - name: Verify nightly binary architectures
-        run: |
-          set -euo pipefail
-          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
-          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
-          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
-          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
-          HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
-          echo "App binary architectures: $APP_ARCHS"
-          echo "CLI binary architectures: $CLI_ARCHS"
-          echo "Ghostty helper architectures: $HELPER_ARCHS"
-          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
-          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
-          [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
 
       - name: Run CLI version memory guard regression
         run: |
@@ -517,6 +528,48 @@ jobs:
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
           CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
+
+      - name: Thin bundle to the variant architecture
+        if: matrix.variant != 'universal'
+        run: |
+          set -euo pipefail
+          ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
+
+      - name: Verify nightly binary architectures
+        run: |
+          set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          for binary in \
+            "$APP/Contents/MacOS/cmux" \
+            "$APP/Contents/Resources/bin/cmux" \
+            "$APP/Contents/Resources/bin/ghostty" \
+            "$APP/Contents/Resources/bin/cmux-tui" \
+            "$APP/Contents/Resources/bin/cmux-cua" \
+            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
+            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+          do
+            archs="$(lipo -archs "$binary")"
+            echo "$binary: $archs"
+            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+            else
+              [ "$archs" = "$NIGHTLY_VARIANT" ]
+            fi
+          done
+          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
+            # No fat Mach-O may survive thinning anywhere in the bundle.
+            fat="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            if [ -n "$fat" ]; then
+              echo "Fat Mach-O files remain after thinning:" >&2
+              echo "$fat" >&2
+              exit 1
+            fi
+          fi
+          if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64"
+          else
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
+          fi
 
       - name: Inject nightly identities and metadata
         run: |
@@ -537,11 +590,22 @@ jobs:
           fi
           NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
 
-          NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
+          NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
+          NIGHTLY_DMG_RELEASE="cmux-nightly-macos-${NIGHTLY_VARIANT}.dmg"
+          # Thin variants get their own feed. The universal variant keeps the legacy
+          # feed name; the app's feed resolver rewrites it to the per-architecture
+          # feed at runtime, which is how older installs migrate.
+          if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+            NIGHTLY_APPCAST="appcast.xml"
+          else
+            NIGHTLY_APPCAST="appcast-${NIGHTLY_VARIANT}.xml"
+          fi
           {
             echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}"
             echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}"
             echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}"
+            echo "NIGHTLY_DMG_RELEASE=${NIGHTLY_DMG_RELEASE}"
+            echo "NIGHTLY_APPCAST=${NIGHTLY_APPCAST}"
           } >> "$GITHUB_ENV"
 
           prepare_variant() {
@@ -574,9 +638,11 @@ jobs:
           prepare_variant \
             "$APP_DIR" \
             "com.cmuxterm.app.nightly" \
-            "https://files.cmux.com/nightly/appcast.xml"
+            "https://files.cmux.com/nightly/${NIGHTLY_APPCAST}"
 
           echo "Nightly app name: cmux NIGHTLY"
+          echo "Nightly variant: ${NIGHTLY_VARIANT}"
+          echo "Nightly feed: https://files.cmux.com/nightly/${NIGHTLY_APPCAST}"
           echo "Nightly bundle ID: com.cmuxterm.app.nightly"
           echo "Nightly marketing version: ${NIGHTLY_MARKETING_VERSION}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
@@ -688,7 +754,7 @@ jobs:
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
-            "cmux-nightly-macos.dmg" \
+            "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Generate Sparkle appcasts (nightly)
@@ -699,10 +765,78 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
-          # Keep the legacy universal feed alive long enough for older nightly
-          # installs to migrate onto the unified nightly appcast.
+          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"
+          ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
+
+      - name: Upload nightly variant artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-variant-${{ matrix.variant }}
+          path: |
+            cmux-nightly-macos-*.dmg
+            appcast*.xml
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12
+
+  publish-nightly:
+    needs: [decide, build-sign-notarize-nightly]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    env:
+      NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
+    steps:
+      - name: Checkout publish ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+
+      - name: Download nightly variant artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-nightly-variant-*
+          path: nightly-out
+          merge-multiple: true
+
+      - name: Assemble legacy nightly names
+        run: |
+          set -euo pipefail
+          cd nightly-out
+          ls -l
+          for variant in arm64 x86_64; do
+            [ -f "cmux-nightly-macos-${variant}.dmg" ] || { echo "missing cmux-nightly-macos-${variant}.dmg" >&2; exit 1; }
+            [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
+          done
+          # `cmux-nightly-macos.dmg` and `appcast.xml` predate per-architecture
+          # nightlies. They serve the universal build until
+          # NIGHTLY_LEGACY_UNIVERSAL_UNTIL and the x86_64 build after it (see the
+          # decide job). The app rewrites the legacy feed URL to its architecture's
+          # feed, so no install stays on the legacy track.
+          case "$NIGHTLY_LEGACY_VARIANT" in
+            universal)
+              [ -f cmux-nightly-macos-universal.dmg ] || { echo "universal variant DMG missing" >&2; exit 1; }
+              [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
+              cp cmux-nightly-macos-universal.dmg cmux-nightly-macos.dmg
+              ;;
+            x86_64)
+              cp cmux-nightly-macos-x86_64.dmg cmux-nightly-macos.dmg
+              cp appcast-x86_64.xml appcast.xml
+              ;;
+            *)
+              echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2
+              exit 1
+              ;;
+          esac
+          # Compatibility feed for nightlies older than the unified appcast.
           cp appcast.xml appcast-universal.xml
+          ls -l
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -710,9 +844,8 @@ jobs:
         with:
           name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
           path: |
-            cmux-nightly-macos*.dmg
-            appcast.xml
-            appcast-universal.xml
+            nightly-out/cmux-nightly-macos*.dmg
+            nightly-out/appcast*.xml
           if-no-files-found: error
 
       - name: Prune old nightly release assets
@@ -737,21 +870,22 @@ jobs:
           make_latest: false
           body: |
             Automated nightly build for `${{ needs.decide.outputs.short_sha }}`.
-
-            **cmux NIGHTLY** is published as a universal app:
-            - bundle ID `com.cmuxterm.app.nightly`
-            - feed `appcast.xml`
-            - compatibility feed `appcast-universal.xml` for older universal nightlies
-
-            [Download cmux-nightly-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+            **cmux NIGHTLY** ships one app per architecture (bundle ID `com.cmuxterm.app.nightly`):
+            - [Apple silicon: cmux-nightly-macos-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg), feed `appcast-arm64.xml`
+            - [Intel: cmux-nightly-macos-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg), feed `appcast-x86_64.xml`
+            - legacy `cmux-nightly-macos.dmg` and feed `appcast.xml` currently serve the `${{ needs.decide.outputs.legacy_variant }}` build; installs on the legacy feed move to their architecture's feed on their next update check
           files: |
-            cmux-nightly-macos-${{ github.run_id }}*.dmg
-            cmux-nightly-macos.dmg
-            appcast.xml
-            appcast-universal.xml
+            nightly-out/cmux-nightly-macos-*-${{ github.run_id }}*.dmg
+            nightly-out/cmux-nightly-macos-arm64.dmg
+            nightly-out/cmux-nightly-macos-x86_64.dmg
+            nightly-out/cmux-nightly-macos.dmg
+            nightly-out/appcast.xml
+            nightly-out/appcast-arm64.xml
+            nightly-out/appcast-x86_64.xml
+            nightly-out/appcast-universal.xml
           overwrite_files: true
 
-      - name: Upload nightly appcast to R2
+      - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -760,18 +894,20 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-
-          # Upload after GitHub Release publish so the appcast never references
-          # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
-          # is either the old version or the new one, never missing.
-          python3 scripts/ci/upload-r2-object.py \
-            --file appcast.xml \
-            --endpoint-url "$R2_ENDPOINT" \
-            --bucket cmux-binaries \
-            --key nightly/appcast.xml \
-            --cache-control "no-cache, no-store, must-revalidate"
-
-          echo "R2 appcast upload complete: https://files.cmux.com/nightly/appcast.xml"
+          # Upload after the GitHub Release publish so no appcast references a
+          # DMG that doesn't exist yet. R2 PutObject is atomic, so each appcast is
+          # either the old version or the new one, never missing. Thin feeds go
+          # first: the app rewrites the legacy feed URL to a thin feed, so those
+          # must already be current when the legacy feed changes.
+          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+            python3 scripts/ci/upload-r2-object.py \
+              --file "nightly-out/$appcast" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "nightly/$appcast" \
+              --cache-control "no-cache, no-store, must-revalidate"
+            echo "R2 appcast upload complete: https://files.cmux.com/nightly/$appcast"
+          done
 
       # The nightly tag is the completion marker used by the decide job. Move it
       # to the fixed candidate selected at dispatch only after every publication
@@ -792,9 +928,3 @@ jobs:
           # push with `remote: Duplicate header: "Authorization"`).
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             refs/tags/nightly --force
-
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          rm -f /tmp/cert.p12

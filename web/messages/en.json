@@ -166,7 +166,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
       "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "machines": {
+        "title": "Machines",
+        "description": "Per-machine coderouter usage for {team} over the last {days} days.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Total tokens",
+        "apiEquivalentColumn": "API-equivalent value",
+        "unnamed": "Unnamed machine",
+        "empty": "No machines have used coderouter in the last {days} days.",
+        "unavailable": "Machine usage is temporarily unavailable.",
+        "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      }
     },
     "accountMenu": {
       "label": "Account menu",
@@ -483,6 +494,39 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude upstream",
+      "description": "Claude Code inside this team's cmux Cloud VMs sends Anthropic Messages traffic through coderouter. Choose where those requests go: an Anthropic API key, a Claude Code OAuth token, or Amazon Bedrock. One upstream per team.",
+      "emptyTitle": "No Claude upstream",
+      "emptyBody": "Claude requests from this team's Cloud VMs fail until an upstream is set.",
+      "currentLabel": "Current upstream",
+      "loadErrorTitle": "Claude upstream could not load",
+      "loadErrorBody": "The upstream settings could not be read. Try again shortly.",
+      "kindSelectorLabel": "Upstream kind",
+      "kindApiKey": "Anthropic API key",
+      "kindOauth": "Claude Code OAuth token",
+      "kindBedrock": "Amazon Bedrock",
+      "apiKeyField": "API key",
+      "oauthTokenField": "OAuth token",
+      "oauthHint": "Create a long-lived token on your own machine with",
+      "regionField": "AWS region",
+      "accessKeyIdField": "Access key ID",
+      "secretAccessKeyField": "Secret access key",
+      "sessionTokenField": "Session token",
+      "optionalPlaceholder": "Optional",
+      "saveAction": "Save upstream",
+      "savingAction": "Saving",
+      "saveSuccess": "Upstream saved.",
+      "saveError": "Upstream could not be saved.",
+      "validationError": "Check the credential format and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "removeAction": "Remove",
+      "removingAction": "Removing",
+      "removeError": "Upstream could not be removed.",
+      "removeConfirmTitle": "Remove the Claude upstream?",
+      "removeConfirmBody": "Claude requests from this team's Cloud VMs fail until a new upstream is set.",
+      "cancelAction": "Cancel"
     }
   },
   "vault": {
@@ -3197,6 +3241,8 @@
     "metaDescription": "Download cmux NIGHTLY, a separate app built automatically from the latest main commit. Runs alongside the stable version with its own auto-updates.",
     "description": "cmux NIGHTLY is built automatically from the latest commit on main. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to test new features before they ship.",
     "download": "Download NIGHTLY for Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release."
   },
   "languageSwitcher": {

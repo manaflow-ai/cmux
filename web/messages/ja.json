@@ -166,7 +166,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "machines": {
+        "title": "マシン",
+        "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
+        "machineColumn": "マシン",
+        "tokensColumn": "合計トークン",
+        "apiEquivalentColumn": "API換算額",
+        "unnamed": "名前のないマシン",
+        "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
+        "unavailable": "マシン別の使用状況は現在利用できません。",
+        "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      }
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -483,6 +494,39 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude アップストリーム",
+      "description": "このチームのcmux Cloud VM内のClaude Codeは、Anthropic Messagesのトラフィックをcoderouter経由で送信します。リクエストの送信先を選択してください: Anthropic APIキー、Claude Code OAuthトークン、またはAmazon Bedrock。チームごとに1つのアップストリームです。",
+      "emptyTitle": "Claudeアップストリームが未設定です",
+      "emptyBody": "アップストリームを設定するまで、このチームのCloud VMからのClaudeリクエストは失敗します。",
+      "currentLabel": "現在のアップストリーム",
+      "loadErrorTitle": "Claudeアップストリームを読み込めませんでした",
+      "loadErrorBody": "アップストリーム設定を読み取れませんでした。しばらくしてから再試行してください。",
+      "kindSelectorLabel": "アップストリームの種類",
+      "kindApiKey": "Anthropic APIキー",
+      "kindOauth": "Claude Code OAuthトークン",
+      "kindBedrock": "Amazon Bedrock",
+      "apiKeyField": "APIキー",
+      "oauthTokenField": "OAuthトークン",
+      "oauthHint": "自分のマシンで次のコマンドを実行して長期トークンを作成します:",
+      "regionField": "AWSリージョン",
+      "accessKeyIdField": "アクセスキーID",
+      "secretAccessKeyField": "シークレットアクセスキー",
+      "sessionTokenField": "セッショントークン",
+      "optionalPlaceholder": "任意",
+      "saveAction": "アップストリームを保存",
+      "savingAction": "保存中",
+      "saveSuccess": "アップストリームを保存しました。",
+      "saveError": "アップストリームを保存できませんでした。",
+      "validationError": "認証情報の形式を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "removeAction": "削除",
+      "removingAction": "削除中",
+      "removeError": "アップストリームを削除できませんでした。",
+      "removeConfirmTitle": "Claudeアップストリームを削除しますか？",
+      "removeConfirmBody": "新しいアップストリームを設定するまで、このチームのCloud VMからのClaudeリクエストは失敗します。",
+      "cancelAction": "キャンセル"
     }
   },
   "vault": {
@@ -3065,6 +3109,8 @@
     "metaDescription": "cmux NIGHTLYをダウンロード。mainの最新コミットから自動ビルドされる独立アプリ。安定版と並行して動作し、独自の自動アップデート機能付き。",
     "description": "cmux NIGHTLYはmainの最新コミットから自動ビルドされます。独自のバンドルIDを持つため、安定版と競合せず並行して動作します。新機能をリリース前にテストできます。",
     "download": "Mac版 NIGHTLYをダウンロード",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
   "languageSwitcher": {
