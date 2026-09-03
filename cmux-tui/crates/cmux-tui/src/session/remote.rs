@@ -4985,7 +4985,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn private_dump_directory_rejects_symlink_components() {
+    fn private_dump_directory_normalizes_symlink_components() {
+        use std::os::unix::fs::PermissionsExt;
         use std::os::unix::fs::symlink;
 
         let root = tempfile::tempdir().unwrap();
@@ -4994,8 +4995,18 @@ mod tests {
         let link = root.path().join("link");
         symlink(&target, &link).unwrap();
 
-        assert!(private_dump_directory(&link.join("dumps")).is_err());
-        assert!(!target.join("dumps").exists());
+        let directory = private_dump_directory(&link.join("dumps")).unwrap();
+
+        assert_eq!(directory.output.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(target.join("dumps").is_dir());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_accepts_deny_and_rejects_allow_entries() {
+        assert!(macos_dump_acl_tag_is_safe(2));
+        assert!(!macos_dump_acl_tag_is_safe(1));
+        assert!(!macos_dump_acl_tag_is_safe(99));
     }
 
     #[cfg(unix)]
