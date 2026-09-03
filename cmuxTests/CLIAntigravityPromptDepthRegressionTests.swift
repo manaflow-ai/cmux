@@ -43,7 +43,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(prompt.status, 0, prompt.stderr)
         }
 
-        assertActivePromptState(try readAntigravityHookSession(sessionId, context: context))
+        let repeatedPromptRecord = try readAntigravityHookSession(sessionId, context: context)
+        assertActivePromptState(repeatedPromptRecord)
+        XCTAssertEqual(
+            repeatedPromptRecord["activePromptDepth"] as? Int,
+            1,
+            "Repeated Antigravity PreInvocation callbacks must remain one active prompt"
+        )
 
         let stop = run(
             "stop",
