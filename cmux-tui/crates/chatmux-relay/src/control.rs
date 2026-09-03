@@ -27,7 +27,7 @@ pub trait ControlHandle: Send + Sync {
         params: Value,
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
-    fn send(&self, cmd: &str, params: Value);
+    fn send(&self, cmd: &str, params: Value) -> bool;
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
@@ -98,7 +98,6 @@ mod unix {
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
-        raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -120,10 +119,6 @@ mod unix {
             .await
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
-        let raw_fd = {
-            use std::os::fd::AsRawFd as _;
-            stream.as_raw_fd()
-        };
         let (read_half, write_half) = stream.into_split();
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
@@ -147,13 +142,7 @@ mod unix {
         let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
         tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
-        Ok(Arc::new(UnixControl {
-            shared,
-            writer_tx,
-            raw_fd,
-            next_id: AtomicU64::new(1),
-            timeout_ms,
-        }))
+        Ok(Arc::new(UnixControl { shared, writer_tx, next_id: AtomicU64::new(1), timeout_ms }))
     }
 
     #[cfg(test)]
@@ -191,7 +180,20 @@ mod unix {
             }
             let result = {
                 let mut writer = writer.lock().await;
-                writer.write_all(&line.bytes).await
+                let closed = shared.closed_notify.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
+                let (result, closed_by_end) = tokio::select! {
+                    result = writer.write_all(&line.bytes) => (result, false),
+                    _ = closed => (Err(std::io::Error::other("control closed")), true),
+                };
+                if closed_by_end {
+                    if let Some(written) = line.written {
+                        let _ = written.send(false);
+                    }
+                    break;
+                }
+                result
             };
             let succeeded = result.is_ok();
             if let Some(written) = line.written {
@@ -241,9 +243,15 @@ mod unix {
                     _ = closed => break 'read_loop,
                 }
             }
-            let count = match reader.read(&mut chunk).await {
-                Ok(0) | Err(_) => break,
-                Ok(count) => count,
+            let closed = shared.closed_notify.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
+            let count = tokio::select! {
+                result = reader.read(&mut chunk) => match result {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => count,
+                },
+                _ = closed => break,
             };
             buffer.extend_from_slice(&chunk[..count]);
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
@@ -360,12 +368,12 @@ mod unix {
             })
         }
 
-        fn send(&self, cmd: &str, params: Value) {
+        fn send(&self, cmd: &str, params: Value) -> bool {
             if self.shared.closed.load(Ordering::SeqCst) {
-                return;
+                return false;
             }
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-            let _ = self.enqueue_line(id, cmd, params, None);
+            self.enqueue_line(id, cmd, params, None)
         }
 
         fn on_event(&self, handler: EventHandler) {
@@ -388,13 +396,16 @@ mod unix {
         fn end(&self) {
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
-            // Shut both directions so the read loop sees EOF and any blocked
-            // writer unblocks; the halves drop and close the fd afterwards.
-            // SAFETY: shutdown on a socket fd this handle owns for the split
-            // stream's lifetime; a failure (already closed) is harmless.
-            unsafe {
-                libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
-            }
+        }
+    }
+
+    // A cancelled request can drop its last Arc<dyn ControlHandle> while the
+    // reader and writer tasks still own their socket halves. End the protocol
+    // explicitly so those tasks wake, close, and release any daemon-side
+    // attachment instead of surviving the request future.
+    impl Drop for UnixControl {
+        fn drop(&mut self) {
+            self.end();
         }
     }
 }
@@ -410,7 +421,7 @@ mod tests {
     use tokio::sync::{Notify, oneshot};
 
     #[tokio::test]
-    async fn end_wakes_paused_reader_and_closes_socket() {
+    async fn drop_wakes_paused_reader_and_closes_socket() {
         let socket_path = std::env::temp_dir()
             .join(format!("chatmux-relay-control-close-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
@@ -433,20 +444,13 @@ mod tests {
         accepted_rx.await.expect("wait for control close test server");
         control.pause();
 
-        // Register both waiters before end() so the test deterministically
-        // exercises the paused-reader branch and the close wakeup.
+        // Register the paused-reader waiter before dropping the last control
+        // Arc so the test exercises the RAII close path.
         let read_waiting = control.arm_reader_waiting();
         paused_tx.send(()).expect("tell server that reader is paused");
         read_waiting.await.expect("paused reader entered wait");
-        let waiter_control = Arc::clone(&control);
-        let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
-        tokio::task::yield_now().await;
-        control.end();
+        drop(control);
 
-        tokio::time::timeout(Duration::from_secs(1), reader_done)
-            .await
-            .expect("paused reader exits after end")
-            .expect("join paused reader waiter");
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
             .expect("server observes client close")
@@ -524,7 +528,7 @@ mod tests {
         accepted_rx.await.expect("wait for control test server");
         let payload = "x".repeat(128 * 1024);
         for index in 0..8 {
-            control.send("send", json!({ "index": index, "payload": payload.clone() }));
+            let _ = control.send("send", json!({ "index": index, "payload": payload.clone() }));
         }
         release_tx.send(()).expect("release control test reader");
         let response = control.request("probe", json!({})).await;
