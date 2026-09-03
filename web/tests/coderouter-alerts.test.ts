@@ -104,6 +104,23 @@ describe("coderouter alert checks", () => {
     expect(sent[1]!.body).toContain("30 unauthorized requests");
   });
 
+  test("ignores malformed team ids while counting no-account requests", async () => {
+    const malformed = {
+      outcome: "no_usable_account",
+      failure_stage: "account_selection",
+      team_id: null,
+      provider: "codex",
+      c: 10,
+    } as unknown as Row;
+    const { sent, run } = harness([malformed], healthy, webhook);
+
+    await run();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.key).toBe("coderouter-no-usable-account");
+    expect(sent[0]!.body).toContain("across 0 affected team(s)");
+  });
+
   test("a degraded or down health probe alerts with the failing checks", async () => {
     const down: CoderouterHealth = {
       ...healthy,
