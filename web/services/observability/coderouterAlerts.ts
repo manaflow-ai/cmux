@@ -169,8 +169,7 @@ export async function runCoderouterAlertChecks(
     await evaluate("coderouter-operator-failures", operatorCount, thresholds.operatorFailures, () => ({
       title: "coderouter failed requests on our side",
       body: [
-        `${operatorCount} of ${total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider`,
-        `(${describe(operatorRows)}).`,
+        `${operatorCount} of ${total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider.`,
         "Check RDS, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter_provider_unavailable.",
       ].join(" "),
       severity: "critical",
@@ -179,16 +178,17 @@ export async function runCoderouterAlertChecks(
     const upstreamCount = sum(upstreamRows);
     await evaluate("coderouter-upstream-failures", upstreamCount, thresholds.upstreamFailures, () => ({
       title: "coderouter upstream providers are failing",
-      body: `${upstreamCount} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover (${describe(upstreamRows)}).`,
+      body: `${upstreamCount} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Check provider health and routing configuration.`,
       severity: "warning",
     }));
 
     const noAccountCount = sum(noAccountRows);
     await evaluate("coderouter-no-usable-account", noAccountCount, thresholds.noUsableAccount, () => {
-      const teams = [...new Set(noAccountRows.map((row) => row.team_id).filter(Boolean))].slice(0, 10);
+      const teamCount = boundedUniqueTeamCount(noAccountRows, 10);
+      const teamLabel = teamCount === 10 ? "at least 10" : String(teamCount);
       return {
         title: "coderouter teams have no usable account",
-        body: `${noAccountCount} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes found no healthy account across ${teams.length} team(s): ${teams.join(", ") || "unknown"}.`,
+        body: `${noAccountCount} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes found no healthy account across ${teamLabel} affected team(s). Check account configuration and credential health.`,
         severity: "warning",
       };
     });
@@ -236,17 +236,15 @@ function sum(rows: readonly RouteEventRow[]): number {
   return rows.reduce((acc, row) => acc + (Number.isFinite(row.c) ? row.c : 0), 0);
 }
 
-function describe(rows: readonly RouteEventRow[]): string {
-  const byKey = new Map<string, number>();
+function boundedUniqueTeamCount(rows: readonly RouteEventRow[], limit: number): number {
+  const teamIds = new Set<string>();
   for (const row of rows) {
-    const key = `${row.provider}/${row.outcome}/${row.failure_stage}`;
-    byKey.set(key, (byKey.get(key) ?? 0) + row.c);
+    const teamId = row.team_id.trim();
+    if (!teamId) continue;
+    teamIds.add(teamId);
+    if (teamIds.size >= limit) return limit;
   }
-  return [...byKey.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([key, count]) => `${key}: ${count}`)
-    .join(", ") || "none";
+  return teamIds.size;
 }
 
 /**
