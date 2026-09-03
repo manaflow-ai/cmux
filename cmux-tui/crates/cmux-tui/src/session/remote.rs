@@ -7533,6 +7533,67 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_sparse_colors_changed_preserves_omitted_defaults_and_clears_old_palette() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": "#fedcba",
+            "cursor_style": "bar",
+            "cursor_blink": true,
+            "palette": {"2": "#0a0b0c"},
+        }));
+        let first = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let PipeIoEvent::Output(first_bytes) = first else {
+            panic!("initial colors-changed did not forward output");
+        };
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "palette": {},
+        }));
+        let PipeIoEvent::Output(second_bytes) =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("sparse colors-changed did not forward output");
+        };
+
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&first_bytes);
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Bar, true));
+        terminal.vt_write(&second_bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }),
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0xfe, g: 0xdc, b: 0xba }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[2], None);
+        assert!(
+            !second_bytes.windows(b"\x1b[0 q".len()).any(|window| window == b"\x1b[0 q"),
+            "palette-only update must preserve the current cursor visual"
+        );
+    }
+
+    #[test]
     fn pipe_io_resized_replay_restores_the_coupled_color_state() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
