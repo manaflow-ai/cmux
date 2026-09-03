@@ -1876,6 +1876,7 @@ mod tests {
             || Ok(()),
         )
         .unwrap();
+        worker.flush_output().unwrap();
         let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
         let writer = std::thread::spawn(move || {
             finished_sender.send(worker.write_bytes(b"blocked")).unwrap();
