@@ -1636,7 +1636,9 @@ actor MachineUsageClient {
     private nonisolated static func intValue(_ raw: Any?) -> Int? {
         if let value = raw as? Int { return value }
         if let value = raw as? Int64 { return Int(clamping: value) }
-        if let value = raw as? Double, value.isFinite { return Int(value) }
+        // A finite JSON number can still be outside Int's range (1e100 is
+        // finite); Int(exactly:) answers nil instead of trapping.
+        if let value = raw as? Double, value.isFinite { return Int(exactly: value.rounded(.towardZero)) }
         return nil
     }
 
