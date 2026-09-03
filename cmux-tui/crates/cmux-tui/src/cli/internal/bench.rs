@@ -15,7 +15,7 @@
 //! create, close, or probe failed so a degraded environment cannot pass as a
 //! measurement.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{self, BufReader, Read, Write};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
@@ -137,6 +137,7 @@ struct TimedEvent {
 #[derive(Default)]
 struct VisibilityIndex {
     by_surface: HashMap<u64, Vec<Instant>>,
+    recency: BTreeSet<(Instant, u64)>,
 }
 
 impl VisibilityIndex {
@@ -145,20 +146,21 @@ impl VisibilityIndex {
         collect_surface_ids(&event.value, &mut surfaces);
         for surface_id in surfaces {
             let timestamps = self.by_surface.entry(surface_id).or_default();
+            if let Some(previous) = timestamps.last().copied() {
+                self.recency.remove(&(previous, surface_id));
+            }
             timestamps.push(event.at);
             if timestamps.len() > MAX_TIMESTAMPS_PER_SURFACE {
                 let excess = timestamps.len() - MAX_TIMESTAMPS_PER_SURFACE;
                 timestamps.drain(..excess);
             }
+            self.recency.insert((event.at, surface_id));
         }
         if self.by_surface.len() > MAX_INDEXED_SURFACES {
             while self.by_surface.len() > MAX_INDEXED_SURFACES {
-                let oldest = self
-                    .by_surface
-                    .iter()
-                    .min_by_key(|(_, timestamps)| timestamps.last().copied())
-                    .map(|(surface_id, _)| *surface_id);
-                if let Some(surface_id) = oldest {
+                let oldest = self.recency.iter().next().copied();
+                if let Some((timestamp, surface_id)) = oldest {
+                    self.recency.remove(&(timestamp, surface_id));
                     self.by_surface.remove(&surface_id);
                 } else {
                     break;
@@ -184,7 +186,11 @@ impl VisibilityIndex {
     }
 
     fn discard_surface(&mut self, surface_id: u64) {
-        self.by_surface.remove(&surface_id);
+        if let Some(timestamps) = self.by_surface.remove(&surface_id) {
+            if let Some(timestamp) = timestamps.last() {
+                self.recency.remove(&(*timestamp, surface_id));
+            }
+        }
     }
 }
 
