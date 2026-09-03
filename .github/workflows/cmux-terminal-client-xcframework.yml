@@ -103,6 +103,10 @@ jobs:
           # the Apple slices as ordinary machine code instead.
           CARGO_PROFILE_RELEASE_LTO: "off"
           RUSTFLAGS: "-C embed-bitcode=no"
+          # cc-built C objects (sqlite3, blake3, ring) must carry the same
+          # minimum OS as the app, or ld warns about every one of them.
+          IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
@@ -197,6 +201,47 @@ jobs:
           printf '%s\n' "$checksum" > "$out/CmuxTerminalClient.xcframework.zip.sha256"
           printf '%s  %s\n' "$(shasum -a 256 "$out/CmuxTerminalClient.xcframework.zip" | cut -d' ' -f1)" CmuxTerminalClient.xcframework.zip > "$out/SHA256SUMS"
           echo "swiftpm checksum: $checksum"
+
+      - name: Smoke-link each slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prove every slice links into a real program with only the system
+          # frameworks the Swift package declares. A C file that takes the
+          # address of every exported cmux_* symbol (list taken from the
+          # archive itself, so a new export is covered automatically) is
+          # compiled against the framework header and linked per platform.
+          xcf="$RUNNER_TEMP/xcframework/CmuxTerminalClient.xcframework"
+          work="$RUNNER_TEMP/smoke"
+          mkdir -p "$work"
+          frameworks=(-framework CmuxTerminalClientFFI -framework Network -framework CoreFoundation -framework Security -framework SystemConfiguration)
+          smoke_link() {
+            local slice="$1" sdk="$2" triple="$3"
+            local dir="$xcf/$slice"
+            local lib="$dir/CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI"
+            local src="$work/smoke-$slice.c"
+            {
+              echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
+              echo '#include <stdio.h>'
+              echo 'int main(void) { const void *p[] = {'
+              nm -g "$lib" 2>/dev/null | awk '$2 == "T" && $3 ~ /^_cmux_/ { print "  (const void *)&" substr($3, 2) "," }' | sort -u
+              printf '%s\n' '  0 }; printf("%p\n", p[0]); return 0; }'
+            } > "$src"
+            local count
+            count="$(grep -c '(const void \*)&cmux_' "$src")"
+            echo "$slice: $count exported symbols referenced"
+            [[ "$count" -ge 1 ]]
+            xcrun --sdk "$sdk" clang -target "$triple" \
+              -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
+              -F "$dir" "${frameworks[@]}" \
+              -o "$work/smoke-$slice" "$src"
+            echo "$slice: linked"
+          }
+          smoke_link ios-arm64 iphoneos arm64-apple-ios18.0
+          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios18.0-simulator
+          smoke_link macos-arm64 macosx arm64-apple-macos14.0
+          "$work/smoke-macos-arm64" >/dev/null
+          echo "macos-arm64: smoke binary ran"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

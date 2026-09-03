@@ -75,10 +75,15 @@ let package = Package(
                 name: "CmuxTerminalClientKit",
                 dependencies: ["CmuxTerminalClientModel", "CmuxTerminalClientFFI"],
                 swiftSettings: swiftSettings,
+                // What the static library needs from the system: Network for
+                // iroh's netdev backend (nw_*), CoreFoundation and
+                // SystemConfiguration for its network-path monitoring, and
+                // Security for the random and trust primitives.
                 linkerSettings: [
+                    .linkedFramework("Network"),
+                    .linkedFramework("CoreFoundation"),
                     .linkedFramework("Security"),
                     .linkedFramework("SystemConfiguration"),
-                    .linkedLibrary("resolv"),
                 ]
             ),
             ffiBinary,
