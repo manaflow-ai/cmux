@@ -10,12 +10,16 @@ import Testing
     }
 
     @Test func createReturnsTheTerminalPath() throws {
-        let json = Data(#"{"created":{"workspace":"ws_1","terminal":"term_new"},"replayed":false}"#.utf8)
-        #expect(try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: json) == "term_new")
+        // A live daemon's MutationResult<CreatedPath> for initial_content: terminal.
+        let json = Data("""
+        {"generation":"9ded6c40","replayed":false,"revision":"3","value":{"kind":"terminal","pane_id":"pane_1","screen_id":"screen_1","tab_id":"tab_1","terminal_id":"term_f8719e501df7aa2dbaa70b78d20d0822","workspace_id":"ws_1"}}
+        """.utf8)
+        #expect(try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: json) == "term_f8719e501df7aa2dbaa70b78d20d0822")
     }
 
     @Test func createWithoutTerminalIsAnError() {
-        let json = Data(#"{"created":{"workspace":"ws_1"}}"#.utf8)
+        // initial_content: empty returns CreatedWorkspaceOnly, which has no terminal.
+        let json = Data(#"{"generation":"9ded6c40","replayed":false,"revision":"3","value":{"kind":"workspace","workspace_id":"ws_1"}}"#.utf8)
         #expect(throws: TerminalCatalogError.missingCreatedTerminal) {
             try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: json)
         }
@@ -30,12 +34,3 @@ import Testing
     }
 }
 
-
-@Suite struct LiveDaemonCreateResultTests {
-    @Test func decodesProtocol5MutationValue() throws {
-        let data = Data("""
-        {"generation":"9ded6c40","replayed":false,"revision":"3","value":{"kind":"terminal","pane_id":"pane_1","screen_id":"screen_1","tab_id":"tab_1","terminal_id":"term_f8719e501df7aa2dbaa70b78d20d0822","workspace_id":"ws_1"}}
-        """.utf8)
-        #expect(try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: data) == "term_f8719e501df7aa2dbaa70b78d20d0822")
-    }
-}

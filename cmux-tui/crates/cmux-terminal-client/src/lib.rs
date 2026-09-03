@@ -2507,8 +2507,9 @@ pub unsafe extern "C" fn cmux_terminal_client_list_terminals(
 }
 
 /// Creates a workspace holding one new terminal (`workspace.create` with
-/// `initial_content: terminal`) and returns the mutation result JSON, whose
-/// `created.terminal` names the terminal to attach.
+/// `initial_content: terminal`) and returns the mutation result JSON
+/// (`MutationResult<CreatedPath>`), whose `value.terminal_id` names the
+/// terminal to attach.
 ///
 /// # Safety
 ///
