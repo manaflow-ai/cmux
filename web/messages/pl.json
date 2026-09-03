@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
       "title": "coderouter",
-      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "machines": {
+        "title": "Maszyny",
+        "description": "Użycie coderouter na maszynę dla {team} w ciągu ostatnich {days} dni.",
+        "machineColumn": "Maszyna",
+        "tokensColumn": "Łącznie tokenów",
+        "apiEquivalentColumn": "Wartość równoważna API",
+        "unnamed": "Maszyna bez nazwy",
+        "empty": "Żadna maszyna nie korzystała z coderouter w ciągu ostatnich {days} dni.",
+        "unavailable": "Użycie na maszynę jest tymczasowo niedostępne.",
+        "estimateNote": "Wartość równoważna API to szacunek oparty na publicznych cenach katalogowych, a nie rzeczywisty koszt."
+      }
     },
     "accountMenu": {
       "label": "Menu konta",

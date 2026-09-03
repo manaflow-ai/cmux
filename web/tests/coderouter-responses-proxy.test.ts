@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as analytics from "../services/coderouter/analytics";
+import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 
 type SelectInput = {
   teamId: string;
@@ -13,6 +15,8 @@ let cooldowns: string[] = [];
 let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
+let authenticatedTokens: string[] = [];
+const BOUND_TOKEN = "crt_bound-to-vm-1";
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -31,7 +35,14 @@ afterAll(() => {
 const { createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
 
 const proxy = createCodexResponsesProxy({
-  authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1" }),
+  authenticate: async (token) => {
+    authenticatedTokens.push(token);
+    return {
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      vmId: token === BOUND_TOKEN ? "vm-1" : null,
+    };
+  },
   select: async (input) => {
     selectInputs.push({
       ...(input as SelectInput),
@@ -78,6 +89,7 @@ beforeEach(() => {
   upstreamStatuses = [];
   credentialBusyBudgets = new Map();
   credentialCalls = [];
+  authenticatedTokens = [];
 });
 
 function responsesRequest(headers: Record<string, string> = {}): Request {
@@ -157,5 +169,82 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(503);
     const body = await response.json() as { error: string };
     expect(body.error).toBe("no_usable_account");
+  });
+});
+
+describe("codex responses proxy VM-bound route tokens", () => {
+  function edgeRequest(headers: Record<string, string>): Request {
+    return new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
+        "content-type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({ model: "gpt-test", input: [] }),
+    });
+  }
+
+  test("a bound token with the matching x-cmux-vm-id header is routed", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-vm-id": "vm-1",
+    }));
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a bound token without x-cmux-vm-id is rejected as vm_mismatch", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const capture = spyOn(analytics, "captureCoderouterEvent");
+    try {
+      const response = await proxy(edgeRequest({
+        "x-coderouter-route-token": BOUND_TOKEN,
+      }));
+      expect(response.status).toBe(401);
+      const body = await response.json() as { error: string; message: string };
+      expect(body.error).toBe("unauthorized");
+      expect(body.message).toBe(
+        "This machine's coderouter credential does not match the machine it was issued to.",
+      );
+      expect(selectInputs).toHaveLength(0);
+      const rejection = capture.mock.calls
+        .map((call) => call[0])
+        .find((event) => event.event === "coderouter_auth_rejected");
+      expect(rejection?.properties).toEqual({
+        surface: "responses",
+        reason: "vm_mismatch",
+      });
+    } finally {
+      capture.mockRestore();
+    }
+  });
+
+  test("a bound token with another machine's x-cmux-vm-id is rejected", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-vm-id": "vm-2",
+    }));
+    expect(response.status).toBe(401);
+    expect(selectInputs).toHaveLength(0);
+  });
+
+  test("an unbound token ignores x-cmux-vm-id", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(responsesRequest({ "x-cmux-vm-id": "vm-9" }));
+    expect(response.status).toBe(200);
+    expect(selectInputs).toHaveLength(1);
+  });
+
+  test("the placeholder API key alone is never a credential", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({ "x-cmux-vm-id": "vm-1" }));
+    expect(response.status).toBe(401);
+    expect(authenticatedTokens).toEqual([]);
+    const body = await response.json() as { message: string };
+    expect(body.message).toBe("Sign in with `cr login` and retry.");
   });
 });

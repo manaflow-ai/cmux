@@ -132126,6 +132126,40 @@
         }
       }
     },
+    "machines.usage.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ tokens · %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ トークン · %3$@"
+          }
+        }
+      }
+    },
+    "machines.usage.period.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dd"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d日"
+          }
+        }
+      }
+    },
     "machines.stats.cpu": {
       "extractionState": "manual",
       "localizations": {

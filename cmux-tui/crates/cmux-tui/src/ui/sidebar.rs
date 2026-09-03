@@ -541,6 +541,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
         actions_position,
     );
+    if let Some(usage) = app.machine_usage.as_ref() {
+        let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
+        rail::header_readout(frame, area, &readout, palette);
+    }
     let mut hits = Vec::new();
     let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
         Rect {
