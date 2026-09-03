@@ -26,7 +26,12 @@ import {
   type RouteTokenAuthFailure,
   type RouteTokenIdentity,
 } from "./routeTokenAuth";
-import { fetchWithHeadersTimeout } from "./upstreamFetch";
+import {
+  CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
+  fetchWithHeadersTimeout,
+  remainingUpstreamHeadersTimeoutMs,
+  upstreamHeadersTimeoutMs,
+} from "./upstreamFetch";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
@@ -45,6 +50,21 @@ type CodexResponsesDependencies = {
   readonly select: typeof selectAccountForSession;
   readonly credential: typeof freshCredential;
   readonly cooldown: typeof markAccountCooldown;
+};
+
+/** Runtime seams used by tests to exercise request-wide timeout behavior. */
+export type CodexResponsesRuntimeOverrides = {
+  readonly fetch?: typeof fetch;
+  readonly now?: () => number;
+  readonly upstreamHeadersBudgetMs?: number;
+  readonly upstreamHeadersTimeoutMs?: number;
+};
+
+type CodexResponsesRuntime = {
+  readonly fetch: typeof fetch;
+  readonly now: () => number;
+  readonly upstreamHeadersBudgetMs: number;
+  readonly upstreamHeadersTimeoutMs: number;
 };
 
 /**
@@ -89,8 +109,15 @@ async function credentialWithStickyPatience(
 
 export function createCodexResponsesProxy(
   dependencies: CodexResponsesDependencies,
+  runtimeOverrides: CodexResponsesRuntimeOverrides = {},
 ): (request: Request) => Promise<Response> {
-  return async (request) => proxyCodexRequestWith(dependencies, request);
+  const runtime: CodexResponsesRuntime = {
+    fetch: runtimeOverrides.fetch ?? ((input, init) => fetch(input, init)),
+    now: runtimeOverrides.now ?? (() => performance.now()),
+    upstreamHeadersBudgetMs: runtimeOverrides.upstreamHeadersBudgetMs ?? CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
+    upstreamHeadersTimeoutMs: runtimeOverrides.upstreamHeadersTimeoutMs ?? upstreamHeadersTimeoutMs(),
+  };
+  return async (request) => proxyCodexRequestWith(dependencies, runtime, request);
 }
 
 export const proxyCodexRequest = createCodexResponsesProxy({
@@ -102,9 +129,11 @@ export const proxyCodexRequest = createCodexResponsesProxy({
 
 async function proxyCodexRequestWith(
   dependencies: CodexResponsesDependencies,
+  runtime: CodexResponsesRuntime,
   request: Request,
 ): Promise<Response> {
   const startedAt = performance.now();
+  const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
   const requestId = currentCoderouterRequestId();
   const auth = await authenticateRequestRouteToken(
     request,
@@ -152,6 +181,14 @@ async function proxyCodexRequestWith(
     "account_selection";
   let upstream: Response | null = null;
   for (let attempt = 0; attempt < 8; attempt++) {
+    if (remainingUpstreamHeadersTimeoutMs(
+      upstreamHeaderDeadlineAt,
+      runtime.now(),
+      runtime.upstreamHeadersTimeoutMs,
+    ) === null) {
+      failureStage = "upstream_transport";
+      break;
+    }
     const selectStartedAt = performance.now();
     const account = await dependencies.select({
       teamId: identity.teamId,
@@ -200,9 +237,24 @@ async function proxyCodexRequestWith(
       throw error;
     }
     if (credential.provider !== "codex") continue;
+    const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+      upstreamHeaderDeadlineAt,
+      runtime.now(),
+      runtime.upstreamHeadersTimeoutMs,
+    );
+    if (headersTimeoutMs === null) {
+      failureStage = "upstream_transport";
+      break;
+    }
     const upstreamStartedAt = performance.now();
     try {
-      upstream = await sendCodex(request.clone(), forwardedHeaders, credential);
+      upstream = await sendCodex(
+        request.clone(),
+        forwardedHeaders,
+        credential,
+        runtime.fetch,
+        headersTimeoutMs,
+      );
       recordCoderouterSpan({
         name: "upstream_attempt",
         startedAt: upstreamStartedAt,
@@ -244,11 +296,23 @@ async function proxyCodexRequestWith(
         });
         recordCoderouterSpan({ name: "credential_refresh", startedAt: refreshStartedAt, attributes: { provider: "codex", forced: true } });
         if (refreshed.provider === "codex") {
+          const retryHeadersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+            upstreamHeaderDeadlineAt,
+            runtime.now(),
+            runtime.upstreamHeadersTimeoutMs,
+          );
+          if (retryHeadersTimeoutMs === null) {
+            failureStage = "upstream_transport";
+            upstream = null;
+            break;
+          }
           const retryStartedAt = performance.now();
           upstream = await sendCodex(
             request.clone(),
             forwardedHeaders,
             refreshed,
+            runtime.fetch,
+            retryHeadersTimeoutMs,
           );
           recordCoderouterSpan({
             name: "upstream_attempt",
@@ -505,6 +569,8 @@ async function sendCodex(
   request: Request,
   forwardedHeaders: Headers,
   credential: { accessToken: string; accountId: string },
+  fetchImpl: typeof fetch,
+  headersTimeoutMs: number,
 ): Promise<Response> {
   const headers = new Headers(forwardedHeaders);
   headers.set("authorization", `Bearer ${credential.accessToken}`);
@@ -512,13 +578,14 @@ async function sendCodex(
   headers.set("originator", "coderouter");
   // Bounded to headers only: a hung upstream fails over instead of holding
   // the function for the full maxDuration; the body streams unbounded.
-  return await fetchWithHeadersTimeout(fetch, CODEX_UPSTREAM, {
+  return await fetchWithHeadersTimeout(fetchImpl, CODEX_UPSTREAM, {
     method: "POST",
     headers,
     body: request.body,
+    signal: request.signal,
     duplex: "half",
     cache: "no-store",
-  } as RequestInit & { duplex: "half" });
+  } as RequestInit & { duplex: "half" }, headersTimeoutMs);
 }
 
 function rateLimitDelay(headers: Headers): number {

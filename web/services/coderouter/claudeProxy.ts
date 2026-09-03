@@ -192,6 +192,7 @@ export function createClaudeMessagesProxy(
       return routed.response;
     }
     const { response, upstream } = routed;
+    const streamed = isStreamingResponse(response);
     captureRouteHealth(dependencies, {
       ...health,
       identity,
@@ -199,12 +200,11 @@ export function createClaudeMessagesProxy(
       status: response.status,
       outcome: routed.failed ? "upstream_error" : "success",
       failureStage: routed.failed ? routed.failureStage : "none",
-      responseStreamed: response.body !== null,
+      responseStreamed: streamed,
       attemptCount: routed.attempts,
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
-    const streamed = isStreamingResponse(response);
     const observed = observeClaudeUsage(response.body, (usage) => {
       captureModelUsage(dependencies, identity, upstream, usage, {
         requestId: health.requestId,

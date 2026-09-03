@@ -12,6 +12,12 @@
 export const UPSTREAM_HEADERS_TIMEOUT_ENV = "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS";
 /** Non-streaming completions can legitimately take minutes before headers. */
 export const DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS = 10 * 60_000;
+/**
+ * Header failover gets less than the 1,800-second route ceiling. The spare
+ * five minutes lets the handler emit telemetry and a bounded error response
+ * instead of being killed while it is still selecting another account.
+ */
+export const CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS = 25 * 60_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 
@@ -33,6 +39,20 @@ export function upstreamHeadersTimeoutMs(
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed)) return DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS;
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, parsed));
+}
+
+/**
+ * Returns the header timeout that fits inside a request-wide failover
+ * deadline. `null` means that no further upstream attempt may start.
+ */
+export function remainingUpstreamHeadersTimeoutMs(
+  deadlineAt: number,
+  now: number = performance.now(),
+  configuredTimeoutMs: number = upstreamHeadersTimeoutMs(),
+): number | null {
+  const remaining = deadlineAt - now;
+  if (remaining <= 0) return null;
+  return Math.min(configuredTimeoutMs, Math.max(1, Math.ceil(remaining)));
 }
 
 /**
