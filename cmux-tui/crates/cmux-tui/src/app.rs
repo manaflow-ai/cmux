@@ -8422,7 +8422,7 @@ impl SidebarColumnNode {
 }
 
 fn prune_sidebar_layout_node(
-    node: &crate::config::SidebarLayoutNode,
+    node: &SidebarLayoutNode,
     views: &[SidebarViewSpec],
     hidden_views: &HashSet<String>,
     machine_visible: bool,
@@ -8667,8 +8667,8 @@ fn sidebar_layout_for_state(
     // The resolved layout always covers every view exactly once. Anything
     // else means `views` was replaced without its layout (tests and older
     // call sites do this), so fall back to one column per view.
-    let identity: Vec<crate::config::SidebarLayoutNode>;
-    let layout_nodes: &[crate::config::SidebarLayoutNode] = {
+    let identity: Vec<SidebarLayoutNode>;
+    let layout_nodes: &[SidebarLayoutNode] = {
         let mut leaves: Vec<usize> =
             config.sidebar.layout.iter().flat_map(|node| node.leaves()).collect();
         leaves.sort_unstable();
@@ -8791,7 +8791,7 @@ fn sidebar_layout_for_state(
 }
 
 /// Ids of every split group in the layout forest, depth first.
-fn collect_sidebar_split_ids(nodes: &[crate::config::SidebarLayoutNode], ids: &mut Vec<String>) {
+fn collect_sidebar_split_ids(nodes: &[SidebarLayoutNode], ids: &mut Vec<String>) {
     use crate::config::SidebarLayoutNode;
     for node in nodes {
         if let SidebarLayoutNode::Split(split) = node {
@@ -8803,7 +8803,7 @@ fn collect_sidebar_split_ids(nodes: &[crate::config::SidebarLayoutNode], ids: &m
 
 /// Find a split group's config spec by id anywhere in the layout forest.
 fn sidebar_split_spec<'a>(
-    nodes: &'a [crate::config::SidebarLayoutNode],
+    nodes: &'a [SidebarLayoutNode],
     id: &str,
 ) -> Option<&'a crate::config::SidebarSplitSpec> {
     use crate::config::SidebarLayoutNode;
@@ -10085,14 +10085,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
     }
 
     if let Err(error) = app.restart_machine_updates() {
-        app.shutdown_background_workers();
-        app.cancel_pointer_interaction();
-        app.session.begin_shutdown();
-        let _ = app.pty_input.shutdown(Duration::from_secs(3));
-        if let Some(writer) = app.graphics_writer.as_mut() {
-            writer.shutdown(Duration::from_millis(200));
-        }
-        let _ = std::panic::take_hook();
+        app.shutdown_runtime_components();
         return Err(terminal_restore.restore_after_error(error));
     }
 
@@ -10101,14 +10094,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
     }
 
     let result = app.event_loop(&mut terminal, rx);
-    app.shutdown_background_workers();
-    app.cancel_pointer_interaction();
-    app.session.begin_shutdown();
-    let _ = app.pty_input.shutdown(Duration::from_secs(3));
-    if let Some(writer) = app.graphics_writer.as_mut() {
-        writer.shutdown(Duration::from_millis(200));
-    }
-    let _ = std::panic::take_hook();
+    app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
         (Ok(()), Ok(())) => {}
@@ -10769,7 +10755,7 @@ impl App {
     /// override (the `s` cycle key) over the configured starting mode.
     pub(crate) fn effective_agent_sort(
         &self,
-        spec: &crate::config::SidebarViewSpec,
+        spec: &SidebarViewSpec,
     ) -> crate::config::AgentSortMode {
         self.agent_sort_overrides.get(&spec.id).copied().unwrap_or(spec.sort)
     }
@@ -10871,7 +10857,7 @@ impl App {
     /// bumps the invalidation revision.
     fn seen_idle_agent_surfaces(
         &mut self,
-        agents: &[crate::session::AgentInfo],
+        agents: &[AgentInfo],
     ) -> crate::sidebar_projection::SeenIdleSurfaces {
         if let Some(surface) = self.tree.active_surface() {
             let now_ms = std::time::SystemTime::now()
@@ -19693,7 +19679,7 @@ impl App {
         if key.code == KeyCode::Char('s') && !key.modifiers.contains(KeyModifiers::ALT) {
             let target = self.config.sidebar.views.get(view_index).and_then(|spec| {
                 spec.levels
-                    .contains(&crate::config::SidebarResourceKind::Agents)
+                    .contains(&SidebarResourceKind::Agents)
                     .then(|| (spec.id.clone(), self.effective_agent_sort(spec).cycle_next()))
             });
             if let Some((id, next)) = target {

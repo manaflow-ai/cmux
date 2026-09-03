@@ -204,7 +204,7 @@ pub fn header_readout(frame: &mut Frame, area: Rect, text: &str, palette: RailPa
         return;
     }
     let content_width = usize::from(area.width.saturating_sub(1));
-    let width = unicode_width::UnicodeWidthStr::width(text);
+    let width = UnicodeWidthStr::width(text);
     if width == 0 || width + 2 > content_width {
         return;
     }
