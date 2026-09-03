@@ -72,6 +72,8 @@ public struct CMUXMobileRootScene: View {
     /// the shell's one-time sheet and Settings > What's New share one fetch
     /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
     @State private var whatsNewCenter: MobileWhatsNewCenter
+    // This state is inside the iOS-only block because the center is not
+    // defined for macOS builds of the shared root scene.
     /// Minimum-Mac-version state (remote list + per-origin cache), hosted at
     /// this root so onboarding copy and the shell store's connection gate
     /// share one fetch through `@Environment(MobileMacCompatCenter.self)`.

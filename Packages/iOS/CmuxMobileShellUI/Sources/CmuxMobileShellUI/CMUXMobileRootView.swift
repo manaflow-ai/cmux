@@ -37,6 +37,8 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and package hosts remain migration-free by default.
     @Environment(MobileAutoConnectMigrationStore.self) private var autoConnectMigrationStore:
         MobileAutoConnectMigrationStore?
+    // This environment value is inside the iOS-only block because the center
+    // is not defined for macOS builds of the shared root view.
     /// Minimum-Mac-version list shared with onboarding copy. Optional so
     /// previews and package hosts keep the store's compiled-in fallback.
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
