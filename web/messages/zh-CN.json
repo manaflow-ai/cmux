@@ -60,6 +60,15 @@
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"
   },
+  "cloudPublicationAccess": {
+    "title": "你没有访问权限",
+    "signIn": "登录 cmux",
+    "signedInAs": "已以 {identity} 的身份登录",
+    "switchAccount": "切换账号",
+    "invalidTitle": "此访问链接无效",
+    "invalidBody": "返回网站，然后重试。",
+    "footer": "访问权限由 cmux 管理。"
+  },
   "common": {
     "downloadForMac": "下载 Mac 版",
     "viewOnGitHub": "在 GitHub 上查看",

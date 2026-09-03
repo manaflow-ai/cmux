@@ -60,6 +60,15 @@
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"
   },
+  "cloudPublicationAccess": {
+    "title": "Non hai accesso",
+    "signIn": "Accedi a cmux",
+    "signedInAs": "Accesso effettuato come {identity}",
+    "switchAccount": "Cambia account",
+    "invalidTitle": "Questo link di accesso non è valido",
+    "invalidBody": "Torna al sito e riprova.",
+    "footer": "L’accesso è gestito da cmux."
+  },
   "common": {
     "downloadForMac": "Scarica per Mac",
     "viewOnGitHub": "Vedi su GitHub",

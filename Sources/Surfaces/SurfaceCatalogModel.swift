@@ -254,6 +254,8 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case unavailable(SurfaceResourceID, reason: String)
     case destinationNotFound(String)
     case unsupported(String)
+    /// The target exists but holds nothing to open (an empty remote workspace).
+    case nothingToOpen(String)
 
     var errorDescription: String? {
         switch self {
@@ -262,6 +264,7 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
         case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
+        case .nothingToOpen(let what): return "Nothing to open: \(what)."
         }
     }
 }

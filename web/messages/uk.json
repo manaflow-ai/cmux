@@ -60,6 +60,15 @@
     "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
     "backToSignIn": "Повернутися до входу"
   },
+  "cloudPublicationAccess": {
+    "title": "У вас немає доступу",
+    "signIn": "Увійти в cmux",
+    "signedInAs": "Ви ввійшли як {identity}",
+    "switchAccount": "Змінити обліковий запис",
+    "invalidTitle": "Це посилання для доступу недійсне",
+    "invalidBody": "Поверніться на сайт і повторіть спробу.",
+    "footer": "Доступом керує cmux."
+  },
   "common": {
     "downloadForMac": "Завантажити для Mac",
     "viewOnGitHub": "Переглянути на GitHub",

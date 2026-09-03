@@ -45,7 +45,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
-import { resolveOwnerNetwork } from "./privateNetwork";
+import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -120,7 +120,6 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
  * credential. Provisioned once the VM row exists, before the provider call.
  */
 export type VmModelPlaneMaterials = {
-  readonly envs: Readonly<Record<string, string>>;
   readonly edgeRules: readonly VmEdgeRule[];
 };
 
@@ -277,6 +276,24 @@ export function reconcileVmProviderStatuses(input: {
       (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
+    // Network heal moved here from the create path: re-create the members
+    // rule of every owner network this batch touches if it went missing.
+    const ensureNetwork = providers.ensureNetwork;
+    if (ensureNetwork) {
+      const owners = new Map<string, { userId: string; provider: ProviderId }>();
+      for (const vm of candidates) {
+        if (vm.status === "destroyed" || privateNetworkUnavailableReason(vm.provider, true)) continue;
+        owners.set(`${vm.provider}:${vm.userId}`, { userId: vm.userId, provider: vm.provider });
+      }
+      yield* Effect.forEach(
+        [...owners.values()],
+        (owner) =>
+          ensureNetwork(owner.provider, { slug: networkSlugForUser(owner.userId), heal: true }).pipe(
+            Effect.catchAll(() => Effect.void),
+          ),
+        { concurrency: 4, discard: true },
+      );
+    }
     let updated = 0;
     let destroyed = 0;
     let skipped = 0;
@@ -378,8 +395,6 @@ export function createVm(input: {
   readonly memoryMb?: number;
   /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
   readonly imageSize?: CreateOptions["imageSize"];
-  /** See CreateOptions.afterResponse: the edge probe runs here instead of inside the request. */
-  readonly afterResponse?: CreateOptions["afterResponse"];
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -490,8 +505,6 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         imageSize: input.imageSize,
-        afterResponse: input.afterResponse,
-        envs: materials?.envs,
         edgeRules: materials?.edgeRules,
         ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
@@ -1435,6 +1448,11 @@ function preflightResumeIfSuspended(
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
+    // Our row is the source of truth for a machine we paused. A row that says
+    // running gets no provider read: a guest exec wakes a machine Freestyle
+    // idled on its own, and the status cron records that state within its
+    // cadence. Only a row we paused, or one still creating, asks the provider.
+    if (vm.status === "running") return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
