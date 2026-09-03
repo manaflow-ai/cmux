@@ -50,6 +50,7 @@ import {
   parsePhoneReply,
   parsePhoneReplyAck,
 } from "./replies";
+import { captureSentryException } from "./sentry";
 
 export { TeamPresence, AccountControlPlane };
 
@@ -92,7 +93,7 @@ async function resolveTeamOr403(
   return { ok: true, teamId: team.teamId, user, stub };
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
@@ -317,5 +318,21 @@ export default {
     }
 
     return json({ error: "not_found" }, 404);
+  },
+} satisfies ExportedHandler<Env>;
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      return await worker.fetch(request, env);
+    } catch (error) {
+      await captureSentryException(env, "cloudflare-worker", error, {
+        durable_object: "worker-router",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+      });
+      return json({ error: "internal_error" }, 500);
+    }
   },
 } satisfies ExportedHandler<Env>;

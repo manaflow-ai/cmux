@@ -4,8 +4,8 @@ Every verb in the Cloud sidebar has a CLI verb that goes through the **same sock
 
 Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---
-**Machines panel ＋ / palette "New Cloud Machine…"** (name, Desktop/Base, size) | `cmux vm new [--desktop\|--base] [--size 8g] [--name <label>] [--detach] [--json]` | `vm.create` | ✅
-**Open Base / Set Up Base** | `cmux vm base open [--desktop\|--base]` | `vm.base_open` | ✅
+**Machines panel ＋ / palette "New Cloud Machine…"** (name, Desktop/Base, size; Create closes the sheet and the create runs in the background) | `cmux vm new [--desktop\|--base] [--size 8g] [--name <label>] [--focus false] [--detach] [--json]` — the sheet passes `--focus false` | `vm.create` | ✅ the pending row in the tree ("Creating…", then failure with Retry / Show Error / Dismiss) is `MachineCreateCoordinator`; `--detach` is the agent's way to get the same non-blocking outcome without a workspace
+**Open Base / Set Up Base** (first setup closes its sheet immediately and continues in the background) | `cmux vm base open [--desktop\|--base] [--focus false]` — the sheet passes `--focus false` | `vm.base_open` | ✅ pending row reads "Setting up Base…"
 Control bar › **Open Cloud Agent** (Claude/Codex/OpenCode) | `cmux vm prompt --open <agent>` | `vm.cloud_agent_open` | ✅ installs the bundled cmux-cloud skill file (`~/.config/cmux/skills/cmux-cloud.md`), opens a local agent terminal with the kickoff prompt
 Control bar › **Copy Cloud Prompt** | `cmux vm prompt` | `vm.cloud_prompt` | ✅ prints the same prompt (skill path on stderr) — bootstraps ANY agent/harness
 Machine row › **Open Shell** / click | `cmux surface new-terminal --machine <m>` (into the current workspace, like the row) · `cmux vm open <m> [--workspace <ref>]` (a shell, its own workspace by default) | `vm.terminal_new` / `workspace.cloud_vm_terminal_ready` | ✅
@@ -15,8 +15,8 @@ Machine row › **Open Full cmux-tui Client** | `cmux vm tui <m>` | (pane comman
 Machine row › **Refresh**, any group › Refresh | `cmux vm tree --refresh` / `cmux surface ls --refresh` | `vm.tree {refresh}` | ✅
 Machine row › **Rename…** | `cmux vm rename <m> <label>` | `vm.rename` | ✅
 Machine row › **Status** | `cmux vm status <m>` (+ `vm stats`) | `vm.status` / `vm.stats` | ✅
-Machine row › **Checkpoint** (only when `capabilities.snapshot`) | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅ hidden on providers that cannot (Blaxel); `vm ls --json` → `capabilities`
-Machine row › **Fork** (only when `capabilities.fork`) | `cmux vm fork <m> [--name n]` | `vm.fork` | ✅ hidden on providers that cannot (Blaxel)
+Machine row › **Checkpoint** (only when `capabilities.snapshot`) | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅ hidden on providers that cannot; `vm ls --json` → `capabilities`
+Machine row › **Fork** (only when `capabilities.fork`) | `cmux vm fork <m> [--name n]` | `vm.fork` | ✅ hidden on providers that cannot
 Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
 Workspace row › **New Terminal Here** | `cmux surface new-terminal --machine <m> --remote-workspace <ws>` | `vm.terminal_new {workspace_id}` | ✅
@@ -41,6 +41,7 @@ Port row (when shown) click | `cmux vm open <m>:port/<n>` / `cmux vm open <m> <n
 Rules that keep it 1:1:
 
 - A sidebar verb is implemented as a closure in `CloudTreeNodeActions` that calls the catalog/provider; the matching socket handler in `SurfaceSocketCommands` calls the same catalog/provider method. Adding a sidebar verb without a socket method is a parity bug.
+- `--focus false` means the same on `vm new`, `vm base open`, and `vm open`: open the surface where it belongs, never select its workspace or move keyboard focus out of the workspace the person is in (a pane is still focused when its workspace is the one already on screen). The New Machine / Set Up Base sheets always create this way; the success notification's click goes to the new workspace.
 - Placement flags mean the same everywhere: `--pane <p>` + side = split that pane on that side; `--tab` / `--tabs` = tabs in that pane; nothing = the focused pane of the current (or `--workspace`) local workspace; `--new` = never reuse a pane that already shows the surface.
 - Ports are not in the tree today, but the CLI still opens them.
 - Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.

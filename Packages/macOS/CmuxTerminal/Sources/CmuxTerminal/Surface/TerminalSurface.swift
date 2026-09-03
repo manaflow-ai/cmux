@@ -144,6 +144,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     public var isViewInWindow: Bool { uiWindow != nil }
 
+    /// Whether both the pane host and the native Ghostty view are attached to
+    /// the same real window. This excludes the hidden bootstrap window and
+    /// transient portal reparenting where the two views briefly disagree.
+    @MainActor
+    public var isNativeViewInRealWindow: Bool {
+        guard let realWindow = uiWindow else { return false }
+        return attachedView?.window === realWindow
+    }
+
     /// Whether `window` is this surface's hidden bootstrap startup window.
     public func isHeadlessStartupWindow(_ window: NSWindow?) -> Bool {
         guard let window, let headlessStartupWindow else { return false }
@@ -227,9 +236,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Resolves physical keys that the manual transport should encode itself.
     let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
-    /// Remote tmux manual-I/O resize and runtime-readiness hooks.
+    /// Manual-I/O resize and runtime-readiness hooks used by remote mirrors.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called when a manual-I/O surface enters a real pane window (as opposed
+    /// to the hidden bootstrap window). Owners use this edge to sample the
+    /// final pane grid even when bootstrap and pane pixels happen to match and
+    /// no size-change callback is emitted.
+    @MainActor public var onManualWindowAttached: (@MainActor () -> Void)?
+    /// Called when the portal toggles this manual-I/O surface's visibility.
+    /// Owners use the reveal edge to sample a pane whose grid did not change
+    /// while it was hidden.
+    @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.

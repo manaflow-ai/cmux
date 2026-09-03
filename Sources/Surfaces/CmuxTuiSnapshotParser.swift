@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Maps a cmux-tui public session snapshot (`session current snapshot --json`) onto
@@ -10,6 +11,105 @@ import Foundation
 /// `tabs[{id,pane_id,content_kind,content_id}]`,
 /// `terminals[{id,tab_id,title,cwd?,lifecycle}]`, `agents[{terminal_id,state,source}]`.
 struct CmuxTuiSnapshotParser: Sendable {
+    /// Chooses a stable destination for projecting a terminal that currently has no remote
+    /// tab view. The session snapshot lists structural records separately, so selection walks
+    /// the focused workspace, focused screen, and focused pane in that order, falling back to
+    /// canonical array order at each level. A new tab is appended to the chosen pane.
+    static func terminalProjectionTarget(from snapshot: [String: Any]) -> CloudTuiTerminalProjectionTarget? {
+        let workspaces = snapshot["workspaces"] as? [[String: Any]] ?? []
+        let screens = snapshot["screens"] as? [[String: Any]] ?? []
+        let panes = snapshot["panes"] as? [[String: Any]] ?? []
+        let tabs = snapshot["tabs"] as? [[String: Any]] ?? []
+        var tabCountByPane: [String: Int] = [:]
+        for tab in tabs {
+            if let paneID = tab["pane_id"] as? String, !paneID.isEmpty {
+                tabCountByPane[paneID, default: 0] += 1
+            }
+        }
+        // Prefer focused records, but do not strand a pool terminal when the focused
+        // workspace/screen was intentionally left empty. The first candidate with a live
+        // pane is the safe destination; all arrays are already in daemon canonical order.
+        let orderedWorkspaces = workspaces.enumerated().sorted { left, right in
+            let leftFocused = (left.element["focused"] as? Bool) == true
+            let rightFocused = (right.element["focused"] as? Bool) == true
+            return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
+        }
+        for workspaceEntry in orderedWorkspaces {
+            guard let workspaceID = workspaceEntry.element["id"] as? String, !workspaceID.isEmpty else { continue }
+            let workspaceScreens = screens.enumerated().filter {
+                ($0.element["workspace_id"] as? String) == workspaceID
+            }.sorted { left, right in
+                let leftFocused = (left.element["focused"] as? Bool) == true
+                let rightFocused = (right.element["focused"] as? Bool) == true
+                return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
+            }
+            for screenEntry in workspaceScreens {
+                guard let screenID = screenEntry.element["id"] as? String, !screenID.isEmpty else { continue }
+                let screenPanes = panes.enumerated().filter {
+                    ($0.element["screen_id"] as? String) == screenID
+                }.sorted { left, right in
+                    let leftFocused = (left.element["focused"] as? Bool) == true
+                    let rightFocused = (right.element["focused"] as? Bool) == true
+                    return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
+                }
+                for paneEntry in screenPanes {
+                    guard let paneID = paneEntry.element["id"] as? String, !paneID.isEmpty else { continue }
+                    return CloudTuiTerminalProjectionTarget(
+                        workspaceID: workspaceID,
+                        screenID: screenID,
+                        paneID: paneID,
+                        index: tabCountByPane[paneID] ?? 0
+                    )
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Returns the decimal resource revision carried by a public session
+    /// snapshot. It is used as an optimistic-concurrency fence when a detached
+    /// terminal is projected into a pane selected from that snapshot.
+    static func resourceRevision(from snapshot: [String: Any]) -> String? {
+        guard let cursor = snapshot["cursor"] as? [String: Any] else { return nil }
+        if let revision = cursor["revision"] as? String,
+           !revision.isEmpty,
+           revision.allSatisfy(\.isNumber) {
+            return revision
+        }
+        if let revision = cursor["revision"] as? NSNumber,
+           CFGetTypeID(revision) != CFBooleanGetTypeID() {
+            let type = String(cString: revision.objCType)
+            switch type {
+            case "c", "s", "i", "l", "q":
+                let value = revision.int64Value
+                return value >= 0 ? String(value) : nil
+            case "C", "S", "I", "L", "Q":
+                return String(revision.uint64Value)
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+
+    /// Decodes the snapshot used by a detached-terminal projection away from
+    /// the UI actor. The returned revision is the same cursor that guards the
+    /// subsequent topology mutation.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    nonisolated static func terminalProjectionTarget(
+        from data: Data
+    ) async -> (target: CloudTuiTerminalProjectionTarget, revision: String?)? {
+        guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let target = terminalProjectionTarget(from: snapshot) else {
+            return nil
+        }
+        return (target, resourceRevision(from: snapshot))
+    }
+
     /// Terminal resources in the daemon's workspace order, each carrying every view of it
     /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
     /// resolvable view keeps an empty view list: it is alive in the machine's pool, not
@@ -254,8 +354,11 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     static let desktopPort = 6901
 
+    /// Fallback for callers that only hold an image id. Prefer
+    /// ``VMSummary/resolvedKind``, which honors the backend's explicit `kind`.
+    /// Only VNC markers count: see ``VMMachineKind/inferred(fromImage:)``.
     static func machineHasDesktop(image: String) -> Bool {
-        image.contains("xfce-vnc") || image.contains("cmux-devbox")
+        VMMachineKind.inferred(fromImage: image).hasDesktop
     }
 
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
@@ -281,8 +384,13 @@ struct CmuxTuiSnapshotParser: Sendable {
         return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
-    /// A forwarded port, shown as a browser resource.
-    static func portBrowser(machine: SurfaceMachineID, port: Int) -> SurfaceResource {
+    /// A forwarded port, shown as a browser resource. `directURL`, when
+    /// given, is where opening it actually navigates — the machine's private
+    /// address over the WireGuard tunnel, never a provider port-forwarding
+    /// proxy (Freestyle's public platform has none for arbitrary ports). nil
+    /// only for a machine with no private-network address yet, which falls
+    /// back to the legacy provider-minted-endpoint path.
+    static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(port)"),
             title: ":\(port)",
@@ -291,7 +399,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             agent: nil,
             remoteWorkspace: nil,
             port: port,
-            url: nil
+            url: directURL
         )
     }
 

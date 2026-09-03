@@ -20,6 +20,10 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, VecDeque};
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -86,14 +90,30 @@ pub fn surface_ref_ok(value: &str) -> bool {
         && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
+/// A cwd validated against the relay root policy and pinned to its directory
+/// descriptor on Unix. Child processes use the descriptor, not the pathname,
+/// so a same-uid rename or symlink swap cannot redirect the cwd after checks.
+#[derive(Clone)]
+pub struct ResolvedCwd {
+    pub path: PathBuf,
+    #[cfg(unix)]
+    pub directory: Arc<File>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    dev: u64,
+    ino: u64,
+}
+
 /// Resolve a PTY working directory and enforce every configured root list.
-/// Canonicalization closes symlink escapes before the path reaches spawn.
 fn scoped_cwd(
     requested: Option<&str>,
     home: &Path,
     local_roots: Option<&[String]>,
     server_roots: Option<&[String]>,
-) -> Result<PathBuf, String> {
+) -> Result<ResolvedCwd, String> {
     // Keep PTY paths on the same wire policy as file actions. The relay sends
     // this error to the peer, so the validator only returns policy text and
     // filesystem failures below are deliberately redacted.
@@ -150,21 +170,115 @@ fn scoped_cwd(
         &raw_owned
     };
     let path = expand_path(raw, home, home);
-    let canonical = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+    if path.components().any(|component| component == std::path::Component::ParentDir) {
+        return Err("cwd parent traversal is not supported".to_owned());
+    }
+    let path = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+    #[cfg(unix)]
+    let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
+        [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
+            .into_iter()
+            .flatten()
+            .map(|roots| {
+                roots
+                    .iter()
+                    .filter_map(|root| {
+                        let canonical_root =
+                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
+                        Some(open_pinned_directory(&canonical_root).ok()?.1)
+                    })
+                    .collect()
+            })
+            .collect();
+    #[cfg(not(unix))]
+    let allowed_root_groups: Vec<Vec<Vec<()>>> = Vec::new();
+    #[cfg(not(unix))]
     for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
         .into_iter()
         .flatten()
     {
+        let canonical =
+            std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
         if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
             std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
         }) {
             return Err("cwd is outside the allowed roots".to_owned());
         }
     }
-    if !canonical.is_dir() {
-        return Err("cwd is not a directory".to_owned());
+    if allowed_root_groups.iter().any(|group| group.is_empty()) {
+        return Err("cwd is outside the allowed roots".to_owned());
     }
-    Ok(canonical)
+    #[cfg(unix)]
+    {
+        let (directory, ancestry) = open_pinned_directory(&path)?;
+        if allowed_root_groups
+            .iter()
+            .any(|group| !group.iter().any(|root| ancestry.starts_with(root)))
+        {
+            return Err("cwd is outside the allowed roots".to_owned());
+        }
+        Ok(ResolvedCwd { path, directory: Arc::new(directory) })
+    }
+    #[cfg(not(unix))]
+    {
+        if !path.is_dir() {
+            return Err("cwd is not a directory".to_owned());
+        }
+        Ok(ResolvedCwd { path })
+    }
+}
+
+#[cfg(unix)]
+fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), String> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::io::FromRawFd;
+
+    // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC combined
+    // with O_DIRECTORY requests search-only directory access, so execute-only
+    // cwd directories remain valid without relying on a pathname after checks.
+    #[cfg(target_os = "linux")]
+    const ACCESS_MODE: libc::c_int = libc::O_PATH;
+    #[cfg(target_os = "macos")]
+    const ACCESS_MODE: libc::c_int = libc::O_EXEC;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
+    let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let root = CString::new("/").expect("literal root path has no NUL");
+    // SAFETY: `root` is a valid NUL-terminated path and `flags` requests a
+    // directory descriptor with the platform-specific access mode above.
+    let root_fd = unsafe { libc::open(root.as_ptr(), flags) };
+    if root_fd < 0 {
+        return Err("cwd is not accessible".to_owned());
+    }
+    // SAFETY: `root_fd` is a newly-owned descriptor from `open`.
+    let mut parent = unsafe { File::from_raw_fd(root_fd) };
+    let mut expected_path = PathBuf::from("/");
+    let mut ancestry = Vec::new();
+    for component in path.components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        expected_path.push(name);
+        let expected =
+            std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
+        ancestry.push(DirectoryIdentity { dev: expected.dev(), ino: expected.ino() });
+        let name = CString::new(name.as_bytes()).map_err(|_| "cwd is not accessible".to_owned())?;
+        // SAFETY: `parent` is an open directory and `name` is NUL-free.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err("cwd is not accessible".to_owned());
+        }
+        // SAFETY: `fd` is a newly-owned descriptor from openat.
+        let child = unsafe { File::from_raw_fd(fd) };
+        let observed = child.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
+        if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
+            return Err("the selected folder changed; select it again".to_owned());
+        }
+        parent = child;
+    }
+    Ok((parent, ancestry))
 }
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
@@ -226,7 +340,7 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     pub cols: u16,
     pub rows: u16,
-    pub cwd: PathBuf,
+    pub cwd: ResolvedCwd,
     pub env: HashMap<String, String>,
     pub cancellation: CancellationToken,
 }
@@ -252,7 +366,7 @@ pub trait PtyDeps: Send + Sync {
         cmux_tui: &CmuxTui,
         session: &str,
         socket_dir: &Path,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String>;
     async fn connect_control(&self, socket_path: &Path) -> Result<Arc<dyn ControlHandle>, String>;
@@ -977,7 +1091,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1078,7 +1192,7 @@ impl Inner {
                 args,
                 cols,
                 rows,
-                cwd: cwd.to_path_buf(),
+                cwd: cwd.clone(),
                 env: env.clone(),
                 cancellation: context.cancellation.clone(),
             })
@@ -1104,7 +1218,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1162,7 +1276,7 @@ impl Inner {
                         args: Vec::new(),
                         cols,
                         rows,
-                        cwd: cwd.to_path_buf(),
+                        cwd: cwd.clone(),
                         env: env.clone(),
                         cancellation: context.cancellation.clone(),
                     })
@@ -1655,7 +1769,7 @@ impl Inner {
         surface_ref: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1995,6 +2109,10 @@ mod tests {
     use super::*;
     use crate::control::{CloseHandler, EventHandler};
     use std::future::Future;
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2117,7 +2235,7 @@ mod tests {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
-                spawn_cwd: spec.cwd.clone(),
+                spawn_cwd: spec.cwd.path.clone(),
                 spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
             };
             self.recorded.lock().unwrap().spawned.push(pty.clone());
@@ -2133,7 +2251,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             session: &str,
             socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             self.recorded
@@ -2830,11 +2948,11 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         let home = root.path.to_string_lossy().into_owned();
         assert_eq!(
-            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(nested).unwrap()
         );
     }
@@ -2843,17 +2961,79 @@ mod tests {
     fn scoped_cwd_rejects_relative_requests_and_defaults_null_or_empty() {
         let root = TestDirectory::new("cwd-default");
         assert_eq!(
-            scoped_cwd(Some("relative"), &root.path, None, None).unwrap_err(),
+            match scoped_cwd(Some("relative"), &root.path, None, None) {
+                Ok(_) => panic!("relative cwd must be rejected"),
+                Err(error) => error,
+            },
             "cwd must be absolute or home-relative"
         );
         assert_eq!(
-            scoped_cwd(None, &root.path, None, None).unwrap(),
+            scoped_cwd(None, &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some(""), &root.path, None, None).unwrap(),
+            scoped_cwd(Some(""), &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_descriptor_remains_pinned_after_path_rebind() {
+        let root = TestDirectory::new("cwd-pinned");
+        let scope = root.path.join("scope");
+        let checked = scope.join("checked");
+        let outside = root.path.join("outside");
+        std::fs::create_dir(&scope).unwrap();
+        std::fs::create_dir(&checked).unwrap();
+        std::fs::create_dir_all(outside.join("checked")).unwrap();
+        let resolved = scoped_cwd(Some(checked.to_str().unwrap()), &root.path, None, None).unwrap();
+        let before = resolved.directory.metadata().unwrap();
+        std::fs::rename(&scope, root.path.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &scope).unwrap();
+        let after = resolved.directory.metadata().unwrap();
+        assert_eq!(before.dev(), after.dev());
+        assert_eq!(before.ino(), after.ino());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_accepts_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        // `open_pinned_directory` intentionally rejects symlink components.
+        // Canonicalize the temporary path because macOS commonly exposes /var
+        // through a symlink, while preserving the execute-only target.
+        let canonical = std::fs::canonicalize(&directory).unwrap();
+        open_pinned_directory(&canonical).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_resolves_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only-scoped");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let resolved = scoped_cwd(Some(directory.to_str().unwrap()), &root.path, None, None)
+            .expect("execute-only cwd must resolve through its pinned descriptor");
+        assert_eq!(resolved.path, std::fs::canonicalize(directory).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_resolves_symlink_components_before_spawn() {
+        let root = TestDirectory::new("cwd-symlink");
+        let target = root.path.join("target");
+        let link = root.path.join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let resolved = scoped_cwd(Some(link.to_str().unwrap()), &root.path, None, None).unwrap();
+        assert_eq!(resolved.path, std::fs::canonicalize(target).unwrap());
     }
 
     #[test]
