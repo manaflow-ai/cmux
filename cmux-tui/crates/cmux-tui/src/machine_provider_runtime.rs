@@ -38,6 +38,7 @@ use crate::session::{RemoteSession, Session};
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
+const PROVIDER_CONNECTION_ADMISSION_CAP: usize = 256;
 
 type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
 
@@ -198,6 +199,7 @@ struct ProviderMachineConnectionLease {
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     closing: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
+    admissions: Arc<AtomicUsize>,
 }
 
 struct ProviderCloseCleanup {
@@ -205,6 +207,7 @@ struct ProviderCloseCleanup {
     closing: Arc<Mutex<HashSet<MachineKey>>>,
     key: MachineKey,
     connection_id: protocol::OpaqueId,
+    admissions: Arc<AtomicUsize>,
 }
 
 impl Drop for ProviderCloseCleanup {
@@ -216,10 +219,12 @@ impl Drop for ProviderCloseCleanup {
             registry.remove(&self.key);
             closing_keys.remove(&self.key);
         }
+        self.admissions.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
 struct ProviderConnectionReservation {
+    admissions: Arc<AtomicUsize>,
     transitions: Arc<Mutex<HashSet<MachineKey>>>,
     key: MachineKey,
     active: bool,
@@ -233,12 +238,21 @@ impl ProviderConnectionReservation {
 
 impl Drop for ProviderConnectionReservation {
     fn drop(&mut self) {
-        if self.active
-            && let Ok(mut transitions) = self.transitions.lock()
-        {
-            transitions.remove(&self.key);
+        if self.active {
+            if let Ok(mut transitions) = self.transitions.lock() {
+                transitions.remove(&self.key);
+            }
+            self.admissions.fetch_sub(1, Ordering::AcqRel);
         }
     }
+}
+
+fn try_admit_provider_connection(admissions: &AtomicUsize) -> bool {
+    admissions
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < PROVIDER_CONNECTION_ADMISSION_CAP).then_some(count + 1)
+        })
+        .is_ok()
 }
 
 impl Drop for ProviderMachineConnectionLease {
@@ -412,6 +426,7 @@ pub(crate) struct ProviderMachineRuntime {
     notice: Option<String>,
     notice_identity: ProviderNoticeIdentity,
     close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 }
 
 /// Composes a provider-owned catalog with client-local socket and SSH targets.
@@ -795,6 +810,7 @@ impl ProviderMachineRuntime {
             notice: None,
             notice_identity,
             close_worker: Arc::new(ProviderCloseWorker::new()?),
+            connection_admissions: Arc::new(AtomicUsize::new(0)),
         };
         runtime.observe_snapshot_notice(
             runtime.snapshot.notice.clone(),
@@ -1362,6 +1378,7 @@ impl ProviderMachineRuntime {
         let connection_registry = self.connection_registry.clone();
         let closing_connections = self.closing_connections.clone();
         let close_worker = self.close_worker.clone();
+        let connection_admissions = self.connection_admissions.clone();
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
             .unwrap_or(false);
@@ -1668,6 +1685,7 @@ impl ProviderMachineRuntime {
                         &connection_registry,
                         &closing_connections,
                         &close_worker,
+                        &connection_admissions,
                     );
                     let session_available = snapshot.selected_machine_id.is_some()
                         && connected_session.as_ref().is_some_and(|(_, machine_id)| {
@@ -2132,6 +2150,7 @@ impl ProviderMachineRuntime {
             &self.connection_registry,
             &self.closing_connections,
             &self.close_worker,
+            &self.connection_admissions,
         );
     }
 
@@ -2468,6 +2487,7 @@ fn sync_provider_connection_hub(
     registry: &Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     closing_connections: &Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: &Arc<ProviderCloseWorker>,
+    connection_admissions: &Arc<AtomicUsize>,
 ) {
     let visible =
         snapshot.machines.iter().map(|machine| machine.id.clone()).collect::<HashSet<_>>();
@@ -2492,6 +2512,7 @@ fn sync_provider_connection_hub(
                 Arc::clone(registry),
                 Arc::clone(closing_connections),
                 Arc::clone(close_worker),
+                Arc::clone(connection_admissions),
             ),
         );
     }
@@ -2505,6 +2526,7 @@ fn provider_machine_connector(
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 ) -> MachineConnectFn {
     Arc::new(move || {
         connect_provider_machine(
@@ -2514,6 +2536,7 @@ fn provider_machine_connector(
             Arc::clone(&registry),
             Arc::clone(&closing_connections),
             Arc::clone(&close_worker),
+            Arc::clone(&connection_admissions),
         )
     })
 }
@@ -2525,6 +2548,7 @@ fn connect_provider_machine(
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 ) -> anyhow::Result<MachineConnection> {
     let provider_managed =
         matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
@@ -2549,10 +2573,14 @@ fn connect_provider_machine(
     if connections.contains_key(&key) {
         anyhow::bail!("provider machine connection is already open");
     }
+    if !try_admit_provider_connection(&connection_admissions) {
+        anyhow::bail!("provider machine connection capacity is temporarily exhausted");
+    }
     transitions.insert(key);
     drop(transitions);
     drop(connections);
     let mut reservation = ProviderConnectionReservation {
+        admissions: Arc::clone(&connection_admissions),
         transitions: Arc::clone(&closing_connections),
         key,
         active: true,
@@ -2621,6 +2649,7 @@ fn connect_provider_machine(
             registry: Arc::clone(&registry),
             closing: Arc::clone(&closing_connections),
             close_worker,
+            admissions: Arc::clone(&connection_admissions),
         })),
     })
 }
@@ -2981,6 +3010,15 @@ mod tests {
         finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
+    #[test]
+    fn provider_connection_admission_cap_is_explicit_and_reusable() {
+        let admissions = AtomicUsize::new(PROVIDER_CONNECTION_ADMISSION_CAP);
+        assert!(!try_admit_provider_connection(&admissions));
+        admissions.fetch_sub(1, Ordering::AcqRel);
+        assert!(try_admit_provider_connection(&admissions));
+        assert_eq!(admissions.load(Ordering::Acquire), PROVIDER_CONNECTION_ADMISSION_CAP);
+    }
+
     fn cache_test_connection(
         runtime: &mut ProviderMachineRuntime,
         connection_id: &str,
@@ -2999,12 +3037,14 @@ mod tests {
         runtime.connections.register(key, connector);
         runtime.connection_registry.lock().unwrap().insert(key, open.clone());
         let lease = close_on_drop.then(|| {
+            runtime.connection_admissions.fetch_add(1, Ordering::AcqRel);
             Box::new(ProviderMachineConnectionLease {
                 open: open.clone(),
                 key,
                 registry: runtime.connection_registry.clone(),
                 closing: runtime.closing_connections.clone(),
                 close_worker: runtime.close_worker.clone(),
+                admissions: runtime.connection_admissions.clone(),
             }) as Box<dyn crate::machine_runtime::MachineConnectionLease>
         });
         runtime.connections.insert_ready(
@@ -6003,6 +6043,7 @@ mod tests {
             runtime.connection_registry.clone(),
             runtime.closing_connections.clone(),
             runtime.close_worker.clone(),
+            runtime.connection_admissions.clone(),
         )
         .err()
         .expect("reconnect must wait for the previous provider close");
