@@ -17,6 +17,9 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # main window. Add to this set only when a window is intentionally not user
 # closable.
 IGNORED_IDENTIFIERS = {
+    # Hidden AuthenticationServices presentation fallback; it never becomes
+    # key/main and must not take Cmd+W away from the active user window.
+    "cmux.browserWebAuthnFallbackPresentation",
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
     # Hidden WebKit hover-prewarm host; it is not user closable and must not own Cmd+W.

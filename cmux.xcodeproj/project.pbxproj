@@ -508,6 +508,7 @@
 		A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */; };
 		A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */; };
 		A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */; };
+		A75030010000000000000001 /* BrowserWebAuthnFallbackPresentationWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75030010000000000000002 /* BrowserWebAuthnFallbackPresentationWindow.swift */; };
 		A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */; };
 		A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */; };
 		A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007427 /* BrowserWebAuthnRequestParser.swift */; };
@@ -3640,6 +3641,7 @@
 		A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationRequest.swift; sourceTree = "<group>"; };
 		A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialDescriptor.swift; sourceTree = "<group>"; };
 		A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialParameter.swift; sourceTree = "<group>"; };
+		A75030010000000000000002 /* BrowserWebAuthnFallbackPresentationWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnFallbackPresentationWindow.swift; sourceTree = "<group>"; };
 		A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnMessageEnvelope.swift; sourceTree = "<group>"; };
 		A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRelyingPartyDescriptor.swift; sourceTree = "<group>"; };
 		A5007427 /* BrowserWebAuthnRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRequestParser.swift; sourceTree = "<group>"; };
@@ -7941,6 +7943,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5007425 /* BrowserWebAuthnSecurityOrigin.swift */,
 				A5007427 /* BrowserWebAuthnRequestParser.swift */,
 				A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */,
+				A75030010000000000000002 /* BrowserWebAuthnFallbackPresentationWindow.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
 				A5010000000000000000001D /* BrowserWebAuthnTransport.swift */,
 				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
@@ -10156,6 +10159,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */,
 				A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */,
 				A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */,
+				A75030010000000000000001 /* BrowserWebAuthnFallbackPresentationWindow.swift in Sources */,
 				A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */,
 				A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */,
 				A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */,

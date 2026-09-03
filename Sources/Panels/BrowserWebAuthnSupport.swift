@@ -1006,12 +1006,31 @@ private final class BrowserPasskeyAuthorizationGate {
 @MainActor
 final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithReply {
     private weak var installedWebView: WKWebView?
+    private let existingPresentationWindowProvider: () -> NSWindow?
     private var activeAuthorizationController: ASAuthorizationController?
     private var activeAuthorizationContinuation: CheckedContinuation<[String: Any], Error>?
     private var activePresentationWindow: NSWindow?
+    private var fallbackPresentationWindow: BrowserWebAuthnFallbackPresentationWindow?
 
     override init() {
+        existingPresentationWindowProvider = {
+            NSApp.keyWindow ?? NSApp.mainWindow
+        }
         super.init()
+    }
+
+    init(existingPresentationWindowProvider: @escaping () -> NSWindow?) {
+        self.existingPresentationWindowProvider = existingPresentationWindowProvider
+        super.init()
+    }
+
+    deinit {
+        let window = fallbackPresentationWindow
+        // Swift 5 deinitializers are nonisolated; keep AppKit cleanup on its owner.
+        Task { @MainActor in
+            window?.orderOut(nil)
+            window?.close()
+        }
     }
 
     func install(on webView: WKWebView) {
@@ -1053,6 +1072,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         activePresentationWindow = nil
         controller?.delegate = nil
         controller?.presentationContextProvider = nil
+        retireFallbackPresentationWindow()
         if #available(macOS 13.0, *) {
             controller?.cancel()
         }
@@ -1170,7 +1190,9 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        let anchor = activePresentationWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()
+        let anchor = activePresentationWindow
+            ?? existingPresentationWindowProvider()
+            ?? reusableFallbackPresentationWindow()
         #if DEBUG
         cmuxDebugLog("webauthn.asAuth.presentationAnchor hasTitle=\(anchor.title.isEmpty ? 0 : 1) isVisible=\(anchor.isVisible) isKey=\(anchor.isKeyWindow)")
         #endif
@@ -1387,10 +1409,14 @@ private extension BrowserWebAuthnCoordinator {
     }
 
     func finishAuthorization(with result: Result<[String: Any], Error>) {
+        let controller = activeAuthorizationController
         let continuation = activeAuthorizationContinuation
         activeAuthorizationController = nil
         activeAuthorizationContinuation = nil
         activePresentationWindow = nil
+        controller?.delegate = nil
+        controller?.presentationContextProvider = nil
+        retireFallbackPresentationWindow()
 
         switch result {
         case .success(let reply):
@@ -1398,6 +1424,23 @@ private extension BrowserWebAuthnCoordinator {
         case .failure(let error):
             continuation?.resume(throwing: error)
         }
+    }
+
+    func reusableFallbackPresentationWindow() -> NSWindow {
+        if let fallbackPresentationWindow {
+            return fallbackPresentationWindow
+        }
+
+        let window = BrowserWebAuthnFallbackPresentationWindow()
+        fallbackPresentationWindow = window
+        return window
+    }
+
+    func retireFallbackPresentationWindow() {
+        guard let window = fallbackPresentationWindow else { return }
+        fallbackPresentationWindow = nil
+        window.orderOut(nil)
+        window.close()
     }
 
     func buildCreationPlan(
