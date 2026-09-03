@@ -24,16 +24,23 @@ replace that plugin: it supplies its own local MCP server and the
 `$cmux-cua` skill. Each agent wrapper repairs the app-bundled skill link in
 its agent's own discovery root before launching — `~/.claude/skills/cmux-cua`
 for Claude, `~/.agents/skills/cmux-cua` for Codex (migrating any older
-cmux-owned `~/.agents/skills/cmux-computer-use` link) — so both pickers see
-the same skill as a single plain `cmux-cua` entry. Codex's invocation-scoped
-`skills.config` injection is only a fallback for when that link cannot be
-installed; Claude has no session fallback, and the skill directory ships no
-plugin manifest — Codex treats `.claude-plugin/plugin.json` as a plugin
-manifest and would namespace the skill as `cmux-cua:cmux-cua`. No
-`npx skills add` step is required; a
-new agent session is enough after a cmux build. cmux refreshes only a symlink
-that already points at a cmux app bundle and never overwrites a user-owned
-skill directory or unrelated symlink. Set
+cmux-owned `~/.agents/skills/cmux-computer-use` link). The canonical name stays
+`cmux-cua` for compatibility, while the bundled driving skill's picker label is
+`cmux-cua (macOS driver)`. That label is an explicit, path-specific identity
+when a project or user skill also declares `cmux-cua`; Codex keeps its normal
+project-before-user ordering for a bare `$cmux-cua` mention, and cmux never
+rewrites either root. The separate HQ build/E2E skill uses `$cmux-cua-build`
+(Issue #402); an alias at the old name would recreate this collision.
+
+Codex's invocation-scoped `skills.config` injection is only a fallback for
+when the durable link cannot be installed; picker presentation of that
+session-only path remains Codex-owned. Claude has no session fallback, and the
+skill directory ships no plugin manifest — Codex treats
+`.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill
+as `cmux-cua:cmux-cua`. No `npx skills add` step is required; a new agent
+session is enough after a cmux build. cmux refreshes only a symlink that
+already points at a cmux app bundle and never overwrites a user-owned skill
+directory or unrelated symlink. Set
 `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` for a strictly session-local launch.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
