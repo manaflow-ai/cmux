@@ -44,7 +44,22 @@ async fn bridge_to_daemon(net: &WgNet, port: u16, daemon: SocketAddr) {
 }
 
 #[tokio::test]
-async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
+async fn invitation_enrolls_over_a_wireguard_dialed_websocket_ipv6() {
+    enroll_over_tunnel(Family::V6).await;
+}
+
+#[tokio::test]
+async fn invitation_enrolls_over_a_wireguard_dialed_websocket_ipv4() {
+    enroll_over_tunnel(Family::V4).await;
+}
+
+#[derive(Clone, Copy)]
+enum Family {
+    V4,
+    V6,
+}
+
+async fn enroll_over_tunnel(family: Family) {
     let state = tempdir().unwrap();
     let auth = AuthDatabase::load_or_create(state.path(), "wireguard-test", false).unwrap();
     let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
@@ -52,15 +67,27 @@ async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
         .await
         .unwrap();
 
-    let LoopbackPair { client, server: network, client_socket, server_socket, server_v6, .. } =
-        loopback_pair().await.unwrap();
+    let LoopbackPair {
+        client,
+        server: network,
+        client_socket,
+        server_socket,
+        server_v4,
+        server_v6,
+        ..
+    } = loopback_pair().await.unwrap();
     let network = WgNet::start(network, server_socket).await.unwrap();
     bridge_to_daemon(&network, 1337, server.local_addr()).await;
     let tunnel = Arc::new(WgNet::start(client, client_socket).await.unwrap());
 
     // The route is the machine's private address: nothing on this host
-    // listens there, so only the tunnel can complete the dial.
-    let endpoint = Url::parse(&format!("ws://[{server_v6}]:1337/v1/link")).unwrap();
+    // listens there, so only the tunnel can complete the dial. Cloud routes
+    // are IPv4 today and were IPv6 before, so both must work.
+    let daemon_address = match family {
+        Family::V4 => SocketAddr::new(server_v4, 1337),
+        Family::V6 => SocketAddr::new(server_v6, 1337),
+    };
+    let endpoint = Url::parse(&format!("ws://{daemon_address}/v1/link")).unwrap();
     let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
     let approver = tokio::spawn({
         let auth = auth.clone();
