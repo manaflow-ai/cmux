@@ -309,7 +309,7 @@ Every outbound call (Freestyle, Stack Auth, Stripe, PostHog, Slack, Postgres, ..
 | where _time > ago(1h) and isnotempty(['attributes.custom']['cmux.dep.name'])
 | extend status = toint(coalesce(['attributes.custom']['http.status_code'], ['attributes.custom']['http.response.status_code']))
 | summarize calls = count(), failures = countif(status >= 400 or isnotempty(error)),
-            p50_ms = percentile(duration, 50) / 1ms, p95_ms = percentile(duration, 95) / 1ms
+            p50_ms = round(percentile(duration, 50) / 1000000, 0), p95_ms = round(percentile(duration, 95) / 1000000, 0)
   by dep = tostring(['attributes.custom']['cmux.dep.name']), route = tostring(['attributes.custom']['cmux.dep.route'])
 | extend failure_rate = round(100.0 * failures / calls, 2)
 | order by failures desc, calls desc
