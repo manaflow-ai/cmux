@@ -15,7 +15,7 @@
 //! probe failed so a degraded environment cannot pass as a measurement.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
