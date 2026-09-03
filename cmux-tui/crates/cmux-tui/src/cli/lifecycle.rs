@@ -17,6 +17,7 @@ pub(super) struct ServerPlan {
 #[derive(Clone, Debug)]
 pub(super) enum ServerAction {
     Status,
+    Stats,
     Ensure,
     Stop { force: bool },
     ReloadConfig,
@@ -189,6 +190,23 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }),
             global.output,
         ),
+        ServerAction::Stats => {
+            match exchange(&mut connection, json!({"id":2,"cmd":"server-stats"}), deadline) {
+                Ok(stats) => print_success(stats, global.output),
+                Err(ExchangeError::Rejected) => local_error(
+                    "server.stats_unsupported",
+                    crate::localization::catalog().local_server.stats_unsupported,
+                    global.output,
+                    1,
+                ),
+                Err(_) => local_error(
+                    "server.stats_failed",
+                    crate::localization::catalog().local_server.communication_failed,
+                    global.output,
+                    3,
+                ),
+            }
+        }
         ServerAction::ReloadConfig => {
             let result =
                 match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"}), deadline) {

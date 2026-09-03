@@ -180,6 +180,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,

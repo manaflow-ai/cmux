@@ -311,6 +311,62 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
+### server-stats
+
+| Field | Value |
+| --- | --- |
+| name | `server-stats` |
+| status | implemented |
+| since | protocol 12, capability `server-stats-v1` |
+
+Reports where the daemon spends its time so an operator or agent can locate a
+bottleneck without sampling the process: registry mutex contention with the
+source site that holds it, journal writer batch shape and commit latency, and
+control-socket admission. Counters accumulate since daemon start. The command
+reads atomics and never touches SQLite or the journal, so it is safe to poll.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  registry_lock:object{
+    wait_us:histogram, hold_us:histogram,
+    contended_acquisitions:uint64, stalls:uint64,
+    holder?:object{site:string,held_for_us:uint64}|null,
+    last_stall?:object{waiter:string,blocker?:string|null,waited_us:uint64}|null,
+    top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
+  },
+  journal_writer?:object{
+    batches:uint64, terminal_events:uint64, durable_events:uint64,
+    batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
+    receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,
+    terminal_queued:uint64, durable_queued:uint64,
+    phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
+  }|null,
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+}
+histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+```
+
+`schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
+events. Percentiles are log-linear bucket upper bounds and overestimate by at
+most 25%. `site` values are `file:line` of the code that acquired the registry
+lock. `contended_acquisitions` counts waits of at least 1 ms and `stalls`
+counts waits of at least 100 ms. `journal_writer` is `null` for ephemeral
+sessions. `connections.refused` counts sockets dropped at `limit`; for hook
+producers each one is a lost event.
+
+Errors: `bad request: ...`.
+
+CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+stdout renders the object as nested `key: value` lines; `--json` prints the
+exact result object. Against a server without `server-stats-v1` the CLI exits
+1 with `server.stats_unsupported`.
+
 ### set-client-info
 
 | Field | Value |

@@ -107,6 +107,8 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises the `server-stats` command.
+pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
@@ -167,6 +169,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
         MACHINE_USAGE_CAPABILITY,
+        SERVER_STATS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -628,6 +631,10 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Report where this daemon spends its time: registry lock contention
+    /// with holder sites, journal writer batch metrics, and connection
+    /// admission. Owner-only diagnostics, never journaled.
+    ServerStats,
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -2861,21 +2868,30 @@ struct ConnectionPermit {
     _lease: Arc<ConnectionPermitLease>,
 }
 
-struct ConnectionPermitLease(Arc<AtomicU64>);
+struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
 
 impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.0.release();
     }
 }
 
-fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
-    active
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
-        })
-        .ok()
-        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
+fn claim_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    connections
+        .try_claim(MAX_SERVER_CONNECTIONS as u64)
+        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+}
+
+fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
+    crate::diagnostics::ServerStatsSnapshot {
+        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        registry_lock: mux.registry_lock_stats(),
+        journal_writer: mux.journal_writer_stats(),
+        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
+    }
 }
 
 impl BoundedOutbound {
@@ -4976,7 +4992,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));
     let server_shutdown = shutdown.clone();
@@ -5064,7 +5080,7 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
@@ -11100,6 +11116,7 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::ServerStats => Ok(serde_json::to_value(server_stats(mux))?),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -18008,13 +18025,42 @@ mod tests {
 
     #[test]
     fn server_connection_permits_enforce_and_release_the_cap() {
-        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
-        assert!(claim_connection(&active).is_none());
-        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
-        let permit = claim_connection(&active).expect("last connection slot");
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
-        drop(permit);
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+        let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+        let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+            .map(|_| claim_connection(&connections).expect("slot below the cap"))
+            .collect();
+        assert!(claim_connection(&connections).is_none());
+        assert_eq!(connections.active(), MAX_SERVER_CONNECTIONS as u64);
+        drop(permits);
+        assert_eq!(connections.active(), 0);
+        let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+        assert_eq!(snapshot.refused, 1);
+        assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
+    }
+
+    #[test]
+    fn server_stats_report_lock_writer_and_connection_metrics() {
+        let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c == SERVER_STATS_CAPABILITY)
+        );
+        // Any registry use records a hold at its call site.
+        let _ = mux.registry_identity();
+        let stats = handle_command(&mux, 0, Command::ServerStats, &test_writer()).unwrap();
+        assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
+        assert!(stats["uptime_ms"].is_u64());
+        let lock = &stats["registry_lock"];
+        assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
+        assert!(lock["holder"].is_null(), "{lock}");
+        let site = lock["top_sites"][0]["site"].as_str().unwrap();
+        assert!(site.contains("mux.rs:"), "{site}");
+        assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
+        assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
     }
 
     #[test]
@@ -18501,7 +18547,7 @@ mod tests {
 
     #[test]
     fn scheduler_retains_connection_permit_until_dispatcher_exit() {
-        let active = Arc::new(AtomicU64::new(0));
+        let active = Arc::new(crate::diagnostics::ConnectionStats::default());
         let permit = claim_connection(&active).unwrap();
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
             Arc::new(ServerSurfaceOperationAdmission::default()),
@@ -18518,14 +18564,14 @@ mod tests {
 
         assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
         assert_eq!(
-            active.load(Ordering::Acquire),
+            active.active(),
             1,
             "timed-out shutdown released admission while its dispatcher was live"
         );
 
         release_tx.send(()).unwrap();
         assert!(scheduler.close_and_wait(Duration::from_secs(1)));
-        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(active.active(), 0);
     }
 
     #[test]

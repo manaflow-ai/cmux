@@ -86,46 +86,84 @@ struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
     released: Condvar,
+    /// Contention record with `#[track_caller]` attribution, reported by
+    /// `server-stats` so lock convoys are visible without external sampling.
+    stats: crate::diagnostics::LockStats,
 }
 
 impl<T> SignaledMutex<T> {
     fn new(value: T) -> Self {
-        Self { value: Mutex::new(value), release_epoch: Mutex::new(0), released: Condvar::new() }
-    }
-
-    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.lock() {
-            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
-            Err(error) => Err(PoisonError::new(SignaledMutexGuard {
-                value: Some(error.into_inner()),
-                owner: self,
-            })),
+        Self {
+            value: Mutex::new(value),
+            release_epoch: Mutex::new(0),
+            released: Condvar::new(),
+            stats: crate::diagnostics::LockStats::new(),
         }
     }
 
-    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.try_lock() {
-            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(error)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(SignaledMutexGuard {
-                    value: Some(error.into_inner()),
-                    owner: self,
-                })))
+    fn stats(&self) -> &crate::diagnostics::LockStats {
+        &self.stats
+    }
+
+    fn guard<'a>(
+        &'a self,
+        value: MutexGuard<'a, T>,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> SignaledMutexGuard<'a, T> {
+        self.stats.acquired(site, waited_from.elapsed(), blocker);
+        SignaledMutexGuard { value: Some(value), owner: self, site, acquired_at: Instant::now() }
+    }
+
+    #[track_caller]
+    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
+        match self.value.lock() {
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
+            Err(error) => {
+                Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
             }
         }
     }
 
+    #[cfg(test)]
+    #[track_caller]
+    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
+        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
+    }
+
+    fn try_lock_at(
+        &self,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
+        match self.value.try_lock() {
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
+            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
+                self.guard(error.into_inner(), site, waited_from, blocker),
+            ))),
+        }
+    }
+
+    #[track_caller]
     fn lock_until(&self, deadline: Instant) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
         loop {
-            match self.try_lock() {
+            match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
                 Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
                 Err(TryLockError::WouldBlock) => {}
             }
 
             let observed = *self.release_epoch.lock().unwrap();
-            match self.try_lock() {
+            match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
                 Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
                 Err(TryLockError::WouldBlock) => {}
@@ -151,6 +189,8 @@ impl<T> SignaledMutex<T> {
 struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
+    site: crate::diagnostics::LockSite,
+    acquired_at: Instant,
 }
 
 impl<T> Deref for SignaledMutexGuard<'_, T> {
@@ -170,6 +210,7 @@ impl<T> DerefMut for SignaledMutexGuard<'_, T> {
 impl<T> Drop for SignaledMutexGuard<'_, T> {
     fn drop(&mut self) {
         drop(self.value.take());
+        self.owner.stats.released(self.site, self.acquired_at.elapsed());
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.owner.released.notify_all();
@@ -2026,6 +2067,9 @@ pub struct Mux {
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
     machine_public_id: crate::resource::MachinePublicId,
+    /// Control-socket admission counters, shared with the accept loop.
+    connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    started_at: Instant,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -2416,6 +2460,8 @@ impl Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
+            connection_stats: Arc::default(),
+            started_at: Instant::now(),
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -5292,20 +5338,59 @@ impl Mux {
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
-        let mut registry = self
+        let stats = self.journal_ingress.stats();
+        stats.set_phase(crate::diagnostics::WriterPhase::WaitingLock);
+        let lock_wait_from = Instant::now();
+        let lock_result = self
             .workspace_registry
             .lock_until(deadline)
-            .context("waiting for the workspace registry journal writer")?;
+            .context("waiting for the workspace registry journal writer");
+        let lock_wait = lock_wait_from.elapsed();
+        let mut registry = match lock_result {
+            Ok(registry) => registry,
+            Err(error) => {
+                stats.set_phase(crate::diagnostics::WriterPhase::Idle);
+                return Err(error);
+            }
+        };
+        stats.set_phase(crate::diagnostics::WriterPhase::Committing);
+        let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
-        anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
-        let commits = registry.append_journal_ingress_events_with_deadline(
-            events,
-            deadline,
-            remaining.min(sqlite_wait_cap),
-            admit_commit,
-        )?;
+        let commits = if remaining.is_zero() {
+            Err(anyhow::anyhow!("session journal commit deadline expired"))
+        } else {
+            registry.append_journal_ingress_events_with_deadline(
+                events,
+                deadline,
+                remaining.min(sqlite_wait_cap),
+                admit_commit,
+            )
+        };
+        drop(registry);
+        stats.commit_finished(lock_wait, commit_from.elapsed());
+        stats.set_phase(crate::diagnostics::WriterPhase::Idle);
+        let commits = commits?;
         self.publish_journal_event();
         Ok(commits)
+    }
+
+    /// Registry mutex contention, see [`crate::diagnostics::LockStats`].
+    pub fn registry_lock_stats(&self) -> crate::diagnostics::LockStatsSnapshot {
+        self.workspace_registry.stats().snapshot()
+    }
+
+    /// Journal writer metrics, `None` for ephemeral sessions without a
+    /// durable journal.
+    pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {
+        self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
+    }
+
+    pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
+        &self.connection_stats
+    }
+
+    pub fn uptime(&self) -> Duration {
+        self.started_at.elapsed()
     }
 
     #[cfg(test)]
@@ -17565,6 +17650,52 @@ mod tests {
     use crate::workspace_registry::{
         RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
     };
+
+    #[test]
+    fn signaled_mutex_records_holder_site_wait_and_hold() {
+        let mutex = SignaledMutex::new(0u32);
+        assert!(mutex.stats().snapshot().holder.is_none());
+        {
+            let lock_line = line!() + 1;
+            let mut guard = mutex.lock().unwrap();
+            *guard += 1;
+            let snapshot = mutex.stats().snapshot();
+            let holder = snapshot.holder.expect("held lock reports its holder");
+            assert!(holder.site.ends_with(&format!("mux.rs:{lock_line}")), "{}", holder.site);
+        }
+        let snapshot = mutex.stats().snapshot();
+        assert!(snapshot.holder.is_none());
+        assert_eq!(snapshot.hold_us.count, 1);
+        assert_eq!(snapshot.wait_us.count, 1);
+        assert_eq!(snapshot.top_sites.len(), 1);
+        assert_eq!(snapshot.top_sites[0].acquisitions, 1);
+
+        // A waiter that outlasts the stall threshold names the site that
+        // held the lock when its wait began.
+        let mutex = Arc::new(SignaledMutex::new(0u32));
+        let held = mutex.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv().unwrap();
+        let waiter = mutex.clone();
+        let waiting = std::thread::spawn(move || {
+            let _guard = waiter.lock_until(Instant::now() + Duration::from_secs(5)).unwrap();
+        });
+        std::thread::sleep(crate::diagnostics::LOCK_STALL_THRESHOLD + Duration::from_millis(20));
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        waiting.join().unwrap();
+        let snapshot = mutex.stats().snapshot();
+        assert_eq!(snapshot.stalls, 1, "{snapshot:?}");
+        let stall = snapshot.last_stall.expect("stall recorded");
+        assert!(stall.blocker.as_deref().is_some_and(|site| site.contains("mux.rs:")), "{stall:?}");
+        assert!(stall.waited_us >= 100_000);
+    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())

@@ -169,7 +169,26 @@ pub(crate) enum JournalIngressEvent {
     },
 }
 
+/// Which bounded ingress lane an event travels on. Terminal bytes and their
+/// barriers never wait behind producers, and producers never wait behind a
+/// large output burst.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JournalLane {
+    Terminal,
+    Durable,
+}
+
 impl JournalIngressEvent {
+    pub(crate) fn lane(&self) -> JournalLane {
+        match self {
+            Self::TerminalBarrier
+            | Self::TerminalOutput { .. }
+            | Self::TerminalResize { .. }
+            | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
+            Self::Frontend { .. } | Self::Producer { .. } => JournalLane::Durable,
+        }
+    }
+
     fn estimated_bytes(&self) -> usize {
         match self {
             Self::TerminalBarrier => 0,
@@ -411,6 +430,7 @@ pub(crate) enum JournalIngressTrySendError {
 
 #[derive(Default)]
 struct JournalIngressState {
+    stats: crate::diagnostics::JournalWriterStats,
     failure: Mutex<Option<String>>,
     enqueue_admission: Mutex<()>,
     closed: AtomicBool,
@@ -604,6 +624,7 @@ impl JournalIngressSender {
         let space_epoch = self.state.queue_space_epoch();
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
+                self.state.stats.enqueued(JournalLane::Terminal);
                 if let Some(wake) = &self.wake_sender {
                     match wake.try_send(()) {
                         Ok(()) | Err(TrySendError::Full(())) => {}
@@ -651,12 +672,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for session journal durability",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -697,12 +721,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for a session journal producer receipt",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) const fn enabled(&self) -> bool {
@@ -807,11 +834,16 @@ impl JournalIngressSender {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
     }
 
+    pub(crate) fn stats(&self) -> &crate::diagnostics::JournalWriterStats {
+        &self.state.stats
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             let space_epoch = self.state.queue_space_epoch();
@@ -824,6 +856,7 @@ impl JournalIngressSender {
             };
             match result {
                 Ok(()) => {
+                    self.state.stats.enqueued(lane);
                     if let Some(wake) = &self.wake_sender {
                         match wake.try_send(()) {
                             Ok(()) | Err(TrySendError::Full(())) => {}
@@ -847,6 +880,7 @@ impl JournalIngressSender {
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             if Instant::now() >= deadline {
@@ -871,6 +905,7 @@ impl JournalIngressSender {
             };
             match result {
                 Ok(()) => {
+                    self.state.stats.enqueued(lane);
                     if let Some(wake) = &self.wake_sender {
                         match wake.try_send(()) {
                             Ok(()) | Err(TrySendError::Full(())) => {}
@@ -998,10 +1033,17 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 ) {
                     Ok(commits) => {
+                        let terminal_events =
+                            events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
+                        receivers
+                            .state
+                            .stats
+                            .batch_committed(terminal_events, events.len() - terminal_events);
                         complete_batch_success(&batch, commits);
                         break;
                     }
                     Err(error) => {
+                        receivers.state.stats.commit_failed();
                         let summary = format!("{error:#}");
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
@@ -1114,6 +1156,7 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
+    receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
         JOURNAL_DURABLE_WAIT.as_millis()
@@ -1154,15 +1197,17 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         while receivers.wake.try_recv().is_ok() {}
         let mut batch =
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
-        let mut drained =
+        let terminal_drained =
             drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
-        drained |= drain_lane(
+        let durable_drained = drain_lane(
             &receivers.durable,
             &mut batch,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
-        if drained {
+        receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+        receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+        if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
         if !batch.is_empty() {
@@ -1182,7 +1227,7 @@ fn drain_lane(
     batch: &mut Vec<QueuedJournalEvent>,
     limit: usize,
     byte_limit: usize,
-) -> bool {
+) -> usize {
     let mut drained = 0;
     let mut drained_bytes = 0_usize;
     while drained < limit && drained_bytes < byte_limit {
@@ -1200,7 +1245,7 @@ fn drain_lane(
             batch.push(next);
         }
     }
-    drained != 0
+    drained
 }
 
 fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
