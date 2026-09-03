@@ -418,14 +418,17 @@ impl CmuxClient {
             }
             ensure_success(metadata.name, &message)?;
             let initial = decode_response(metadata.name, message.clone())?;
-            return Ok((initial, CmuxStream {
-                connection,
-                buffered,
-                control,
-                terminal_event: metadata.stream.and_then(|stream| stream.terminal_event),
-                max_queued_events: self.config.max_queued_events,
-                finished: false,
-            }));
+            return Ok((
+                initial,
+                CmuxStream {
+                    connection,
+                    buffered,
+                    control,
+                    terminal_event: metadata.stream.and_then(|stream| stream.terminal_event),
+                    max_queued_events: self.config.max_queued_events,
+                    finished: false,
+                },
+            ));
         }
     }
 

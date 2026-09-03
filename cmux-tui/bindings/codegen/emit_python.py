@@ -1029,7 +1029,10 @@ __all__ = [
                 python_name = _snake(name)
                 value = python_name
                 if conditional_stream and name == command["stream"]["mode_field"]:
-                    value = "False"
+                    # The unary entrypoint must not opt into the follow stream.
+                    # Omitting the optional mode field preserves the protocol's
+                    # default false value and keeps default requests minimal.
+                    value = "MISSING"
                 if name == "bytes":
                     value = (
                         "(base64.b64encode(bytes_data).decode('ascii') "
