@@ -193,7 +193,7 @@ Server-owned records are authoritative for VM ownership, provider VM id, private
 
 ## Customer domains
 
-Generated names are one-label children of the CMUX-owned generated zone, `<random>.cmux.sh` by default (`CMUX_VM_PUBLICATION_GENERATED_DOMAIN` overrides it per deployment). They need no customer DNS proof: CMUX reserves a name and reconciles its TLS rule immediately. The zone itself is a one-time operator setup in the CMUX Freestyle account, done exactly like a customer zone: verify `cmux.sh`, `CNAME * -> beta-web.freestyle.sh`, delegate `_acme-challenge` to `beta-dns.freestyle.sh`, and request the `*.cmux.sh` wildcard certificate. A generated publication only activates once that account certificate covers it. Setting the zone to `style.dev` instead uses Freestyle's free platform zone and its standing wildcard certificate with no setup. The generated zone apex, everything below it, and one-label `style.dev` names are reserved and rejected as custom hostnames.
+Generated names are friendly one-label children of the CMUX-owned generated zone, such as `laughing-green-elephants.cmux.sh` by default; users cannot choose a label under that zone, and a collision with another account's name mints a fresh one (with a short random suffix after a few tries). The zone is `cmux.sh` (`CMUX_VM_PUBLICATION_GENERATED_DOMAIN` overrides it per deployment). They need no customer DNS proof: CMUX reserves a name and reconciles its TLS rule immediately. The zone itself is a one-time operator setup in the CMUX Freestyle account, done exactly like a customer zone: verify `cmux.sh`, `CNAME * -> beta-web.freestyle.sh`, delegate `_acme-challenge` to `beta-dns.freestyle.sh`, and request the `*.cmux.sh` wildcard certificate. A generated publication only activates once that account certificate covers it. Setting the zone to `style.dev` instead uses Freestyle's free platform zone and its standing wildcard certificate with no setup. The generated zone apex, everything below it, and one-label `style.dev` names are reserved and rejected as custom hostnames.
 
 For a customer zone and its publication hostnames:
 
@@ -212,7 +212,8 @@ Freestyle verification is provider-account scoped and parent ownership covers su
 The CLI surface is:
 
 ```text
-cmux cloud domains list
+cmux cloud domains list                # publications: hostname -> VM port
+cmux cloud domains custom              # the custom zones you own, apart from publications
 cmux cloud domains publish <vm> <port> [--domain <hostname>]
   [--access personal|team|public] [--team <team-id>]
 cmux cloud domains verify <publication-id>

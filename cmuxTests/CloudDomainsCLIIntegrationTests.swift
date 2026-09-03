@@ -147,6 +147,77 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func cloudDomainsCustomListsOwnedZonesApartFromPublications() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-domains-custom-\(UUID().uuidString.prefix(8)).sock"
+        let pendingZone: [String: Any] = [
+            "id": "zone-1",
+            "hostname": "example.com",
+            "verificationState": "pending",
+            "certificateState": "missing",
+            "createdAt": "2026-09-02T12:00:00.000Z",
+            "dnsInstructions": [
+                "verification": [
+                    "purpose": "verification",
+                    "recordTypes": ["TXT"],
+                    "name": "_cmux.example.com",
+                    "value": "cmux-token",
+                ],
+                "certificate": [
+                    "purpose": "certificate",
+                    "recordTypes": ["NS"],
+                    "name": "_acme-challenge.example.com",
+                    "value": "beta-dns.freestyle.sh",
+                ],
+            ],
+            "publications": [
+                ["id": "pub-1", "hostname": "preview.example.com", "state": "provisioning"],
+            ],
+        ]
+        let verifiedZone: [String: Any] = [
+            "id": "zone-2",
+            "hostname": "verified.example.net",
+            "verificationState": "verified",
+            "certificateState": "active",
+            "createdAt": NSNull(),
+            "dnsInstructions": NSNull(),
+            "publications": [],
+        ]
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try cloudDomainsV2Response(result: ["domains": [pendingZone, verifiedZone]])
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["cloud", "domains", "custom"],
+            environment: cloudDomainsEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(
+            result.stdout.contains(
+                "example.com\nid: zone-1\nverification: pending\ncertificate: missing\n"
+                    + "publications: preview.example.com (provisioning)"
+            )
+        )
+        #expect(result.stdout.contains("TXT _cmux.example.com cmux-token"))
+        #expect(result.stdout.contains("NS _acme-challenge.example.com beta-dns.freestyle.sh"))
+        #expect(result.stdout.contains("cmux cloud domains verify pub-1"))
+        #expect(
+            result.stdout.contains(
+                "verified.example.net\nid: zone-2\nverification: verified\ncertificate: active\n"
+                    + "publications: none"
+            )
+        )
+        #expect(!result.stdout.contains("verified.example.net beta-web"))
+        let request = try cloudDomainsRequest(from: try #require(responder.receivedRequests.first))
+        #expect(request["method"] as? String == "vm.domain_list")
+    }
+
     private func cloudDomainsEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {

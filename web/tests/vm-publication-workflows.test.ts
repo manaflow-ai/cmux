@@ -19,10 +19,12 @@ import {
 import {
   createPublication,
   deletePublication,
+  listCustomDomains,
   PublicationConfigurationError,
   updatePublicationAccess,
   verifyPublication,
 } from "../services/vm-publications/workflows";
+import { handleCustomDomainList } from "../app/api/vm/domains/route";
 import {
   handlePublicationCreate,
   handlePublicationList,
@@ -227,8 +229,8 @@ describe("Cloud VM publication workflows", () => {
     await attempt({});
     await attempt({ generatedDomain: "Preview.Example.Org." });
     expect(reserved).toHaveLength(2);
-    expect(reserved[0]).toMatch(/^[0-9a-f]{20}\.cmux\.sh$/u);
-    expect(reserved[1]).toMatch(/^[0-9a-f]{20}\.preview\.example\.org$/u);
+    expect(reserved[0]).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.cmux\.sh$/u);
+    expect(reserved[1]).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.preview\.example\.org$/u);
 
     for (const hostname of [
       "cmux.sh",
@@ -256,6 +258,155 @@ describe("Cloud VM publication workflows", () => {
       reason: "invalid_generated_domain",
     });
     expect(reserved).toHaveLength(3);
+  });
+
+  test("mints another friendly name when a generated one is already claimed", async () => {
+    const reserved: string[] = [];
+    let collisions = 4;
+    const repository = fakeRepository({
+      reservePublicationWithNewDomain: (input) => {
+        reserved.push(input.hostname);
+        if (collisions > 0) {
+          collisions -= 1;
+          return Effect.fail(new PublicationConflictError({ reason: "hostname_taken" }));
+        }
+        return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
+      },
+    });
+    const attempt = (overrides: { hostname?: string } = {}) =>
+      Effect.runPromise(Effect.either(createPublication({
+        principal: { userId: "owner-1", teamIds: [] },
+        providerVmId: "vm-provider-1",
+        port: 3_000,
+        accessMode: "public",
+        now: NOW,
+        ...overrides,
+      }).pipe(
+        Effect.provideService(CloudVmPublicationRepository, repository),
+        Effect.provideService(VmPublicationProvider, fakeProvider({})),
+      )));
+
+    const result = await attempt();
+    expect(result._tag === "Left" ? result.left : null).toMatchObject({
+      _tag: "PublicationNotFoundError",
+      resource: "vm",
+    });
+    expect(reserved).toHaveLength(5);
+    expect(new Set(reserved).size).toBe(5);
+    for (const hostname of reserved.slice(0, 3)) {
+      expect(hostname).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.cmux\.sh$/u);
+    }
+    for (const hostname of reserved.slice(3)) {
+      expect(hostname).toMatch(/^[a-z]+-[a-z]+-[a-z]+-[0-9a-f]{4}\.cmux\.sh$/u);
+    }
+
+    // A zone that never yields gives up with the conflict instead of looping.
+    reserved.length = 0;
+    collisions = Number.POSITIVE_INFINITY;
+    const exhausted = await attempt();
+    expect(exhausted._tag === "Left" ? exhausted.left : null).toMatchObject({
+      _tag: "PublicationConflictError",
+      reason: "hostname_taken",
+    });
+    expect(reserved).toHaveLength(6);
+
+    // A customer-chosen hostname is theirs to pick; its conflict is reported once.
+    reserved.length = 0;
+    const customRepository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([]),
+      reservePublicationWithNewDomain: (input) => {
+        reserved.push(input.hostname);
+        return Effect.fail(new PublicationConflictError({ reason: "hostname_taken" }));
+      },
+    });
+    const custom = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      hostname: "preview.example.com",
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, customRepository),
+      Effect.provideService(VmPublicationProvider, fakeProvider({})),
+    )));
+    expect(custom._tag === "Left" ? custom.left : null).toMatchObject({
+      reason: "hostname_taken",
+    });
+    expect(reserved).toEqual(["preview.example.com"]);
+  });
+
+  test("lists custom zones apart from publications with zone-level DNS work", async () => {
+    const pendingZone = domain("custom", {
+      id: "zone-pending",
+      hostname: "example.com",
+      providerVerificationId: "verification-zone",
+      verificationState: "pending",
+      certificateState: "missing",
+      verificationRecords: [
+        { purpose: "verification", recordTypes: ["TXT"], name: "_cmux.example.com", value: "token" },
+        { purpose: "routing", recordTypes: ["CNAME"], name: "example.com", value: "edge" },
+        { purpose: "certificate", recordTypes: ["NS"], name: "_acme-challenge.example.com", value: "dns" },
+      ],
+    });
+    const verifiedZone = domain("custom", {
+      id: "zone-verified",
+      hostname: "verified.example.net",
+      verificationState: "verified",
+      certificateState: "active",
+      verificationRecords: [],
+    });
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([domain("generated"), pendingZone, verifiedZone]),
+      listOwnedPublications: () => Effect.succeed([
+        target(publication("public", {
+          id: "publication-live",
+          domainId: pendingZone.id,
+          hostname: "app.example.com",
+          state: "provisioning",
+        }), pendingZone),
+        target(publication("public", {
+          id: "publication-gone",
+          domainId: pendingZone.id,
+          hostname: "old.example.com",
+          state: "disabled",
+          disabledAt: NOW,
+        }), pendingZone),
+        target(publication("public"), domain("generated")),
+      ]),
+    });
+
+    const domains = await run(
+      listCustomDomains({ principal: { userId: "owner-1", teamIds: [] } }),
+      repository,
+      fakeProvider({}),
+    );
+
+    expect(domains).toEqual([
+      {
+        id: "zone-pending",
+        hostname: "example.com",
+        verificationState: "pending",
+        certificateState: "missing",
+        createdAt: NOW.toISOString(),
+        dnsInstructions: {
+          verification: pendingZone.verificationRecords[0],
+          certificate: pendingZone.verificationRecords[2],
+        },
+        publications: [
+          { id: "publication-live", hostname: "app.example.com", state: "provisioning" },
+        ],
+      },
+      {
+        id: "zone-verified",
+        hostname: "verified.example.net",
+        verificationState: "verified",
+        certificateState: "active",
+        createdAt: NOW.toISOString(),
+        dnsInstructions: null,
+        publications: [],
+      },
+    ]);
   });
 
   test("prefers a verified covering zone over a longer pending one and forwards the VM account scope", async () => {
@@ -1358,6 +1509,25 @@ describe("Cloud VM publication REST adapters", () => {
     );
     expect(createResponse.status).toBe(201);
     expect(await createResponse.json()).toEqual({ publication: dto });
+  });
+
+  test("serves the custom domain list under its own envelope", async () => {
+    const dto = {
+      id: "zone-1",
+      hostname: "example.com",
+      verificationState: "verified" as const,
+      certificateState: "active" as const,
+      createdAt: NOW.toISOString(),
+      dnsInstructions: null,
+      publications: [],
+    };
+    const runner: PublicationWorkflowRunner = async <A>() => [dto] as A;
+    const response = await handleCustomDomainList({
+      principal: { userId: "owner-1", teamIds: [] },
+      run: runner,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ domains: [dto] });
   });
 
   test("mints generated names under cmux.sh unless the deployment overrides the zone", () => {

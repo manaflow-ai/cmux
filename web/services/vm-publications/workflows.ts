@@ -25,6 +25,7 @@ import {
   type PublicationDomainVerification,
   type VmPublicationProviderShape,
 } from "./provider";
+import { friendlyPublicationLabel } from "./friendlyNames";
 import { normalizePublicationHostname } from "./security";
 
 const FORWARD_AUTH_LEASE_MS = 30_000;
@@ -61,6 +62,25 @@ export type PublicationVerificationDto = {
     readonly routing: CloudVmDomainVerificationRecord;
     readonly certificate: CloudVmDomainVerificationRecord;
   };
+};
+
+/** One custom zone an account owns, listed apart from the publications routed through it. */
+export type CustomDomainDto = {
+  readonly id: string;
+  readonly hostname: string;
+  readonly verificationState: CloudVmDomainRow["verificationState"];
+  readonly certificateState: CloudVmDomainRow["certificateState"];
+  readonly createdAt: string;
+  /** Zone-level proof and certificate delegation; per-hostname routing records live on publications. */
+  readonly dnsInstructions: {
+    readonly verification: CloudVmDomainVerificationRecord;
+    readonly certificate: CloudVmDomainVerificationRecord;
+  } | null;
+  readonly publications: readonly {
+    readonly id: string;
+    readonly hostname: string;
+    readonly state: CloudVmPublicationRow["state"];
+  }[];
 };
 
 export type PublicationDto = {
@@ -147,6 +167,45 @@ export function listPublications(input: {
   });
 }
 
+export function listCustomDomains(input: {
+  readonly principal: PublicationPrincipal;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    const domains = yield* repository.listOwnedDomains(input.principal.userId);
+    const targets = yield* repository.listOwnedPublications(input.principal.userId);
+    return domains
+      .filter((domain) => domain.kind === "custom")
+      .map((domain): CustomDomainDto => {
+        const verification = domain.verificationRecords.find(
+          (record) => record.purpose === "verification",
+        );
+        const certificate = domain.verificationRecords.find(
+          (record) => record.purpose === "certificate",
+        );
+        return {
+          id: domain.id,
+          hostname: domain.hostname,
+          verificationState: domain.verificationState,
+          certificateState: domain.certificateState,
+          createdAt: domain.createdAt.toISOString(),
+          dnsInstructions: verification && certificate
+            ? { verification, certificate }
+            : null,
+          publications: targets
+            .filter((target) =>
+              target.domain.id === domain.id && target.publication.state !== "disabled"
+            )
+            .map((target) => ({
+              id: target.publication.id,
+              hostname: target.publication.hostname,
+              state: target.publication.state,
+            })),
+        };
+      });
+  });
+}
+
 export function createPublication(input: {
   readonly principal: PublicationPrincipal;
   readonly providerVmId: string;
@@ -182,45 +241,18 @@ export function createPublication(input: {
       input.generatedDomain,
     );
     const isCustom = input.hostname !== undefined;
-    const hostname = yield* normalizedRequestedHostname(
-      input.hostname ??
-        input.generatedHostname ??
-        generatedPublicationHostname(generatedDomain),
-      isCustom,
+    let target = yield* reservePublicationTarget({
+      repository,
+      principal: input.principal,
+      providerId,
+      providerVmId: input.providerVmId,
+      port: input.port,
+      access,
+      hostname: input.hostname,
+      generatedHostname: input.generatedHostname,
       generatedDomain,
-    );
-    const ownedDomains = yield* repository.listOwnedDomains(input.principal.userId);
-    const coveringDomain = isCustom
-      ? longestCoveringDomain(ownedDomains, providerId, hostname)
-      : null;
-    let target = coveringDomain
-      ? yield* repository.reservePublication({
-        ownerUserId: input.principal.userId,
-        billingTeamId: input.principal.billingTeamId,
-        teamIds: input.principal.teamIds,
-        provider: providerId,
-        providerVmId: input.providerVmId,
-        domainId: coveringDomain.id,
-        hostname,
-        port: input.port,
-        accessMode: access.accessMode,
-        teamId: access.teamId,
-        now,
-      })
-      : yield* repository.reservePublicationWithNewDomain({
-        ownerUserId: input.principal.userId,
-        billingTeamId: input.principal.billingTeamId,
-        teamIds: input.principal.teamIds,
-        provider: providerId,
-        providerVmId: input.providerVmId,
-        domainHostname: hostname,
-        hostname,
-        kind: isCustom ? "custom" : "generated",
-        port: input.port,
-        accessMode: access.accessMode,
-        teamId: access.teamId,
-        now,
-      });
+      now,
+    });
     let domain = target.domain;
 
     // Customer DNS must be installed before CMUX creates the ingress rule.
@@ -614,8 +646,86 @@ export function isWithinGeneratedPublicationZone(
   return hostname === generatedDomain || hostname.endsWith(`.${generatedDomain}`);
 }
 
-function generatedPublicationHostname(generatedDomain: string): string {
-  return `${randomUUID().replaceAll("-", "").slice(0, 20)}.${generatedDomain}`;
+const GENERATED_HOSTNAME_ATTEMPTS = 6;
+const GENERATED_HOSTNAME_PLAIN_ATTEMPTS = 3;
+
+/**
+ * Friendly names such as `laughing-green-elephants.cmux.sh`. After a few
+ * collisions a short random suffix keeps a busy zone minting quickly instead
+ * of exhausting the vocabulary.
+ */
+function generatedPublicationHostname(generatedDomain: string, attempt: number): string {
+  const suffix = attempt < GENERATED_HOSTNAME_PLAIN_ATTEMPTS
+    ? ""
+    : `-${randomUUID().replaceAll("-", "").slice(0, 4)}`;
+  return `${friendlyPublicationLabel()}${suffix}.${generatedDomain}`;
+}
+
+/**
+ * Reserve the publication hostname. A generated name is minted here and, when
+ * another account already holds it, minted again: the database's global
+ * hostname claim is the arbiter, and a customer never sees another tenant's
+ * random collision. Customer-chosen hostnames surface their conflicts as-is.
+ */
+function reservePublicationTarget(input: {
+  readonly repository: CloudVmPublicationRepositoryShape;
+  readonly principal: PublicationPrincipal;
+  readonly providerId: ProviderId;
+  readonly providerVmId: string;
+  readonly port: number;
+  readonly access: { readonly accessMode: CloudVmPublicationAccessMode; readonly teamId: string | null };
+  readonly hostname: string | undefined;
+  readonly generatedHostname: string | undefined;
+  readonly generatedDomain: string;
+  readonly now: Date;
+}) {
+  return Effect.gen(function* () {
+    const isCustom = input.hostname !== undefined;
+    const retryGeneratedName = !isCustom && input.generatedHostname === undefined;
+    const ownedDomains = isCustom
+      ? yield* input.repository.listOwnedDomains(input.principal.userId)
+      : [];
+    for (let attempt = 0; ; attempt++) {
+      const hostname = yield* normalizedRequestedHostname(
+        input.hostname ??
+          input.generatedHostname ??
+          generatedPublicationHostname(input.generatedDomain, attempt),
+        isCustom,
+        input.generatedDomain,
+      );
+      const coveringDomain = isCustom
+        ? longestCoveringDomain(ownedDomains, input.providerId, hostname)
+        : null;
+      const shared = {
+        ownerUserId: input.principal.userId,
+        billingTeamId: input.principal.billingTeamId,
+        teamIds: input.principal.teamIds,
+        provider: input.providerId,
+        providerVmId: input.providerVmId,
+        hostname,
+        port: input.port,
+        accessMode: input.access.accessMode,
+        teamId: input.access.teamId,
+        now: input.now,
+      } as const;
+      const reservation = yield* Effect.either(
+        coveringDomain
+          ? input.repository.reservePublication({ ...shared, domainId: coveringDomain.id })
+          : input.repository.reservePublicationWithNewDomain({
+            ...shared,
+            domainHostname: hostname,
+            kind: isCustom ? "custom" : "generated",
+          }),
+      );
+      if (reservation._tag === "Right") return reservation.right;
+      const collided =
+        reservation.left._tag === "PublicationConflictError" &&
+        reservation.left.reason === "hostname_taken";
+      if (!retryGeneratedName || !collided || attempt + 1 >= GENERATED_HOSTNAME_ATTEMPTS) {
+        return yield* Effect.fail(reservation.left);
+      }
+    }
+  });
 }
 
 function longestCoveringDomain(

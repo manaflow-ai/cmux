@@ -30,6 +30,11 @@ extension TerminalController {
                 let publications = try await VMClient.shared.listPublications()
                 return ["publications": publications.map(\.foundationObject)]
             }
+        case "vm.domain_list":
+            return v2VmCall(id: id) {
+                let domains = try await VMClient.shared.listPublicationDomains()
+                return ["domains": domains.map(\.foundationObject)]
+            }
         case "vm.publication_create":
             guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
                   !vmID.isEmpty else {

@@ -15,6 +15,7 @@ extension CMUXCLI {
         defaultValue: """
             Usage:
               cmux cloud domains [list]
+              cmux cloud domains custom
               cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]
               cmux cloud domains verify <publication-id>
               cmux cloud domains access <publication-id> <personal|team|public> [--team <id>]
@@ -51,6 +52,26 @@ extension CMUXCLI {
             for (index, publication) in publications.enumerated() {
                 if index > 0 { print("") }
                 Self.printPublication(publication)
+            }
+
+        case "custom", "zones":
+            guard arguments.isEmpty else { throw CLIError(message: Self.cloudDomainsUsage) }
+            let response = try client.sendV2(method: "vm.domain_list", responseTimeout: 60)
+            let domains = (response["domains"] as? [[String: Any]]) ?? []
+            if jsonOutput {
+                print(jsonString(["domains": domains]))
+                return
+            }
+            guard !domains.isEmpty else {
+                print(String(
+                    localized: "cli.cloud.domains.custom.empty",
+                    defaultValue: "No custom Cloud VM domains. Publish one with `cmux cloud domains publish <vm> <port> --domain <hostname>`."
+                ))
+                return
+            }
+            for (index, domain) in domains.enumerated() {
+                if index > 0 { print("") }
+                Self.printPublicationDomain(domain)
             }
 
         case "publish":
@@ -261,6 +282,59 @@ extension CMUXCLI {
             }
         }
         printPublicationVerifyHint(id: id)
+    }
+
+    /// A custom zone: its proof and certificate delegation, plus the publications
+    /// that depend on it. Routing records for each hostname print with `list`.
+    private static func printPublicationDomain(_ domain: [String: Any]) {
+        let unknown = String(
+            localized: "cli.cloud.domains.unknown",
+            defaultValue: "unknown"
+        )
+        let hostname = (domain["hostname"] as? String) ?? "?"
+        let id = (domain["id"] as? String) ?? "?"
+        let verificationState = (domain["verificationState"] as? String) ?? unknown
+        let certificateState = (domain["certificateState"] as? String) ?? unknown
+
+        print(hostname)
+        let detailsFormat = String(
+            localized: "cli.cloud.domains.custom.details",
+            defaultValue: "id: %1$@\nverification: %2$@\ncertificate: %3$@"
+        )
+        print(String(format: detailsFormat, id, verificationState, certificateState))
+
+        let publications = (domain["publications"] as? [[String: Any]]) ?? []
+        if publications.isEmpty {
+            print(String(
+                localized: "cli.cloud.domains.custom.noPublications",
+                defaultValue: "publications: none"
+            ))
+        } else {
+            let summary = publications.map { publication -> String in
+                let publicationHostname = (publication["hostname"] as? String) ?? "?"
+                let state = (publication["state"] as? String) ?? unknown
+                return "\(publicationHostname) (\(state))"
+            }.joined(separator: ", ")
+            let publicationsFormat = String(
+                localized: "cli.cloud.domains.custom.publications",
+                defaultValue: "publications: %@"
+            )
+            print(String(format: publicationsFormat, summary))
+        }
+
+        guard verificationState != "verified",
+              let instructions = domain["dnsInstructions"] as? [String: Any] else {
+            return
+        }
+        for purpose in ["verification", "certificate"] {
+            if let instruction = instructions[purpose] as? [String: Any] {
+                Self.printDNSInstruction(instruction)
+            }
+        }
+        if let pending = publications.first(where: { ($0["state"] as? String) != "active" }),
+           let pendingID = pending["id"] as? String {
+            printPublicationVerifyHint(id: pendingID)
+        }
     }
 
     private static func printPublicationVerifyHint(id: String) {

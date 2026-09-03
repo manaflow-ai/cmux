@@ -2870,6 +2870,7 @@ class TerminalController {
             "vm.publication_verify",
             "vm.publication_update",
             "vm.publication_delete",
+            "vm.domain_list",
             "vm.create",
             "vm.base_open",
             "vm.base_reset",
