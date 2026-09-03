@@ -505,6 +505,72 @@ mod tests {
     }
 
     #[test]
+    fn agent_view_orders_blocked_before_working_then_by_recency() {
+        let mut tree = tree();
+        tree.workspaces[0].screens[0].panes[0].tabs.push(tab(6, "new blocked"));
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 20,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            },
+            AgentInfo {
+                surface: 6,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 30,
+            },
+        ];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+            vec![
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 2,
+                    surface: 6,
+                    agent: true,
+                },
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 1,
+                    surface: 5,
+                    agent: true,
+                },
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 0,
+                    surface: 4,
+                    agent: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn projection_cache_reuses_rows_until_revision_changes() {
         let tree = tree();
         let view = spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs]);
