@@ -14,8 +14,10 @@ let loader = SidebarStatusIconImageLoader(
 let image = await loader.image(at: "/tmp/agent.png")
 ```
 
-Tests can avoid ambient filesystem access by injecting bounded image data:
+Tests can use an isolated temporary file through the same descriptor-backed path:
 
 ```swift
-let loader = SidebarStatusIconImageLoader { _, _ in fixturePNGData }
+try fixturePNGData.write(to: temporaryImageURL)
+let loader = SidebarStatusIconImageLoader(fileReader: SidebarStatusIconFileReader())
+let image = await loader.image(at: temporaryImageURL.path)
 ```
