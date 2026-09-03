@@ -1580,6 +1580,62 @@ mod tests {
         assert!(!lifecycle.begin_termination());
     }
 
+    #[derive(Debug)]
+    struct FakeReapChild {
+        try_wait_calls: TestArc<AtomicUsize>,
+        wait_calls: TestArc<AtomicUsize>,
+    }
+
+    impl cmux_pty::ChildKiller for FakeReapChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self {
+                try_wait_calls: TestArc::clone(&self.try_wait_calls),
+                wait_calls: TestArc::clone(&self.wait_calls),
+            })
+        }
+    }
+
+    impl cmux_pty::Child for FakeReapChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+            self.try_wait_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(Some(cmux_pty::ExitStatus::with_exit_code(23)))
+        }
+
+        fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+            self.wait_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(cmux_pty::ExitStatus::with_exit_code(23))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[test]
+    fn observer_unavailable_fallback_reaps_without_a_later_command() {
+        let try_wait_calls = TestArc::new(AtomicUsize::new(0));
+        let wait_calls = TestArc::new(AtomicUsize::new(0));
+        let child = Box::new(FakeReapChild {
+            try_wait_calls: TestArc::clone(&try_wait_calls),
+            wait_calls: TestArc::clone(&wait_calls),
+        }) as Box<dyn cmux_pty::Child + Send + Sync>;
+        let lifecycle = ChildLifecycle::new();
+        let (command_tx, command_rx) = mpsc::channel();
+        command_tx.send(PtyChildCommand::ObserveUnavailable).expect("observer event");
+        drop(command_tx);
+
+        let code = run_pty_wait_owner(child, 0, 0, command_rx, Arc::clone(&lifecycle));
+
+        assert_eq!(code, 23);
+        assert_eq!(try_wait_calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(wait_calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(lifecycle.state.lock().expect("lifecycle lock").0, ChildLifecycleState::Exited);
+    }
+
     #[test]
     fn child_exit_observer_leaves_child_owned_for_wait() {
         let mut child = std::process::Command::new("/bin/sh")
