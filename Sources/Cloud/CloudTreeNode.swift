@@ -62,23 +62,12 @@ final class CloudTreeNode: NSObject {
     private(set) var children: [CloudTreeNode]
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
-    /// VS Code-style breadcrumb this row was folded from — set by
-    /// `compactingSingleChildChains`, empty on every node until then. A row
-    /// with `["Workspaces"]` here displays as "Workspaces / <its own title>"
-    /// instead of getting "Workspaces" as its own separate parent row.
-    private(set) var compactedPrefixSegments: [String] = []
 
     init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
-    }
-
-    /// "Workspaces / " ready to prepend to this row's own title; empty for an
-    /// uncompacted row so every other call site is unaffected.
-    var displayPrefix: String {
-        compactedPrefixSegments.isEmpty ? "" : compactedPrefixSegments.joined(separator: " / ") + " / "
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -203,16 +192,6 @@ final class CloudTreeNode: NSObject {
     }
 
     override var hash: Int { id.hashValue }
-
-    /// `CloudTreeNodeBuilder`'s one hook for folding a chain of pure
-    /// organizational groups into this row (see
-    /// `CloudTreeNodeBuilder.compactingSingleChildChains`). Not `private` —
-    /// the builder is a sibling type in this file, not an extension of this
-    /// class, so file-scoped `private` does not reach it.
-    func applyCompaction(prefixSegments: [String], children: [CloudTreeNode]) {
-        self.compactedPrefixSegments = prefixSegments
-        self.children = children
-    }
 }
 
 /// This Mac's header row.
@@ -268,9 +247,11 @@ struct CloudTreeLocalWorkspace: Equatable {
 
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
-/// cloud machine (Terminals pool; Displays pool; Workspaces → workspace →
-/// pointer rows; Browsers); ports stay out of the tree for now, and a machine
-/// without a connected link gets a placeholder child instead of the pools.
+/// cloud machine — one big machine hosting many cmux-tui workspaces:
+/// Workspaces → workspace → pointer rows (always, the machine's face), then
+/// the Terminals pool (only terminals in no workspace), Displays, Ports,
+/// Browsers. A machine without a connected link gets a placeholder child
+/// instead of the groups.
 enum CloudTreeNodeBuilder {
     /// Whether the tree shows this Mac's own terminals and browsers. Off for now —
     /// the Machines panel is the cloud fleet; this Mac's surfaces already live in the
@@ -289,8 +270,11 @@ enum CloudTreeNodeBuilder {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
         }
         // Creates the person just started go first: they are what the person is
-        // waiting on, and a failed one must not hide below a long fleet.
-        for operation in pendingCreates {
+        // waiting on, and a failed one must not hide below a long fleet. A
+        // create whose machine the fleet list or the catalog already returned
+        // has a real row now and drops its stand-in (never the same machine
+        // twice while the CLI is still opening it).
+        for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -323,58 +307,7 @@ enum CloudTreeNodeBuilder {
                 children: cloudChildren(machine: info.id, info: info, snapshot: snapshot)
             ))
         }
-        return compactingSingleChildChains(nodes)
-    }
-
-    /// VS Code's folder-chain compaction, applied to this tree's pure
-    /// organizational groups: a group whose only child is itself a container
-    /// folds away, prepending its title to that child's own row instead of
-    /// getting a row of its own ("Workspaces" + "workspace-1" become one row,
-    /// "Workspaces / workspace-1"). Leaves (terminals, browsers, displays,
-    /// ports) are never fold targets — only a node with children of its own
-    /// can absorb a parent's title — and machine rows never fold, since they
-    /// carry status and actions no group row has.
-    ///
-    /// Applied once at the top of the tree; it recurses, so a chain folds
-    /// however deep it runs (today only workspacesGroup → workspace actually
-    /// nests deep enough to fire).
-    static func compactingSingleChildChains(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
-        for node in nodes {
-            node.applyCompaction(prefixSegments: node.compactedPrefixSegments, children: compactedChildren(node.children))
-        }
         return nodes
-    }
-
-    private static func compactedChildren(_ children: [CloudTreeNode]) -> [CloudTreeNode] {
-        children.map { compactChain($0) }
-    }
-
-    /// Folds `node` into its single child as long as both hold: `node` has
-    /// exactly one child, and `node`'s own kind is a pass-through group (never
-    /// a machine, a workspace, or a leaf) — so this only ever discards rows
-    /// that existed purely to hold other rows.
-    private static func compactChain(_ node: CloudTreeNode) -> CloudTreeNode {
-        var current = node
-        var prefix: [String] = []
-        while current.children.count == 1, isCompactableGroup(current.kind) {
-            prefix.append(current.searchableTitle)
-            current = current.children[0]
-        }
-        current.applyCompaction(
-            prefixSegments: prefix.isEmpty ? current.compactedPrefixSegments : prefix + current.compactedPrefixSegments,
-            children: compactedChildren(current.children)
-        )
-        return current
-    }
-
-    private static func isCompactableGroup(_ kind: CloudTreeNode.Kind) -> Bool {
-        switch kind {
-        case .workspacesGroup, .browsersGroup, .portsGroup, .displaysPool, .terminalsPool:
-            return true
-        case .machine, .pendingMachine, .localMachine, .workspace, .localWorkspace, .terminal, .display,
-             .browser, .port, .placeholder:
-            return false
-        }
     }
 
     /// True when `nodes(machines:snapshot:localWorkspaces:)` would produce no
@@ -397,17 +330,14 @@ enum CloudTreeNodeBuilder {
     static func nodeID(terminalsPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals" }
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
+    /// The "No workspaces yet" line under an empty machine's Workspaces group.
+    static func nodeID(workspacesPlaceholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces/placeholder" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
     /// The local workspace that shows a remote workspace: the one holding the most of its
     /// members' panes (at least one). Nil when none of them is open anywhere.
     static func localWorkspaceShowing(_ members: [SurfaceResourceID], snapshot: SurfaceCatalogSnapshot) -> UUID? {
         guard !members.isEmpty else { return nil }
-        let wanted = Set(members)
-        var counts: [UUID: Int] = [:]
-        for projection in snapshot.projections where wanted.contains(projection.resource) {
-            counts[projection.workspaceID, default: 0] += 1
-        }
-        return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
+        return localWorkspaceShowing(members, projectionIndex: projectionIndex(snapshot))
     }
 
     static func nodeID(resource: SurfaceResourceID) -> String { "resource:\(resource.rawValue)" }
@@ -538,9 +468,13 @@ enum CloudTreeNodeBuilder {
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
             if let displaysNode { children.append(displaysNode) }
         case .connected, .notApplicable:
-            // Workspaces are the machine's face; the pool only appears when a
-            // terminal belongs to NO workspace (it would otherwise be
-            // unreachable from the tree). Terminals in a workspace already
+            // One machine, many workspaces: the Workspaces group leads and is
+            // always its own row (never folded into a lone workspace), so its
+            // "+" — the New Workspace verb — is one click away on a fresh
+            // machine with a single workspace as much as on a busy one.
+            children.append(workspacesGroupNode(machine: machine, info: info, resources: resources, displays: displays, snapshot: snapshot))
+            // The pool only lists terminals in NO workspace (they would otherwise
+            // be unreachable from the tree). Terminals in a workspace already
             // show under it, so a pool repeating them was pure noise.
             let orphanTerminals = terminals.filter { $0.remoteWorkspaces.isEmpty }
             if !orphanTerminals.isEmpty {
@@ -551,77 +485,6 @@ enum CloudTreeNodeBuilder {
                 ))
             }
             if let displaysNode { children.append(displaysNode) }
-            // Workspaces are pointer lists: a terminal shows under every workspace that
-            // has a view of it; a zero-view terminal shows only in the pool. Empty
-            // workspaces come from the machine info, so they still get a row.
-            var byWorkspace: [String: (SurfaceRemoteWorkspace, [SurfaceResource])] = [:]
-            for workspace in info.remoteWorkspaces ?? [] {
-                byWorkspace[workspace.id] = (workspace, [])
-            }
-            for terminal in terminals {
-                for workspace in terminal.remoteWorkspaces {
-                    byWorkspace[workspace.id, default: (workspace, [])].1.append(terminal)
-                }
-            }
-            let workspaces = byWorkspace.values.sorted { lhs, rhs in
-                lhs.0.index != rhs.0.index ? lhs.0.index < rhs.0.index : lhs.0.id < rhs.0.id
-            }
-            if workspaces.isEmpty {
-                children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"), style: .dimmed))
-            } else {
-                // A workspace holds more than terminals: daemon browsers are tab content
-                // too, so they get rows under every workspace that views them and ride
-                // along in the workspace's open/drag group.
-                var browsersByWorkspace: [String: [SurfaceResource]] = [:]
-                for browser in resources where browser.kind == .browser {
-                    for workspace in browser.remoteWorkspaces {
-                        browsersByWorkspace[workspace.id, default: []].append(browser)
-                    }
-                }
-                // …and displays: a workspace that points at the machine's screen shows it
-                // and opens/drags it with its terminals.
-                var displaysByWorkspace: [String: [SurfaceResource]] = [:]
-                for display in displays {
-                    for workspace in display.remoteWorkspaces {
-                        displaysByWorkspace[workspace.id, default: []].append(display)
-                    }
-                }
-                let workspaceNodes = workspaces.map { workspace, pointed in
-                    let workspaceBrowsers = browsersByWorkspace[workspace.id] ?? []
-                    let workspaceDisplays = displaysByWorkspace[workspace.id] ?? []
-                    let members = (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
-                    // Every workspace can reach the machine's screen: when no view
-                    // pins a display yet, the machine's displays still show under
-                    // the workspace, so its terminals and its desktop open from one
-                    // place. Implicit rows stay out of `members`/dragGroup — only
-                    // real pointers travel with the workspace's open/drag group.
-                    let shownDisplays = workspaceDisplays.isEmpty ? displays : workspaceDisplays
-                    let openInLocal = localWorkspaceShowing(members, snapshot: snapshot)
-                    return CloudTreeNode(
-                        id: nodeID(workspace: workspace.id, machine: machine),
-                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: openInLocal),
-                        children: pointed.map {
-                            terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
-                        } + workspaceBrowsers.map {
-                            CloudTreeNode(
-                                id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
-                                kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
-                            )
-                        } + shownDisplays.map {
-                            CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0, openIn: openInLocal))
-                        },
-                        dragGroup: SurfaceResourceGroup(
-                            title: workspace.name,
-                            resources: (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
-                        )
-                    )
-                }
-                children.append(CloudTreeNode(
-                    id: nodeID(workspacesGroup: machine),
-                    kind: .workspacesGroup(machine: machine),
-                    children: workspaceNodes
-                ))
-            }
         }
         // Ports: one row per listening port, titled as the URL a person would
         // paste (`http://<private-ip>:<port>`) when the machine has a private
@@ -654,6 +517,66 @@ enum CloudTreeNodeBuilder {
             ))
         }
         return children
+    }
+
+    /// The Workspaces group: one row per cmux-tui workspace on the machine, each a
+    /// pointer list into the pools — a terminal shows under every workspace that
+    /// views it, a zero-view terminal only in the pool, and an empty workspace
+    /// (from the machine info) still gets a row. An empty machine keeps the group
+    /// too, with a placeholder child, so "+" is how its first workspace is made.
+    private static func workspacesGroupNode(
+        machine: SurfaceMachineID,
+        info: SurfaceMachineInfo,
+        resources: [SurfaceResource],
+        displays: [SurfaceResource],
+        snapshot: SurfaceCatalogSnapshot
+    ) -> CloudTreeNode {
+        // One pass over the catalog for every workspace's members and one over the
+        // projections for the open marks; each row is then dictionary reads.
+        let membersByWorkspace = remoteWorkspaceMembersByWorkspace(resources: resources)
+        let projections = projectionIndex(snapshot)
+        var rows = remoteWorkspaces(info: info, resources: resources).map { workspace -> CloudTreeNode in
+            // A workspace holds more than terminals: daemon browsers are tab
+            // content too, and a workspace that points at the machine's screen
+            // shows it and opens/drags it with its terminals.
+            let members = membersByWorkspace[workspace.id] ?? .none
+            // Every workspace can reach the machine's screen: when no view pins a
+            // display yet, the machine's displays still show under the workspace,
+            // so its terminals and its desktop open from one place. Implicit rows
+            // stay out of `members`/dragGroup — only real pointers travel with the
+            // workspace's open/drag group.
+            let shownDisplays = members.displays.isEmpty ? displays : members.displays
+            let openInLocal = localWorkspaceShowing(members.ids, projectionIndex: projections)
+            return CloudTreeNode(
+                id: nodeID(workspace: workspace.id, machine: machine),
+                kind: .workspace(machine: machine, workspace, terminalCount: members.terminals.count, openIn: openInLocal),
+                children: members.terminals.map {
+                    terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
+                } + members.browsers.map {
+                    CloudTreeNode(
+                        id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
+                        kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
+                    )
+                } + shownDisplays.map {
+                    CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0, openIn: openInLocal))
+                },
+                dragGroup: SurfaceResourceGroup(title: workspace.name, resources: members.ids)
+            )
+        }
+        if rows.isEmpty {
+            rows.append(CloudTreeNode(
+                id: nodeID(workspacesPlaceholder: machine),
+                kind: .placeholder(machine: machine, CloudTreePlaceholder(
+                    text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"),
+                    style: .dimmed
+                ))
+            ))
+        }
+        return CloudTreeNode(
+            id: nodeID(workspacesGroup: machine),
+            kind: .workspacesGroup(machine: machine),
+            children: rows
+        )
     }
 
     private static func terminalNode(

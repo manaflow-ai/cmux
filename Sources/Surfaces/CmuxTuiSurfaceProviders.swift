@@ -313,7 +313,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
-            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            var text = status?.error ?? CloudMachineLink.errorText(error)
+            // A machine on the private network is reachable only through this
+            // Mac's tunnel: when that is down, or up for another enrollment, say
+            // so first — the raw connect timeout explains nothing on its own.
+            if summary.preferredPrivateAddress != nil, let blocker = VMTunnelManager().privateRouteBlocker() {
+                text = "\(blocker) (\(text))"
+            }
+            linkError = text
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif

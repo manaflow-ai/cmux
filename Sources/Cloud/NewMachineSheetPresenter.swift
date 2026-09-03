@@ -81,8 +81,8 @@ final class NewMachineSheetPresenter {
             plan: plan,
             imageKinds: imageKinds,
             submit: { request in
-                coordinator.start(request) { arguments, completion in
-                    MachineRowActions.openNewMachine(arguments: arguments) { result in
+                coordinator.start(request) { arguments, progress, completion in
+                    MachineRowActions.openNewMachine(arguments: arguments, onOutput: progress) { result in
                         completion(result)
                     }
                 }

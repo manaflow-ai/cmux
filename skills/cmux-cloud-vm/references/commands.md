@@ -170,13 +170,19 @@ Socket `surface.catalog {machine?, refresh?}` (plus `workspace.list` to name loc
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/
+  workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  terminals/                                   ← the pool: every terminal the machine owns
-  desktop  (cmux vm open vivid-newt:desktop)
+    tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
+    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
+      ● term_c04…  sleep 1000
+  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
+  ports/
+    3000  http  (cmux vm open vivid-newt:port/3000)
 ```
+
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ### `cmux vm workspace new`
 
@@ -192,7 +198,7 @@ Socket `vm.workspace_new`: creates a workspace on the machine (its ⌘N, with a 
 cmux vm workspace open <machine> <workspace-id> [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]] [--json]
 ```
 
-Socket `vm.workspace_open`: the machine workspace's terminals and browsers as a **new local workspace**, one pane each (what clicking the row does). `--here` projects them into the current (or `--workspace`) local workspace instead — one pane at the destination, the rest as tabs ("Open All Here"); `--tabs` makes all of them tabs of the focused (or `--pane`) pane; `--pane <p>` + a side splits that pane on that side (dropping the row on a pane edge). Text `OK workspace=<local> opened=<n> machine=<id> [here]`. Also `cmux vm open <machine>/<ws>` for the workspace's focused terminal only. An empty workspace opens nothing.
+Socket `vm.workspace_open`: the machine workspace's terminals and browsers as a **new local workspace**, one pane each (what clicking the row does). `--here` projects them into the current (or `--workspace`) local workspace instead — one pane at the destination, the rest as tabs ("Open All Here"); `--tabs` makes all of them tabs of the focused (or `--pane`) pane; `--pane <p>` + a side splits that pane on that side (dropping the row on a pane edge). Text `OK workspace=<local> opened=<n> machine=<id> [here]`. `<workspace-id>` is the `ws_…` id or an unambiguous workspace name, resolved exactly like the sidebar row; the payload's `remote_workspace_id` is the resolved id. An existing workspace with nothing in it opens nothing and answers `Nothing to open: …` with a `cmux vm open <machine>/<ws>` hint (that verb starts a terminal there). Also `cmux vm open <machine>/<ws>` for the workspace's focused terminal only.
 
 ### `cmux vm workspace rename`
 
@@ -418,7 +424,7 @@ cmux vpn revoke      # tunnel down + unenroll (server deletes its side); also cl
 cmux vpn hosts       # write every machine's `<name>.internal` → private IP into a cmux-managed /etc/hosts block (sudo; idempotent)
 ```
 
-The tunnel between this Mac and the private Cloud VM network. Config lives at `~/.cmuxterm/wireguard/cmux.conf`; the private key is generated on this Mac and never leaves it. Run `up` once per boot before the attach/exec/port verbs.
+The tunnel between this Mac and the private Cloud VM network. Config lives under `~/.cmuxterm/wireguard/` — **one tunnel per deployment** (interface `cmux` for production, `cmux-staging`/`cmux-local`/`cmux-dev` for other API origins), so a dev build and the production app can both be up side by side. The private key is generated on this Mac and never leaves it. Run `up` once per boot before the attach/exec/port verbs; a stale tunnel (another enrollment's keys — `vpn status` reports it) is replaced by `up` instead of read as up.
 
 `hosts` reads `vm.list` and publishes `<machine>.internal` names (id slug, plus the display label when it differs) system-wide, so browsers and curl resolve them whenever the tunnel is up — a manual convenience for you and the user; the verbs themselves use raw addresses. `up` re-syncs the block quietly on success, so run `hosts` yourself mainly right after `cmux vm new`; `--json` answers `{hosts_changed, machine_count}`.
 
@@ -490,7 +496,7 @@ Verbs that exist only in an open PR. They are **not** on this branch; do not run
   - `vm ls --json` machines advertise `capabilities.attach_transports`; a machine without an `ssh` transport gets an up-front error from the ssh verbs instead of a late one.
   - `vm tree --json` gains a top-level `workspaces` array (this Mac's `{id, title, ref, selected}`) and `machines[].remote_workspaces`; the tree stops calling `workspace.list` separately.
   - Placement hardening: `--tabs`/`--tab` combined with a pane side becomes an error, and an explicit `--workspace`/`--pane`/`--surface` that resolves to nothing answers `invalid_params` instead of silently falling back to the selected workspace.
-  - An empty machine workspace opens as `opened=0` with a `surface new-terminal --remote-workspace` hint; the `vm handoff` attach line switches from the ssh verb to the shell verb.
+  - The `vm handoff` attach line switches from the ssh verb to the shell verb.
   - Machine sizing moves to the plan-machine preset: `--size <20g|<mb>>`, where 20g is the plan machine every plan sells and the backend resolves any other size to it (the `16g`-style preset list above goes away).
   - A guest `cmux` shim is installed at `/usr/local/bin/cmux` inside every machine (a POSIX wrapper over the machine's cmux-tui): its `vm` namespace lists the peer verbs (`cmux vm help` there) and the links granted to that machine, and in-VM `cmux notify` reaches the user's Mac as data — shown on the pane displaying that terminal (128 B title / 1 KiB body caps, burst-limited; Mac selectors and `--reply` are ignored there).
   - The Mac dispatcher gains a `vm help` sub-verb, and the surface catalog renames kind `screen` → `display` (`vm tree --json` resources and `surface open <m>/display/display:1` addresses; the `screen` form above is what runs today).
