@@ -745,12 +745,12 @@ fn record_create_result(
         match conn.request(json!({"cmd":"close-terminal","terminal_id":&terminal_id})) {
             Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
             Err(error) => {
-                // Teardown closes by catalog difference, so a failure here is
-                // reported, not fatal.
+                // A partial benchmark is not a valid measurement. Record the
+                // RPC failure as an error so `run` exits non-zero.
                 report
                     .lock()
                     .unwrap()
-                    .warnings
+                    .errors
                     .push(format!("close-terminal {terminal_id}: {error}"));
             }
         }
@@ -1158,10 +1158,8 @@ mod tests {
 
     #[test]
     fn close_terminal_rpc_error_fails_benchmark() {
-        let socket = std::env::temp_dir().join(format!(
-            "cmux-bench-close-error-{}.sock",
-            std::process::id()
-        ));
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-bench-close-error-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket);
         let listener = transport::listen(&socket).unwrap();
         let server = thread::spawn(move || {

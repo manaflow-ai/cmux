@@ -1691,7 +1691,7 @@ fn parse_count(flags: &mut Flags, name: &str, default: usize) -> Result<usize, U
             }
             Ok(count)
         }
-}
+    }
 }
 
 fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
