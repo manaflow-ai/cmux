@@ -480,39 +480,50 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
-#[derive(Default)]
-struct ChildLifecycleState {
-    exited: bool,
-    termination_started: bool,
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChildLifecycleState {
+    Running,
+    ReapPending,
+    Exited,
 }
 
-/// Fences control cleanup against the wait thread's final reap. The child PID
-/// remains reserved until `wait` returns, so a late control drop cannot signal
-/// an unrelated process after PID reuse.
 struct ChildLifecycle {
-    state: Mutex<ChildLifecycleState>,
+    state: Mutex<(ChildLifecycleState, bool)>,
+}
+
+impl Default for ChildLifecycleState {
+    fn default() -> Self {
+        Self::Running
+    }
 }
 
 impl ChildLifecycle {
     fn new() -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(ChildLifecycleState::default()) })
+        Arc::new(Self { state: Mutex::new((ChildLifecycleState::default(), false)) })
     }
 
-    fn mark_exited_before_reap(&self) {
-        self.state.lock().expect("child lifecycle lock").exited = true;
+    fn mark_reap_pending(&self) {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.0 != ChildLifecycleState::Exited {
+            state.0 = ChildLifecycleState::ReapPending;
+        }
+    }
+
+    fn mark_exited(&self) {
+        self.state.lock().expect("child lifecycle lock").0 = ChildLifecycleState::Exited;
     }
 
     fn begin_termination(&self) -> bool {
         let mut state = self.state.lock().expect("child lifecycle lock");
-        if state.exited || state.termination_started {
+        if state.0 == ChildLifecycleState::Exited || state.1 {
             return false;
         }
-        state.termination_started = true;
+        state.1 = true;
         true
     }
 
     fn termination_requested(&self) -> bool {
-        self.state.lock().expect("child lifecycle lock").termination_started
+        self.state.lock().expect("child lifecycle lock").1
     }
 }
 
@@ -708,13 +719,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             .process_id()
             .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok())
         {
-            wait_lifecycle.mark_exited_before_reap();
+            wait_lifecycle.mark_exited();
         } else if wait_lifecycle.termination_requested() {
             let _ = child.kill();
         } else {
-            wait_lifecycle.mark_exited_before_reap();
+            wait_lifecycle.mark_reap_pending();
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        wait_lifecycle.mark_exited();
         exit_completion.child_exited(code);
     });
 
