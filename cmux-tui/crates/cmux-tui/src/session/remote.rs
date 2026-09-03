@@ -533,7 +533,6 @@ struct PipeIoCachedPaletteSet {
     bytes: Vec<u8>,
 }
 
-#[derive(Default)]
 struct PipeIoColorCache {
     fg: PipeIoCachedColor,
     bg: PipeIoCachedColor,
@@ -543,6 +542,21 @@ struct PipeIoColorCache {
     palette_known: bool,
     palette_set_bytes: [Option<PipeIoCachedPaletteSet>; 256],
     palette_reset_bytes: [Option<Vec<u8>>; 256],
+}
+
+impl Default for PipeIoColorCache {
+    fn default() -> Self {
+        Self {
+            fg: PipeIoCachedColor::default(),
+            bg: PipeIoCachedColor::default(),
+            cursor: PipeIoCachedColor::default(),
+            cursor_visual: PipeIoCachedCursorVisual::default(),
+            palette: [None; 256],
+            palette_known: false,
+            palette_set_bytes: std::array::from_fn(|_| None),
+            palette_reset_bytes: std::array::from_fn(|_| None),
+        }
+    }
 }
 
 impl PipeIoColorCache {
