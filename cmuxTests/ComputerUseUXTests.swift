@@ -1163,6 +1163,60 @@ struct ComputerUseUXTests {
         )
     }
 
+    /// Regression: the helper mark must be centered by its visible bounds,
+    /// not by the asymmetric ink centroid. This samples the same runtime
+    /// artwork shown in the hero and compact drag tile.
+    @Test @MainActor
+    func helperIconCursorBoundingBoxStaysCenteredInItsTile() throws {
+        let image = try #require(
+            ComputerUseHelperIconRenderer.image(darkMode: true)
+        )
+        let bitmap = try #require(
+            image.representations.compactMap { $0 as? NSBitmapImageRep }.first
+        )
+        let data = try #require(bitmap.bitmapData)
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        let bytesPerPixel = bitmap.bitsPerPixel / 8
+        let rowStride = bitmap.bytesPerRow
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let pixel = data.advanced(
+                    by: y * rowStride + x * bytesPerPixel
+                )
+                let red = Int(pixel[0])
+                let green = Int(pixel[1])
+                let blue = Int(pixel[2])
+                let alpha = Int(pixel[3])
+                guard
+                    alpha > 0,
+                    blue > 150,
+                    blue > Int(Double(red) * 1.25),
+                    blue > Int(Double(green) * 1.05),
+                    blue - red > 30
+                else {
+                    continue
+                }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        #expect(maxX >= minX)
+        #expect(maxY >= minY)
+        let boundsMidX = (Double(minX) + Double(maxX)) / 2
+        let boundsMidY = (Double(minY) + Double(maxY)) / 2
+        #expect(abs(boundsMidX - Double(width) / 2) <= 1)
+        #expect(abs(boundsMidY - Double(height) / 2) <= 1)
+    }
+
     @Test func permissionCompanionStartsSmallAndCenteredOverMainWindow() {
         let mainFrame = NSRect(x: 100, y: 200, width: 600, height: 440)
 
