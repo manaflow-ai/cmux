@@ -48,4 +48,20 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
         XCTAssertNil(MachineCreateCoordinator.createdMachineID(fromOutput: result.stdout))
         XCTAssertTrue(result.output.contains("OK machine=stderr-id"))
     }
+
+    func testProcessOutputCollectorKeepsMachineProtocolAfterTranscriptEviction() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr)
+        collector.start()
+        let output = "OK machine=calm-petrel\n" + String(repeating: "x", count: 64 * 1024)
+        try? stdout.fileHandleForWriting.write(contentsOf: Data(output.utf8))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        let result = collector.finishResult()
+
+        XCTAssertEqual(result.machineId, "calm-petrel")
+        XCTAssertLessThanOrEqual(result.stdout.utf8.count, 32 * 1024)
+    }
 }
