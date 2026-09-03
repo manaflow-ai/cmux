@@ -2068,7 +2068,10 @@ line_regex = ["^working$", "^missing line$"]
     #[test]
     fn screen_detect_imported_copilot_background_agents_are_working() {
         let copilot = ManifestSet::bundled().identify("copilot").unwrap();
-        assert_eq!(copilot.version().map(ToString::to_string).as_deref(), Some("2026.07.07.1.1"));
+        assert_eq!(
+            copilot.version().map(ToString::to_string).as_deref(),
+            Some("2026.08.29.1")
+        );
 
         let working =
             copilot.detect(input("task output\n◎ Waiting for background agents · 2 running\n"));
