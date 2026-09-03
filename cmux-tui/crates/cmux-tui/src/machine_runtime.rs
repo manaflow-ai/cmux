@@ -1,11 +1,11 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -511,6 +511,71 @@ impl MachineConnectContext {
 pub(crate) type MachineConnectFn =
     Arc<dyn Fn(&MachineConnectContext) -> anyhow::Result<MachineConnection> + Send + Sync>;
 
+type CancellationReapTask = Box<dyn FnOnce() + Send + 'static>;
+
+/// Owns cancellation work that cannot finish at the caller's deadline.
+///
+/// A connector is synchronous by API contract, so a provider can be slow to
+/// observe its cancellation context. The caller must stay responsive, while
+/// the live worker and its result remain owned until the worker exits. This
+/// process-lifetime supervisor keeps those owners in a queue and joins them
+/// on bounded worker threads. Dropping a live `JoinHandle` is intentionally
+/// never used as a cancellation strategy.
+struct CancellationReaper {
+    tasks: Mutex<VecDeque<CancellationReapTask>>,
+    wake: Condvar,
+    workers: Mutex<Vec<JoinHandle<()>>>,
+}
+
+const CANCELLATION_REAPER_WORKERS: usize = 4;
+
+static CANCELLATION_REAPER: OnceLock<Arc<CancellationReaper>> = OnceLock::new();
+
+impl CancellationReaper {
+    fn new() -> Arc<Self> {
+        let reaper = Arc::new(Self {
+            tasks: Mutex::new(VecDeque::new()),
+            wake: Condvar::new(),
+            workers: Mutex::new(Vec::new()),
+        });
+        {
+            let mut workers =
+                reaper.workers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for index in 0..CANCELLATION_REAPER_WORKERS {
+                let owner = Arc::clone(&reaper);
+                let name = format!("cmux-cancellation-reaper-{index}");
+                if let Ok(worker) = thread::Builder::new().name(name).spawn(move || owner.run()) {
+                    workers.push(worker);
+                }
+            }
+        }
+        reaper
+    }
+
+    fn run(&self) {
+        loop {
+            let task = {
+                let mut tasks =
+                    self.tasks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                while tasks.is_empty() {
+                    tasks =
+                        self.wake.wait(tasks).unwrap_or_else(std::sync::PoisonError::into_inner);
+                }
+                tasks.pop_front().expect("cancellation reaper queue is not empty")
+            };
+            task();
+        }
+    }
+}
+
+/// Transfer a live cancellation owner to the process-lifetime supervisor.
+pub(crate) fn submit_cancellation_reap(task: impl FnOnce() + Send + 'static) {
+    let reaper = CANCELLATION_REAPER.get_or_init(CancellationReaper::new);
+    let mut tasks = reaper.tasks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    tasks.push_back(Box::new(task));
+    reaper.wake.notify_one();
+}
+
 #[derive(Clone)]
 pub(crate) struct MachineConnectionHub {
     inner: Arc<MachineConnectionHubInner>,
@@ -563,6 +628,8 @@ struct ConnectionAttempt {
     context: MachineConnectContext,
     result: Mutex<mpsc::Receiver<anyhow::Result<MachineConnection>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    reap_submitted: AtomicBool,
+    result_ready: Arc<AtomicBool>,
 }
 
 impl ConnectionAttempt {
@@ -572,17 +639,22 @@ impl ConnectionAttempt {
     ) -> anyhow::Result<Arc<Self>> {
         let (sender, receiver) = mpsc::sync_channel(1);
         let worker_context = context.clone();
+        let result_ready = Arc::new(AtomicBool::new(false));
+        let worker_result_ready = Arc::clone(&result_ready);
         let worker = thread::Builder::new()
             .name("machine-connector".to_string())
             .spawn(move || {
                 let result = connector(&worker_context);
                 let _ = sender.send(result);
+                worker_result_ready.store(true, Ordering::Release);
             })
             .map_err(|error| anyhow::anyhow!("could not start machine connector: {error}"))?;
         Ok(Arc::new(Self {
             context,
             result: Mutex::new(receiver),
             worker: Mutex::new(Some(worker)),
+            reap_submitted: AtomicBool::new(false),
+            result_ready,
         }))
     }
 
@@ -610,22 +682,57 @@ impl ConnectionAttempt {
         self.result.lock().ok()?.try_recv().ok()
     }
 
-    fn cancel_and_join(&self) {
+    fn cancel_and_join(self: &Arc<Self>) {
         self.context.cancel();
+        // The worker can have published a result while it is still unwinding,
+        // so consume an already-buffered success before returning to the
+        // caller. A still-running worker is drained by the supervisor below.
+        if self.result_ready.load(Ordering::Acquire) {
+            self.close_late_result();
+        }
+        self.join_or_reap();
+    }
+
+    fn join(&self) {
+        let mut worker = self.worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(worker) = worker.take() {
+            let _ = worker.join();
+        }
+    }
+
+    fn worker_is_finished(&self) -> bool {
+        let worker = self.worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        worker.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    fn join_or_reap(self: &Arc<Self>) {
+        if self.worker_is_finished() {
+            self.join_and_close_late_result();
+            return;
+        }
+        if self
+            .reap_submitted
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let attempt = Arc::clone(self);
+            submit_cancellation_reap(move || {
+                attempt.join_and_close_late_result();
+            });
+        }
+    }
+
+    fn join_and_close_late_result(&self) {
         self.join();
+        self.close_late_result();
+    }
+
+    fn close_late_result(&self) {
         // A connector can finish just as cancellation wins. Its result is
         // buffered until the owner consumes it, so close a late session
         // explicitly before releasing the attempt.
         if let Some(Ok(connection)) = self.drain_result() {
             connection.session.begin_shutdown();
-        }
-    }
-
-    fn join(&self) {
-        if let Ok(mut worker) = self.worker.lock()
-            && let Some(worker) = worker.take()
-        {
-            let _ = worker.join();
         }
     }
 }
@@ -874,7 +981,10 @@ impl MachineConnectionHub {
             if result.is_err() {
                 attempt.context.cancel();
             }
-            attempt.join();
+            // A provider may ignore the cooperative context after the wait
+            // deadline. Keep its owner alive in the cancellation supervisor
+            // instead of blocking the caller on an unbounded join.
+            attempt.join_or_reap();
 
             // Cancellation can race with a connector completing. Drain a
             // late successful result so its session is always shut down.
@@ -1386,7 +1496,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_connecting_machine_waits_for_the_connector_to_stop() {
+    fn removing_a_connecting_machine_cancels_the_connector() {
         let key = MachineKey(99);
         let entered = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
@@ -1418,13 +1528,13 @@ mod tests {
         }
 
         hub.remove(key);
-        let joined_before_release = finished.load(Ordering::Acquire);
         let _ = connect_thread.join();
 
-        assert!(
-            joined_before_release,
-            "removing a connecting machine must cancel and join its connector"
-        );
+        let finished_deadline = Instant::now() + Duration::from_secs(1);
+        while !finished.load(Ordering::Acquire) {
+            assert!(Instant::now() < finished_deadline, "connector did not finish");
+            thread::yield_now();
+        }
     }
 
     #[test]
@@ -1453,7 +1563,11 @@ mod tests {
         let result = hub.connect(key);
 
         assert!(entered.load(Ordering::Acquire), "connector did not start");
-        assert!(finished.load(Ordering::Acquire), "timeout returned before connector joined");
+        let finished_deadline = Instant::now() + Duration::from_secs(1);
+        while !finished.load(Ordering::Acquire) {
+            assert!(Instant::now() < finished_deadline, "connector did not finish");
+            thread::yield_now();
+        }
         let error = match result {
             Ok(_) => panic!("expired connector should fail"),
             Err(error) => error.to_string(),
@@ -1547,6 +1661,11 @@ mod tests {
             assert!(Instant::now() < returned_deadline, "connector did not return");
             thread::yield_now();
         }
+        let result_deadline = Instant::now() + Duration::from_secs(1);
+        while !attempt.result_ready.load(Ordering::Acquire) {
+            assert!(Instant::now() < result_deadline, "connector result was not published");
+            thread::yield_now();
+        }
 
         attempt.cancel_and_join();
 
@@ -1575,11 +1694,9 @@ mod tests {
                 Err(anyhow::anyhow!("non-cooperative test connector released"))
             })
         };
-        let attempt = ConnectionAttempt::start(
-            connector,
-            MachineConnectContext::new(Duration::from_secs(1)),
-        )
-        .expect("start connector");
+        let attempt =
+            ConnectionAttempt::start(connector, MachineConnectContext::new(Duration::from_secs(1)))
+                .expect("start connector");
 
         let entered_deadline = Instant::now() + Duration::from_secs(1);
         while !entered.load(Ordering::Acquire) {
@@ -1594,8 +1711,7 @@ mod tests {
             let _ = returned_tx.send(());
         });
 
-        let returned_before_release =
-            returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        let returned_before_release = returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
         release.store(true, Ordering::Release);
         cancellation.join().expect("cancellation caller must finish");
 

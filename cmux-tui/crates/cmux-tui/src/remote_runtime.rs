@@ -63,7 +63,6 @@ const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
-const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
@@ -212,15 +211,13 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
         .context("could not start remote Tokio runtime")
 }
 
-fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
-    let (finished_tx, finished_rx) = mpsc::sync_channel(1);
-    let reaper_name = format!("{runtime_name}-startup-reaper");
-    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
-        let _ = finished_tx.send(runtime_thread.join());
+fn reap_failed_startup(
+    runtime_thread: thread::JoinHandle<anyhow::Result<()>>,
+    _runtime_name: &str,
+) {
+    crate::machine_runtime::submit_cancellation_reap(move || {
+        let _ = runtime_thread.join();
     });
-    if reaper.is_ok() {
-        let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
-    }
 }
 
 #[derive(Clone)]
@@ -585,10 +582,20 @@ impl ClientRuntimeHandle {
         self.cancellation.cancel();
         let _ = self.shutdown.send(true);
         match self.thread.take() {
-            Some(thread) => match thread.join() {
+            Some(thread) if thread.is_finished() => match thread.join() {
                 Ok(result) => result,
                 Err(_) => Err(anyhow!("remote client runtime thread panicked")),
             },
+            Some(thread) => {
+                // Runtime shutdown is cooperative, but a provider can still
+                // hold a synchronous operation after cancellation. Transfer
+                // the live owner to the process supervisor so Drop and UI
+                // replacement stay bounded without detaching the thread.
+                crate::machine_runtime::submit_cancellation_reap(move || {
+                    let _ = thread.join();
+                });
+                Ok(())
+            }
             None => Ok(()),
         }
     }
@@ -629,7 +636,13 @@ impl ClientRuntimeStartup {
         self.cancellation.cancel();
         let _ = self.shutdown.send(true);
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            if thread.is_finished() {
+                let _ = thread.join();
+            } else {
+                crate::machine_runtime::submit_cancellation_reap(move || {
+                    let _ = thread.join();
+                });
+            }
         }
     }
 }
@@ -664,7 +677,12 @@ fn start_client_runtime_inner(
                     result = &mut startup => result,
                     _ = worker_cancellation.cancelled() => {
                         let _ = worker_shutdown.send(true);
-                        startup.await
+                        // Dropping the startup future releases its local
+                        // connection owner immediately. The runtime thread
+                        // then performs only its bounded shutdown work; a
+                        // provider that ignores cancellation stays owned by
+                        // this thread and is reaped by its caller.
+                        Err(anyhow!("remote client startup was cancelled"))
                     }
                 }
             });
@@ -2977,17 +2995,13 @@ mod tests {
             let _ = returned_tx.send(());
         });
 
-        let returned_before_release =
-            returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        let returned_before_release = returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
         release.store(true, Ordering::Release);
         cancellation.join().expect("cancellation caller must finish");
 
         let finished_deadline = std::time::Instant::now() + Duration::from_secs(1);
         while !finished.load(Ordering::Acquire) {
-            assert!(
-                std::time::Instant::now() < finished_deadline,
-                "startup worker did not finish"
-            );
+            assert!(std::time::Instant::now() < finished_deadline, "startup worker did not finish");
             thread::yield_now();
         }
         assert!(
