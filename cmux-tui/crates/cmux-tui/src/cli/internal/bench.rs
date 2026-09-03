@@ -1062,7 +1062,7 @@ fn measure_first_frame(
     deadline: Instant,
 ) -> Option<Duration> {
     let mut conn = Conn::open(socket).ok()?;
-    conn.identify().ok()?;
+    conn.request_until(json!({"cmd":"identify"}), deadline).ok()?;
     let start = Instant::now();
     let id = conn
         .send_until(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"}), deadline)
