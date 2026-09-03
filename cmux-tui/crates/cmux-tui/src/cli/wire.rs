@@ -18,11 +18,8 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
-/// The session-journal wire shape is compatible from its introduction through
-/// the current protocol. Future protocol versions need an explicit review.
-const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
+const MINIMUM_SERVER_PROTOCOL: u64 =
     cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
-const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -204,13 +201,9 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
         return Err("unexpected server app");
     }
-    let Some(protocol) = identity.get("protocol").and_then(Value::as_u64) else {
-        return Err("unsupported server protocol");
-    };
-    if !(SESSION_JOURNAL_PROTOCOL_MINIMUM..=SESSION_JOURNAL_PROTOCOL_MAXIMUM).contains(&protocol) {
+    if identity.get("protocol").and_then(Value::as_u64).is_none_or(|protocol| protocol < MINIMUM_SERVER_PROTOCOL) {
         return Err("unsupported server protocol");
     }
-    crate::session::parse_identity_capabilities(identity)?;
     Ok(())
 }
 
@@ -752,6 +745,26 @@ pub(super) fn resolve_socket_with_env(
 mod tests {
     use super::*;
     use cmux_tui_core::resource::ResourceOperation;
+
+    #[test]
+    fn capability_preflight_rejects_wrong_app() {
+        let identity = json!({"app":"other", "protocol": cmux_tui_core::server::PROTOCOL_VERSION});
+        assert_eq!(validate_capability_identity(&identity), Err("unexpected server app"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_old_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol": MINIMUM_SERVER_PROTOCOL - 1});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_accepts_current_and_newer_protocol() {
+        for protocol in [MINIMUM_SERVER_PROTOCOL, cmux_tui_core::server::PROTOCOL_VERSION as u64 + 1] {
+            let identity = json!({"app":"cmux-tui", "protocol": protocol});
+            assert_eq!(validate_capability_identity(&identity), Ok(()));
+        }
+    }
 
     #[test]
     fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
