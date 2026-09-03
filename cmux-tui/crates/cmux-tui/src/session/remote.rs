@@ -1378,6 +1378,13 @@ fn reaper_state() -> &'static Arc<Mutex<ReaperState>> {
 }
 
 fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
+    // Serialize startup while holding the state lock. Two callers must not
+    // spawn competing workers, because the loser cannot safely join a worker
+    // whose receiver still has an owning sender on its stack.
+    let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+    if current.sender.is_some() {
+        return;
+    }
     let (sender, receiver) = channel::<()>();
     let worker_state = state.clone();
     let Ok(reaper_worker) =
@@ -1412,18 +1419,12 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     else {
         return;
     };
-    let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
-    if current.sender.is_none() {
-        let old_worker = current.worker.take();
-        current.sender = Some(sender);
-        current.worker = Some(reaper_worker);
-        drop(current);
-        if let Some(old_worker) = old_worker {
-            let _ = old_worker.join();
-        }
-    } else {
-        drop(current);
-        let _ = reaper_worker.join();
+    let old_worker = current.worker.take();
+    current.sender = Some(sender);
+    current.worker = Some(reaper_worker);
+    drop(current);
+    if let Some(old_worker) = old_worker {
+        let _ = old_worker.join();
     }
 }
 
@@ -6928,6 +6929,34 @@ mod tests {
         assert!(state.lock().unwrap().worker.is_some());
         wait_for_worker_join(&completion);
         assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn concurrent_reaper_enqueue_starts_one_owned_worker() {
+        let state = reaper_state().clone();
+        state.lock().unwrap().sender = None;
+
+        let worker_count = 16;
+        let barrier = Arc::new(std::sync::Barrier::new(worker_count));
+        let completions =
+            (0..worker_count).map(|_| Arc::new(WorkerCompletion::new())).collect::<Vec<_>>();
+        let mut callers = Vec::with_capacity(worker_count);
+        for completion in &completions {
+            let barrier = barrier.clone();
+            let completion = completion.clone();
+            callers.push(std::thread::spawn(move || {
+                barrier.wait();
+                enqueue_worker_reap(std::thread::spawn(|| {}), completion);
+            }));
+        }
+        for caller in callers {
+            caller.join().expect("reaper enqueue caller should finish");
+        }
+
+        for completion in &completions {
+            wait_for_worker_join(completion);
+        }
+        assert!(state.lock().unwrap().worker.is_some());
     }
 
     #[test]
