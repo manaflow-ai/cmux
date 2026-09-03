@@ -75,7 +75,8 @@ impl ProviderCloseWorker {
                             match receiver.try_recv() {
                                 Ok(close) => close,
                                 Err(crossbeam_channel::TryRecvError::Empty) => {
-                                    let pending_empty = pending.lock().map_or(true, |pending| pending.is_empty());
+                                    let pending_empty =
+                                        pending.lock().map_or(true, |pending| pending.is_empty());
                                     if pending_empty {
                                         break;
                                     }
