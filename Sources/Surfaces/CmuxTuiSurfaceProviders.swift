@@ -173,6 +173,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var changeWatcher: Task<Void, Never>?
     /// Consumes the link's `machine-stats` feed for the life of the link.
     private var statsWatcher: Task<Void, Never>?
+    private var statsWatcherSocketPath: String?
+    private var statsWatcherGeneration = 0
     /// The newest host sample the daemon sent; nil without a live link or sampler.
     private var latestStats: VMStats?
     private var refreshDebounce: Task<Void, Never>?
@@ -225,6 +227,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcher = nil
         statsWatcher?.cancel()
         statsWatcher = nil
+        statsWatcherSocketPath = nil
+        statsWatcherGeneration += 1
         refreshDebounce?.cancel()
         refreshDebounce = nil
         endpointPrefetch?.cancel()
@@ -274,7 +278,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 latestStats = nil
             }
             watchChanges(link: link)
-            watchStats(link: link)
+            watchStats(link: link, socketPath: connected.socketPath)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 resources = CmuxTuiSnapshotParser.mergingDisplays(
@@ -646,8 +650,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Each sample lands on the catalog's machine info directly (no session re-read);
     /// the Machines panel re-derives the row from the catalog change notification.
-    private func watchStats(link: CloudMachineLink) {
-        guard statsWatcher == nil else { return }
+    private func watchStats(link: CloudMachineLink, socketPath: String) {
+        if statsWatcher != nil, statsWatcherSocketPath == socketPath { return }
+        statsWatcher?.cancel()
+        statsWatcherGeneration += 1
+        let generation = statsWatcherGeneration
+        statsWatcherSocketPath = socketPath
         statsWatcher = Task { [weak self] in
             let stream = await link.stats
             for await sample in stream {
@@ -655,7 +663,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 self.applyStats(sample)
             }
             guard let self else { return }
+            guard self.statsWatcherGeneration == generation else { return }
             self.statsWatcher = nil
+            self.statsWatcherSocketPath = nil
             self.applyStats(nil)
         }
     }
