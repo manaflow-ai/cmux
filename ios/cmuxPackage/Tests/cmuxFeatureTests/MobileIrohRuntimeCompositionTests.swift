@@ -155,6 +155,33 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func explicitSignOutDeletesEndpointIdentityBeforeNextUse() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let irx = MobileIrxRuntimeComposition(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXAuthEnvironment": "production",
+                "CMUXDevTag": fixture.tag,
+            ],
+            bundleIdentifier: "dev.cmux.ios",
+            defaults: fixture.debugDefaults
+        )
+        await irx.configure(auth: fixture.auth, legacy: fixture.composition)
+
+        await irx.handleSignOut()
+
+        // Ask the identity repository for the old scope after sign-out. A
+        // deleted key must not be returned, even if a caller still has the
+        // pre-sign-out app-instance identifier in memory.
+        let replacement = try await fixture.identities.identity(
+            accountID: fixture.accountID,
+            appInstanceID: fixture.appInstanceID
+        )
+        #expect(replacement != fixture.identity)
+        #expect(replacement.generation == 1)
+    }
+
+    @Test
     func activationSeedsCachedBindingProofBeforeRegistration() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 

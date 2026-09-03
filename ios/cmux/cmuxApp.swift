@@ -64,6 +64,7 @@ struct cmuxApp: App {
         let irxEnabled = MobileIrxRuntimeComposition.isEnabled
         let irx = MobileIrxRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
+            reachability: reachability,
             appNamespace: auth.appNamespace,
             keychainAccessGroup: auth.keychainAccessGroup
         )
