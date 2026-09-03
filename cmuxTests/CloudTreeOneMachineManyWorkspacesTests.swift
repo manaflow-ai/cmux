@@ -194,4 +194,39 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(workspaceRows.map(\.children.count) == [1, 1, 1], "each workspace lists its own terminal")
         #expect(!tree.contains { $0.structureTag == "terminalsPool" }, "no orphan, no pool: nothing is listed twice")
     }
+
+    @Test("`vm workspace open` resolves a workspace the way its row does: by id, by unique name, every view counted")
+    func lookupMatchesTheRow() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        // First view in main, second in side: it belongs to both.
+        let shared = terminal("term_shared", in: [main, side])
+        let only = terminal("term_side", in: [side])
+        let desktop = display(in: [side])
+        let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [main, side])], resources: [shared, only, desktop], projections: [])
+        guard case .found(let found, let members) = CloudTreeNodeBuilder.lookupRemoteWorkspace("ws_side", on: machine, snapshot: snapshot) else {
+            Issue.record("expected ws_side by id"); return
+        }
+        #expect(found == side)
+        #expect(members.ids == [shared.id, only.id, desktop.id], "terminals in catalog order — the shared one included — then the pinned display")
+        #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("side", on: machine, snapshot: snapshot) == .found(side, members), "an unambiguous name resolves too")
+        let row = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_side" })
+        #expect(row.dragGroup?.resources == members.ids, "one set for the click, the drop, and `vm workspace open`")
+        #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("nope", on: machine, snapshot: snapshot) == .notFound)
+    }
+
+    @Test("An existing but empty workspace resolves with nothing to open; duplicate names need an id")
+    func emptyAndAmbiguousWorkspaces() {
+        let scratchA = workspace("ws_a", "scratch", index: 0)
+        let scratchB = workspace("ws_b", "scratch", index: 1)
+        let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [scratchA, scratchB])], resources: [], projections: [])
+        #expect(
+            CloudTreeNodeBuilder.lookupRemoteWorkspace("ws_b", on: machine, snapshot: snapshot)
+                == .found(scratchB, CloudTreeRemoteWorkspaceMembers(terminals: [], browsers: [], displays: [])),
+            "the machine lists it, so it exists — with nothing in it"
+        )
+        #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
+        // The rows agree: both scratch workspaces show under the one machine, each empty.
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.children.count) == [0, 0])
+    }
 }
