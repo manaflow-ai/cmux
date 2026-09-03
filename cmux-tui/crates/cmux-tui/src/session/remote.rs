@@ -7,7 +7,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
+#[cfg(test)]
+use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -9659,11 +9661,13 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         listener.set_nonblocking(true).unwrap();
 
-        let error = RemoteSession::connect_for_terminal_attach_until(
+        let error = match RemoteSession::connect_for_terminal_attach_until(
             &path,
             Instant::now() - Duration::from_millis(1),
-        )
-        .expect_err("an expired probe unexpectedly connected");
+        ) {
+            Ok(_) => panic!("an expired probe unexpectedly connected"),
+            Err(error) => error,
+        };
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
             Some(RemoteRequestError::Timeout)
