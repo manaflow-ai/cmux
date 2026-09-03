@@ -2942,6 +2942,64 @@ mod tests {
         endpoint
     }
 
+    #[test]
+    fn cancelling_noncooperative_client_startup_returns_before_worker_and_drops_ready() {
+        let release = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let late_ready_sent = Arc::new(AtomicBool::new(false));
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let worker = {
+            let release = Arc::clone(&release);
+            let finished = Arc::clone(&finished);
+            let late_ready_sent = Arc::clone(&late_ready_sent);
+            thread::spawn(move || {
+                while !release.load(Ordering::Acquire) {
+                    thread::yield_now();
+                }
+                late_ready_sent.store(ready_tx.send(()).is_ok(), Ordering::Release);
+                finished.store(true, Ordering::Release);
+                Ok(())
+            })
+        };
+        let (shutdown, _shutdown_rx) = watch::channel(false);
+        let startup = ClientRuntimeStartup {
+            cancellation: CancellationToken::new(),
+            shutdown,
+            thread: Some(worker),
+        };
+
+        let (returned_tx, returned_rx) = mpsc::sync_channel(1);
+        let cancellation = thread::spawn(move || {
+            startup.cancel_and_join();
+            // The startup owner drops its ready receiver before a late worker
+            // result can be published to the caller.
+            drop(ready_rx);
+            let _ = returned_tx.send(());
+        });
+
+        let returned_before_release =
+            returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release.store(true, Ordering::Release);
+        cancellation.join().expect("cancellation caller must finish");
+
+        let finished_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !finished.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < finished_deadline,
+                "startup worker did not finish"
+            );
+            thread::yield_now();
+        }
+        assert!(
+            returned_before_release,
+            "cancelling a non-cooperative startup must not block its caller"
+        );
+        assert!(
+            !late_ready_sent.load(Ordering::Acquire),
+            "a late startup result must not be published after cancellation"
+        );
+    }
+
     #[tokio::test]
     async fn unmatched_relay_route_never_fetches_fallback_credentials() {
         let fetches = Arc::new(AtomicUsize::new(0));

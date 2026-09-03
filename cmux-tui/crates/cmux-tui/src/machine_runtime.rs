@@ -1556,4 +1556,57 @@ mod tests {
         );
         assert!(attempt.drain_result().is_none(), "cancelled attempt retained a late result");
     }
+
+    #[test]
+    fn cancelling_a_noncooperative_attempt_returns_before_worker_finishes() {
+        let entered = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let connector: MachineConnectFn = {
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            let finished = Arc::clone(&finished);
+            Arc::new(move |_context| {
+                entered.store(true, Ordering::Release);
+                while !release.load(Ordering::Acquire) {
+                    thread::yield_now();
+                }
+                finished.store(true, Ordering::Release);
+                Err(anyhow::anyhow!("non-cooperative test connector released"))
+            })
+        };
+        let attempt = ConnectionAttempt::start(
+            connector,
+            MachineConnectContext::new(Duration::from_secs(1)),
+        )
+        .expect("start connector");
+
+        let entered_deadline = Instant::now() + Duration::from_secs(1);
+        while !entered.load(Ordering::Acquire) {
+            assert!(Instant::now() < entered_deadline, "connector did not start");
+            thread::yield_now();
+        }
+
+        let cancellation_attempt = Arc::clone(&attempt);
+        let (returned_tx, returned_rx) = mpsc::sync_channel(1);
+        let cancellation = thread::spawn(move || {
+            cancellation_attempt.cancel_and_join();
+            let _ = returned_tx.send(());
+        });
+
+        let returned_before_release =
+            returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release.store(true, Ordering::Release);
+        cancellation.join().expect("cancellation caller must finish");
+
+        assert!(
+            returned_before_release,
+            "cancelling a non-cooperative connector must not block its caller"
+        );
+        let finished_deadline = Instant::now() + Duration::from_secs(1);
+        while !finished.load(Ordering::Acquire) {
+            assert!(Instant::now() < finished_deadline, "connector did not finish");
+            thread::yield_now();
+        }
+    }
 }
