@@ -666,8 +666,55 @@ impl AgentRoster {
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {
-        serde_json::from_str(snapshot).ok()
+        let roster = serde_json::from_str::<Self>(snapshot).ok()?;
+        if !roster.entries.values().all(valid_restored_entry) {
+            return None;
+        }
+        if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
+            plugin_id != AGENT_HOOK_PRODUCER_ID
+                && valid_component(plugin_id)
+                && fence.highest_tagged_generation.is_none_or(|generation| generation > 0)
+        }) {
+            return None;
+        }
+        Some(roster)
     }
+}
+
+fn valid_restored_entry(entry: &RosterEntry) -> bool {
+    let Some(state) = agent_state_from_str(&entry.state) else { return false };
+    let Some(source) = agent_source_from_str(&entry.source) else { return false };
+    if state == AgentState::Done {
+        return false;
+    }
+    if entry
+        .session
+        .as_deref()
+        .is_some_and(|session| session.is_empty() || session.len() > 256 || session.contains('\0'))
+    {
+        return false;
+    }
+    if entry.agent.as_deref().is_some_and(|agent| !valid_component(agent)) {
+        return false;
+    }
+    match source {
+        AgentSource::Plugin => {
+            let Some(producer) = entry.producer.as_deref() else { return false };
+            if producer == AGENT_HOOK_PRODUCER_ID || !valid_component(producer) {
+                return false;
+            }
+            entry.producer_generation.as_deref().is_none_or(valid_decimal_generation)
+        }
+        AgentSource::Detected | AgentSource::Socket | AgentSource::Hook => {
+            entry.producer.is_none() && entry.producer_generation.is_none()
+        }
+    }
+}
+
+fn valid_decimal_generation(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value.parse::<u64>().is_ok()
 }
 
 #[cfg(test)]

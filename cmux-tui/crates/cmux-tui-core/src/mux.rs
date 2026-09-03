@@ -1146,7 +1146,13 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     };
     let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => AgentRosterHost { roster, cursor },
+                // The cursor is meaningful only with the snapshot that was
+                // captured at the same fold boundary. Replaying from zero
+                // is the safe recovery path for malformed persisted state.
+                None => AgentRosterHost::default(),
+            }
         }
         _ => AgentRosterHost::default(),
     };
