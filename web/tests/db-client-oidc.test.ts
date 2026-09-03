@@ -94,6 +94,21 @@ describe("Vercel RDS IAM credentials", () => {
     expect(activeQuery).toBeDefined();
     activeQuery?.handleError(new Error("query cancelled"), connection);
     await expect(pending).rejects.toThrow("query cancelled");
+    client._activeQuery = undefined;
+    client.readyForQuery = true;
+
+    const secondController = new AbortController();
+    const secondPending = runWithCloudDbQuerySignal(
+      secondController.signal,
+      () => client.query("select 1"),
+    );
+    await Promise.resolve();
+    const secondQuery = client._activeQuery as { handleError(error: Error, connection: unknown): void } | undefined;
+    secondQuery?.handleError(new Error("query failed"), connection);
+    await expect(secondPending).rejects.toThrow("query failed");
+    secondController.abort(new Error("late deadline"));
+    expect(cancelCalls).toBe(1);
+    expect(endCalls).toBe(1);
     await pool.end();
   });
 });

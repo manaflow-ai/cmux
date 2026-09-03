@@ -99,6 +99,10 @@ type PgClientInternals = {
   _queryQueue: unknown[];
 };
 
+type PgQueryInternals = PgQuery & {
+  callback?: (...args: unknown[]) => unknown;
+};
+
 const rawPgQuery = Client.prototype.query as unknown as RawPgQueryMethod;
 CancellableRdsClient.prototype.query = function(
   this: CancellableRdsClient,
@@ -156,6 +160,13 @@ function watchRdsQuery(
     settled = true;
     signal.removeEventListener("abort", abort);
   };
+  const callback = (query as PgQueryInternals).callback;
+  if (typeof callback === "function") {
+    (query as PgQueryInternals).callback = (...args) => {
+      cleanup();
+      return callback(...args);
+    };
+  }
   const abort = () => {
     if (settled) return;
     try {
