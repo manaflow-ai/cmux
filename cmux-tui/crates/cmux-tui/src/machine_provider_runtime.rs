@@ -87,7 +87,12 @@ impl ProviderCloseWorker {
                             let Some((key, close)) = pending
                                 .lock()
                                 .ok()
-                                .and_then(|mut pending| pending.iter().next().map(|(key, _)| (*key, pending.remove(key).unwrap())))
+                                .and_then(|mut pending| {
+                                    pending
+                                        .iter()
+                                        .next()
+                                        .map(|(key, _)| (*key, pending.remove(key).unwrap()))
+                                })
                             else {
                                 break;
                             };
@@ -229,15 +234,18 @@ impl Drop for ProviderMachineConnectionLease {
             key,
             connection_id: connection_id.clone(),
         };
-        if let Err(error) = self.close_worker.schedule(key, Box::new(move || {
-            let _cleanup = cleanup;
-            if let Err(error) = client.close_machine(connection_id) {
-                crate::client_log::stderr_log!(
-                    "provider",
-                    "cmux-tui: failed to close provider machine connection: {error}"
-                );
-            }
-        })) {
+        if let Err(error) = self.close_worker.schedule(
+            key,
+            Box::new(move || {
+                let _cleanup = cleanup;
+                if let Err(error) = client.close_machine(connection_id) {
+                    crate::client_log::stderr_log!(
+                        "provider",
+                        "cmux-tui: failed to close provider machine connection: {error}"
+                    );
+                }
+            }),
+        ) {
             match error {
                 crossbeam_channel::TrySendError::Full(task) => {
                     // Preserve every close when the bounded queue is full by
@@ -2905,10 +2913,13 @@ mod tests {
         let (started, started_rx) = mpsc::channel();
         let (release, release_rx) = mpsc::channel();
         worker
-            .schedule(MachineKey(1), Box::new(move || {
-                started.send(()).unwrap();
-                release_rx.recv().unwrap();
-            }))
+            .schedule(
+                MachineKey(1),
+                Box::new(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }),
+            )
             .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         worker
@@ -2929,11 +2940,14 @@ mod tests {
         let (release, release_rx) = mpsc::channel();
         let (finished, finished_rx) = mpsc::channel();
         worker
-            .schedule(MachineKey(1), Box::new(move || {
-                started.send(()).unwrap();
-                release_rx.recv().unwrap();
-                finished.send(()).unwrap();
-            }))
+            .schedule(
+                MachineKey(1),
+                Box::new(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    finished.send(()).unwrap();
+                }),
+            )
             .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
