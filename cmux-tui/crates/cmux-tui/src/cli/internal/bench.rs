@@ -1494,4 +1494,28 @@ mod tests {
         );
         assert!(report.warnings.is_empty(), "close-terminal failures must not be warnings");
     }
+
+    #[test]
+    fn read_value_preserves_partial_line_across_timeout() {
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-bench-partial-line-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let listener = transport::listen(&socket).unwrap();
+        let server = thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            stream.write_all(br#"{"id":1"#).unwrap();
+            stream.flush().unwrap();
+            thread::sleep(Duration::from_millis(100));
+            stream.write_all(b",\"ok\":true}\n").unwrap();
+            stream.flush().unwrap();
+        });
+
+        let mut conn = Conn::open(&socket).unwrap();
+        conn.reader.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+        assert!(conn.read_value().is_err(), "partial line should time out");
+        conn.reader.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        assert_eq!(conn.read_value().unwrap(), json!({"id":1,"ok":true}));
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&socket);
+    }
 }
