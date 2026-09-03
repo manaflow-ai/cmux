@@ -133,6 +133,8 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
 
+    assert "matrix.shard" not in job
+    assert "VALGRIND_SHARD: startup" in job
     assert "name: Verify baseline terminal replay behavior" in job
     baseline_step = job.split(
         "      - name: Verify baseline terminal replay behavior", 1
