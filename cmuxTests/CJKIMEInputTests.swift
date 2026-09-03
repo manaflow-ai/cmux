@@ -2335,3 +2335,244 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         XCTAssertNil(pressEvent.text, "Delete should be encoded as a key event, not forwarded as DEL text")
     }
 }
+
+// MARK: - Korean IME first key after an input-source switch
+
+/// Apple's Korean input method can commit the very first keystroke after an
+/// input-source switch as a lone compatibility jamo instead of opening a
+/// composition, so "분리" reaches the terminal as "ㅂㅜㄴ리". Re-interpreting that
+/// single event lets the now-initialized input method compose it normally.
+@MainActor
+final class KoreanIMEFirstKeyAfterInputSourceSwitchRegressionTests: XCTestCase {
+    private struct Harness {
+        let window: NSWindow
+        let view: GhosttyNSView
+        let surface: TerminalSurface
+    }
+
+    private func makeHarness() -> Harness? {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return nil
+        }
+
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let view = findGhosttyNSView(in: hostedView) else {
+            XCTFail("Expected hosted GhosttyNSView")
+            return nil
+        }
+
+        window.makeFirstResponder(view)
+        return Harness(window: window, view: view, surface: surface)
+    }
+
+    private func makeJamoEvent(window: NSWindow, characters: String, keyCode: UInt16) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+
+    private func tearDown(_ harness: Harness) {
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        KeyboardLayout.debugInputSourceIdOverride = nil
+        cjkIMEInterpretKeyEventsHook = nil
+        harness.window.orderOut(nil)
+    }
+
+    /// First key after switching to the Korean IME: the input method commits "ㅂ"
+    /// raw on the first interpretation and only composes on the second one.
+    func testLoneJamoCommitOnFirstKeyIsReinterpretedAsComposition() {
+        guard let harness = makeHarness() else { return }
+        defer { tearDown(harness) }
+        let view = harness.view
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var interpretCalls = 0
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === view else { return false }
+            interpretCalls += 1
+            if interpretCalls == 1 {
+                // Uninitialized Korean IME: commits the jamo instead of composing.
+                candidateView.insertText("ㅂ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            } else {
+                // Initialized Korean IME: opens a composition.
+                candidateView.setMarkedText(
+                    "ㅂ",
+                    selectedRange: NSRange(location: 0, length: 1),
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+            }
+            return true
+        }
+
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 12 else { return }
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        guard let event = makeJamoEvent(window: harness.window, characters: "ㅂ", keyCode: 12) else {
+            XCTFail("Failed to create Hangul jamo event")
+            return
+        }
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(
+            interpretCalls, 2,
+            "A lone jamo committed by the first interpretation must be re-interpreted once"
+        )
+        XCTAssertEqual(
+            forwardedTexts, [],
+            "The raw first-key jamo must not reach the terminal; got \(forwardedTexts)"
+        )
+        XCTAssertTrue(view.hasMarkedText(), "The re-interpreted key should open a Hangul composition")
+    }
+
+    /// Healthy path: the IME composes on the first interpretation, so nothing is retried.
+    func testCompositionOnFirstKeyIsNotReinterpreted() {
+        guard let harness = makeHarness() else { return }
+        defer { tearDown(harness) }
+        let view = harness.view
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var interpretCalls = 0
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === view else { return false }
+            interpretCalls += 1
+            candidateView.setMarkedText(
+                "ㅂ",
+                selectedRange: NSRange(location: 0, length: 1),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        guard let event = makeJamoEvent(window: harness.window, characters: "ㅂ", keyCode: 12) else {
+            XCTFail("Failed to create Hangul jamo event")
+            return
+        }
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(interpretCalls, 1, "A composing first key must be interpreted exactly once")
+        XCTAssertTrue(view.hasMarkedText())
+    }
+
+    /// Non-jamo text committed under the Korean IME (digits, punctuation) is normal
+    /// committed input and must be forwarded once without a retry.
+    func testNonJamoCommitUnderKoreanIMEIsForwardedOnce() {
+        guard let harness = makeHarness() else { return }
+        defer { tearDown(harness) }
+        let view = harness.view
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var interpretCalls = 0
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === view else { return false }
+            interpretCalls += 1
+            candidateView.insertText("1", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 18 else { return }
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        guard let event = makeJamoEvent(window: harness.window, characters: "1", keyCode: 18) else {
+            XCTFail("Failed to create digit event")
+            return
+        }
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(interpretCalls, 1, "Committed non-jamo text must not trigger a retry")
+        XCTAssertEqual(forwardedTexts, ["1"])
+        XCTAssertFalse(view.hasMarkedText())
+    }
+
+    /// A lone jamo committed under a plain keyboard layout is not the Korean IME
+    /// first-key defect and must be forwarded as-is.
+    func testLoneJamoCommitUnderKeyboardLayoutIsNotReinterpreted() {
+        guard let harness = makeHarness() else { return }
+        defer { tearDown(harness) }
+        let view = harness.view
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.keylayout.ABC"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var interpretCalls = 0
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === view else { return false }
+            interpretCalls += 1
+            candidateView.insertText("ㅂ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 12 else { return }
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        guard let event = makeJamoEvent(window: harness.window, characters: "ㅂ", keyCode: 12) else {
+            XCTFail("Failed to create Hangul jamo event")
+            return
+        }
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(interpretCalls, 1)
+        XCTAssertEqual(forwardedTexts, ["ㅂ"])
+    }
+}
