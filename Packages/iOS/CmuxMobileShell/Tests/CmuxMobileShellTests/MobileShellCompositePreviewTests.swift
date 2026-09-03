@@ -412,6 +412,32 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
+    @Test func staleSameScopeRegistryLoadCannotReplaceNewerSnapshot() async throws {
+        let registry = SequencedDeviceRegistry(
+            outcomes: [
+                .ok([Self.registryDevice(id: "old-device")]),
+                .ok([Self.registryDevice(id: "new-device")]),
+            ]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        let oldLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(1)
+        let newLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(2)
+
+        await registry.releaseFirstCall()
+        await oldLoad.value
+        await newLoad.value
+
+        #expect(store.registryDevices.map(\.deviceId) == ["new-device"])
+    }
+
     @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
@@ -503,7 +529,11 @@ import Testing
             platform: "mac",
             displayName: id,
             lastSeenAt: Date(timeIntervalSince1970: 2),
-            instances: []
+            instances: [RegistryAppInstance(
+                tag: "default",
+                routes: [],
+                lastSeenAt: Date(timeIntervalSince1970: 2)
+            )]
         )
     }
 
@@ -1351,4 +1381,45 @@ private func workspaceListWorkspace(
         hasUnread: nil,
         terminals: []
     )
+}
+
+private actor SequencedDeviceRegistry: DeviceRegistryRefreshing {
+    private let outcomes: [DeviceRegistryListOutcome]
+    private var callCount = 0
+    private var callWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var firstCallGate: CheckedContinuation<Void, Never>?
+
+    init(outcomes: [DeviceRegistryListOutcome]) {
+        self.outcomes = outcomes
+    }
+
+    func freshRoutes(
+        forMacDeviceID _: String,
+        instanceTag _: String?
+    ) async -> [CmxAttachRoute]? { nil }
+
+    func listDevices() async -> DeviceRegistryListOutcome {
+        callCount += 1
+        let call = callCount
+        let waiters = callWaiters.removeValue(forKey: call) ?? []
+        for waiter in waiters { waiter.resume() }
+        if call == 1 {
+            await withCheckedContinuation { continuation in
+                firstCallGate = continuation
+            }
+        }
+        return outcomes[min(call - 1, outcomes.count - 1)]
+    }
+
+    func waitUntilCall(_ expected: Int) async {
+        guard callCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            callWaiters[expected, default: []].append(continuation)
+        }
+    }
+
+    func releaseFirstCall() {
+        firstCallGate?.resume()
+        firstCallGate = nil
+    }
 }
