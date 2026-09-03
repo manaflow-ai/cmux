@@ -29,6 +29,9 @@ const READ_LIMIT: usize = 16 * 1024 * 1024;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long to wait for the visibility delta after a response arrives.
 const VISIBILITY_GRACE: Duration = Duration::from_secs(2);
+const BENCH_DEADLINE: Duration = Duration::from_secs(120);
+const MAX_INDEXED_SURFACES: usize = 4096;
+const MAX_TIMESTAMPS_PER_SURFACE: usize = 128;
 /// How long teardown waits for closed terminals' host processes to exit before
 /// reporting them as leaked. Bounded by the host's own SIGKILL escalation.
 const HOST_EXIT_AUDIT_WINDOW: Duration = Duration::from_secs(3);
@@ -139,8 +142,37 @@ impl VisibilityIndex {
         let mut surfaces = HashSet::new();
         collect_surface_ids(&event.value, &mut surfaces);
         for surface_id in surfaces {
-            self.by_surface.entry(surface_id).or_default().push(event.at);
+            let timestamps = self.by_surface.entry(surface_id).or_default();
+            timestamps.push(event.at);
+            if timestamps.len() > MAX_TIMESTAMPS_PER_SURFACE {
+                let excess = timestamps.len() - MAX_TIMESTAMPS_PER_SURFACE;
+                timestamps.drain(..excess);
+            }
         }
+        if self.by_surface.len() > MAX_INDEXED_SURFACES {
+            while self.by_surface.len() > MAX_INDEXED_SURFACES {
+                let oldest = self
+                    .by_surface
+                    .iter()
+                    .min_by_key(|(_, timestamps)| timestamps.last().copied())
+                    .map(|(surface_id, _)| *surface_id);
+                if let Some(surface_id) = oldest {
+                    self.by_surface.remove(&surface_id);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn timestamp_count(&self) -> usize {
+        self.by_surface.values().map(Vec::len).sum()
+    }
+
+    #[cfg(test)]
+    fn surface_count(&self) -> usize {
+        self.by_surface.len()
     }
 
     fn visibility_delay(&self, sent: Instant, surface_id: u64) -> Option<Duration> {
@@ -249,6 +281,18 @@ impl Conn {
         serde_json::from_slice(&bytes).map_err(|e| format!("decode: {e}"))
     }
 
+    fn read_value_until(&mut self, deadline: Instant) -> Result<Value, String> {
+        let remaining = bounded_wait_duration(deadline, RPC_TIMEOUT);
+        if remaining.is_zero() {
+            return Err("benchmark deadline exceeded".into());
+        }
+        self.reader
+            .get_mut()
+            .set_read_timeout(Some(remaining))
+            .map_err(|error| format!("timeout: {error}"))?;
+        self.read_value()
+    }
+
     /// Send a command and return its `data`, ignoring any event lines.
     fn request(&mut self, request: Value) -> Result<Value, String> {
         let id = self.send(request)?;
@@ -281,6 +325,10 @@ impl Conn {
 struct SessionGuard {
     socket: std::path::PathBuf,
     owner: Option<crate::local_owner::EnsuredOwnerHandle>,
+}
+
+fn bounded_wait_duration(deadline: Instant, requested: Duration) -> Duration {
+    deadline.saturating_duration_since(Instant::now()).min(requested)
 }
 
 /// The order in which a create connection submits requests before it drains
@@ -371,6 +419,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let active_pane = fetch_active_pane(&mut control)?;
 
     let report = Arc::new(Mutex::new(Report::new(&socket)));
+    let bench_deadline = Instant::now() + BENCH_DEADLINE;
 
     // Concurrent create loops. Each worker submits its whole create batch
     // before reading a response. That gives both typing probes the same
@@ -399,6 +448,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
                 &report,
                 &gates,
                 baseline_surface,
+                bench_deadline,
             ) {
                 report.lock().unwrap().errors.push(error);
             }
@@ -408,7 +458,14 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     // Wait until every create connection has submitted its batch, then run
     // the separate-connection probe while those requests remain unread.
     let _ = gates.creates_submitted.wait();
-    run_separate_typing_probe(&socket, baseline_surface, plan.typing_probes, &report, &gates);
+    run_separate_typing_probe(
+        &socket,
+        baseline_surface,
+        plan.typing_probes,
+        &report,
+        &gates,
+        bench_deadline,
+    );
 
     for handle in handles {
         let _ = handle.join();
@@ -417,7 +474,12 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let _ = subscriber_thread.join();
 
     close_created_terminals(&mut control, &initial_terminals, &report);
-    if let Some(owner_pid) = guard.owner.as_ref().map(|owner| owner.pid()) {
+    if let Some(owner_pid) = guard
+        .owner
+        .as_ref()
+        .filter(|owner| owner.should_stop())
+        .map(|owner| owner.pid())
+    {
         // A close-terminal response can precede the host process's own exit
         // by a few milliseconds, so poll briefly before calling a host leaked.
         let remaining = wait_for_child_terminal_hosts_to_exit(owner_pid, HOST_EXIT_AUDIT_WINDOW);
@@ -442,6 +504,7 @@ fn run_separate_typing_probe(
     probes: usize,
     report: &Arc<Mutex<Report>>,
     gates: &ProbeGates,
+    deadline: Instant,
 ) {
     let mut setup_error = None;
     let mut conn = match Conn::open(socket) {
@@ -478,7 +541,8 @@ fn run_separate_typing_probe(
     let _ = gates.release_workers.wait();
 
     if let Some(Err(error)) =
-        conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report))
+        conn.as_mut()
+            .map(|connection| drain_separate_typing(connection, pending, report, deadline))
     {
         setup_error = Some(match setup_error {
             Some(previous) => format!("{previous}; {error}"),
@@ -494,10 +558,11 @@ fn drain_separate_typing(
     conn: &mut Conn,
     pending: Vec<(u64, Instant)>,
     report: &Arc<Mutex<Report>>,
+    deadline: Instant,
 ) -> Result<(), String> {
     let mut pending_by_id: HashMap<u64, Instant> = pending.into_iter().collect();
     while !pending_by_id.is_empty() {
-        let value = conn.read_value()?;
+        let value = conn.read_value_until(deadline)?;
         if value.get("event").is_some() {
             continue;
         }
@@ -635,6 +700,7 @@ fn run_create_loop(
     report: &Arc<Mutex<Report>>,
     gates: &ProbeGates,
     baseline_surface: u64,
+    deadline: Instant,
 ) -> Result<(), String> {
     let mut setup_error = None;
     let mut conn = match Conn::open(socket) {
@@ -679,7 +745,7 @@ fn run_create_loop(
         return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
     };
 
-    let drain_error = drain_pending(&mut conn, pending, client, socket, events, report);
+    let drain_error = drain_pending(&mut conn, pending, client, socket, events, report, deadline);
     match (setup_error, drain_error) {
         (None, result) => result,
         (Some(setup_error), Ok(())) => Err(setup_error),
@@ -694,13 +760,14 @@ fn drain_pending(
     socket: &std::path::Path,
     events: &Arc<Mutex<VisibilityIndex>>,
     report: &Arc<Mutex<Report>>,
+    deadline: Instant,
 ) -> Result<(), String> {
     let mut pending_by_id: HashMap<u64, PendingRequest> =
         pending.into_iter().map(|request| (request.id, request)).collect();
     let mut completed_creates = Vec::new();
 
     while !pending_by_id.is_empty() {
-        let value = conn.read_value()?;
+        let value = conn.read_value_until(deadline)?;
         if value.get("event").is_some() {
             continue;
         }
@@ -747,7 +814,7 @@ fn drain_pending(
     // No responses remain on this connection, so the close requests below
     // cannot consume another pending request while we process each create.
     for (sent, response, _kind, data) in completed_creates {
-        record_create_result(conn, sent, response, data, socket, events, report);
+        record_create_result(conn, sent, response, data, socket, events, report, deadline);
     }
     Ok(())
 }
@@ -760,6 +827,7 @@ fn record_create_result(
     socket: &std::path::Path,
     events: &Arc<Mutex<VisibilityIndex>>,
     report: &Arc<Mutex<Report>>,
+    deadline: Instant,
 ) {
     let surface = data["surface"].as_u64();
     let terminal_id = data.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
@@ -771,14 +839,14 @@ fn record_create_result(
 
     if let Some(surface_id) = surface {
         // Give the delta a moment; it may already be recorded.
-        let delay = wait_for_visibility(events, sent, surface_id, VISIBILITY_GRACE);
+        let delay = wait_for_visibility(events, sent, surface_id, VISIBILITY_GRACE, deadline);
         if let Some(delay) = delay {
             report.lock().unwrap().create_visible.record(delay);
         } else {
             report.lock().unwrap().visibility_misses += 1;
         }
 
-        if let Some(first_frame) = measure_first_frame(socket, surface_id) {
+        if let Some(first_frame) = measure_first_frame(socket, surface_id, deadline) {
             report.lock().unwrap().first_frame.record(first_frame);
         }
 
@@ -814,8 +882,9 @@ fn wait_for_visibility(
     sent: Instant,
     surface_id: u64,
     grace: Duration,
+    deadline: Instant,
 ) -> Option<Duration> {
-    let deadline = Instant::now() + grace;
+    let deadline = Instant::now() + bounded_wait_duration(deadline, grace);
     loop {
         {
             let mut index = events.lock().unwrap();
@@ -842,13 +911,13 @@ fn is_first_frame_for_surface(value: &Value, surface_id: u64) -> bool {
         && value.get("surface").and_then(Value::as_u64) == Some(surface_id)
 }
 
-fn measure_first_frame(socket: &std::path::Path, surface_id: u64) -> Option<Duration> {
+fn measure_first_frame(socket: &std::path::Path, surface_id: u64, deadline: Instant) -> Option<Duration> {
     let mut conn = Conn::open(socket).ok()?;
     conn.identify().ok()?;
     let start = Instant::now();
     let id =
         conn.send(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"})).ok()?;
-    let deadline = Instant::now() + RPC_TIMEOUT;
+    let deadline = Instant::now() + bounded_wait_duration(deadline, RPC_TIMEOUT);
     loop {
         if Instant::now() >= deadline {
             return None;

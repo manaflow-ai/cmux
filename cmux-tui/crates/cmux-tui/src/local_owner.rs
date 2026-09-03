@@ -91,6 +91,7 @@ pub(crate) struct EnsuredOwnerHandle {
     pid: u64,
     generation: String,
     state_root: Option<PathBuf>,
+    owned: bool,
 }
 
 impl EnsuredOwnerHandle {
@@ -100,8 +101,15 @@ impl EnsuredOwnerHandle {
         self.pid
     }
 
+    pub(crate) fn should_stop(&self) -> bool {
+        self.owned
+    }
+
     /// Ask the owner to shut down (best effort) and remove the temp state root.
     pub(crate) fn stop(self, socket: &Path) {
+        if !self.owned {
+            return;
+        }
         let deadline = Instant::now() + Duration::from_secs(5);
         if let Ok(stream) = transport::connect(socket) {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
@@ -172,12 +180,14 @@ pub(crate) fn ensure_owner_for_bench(
                 pid: ready.pid,
                 generation: ready.generation,
                 state_root: None,
+                owned: false,
             })
         }
         Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
             pid: ready.pid,
             generation: ready.generation,
             state_root: Some(state_root),
+            owned: true,
         }),
         Err(error) => {
             let _ = std::fs::remove_dir_all(&state_root);
