@@ -379,10 +379,11 @@ impl JournalPluginRuntime {
         state.session = Some(session);
         if !state.started {
             if let Some(seed) = generation_seed {
-                // `configure` may have advanced the local counter before the
-                // socket was bound. Never move it backwards when applying the
-                // durable seed.
-                state.generation = state.generation.max(seed.saturating_sub(1));
+                // The registry reserves the exact generation for this
+                // daemon start. Configuration may have advanced the local
+                // counter before the socket was bound, but it must not
+                // replace the durable reservation with `seed - 1`.
+                state.generation = seed;
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
