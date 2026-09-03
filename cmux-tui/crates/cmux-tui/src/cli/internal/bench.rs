@@ -1310,6 +1310,8 @@ fn render_text(report: &Report) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::BufRead;
+
     use super::*;
 
     #[test]
