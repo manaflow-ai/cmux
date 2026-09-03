@@ -1530,6 +1530,8 @@ fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
     while index > 0 {
         index -= 1;
         if pending[index].0.thread().id() == current {
+            let (handle, completion) = pending.swap_remove(index);
+            completion.install_handle(handle);
             continue;
         }
         if pending[index].1.is_done() {
@@ -1549,10 +1551,6 @@ fn enqueue_worker_reap_in_state(
     handle: std::thread::JoinHandle<()>,
     completion: Arc<WorkerCompletion>,
 ) {
-    if handle.thread().id() == std::thread::current().id() {
-        completion.install_handle(handle);
-        return;
-    }
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
