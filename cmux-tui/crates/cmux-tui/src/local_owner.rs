@@ -93,6 +93,7 @@ pub(crate) struct EnsuredOwnerHandle {
     state_root: Option<PathBuf>,
     owned: bool,
     start_marker: Option<String>,
+    session: Option<String>,
 }
 
 impl EnsuredOwnerHandle {
@@ -152,16 +153,30 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
-        if !exited && owner_process_matches(self.pid, self.start_marker.as_deref()) {
+        if !exited
+            && owner_process_matches(
+                self.pid,
+                self.start_marker.as_deref(),
+                self.session.as_deref(),
+            )
+        {
             let pid = self.pid.to_string();
             let _ = Command::new("kill").args(["-TERM", &pid]).status();
             let kill_deadline = Instant::now() + Duration::from_millis(250);
             while Instant::now() < kill_deadline
-                && owner_process_matches(self.pid, self.start_marker.as_deref())
+                && owner_process_matches(
+                    self.pid,
+                    self.start_marker.as_deref(),
+                    self.session.as_deref(),
+                )
             {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            if owner_process_matches(self.pid, self.start_marker.as_deref()) {
+            if owner_process_matches(
+                self.pid,
+                self.start_marker.as_deref(),
+                self.session.as_deref(),
+            ) {
                 let _ = Command::new("kill").args(["-KILL", &pid]).status();
             }
             exited = !owner_process_is_alive(self.pid);
@@ -191,14 +206,18 @@ fn owner_process_is_alive(pid: u64) -> bool {
         .unwrap_or(true)
 }
 
-fn owner_process_matches(pid: u64, start_marker: Option<&str>) -> bool {
+fn owner_process_matches(pid: u64, start_marker: Option<&str>, session: Option<&str>) -> bool {
     Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "lstart=,command="])
         .output()
         .map(|output| {
             let output = String::from_utf8_lossy(&output.stdout);
             let Some(marker) = start_marker else { return false };
-            output.contains(marker) && output.contains("cmux-tui") && output.contains("--headless")
+            let Some(session) = session else { return false };
+            output.contains(marker)
+                && output.contains("cmux-tui")
+                && output.contains("--headless")
+                && output.contains(&format!("--session {session}"))
         })
         .unwrap_or(false)
 }
@@ -247,6 +266,7 @@ pub(crate) fn ensure_owner_for_bench(
                 state_root: None,
                 owned: false,
                 start_marker: None,
+                session: None,
             })
         }
         Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
@@ -255,6 +275,7 @@ pub(crate) fn ensure_owner_for_bench(
             state_root: Some(state_root),
             owned: true,
             start_marker: process_start_marker(ready.pid),
+            session: Some(session.to_string()),
         }),
         Err(error) => {
             let _ = std::fs::remove_dir_all(&state_root);
