@@ -417,7 +417,7 @@ impl CmuxClient {
                 continue;
             }
             ensure_success(metadata.name, &message)?;
-            let initial = decode_response(metadata.name, message.clone())?;
+            let initial = decode_response(metadata.name, message)?;
             return Ok((
                 initial,
                 CmuxStream {
