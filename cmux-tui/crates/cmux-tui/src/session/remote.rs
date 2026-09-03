@@ -8605,6 +8605,31 @@ mod tests {
     }
 
     #[test]
+    fn normal_input_waits_through_brief_writer_queue_contention() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock().unwrap();
+        let input_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let input = std::thread::spawn(move || {
+            finished_tx.send(input_session.send_bytes(7, b"input")).unwrap();
+        });
+
+        let early_result = finished_rx.recv_timeout(Duration::from_millis(50));
+        let stayed_blocked = early_result.is_err();
+        drop(queue_guard);
+        let result = match early_result {
+            Ok(result) => result,
+            Err(_) => finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("normal input did not resume after queue contention"),
+        };
+        input.join().unwrap();
+
+        assert!(stayed_blocked, "normal input was rejected during brief queue contention");
+        assert!(result.is_ok(), "normal input failed after queue contention: {result:?}");
+    }
+
+    #[test]
     fn latency_histogram_reports_fixed_bucket_percentiles() {
         let metrics = InteractiveWriteMetrics::default();
         for latency in [
