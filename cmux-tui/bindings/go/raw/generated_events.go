@@ -70,6 +70,7 @@ func (value AgentChangedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["session"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"agent-changed\"")
 	return json.Marshal(object)
 }
 
@@ -120,6 +121,20 @@ func (AgentChangedEvent) isSubscribeEvent() {}
 // BellEvent is emitted by protocol v5.
 type BellEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value BellEvent) MarshalJSON() ([]byte, error) {
+	type wire BellEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"bell\"")
+	return json.Marshal(object)
 }
 
 func (value *BellEvent) UnmarshalJSON(data []byte) error {
@@ -237,6 +252,7 @@ func (value BrowserStateEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["frame"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"browser-state\"")
 	return json.Marshal(object)
 }
 
@@ -391,6 +407,7 @@ func (value ClientAttachedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["name"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"client-attached\"")
 	return json.Marshal(object)
 }
 
@@ -481,6 +498,7 @@ func (value ClientChangedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["name"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"client-changed\"")
 	return json.Marshal(object)
 }
 
@@ -523,6 +541,20 @@ type ClientDetachedEvent struct {
 	Client uint64 `json:"client"`
 }
 
+func (value ClientDetachedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientDetachedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"client-detached\"")
+	return json.Marshal(object)
+}
+
 func (value *ClientDetachedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ClientDetachedEvent: expected object")
@@ -549,6 +581,20 @@ func (ClientDetachedEvent) isSubscribeEvent() {}
 
 // ClientListInvalidatedEvent is emitted by protocol v9.
 type ClientListInvalidatedEvent struct {
+}
+
+func (value ClientListInvalidatedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientListInvalidatedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"client-list-invalidated\"")
+	return json.Marshal(object)
 }
 
 func (value *ClientListInvalidatedEvent) UnmarshalJSON(data []byte) error {
@@ -681,6 +727,7 @@ func (value ColorsChangedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["selection_fg"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"colors-changed\"")
 	return json.Marshal(object)
 }
 
@@ -747,6 +794,20 @@ func (ColorsChangedEvent) isByteAttachEvent() {}
 type ConfigReloadRequestedEvent struct {
 }
 
+func (value ConfigReloadRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire ConfigReloadRequestedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"config-reload-requested\"")
+	return json.Marshal(object)
+}
+
 func (value *ConfigReloadRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ConfigReloadRequestedEvent: expected object")
@@ -769,6 +830,20 @@ func (ConfigReloadRequestedEvent) isSubscribeEvent() {}
 // DetachedEvent is emitted by protocol v5.
 type DetachedEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value DetachedEvent) MarshalJSON() ([]byte, error) {
+	type wire DetachedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"detached\"")
+	return json.Marshal(object)
 }
 
 func (value *DetachedEvent) UnmarshalJSON(data []byte) error {
@@ -801,6 +876,20 @@ func (DetachedEvent) isRenderAttachEvent()  {}
 type EmptyEvent struct {
 }
 
+func (value EmptyEvent) MarshalJSON() ([]byte, error) {
+	type wire EmptyEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"empty\"")
+	return json.Marshal(object)
+}
+
 func (value *EmptyEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode EmptyEvent: expected object")
@@ -827,6 +916,20 @@ type FrameEvent struct {
 	Seq     uint64 `json:"seq"`
 	Surface ID     `json:"surface"`
 	Width   uint32 `json:"width"`
+}
+
+func (value FrameEvent) MarshalJSON() ([]byte, error) {
+	type wire FrameEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"frame\"")
+	return json.Marshal(object)
 }
 
 func (value *FrameEvent) UnmarshalJSON(data []byte) error {
@@ -881,6 +984,20 @@ type FrontendProjectionChangedEvent struct {
 	ProjectionRevision uint64 `json:"projection_revision"`
 	Scope              string `json:"scope"`
 	SubjectKey         string `json:"subject_key"`
+}
+
+func (value FrontendProjectionChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire FrontendProjectionChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"frontend-projection-changed\"")
+	return json.Marshal(object)
 }
 
 func (value *FrontendProjectionChangedEvent) UnmarshalJSON(data []byte) error {
@@ -988,7 +1105,16 @@ func (value GraphicsStatusEvent) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode GraphicsStatusEvent.Kind: invalid value %v", value.Kind)
 	}
 	type wire GraphicsStatusEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"graphics-status\"")
+	return json.Marshal(object)
 }
 
 func (value *GraphicsStatusEvent) UnmarshalJSON(data []byte) error {
@@ -1074,6 +1200,20 @@ type LayoutChangedEvent struct {
 	Screen ID `json:"screen"`
 }
 
+func (value LayoutChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire LayoutChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"layout-changed\"")
+	return json.Marshal(object)
+}
+
 func (value *LayoutChangedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode LayoutChangedEvent: expected object")
@@ -1126,6 +1266,7 @@ func (value MachineUsageChangedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["usage"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"machine-usage-changed\"")
 	return json.Marshal(object)
 }
 
@@ -1185,6 +1326,7 @@ func (value NotificationEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["surface"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"notification\"")
 	return json.Marshal(object)
 }
 
@@ -1240,6 +1382,20 @@ type OutputEvent struct {
 	Colors  *TerminalColors `json:"colors,omitempty"`
 	Data    Base64          `json:"data"`
 	Surface ID              `json:"surface"`
+}
+
+func (value OutputEvent) MarshalJSON() ([]byte, error) {
+	type wire OutputEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"output\"")
+	return json.Marshal(object)
 }
 
 func (value *OutputEvent) UnmarshalJSON(data []byte) error {
@@ -1329,7 +1485,16 @@ func (value OverflowEvent) MarshalJSON() ([]byte, error) {
 		}
 	}
 	type wire OverflowEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"overflow\"")
+	return json.Marshal(object)
 }
 
 func (value *OverflowEvent) UnmarshalJSON(data []byte) error {
@@ -1387,6 +1552,20 @@ type PairingRequestedEvent struct {
 	Request   uint64 `json:"request"`
 }
 
+func (value PairingRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire PairingRequestedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"pairing-requested\"")
+	return json.Marshal(object)
+}
+
 func (value *PairingRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode PairingRequestedEvent: expected object")
@@ -1431,6 +1610,20 @@ type PairingResolvedEvent struct {
 	Request uint64 `json:"request"`
 }
 
+func (value PairingResolvedEvent) MarshalJSON() ([]byte, error) {
+	type wire PairingResolvedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"pairing-resolved\"")
+	return json.Marshal(object)
+}
+
 func (value *PairingResolvedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode PairingResolvedEvent: expected object")
@@ -1462,6 +1655,20 @@ type PaneAddedEvent struct {
 	Pane      ID     `json:"pane"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value PaneAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire PaneAddedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"pane-added\"")
+	return json.Marshal(object)
 }
 
 func (value *PaneAddedEvent) UnmarshalJSON(data []byte) error {
@@ -1515,6 +1722,20 @@ type PaneClosedEvent struct {
 	Pane      ID     `json:"pane"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value PaneClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire PaneClosedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"pane-closed\"")
+	return json.Marshal(object)
 }
 
 func (value *PaneClosedEvent) UnmarshalJSON(data []byte) error {
@@ -1573,6 +1794,20 @@ type RenderDeltaEvent struct {
 	ScrollbackRows *uint32              `json:"scrollback_rows,omitempty"`
 	Size           *Size                `json:"size,omitempty"`
 	Surface        ID                   `json:"surface"`
+}
+
+func (value RenderDeltaEvent) MarshalJSON() ([]byte, error) {
+	type wire RenderDeltaEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"render-delta\"")
+	return json.Marshal(object)
 }
 
 func (value *RenderDeltaEvent) UnmarshalJSON(data []byte) error {
@@ -1669,6 +1904,20 @@ type RenderStateEvent struct {
 	Surface        ID              `json:"surface"`
 }
 
+func (value RenderStateEvent) MarshalJSON() ([]byte, error) {
+	type wire RenderStateEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"render-state\"")
+	return json.Marshal(object)
+}
+
 func (value *RenderStateEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode RenderStateEvent: expected object")
@@ -1748,6 +1997,20 @@ type ResizedEvent struct {
 	Surface            ID                  `json:"surface"`
 }
 
+func (value ResizedEvent) MarshalJSON() ([]byte, error) {
+	type wire ResizedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"resized\"")
+	return json.Marshal(object)
+}
+
 func (value *ResizedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ResizedEvent: expected object")
@@ -1825,6 +2088,20 @@ type ScreenAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value ScreenAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenAddedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"screen-added\"")
+	return json.Marshal(object)
+}
+
 func (value *ScreenAddedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ScreenAddedEvent: expected object")
@@ -1870,6 +2147,20 @@ type ScreenClosedEvent struct {
 	Index     uint64 `json:"index"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value ScreenClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenClosedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"screen-closed\"")
+	return json.Marshal(object)
 }
 
 func (value *ScreenClosedEvent) UnmarshalJSON(data []byte) error {
@@ -1918,6 +2209,20 @@ type ScreenRenamedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value ScreenRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScreenRenamedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"screen-renamed\"")
+	return json.Marshal(object)
+}
+
 func (value *ScreenRenamedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode ScreenRenamedEvent: expected object")
@@ -1957,6 +2262,20 @@ type ScrollChangedEvent struct {
 	AtBottom bool   `json:"at_bottom"`
 	Offset   uint64 `json:"offset"`
 	Surface  ID     `json:"surface"`
+}
+
+func (value ScrollChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire ScrollChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"scroll-changed\"")
+	return json.Marshal(object)
 }
 
 func (value *ScrollChangedEvent) UnmarshalJSON(data []byte) error {
@@ -2002,6 +2321,20 @@ type StatusEvent struct {
 	Message string `json:"message"`
 }
 
+func (value StatusEvent) MarshalJSON() ([]byte, error) {
+	type wire StatusEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"status\"")
+	return json.Marshal(object)
+}
+
 func (value *StatusEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode StatusEvent: expected object")
@@ -2031,6 +2364,20 @@ type SurfaceExitedEvent struct {
 	Surface ID `json:"surface"`
 }
 
+func (value SurfaceExitedEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceExitedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"surface-exited\"")
+	return json.Marshal(object)
+}
+
 func (value *SurfaceExitedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode SurfaceExitedEvent: expected object")
@@ -2058,6 +2405,20 @@ func (SurfaceExitedEvent) isSubscribeEvent() {}
 // SurfaceOutputEvent is emitted by protocol v5.
 type SurfaceOutputEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value SurfaceOutputEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceOutputEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"surface-output\"")
+	return json.Marshal(object)
 }
 
 func (value *SurfaceOutputEvent) UnmarshalJSON(data []byte) error {
@@ -2130,6 +2491,7 @@ func (value SurfaceResizeFailedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["retry_after_ms"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"surface-resize-failed\"")
 	return json.Marshal(object)
 }
 
@@ -2213,6 +2575,7 @@ func (value SurfaceResizedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["reservation_id"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"surface-resized\"")
 	return json.Marshal(object)
 }
 
@@ -2263,6 +2626,20 @@ type TabAddedEvent struct {
 	Screen    ID     `json:"screen"`
 	Surface   ID     `json:"surface"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value TabAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabAddedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"tab-added\"")
+	return json.Marshal(object)
 }
 
 func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
@@ -2324,6 +2701,20 @@ type TabClosedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value TabClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabClosedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"tab-closed\"")
+	return json.Marshal(object)
+}
+
 func (value *TabClosedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TabClosedEvent: expected object")
@@ -2380,6 +2771,20 @@ type TabRenamedEvent struct {
 	Screen    ID  `json:"screen"`
 	Surface   ID  `json:"surface"`
 	Workspace ID  `json:"workspace"`
+}
+
+func (value TabRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabRenamedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"tab-renamed\"")
+	return json.Marshal(object)
 }
 
 func (value *TabRenamedEvent) UnmarshalJSON(data []byte) error {
@@ -2500,6 +2905,7 @@ func (value TerminalLifecycleEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["terminal_id"] = encodedField
 	}
+	object["event"] = json.RawMessage("\"terminal-lifecycle\"")
 	return json.Marshal(object)
 }
 
@@ -2612,7 +3018,16 @@ func (value TerminalRegistryChangedEvent) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode TerminalRegistryChangedEvent.Refetch: invalid value %v", value.Refetch)
 	}
 	type wire TerminalRegistryChangedEvent
-	return json.Marshal(wire(value))
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"terminal-registry-changed\"")
+	return json.Marshal(object)
 }
 
 func (value *TerminalRegistryChangedEvent) UnmarshalJSON(data []byte) error {
@@ -2665,6 +3080,20 @@ type TitleChangedEvent struct {
 	Title   *string `json:"title,omitempty"`
 }
 
+func (value TitleChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire TitleChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"title-changed\"")
+	return json.Marshal(object)
+}
+
 func (value *TitleChangedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TitleChangedEvent: expected object")
@@ -2700,6 +3129,20 @@ func (TitleChangedEvent) isSubscribeEvent() {}
 type TreeChangedEvent struct {
 }
 
+func (value TreeChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire TreeChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"tree-changed\"")
+	return json.Marshal(object)
+}
+
 func (value *TreeChangedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode TreeChangedEvent: expected object")
@@ -2728,6 +3171,20 @@ type VTStateEvent struct {
 	KittyImageAliases  *[]KittyImageAlias  `json:"kitty_image_aliases,omitempty"`
 	Rows               uint16              `json:"rows"`
 	Surface            ID                  `json:"surface"`
+}
+
+func (value VTStateEvent) MarshalJSON() ([]byte, error) {
+	type wire VTStateEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"vt-state\"")
+	return json.Marshal(object)
 }
 
 func (value *VTStateEvent) UnmarshalJSON(data []byte) error {
@@ -2795,6 +3252,20 @@ type WindowTitleRequestedEvent struct {
 	Title string `json:"title"`
 }
 
+func (value WindowTitleRequestedEvent) MarshalJSON() ([]byte, error) {
+	type wire WindowTitleRequestedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"window-title-requested\"")
+	return json.Marshal(object)
+}
+
 func (value *WindowTitleRequestedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WindowTitleRequestedEvent: expected object")
@@ -2829,6 +3300,20 @@ type WorkspaceAddedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value WorkspaceAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceAddedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"workspace-added\"")
+	return json.Marshal(object)
 }
 
 func (value *WorkspaceAddedEvent) UnmarshalJSON(data []byte) error {
@@ -2906,6 +3391,20 @@ type WorkspaceClosedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value WorkspaceClosedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceClosedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"workspace-closed\"")
+	return json.Marshal(object)
+}
+
 func (value *WorkspaceClosedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WorkspaceClosedEvent: expected object")
@@ -2981,6 +3480,20 @@ type WorkspaceMovedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value WorkspaceMovedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceMovedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"workspace-moved\"")
+	return json.Marshal(object)
+}
+
 func (value *WorkspaceMovedEvent) UnmarshalJSON(data []byte) error {
 	if !isJSONObject(data) {
 		return fmt.Errorf("decode WorkspaceMovedEvent: expected object")
@@ -3053,6 +3566,20 @@ type WorkspaceRenamedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value WorkspaceRenamedEvent) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceRenamedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	object["event"] = json.RawMessage("\"workspace-renamed\"")
+	return json.Marshal(object)
 }
 
 func (value *WorkspaceRenamedEvent) UnmarshalJSON(data []byte) error {
