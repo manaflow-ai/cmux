@@ -2244,13 +2244,12 @@ impl OrderedSession {
     fn restore_client_focus_async(&self, client_id: String, epoch: u64) {
         let session = self.inner.clone();
         let events = self.events.clone();
-        let spawn = std::thread::Builder::new().name("client-focus-restore".into()).spawn(
-            move || {
+        let spawn =
+            std::thread::Builder::new().name("client-focus-restore".into()).spawn(move || {
                 if let Some(focus) = session.client_focus(&client_id) {
                     let _ = events.send(AppEvent::ClientFocusRestored { focus, epoch });
                 }
-            },
-        );
+            });
         if spawn.is_err() {
             crate::client_log::stderr_log!(
                 "session",
@@ -2404,7 +2403,7 @@ impl OrderedSession {
         self.inner.has_surface(id)
     }
 
-    fn surface_is_ready_for_input(&self, id: SurfaceId) -> bool {
+    pub(crate) fn surface_is_ready_for_input(&self, id: SurfaceId) -> bool {
         // Remote attach caches its mirror before the initial VT state arrives.
         // The claim outlives that initialization, so cache presence alone is not readiness.
         self.has_surface(id) && !self.surface_attach_claims.lock().unwrap().contains_key(&id)
@@ -5819,6 +5818,17 @@ fn split_ratio_in_node(node: &Node, split: SplitId) -> Option<f32> {
     }
 }
 
+/// A rename the user submitted whose delta has not arrived yet. The name is
+/// overlaid on the adopted tree so the sidebar and tab bar show it at once;
+/// `None` means the user cleared the name (screens and tabs fall back to
+/// their generated label).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum PendingRenameTarget {
+    Workspace(WorkspaceId),
+    Screen(ScreenId),
+    Surface(SurfaceId),
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a tab chip; becomes `Tab` after moving cells.
@@ -7337,6 +7347,7 @@ pub struct App {
     /// `client-focus` answers (see `AppEvent::ClientFocusRestored`).
     client_focus_epoch: u64,
     split_drag_preview: Option<SplitDragPreview>,
+    pending_renames: HashMap<PendingRenameTarget, Option<String>>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -9621,6 +9632,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         client_focus_id: client_focus_identity(),
         client_focus_epoch: 0,
         split_drag_preview: None,
+        pending_renames: HashMap::new(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -14761,6 +14773,7 @@ impl App {
         }
         self.pane_areas.clear();
         self.reconcile_split_drag_preview();
+        self.apply_pending_renames();
         let Some(mut screen) = self.tree.active_screen().cloned() else {
             self.viewport_projection.clear();
             self.viewport_layout.clear();
@@ -19603,12 +19616,26 @@ impl App {
         match prompt.target {
             PromptTarget::Workspace(id) => {
                 if !input.is_empty() {
+                    self.pending_renames
+                        .insert(PendingRenameTarget::Workspace(id), Some(input.clone()));
                     self.request_rename_workspace(id, input);
                 }
             }
             // Empty screen/tab names clear back to the default.
-            PromptTarget::Screen(id) => self.session.rename_screen(id, input),
-            PromptTarget::Surface(id) => self.session.rename_surface(id, input),
+            PromptTarget::Screen(id) => {
+                self.pending_renames.insert(
+                    PendingRenameTarget::Screen(id),
+                    (!input.is_empty()).then(|| input.clone()),
+                );
+                self.session.rename_screen(id, input);
+            }
+            PromptTarget::Surface(id) => {
+                self.pending_renames.insert(
+                    PendingRenameTarget::Surface(id),
+                    (!input.is_empty()).then(|| input.clone()),
+                );
+                self.session.rename_surface(id, input);
+            }
             PromptTarget::ConnectMachine(_)
             | PromptTarget::ClientMachine(_)
             | PromptTarget::ManagedMachine(_)
@@ -23762,14 +23789,88 @@ impl App {
         match self.split_drag_preview {
             Some(preview) if !preview.committed => {
                 if self.prepare_pty_input_before_mutation() {
-                    self.split_drag_preview =
-                        Some(SplitDragPreview { committed: true, ..preview });
+                    self.split_drag_preview = Some(SplitDragPreview { committed: true, ..preview });
                     self.session.set_split_ratio(preview.split, preview.ratio);
                 } else {
                     self.split_drag_preview = None;
                 }
             }
             _ => self.session.settle_split_ratio(),
+        }
+    }
+
+    /// Overlay submitted renames on the adopted tree until the authoritative
+    /// tree carries them. A pending rename is dropped once the tree agrees,
+    /// once every mutation has settled and the tree is current (the rename
+    /// was refused), or when its target no longer exists.
+    fn apply_pending_renames(&mut self) {
+        if self.pending_renames.is_empty() {
+            return;
+        }
+        let settled = !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale();
+        let targets = self.pending_renames.keys().copied().collect::<Vec<_>>();
+        for target in targets {
+            let Some(pending) = self.pending_renames.get(&target).cloned() else { continue };
+            let current: Option<Option<String>> = match target {
+                PendingRenameTarget::Workspace(id) => self
+                    .tree
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == id)
+                    .map(|workspace| Some(workspace.name.clone())),
+                PendingRenameTarget::Screen(id) => self
+                    .tree
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .find(|screen| screen.id == id)
+                    .map(|screen| screen.name.clone()),
+                PendingRenameTarget::Surface(id) => {
+                    self.tree.surface(id).map(|tab| tab.name.clone())
+                }
+            };
+            let Some(current) = current else {
+                self.pending_renames.remove(&target);
+                continue;
+            };
+            if current == pending || settled {
+                self.pending_renames.remove(&target);
+                continue;
+            }
+            match target {
+                PendingRenameTarget::Workspace(id) => {
+                    if let Some(workspace) =
+                        self.tree.workspaces.iter_mut().find(|workspace| workspace.id == id)
+                        && let Some(name) = pending
+                    {
+                        workspace.name = name;
+                    }
+                }
+                PendingRenameTarget::Screen(id) => {
+                    if let Some(screen) = self
+                        .tree
+                        .workspaces
+                        .iter_mut()
+                        .flat_map(|workspace| workspace.screens.iter_mut())
+                        .find(|screen| screen.id == id)
+                    {
+                        screen.name = pending;
+                    }
+                }
+                PendingRenameTarget::Surface(id) => {
+                    if let Some(tab) = self
+                        .tree
+                        .workspaces
+                        .iter_mut()
+                        .flat_map(|workspace| workspace.screens.iter_mut())
+                        .flat_map(|screen| screen.panes.iter_mut())
+                        .flat_map(|pane| pane.tabs.iter_mut())
+                        .find(|tab| tab.surface == id)
+                    {
+                        tab.name = pending;
+                    }
+                }
+            }
         }
     }
 
@@ -23791,8 +23892,7 @@ impl App {
             .tree
             .active_screen()
             .and_then(|screen| split_ratio_in_node(&screen.layout, preview.split));
-        let settled =
-            !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale();
+        let settled = !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale();
         let drop = match tree_ratio {
             None => true,
             Some(ratio) if (ratio - preview.ratio).abs() < 1e-3 => true,
@@ -25082,24 +25182,23 @@ mod tests {
         HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
         MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
         OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, SplitDragPreview, StatusTemplateValues, StatusWorkerStop,
-        StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
+        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingRenameTarget,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides, SplitDragPreview,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
@@ -29908,7 +30007,11 @@ mod tests {
         let preview = app.split_drag_preview.expect("motion records a local preview");
         assert_eq!(preview.split, split);
         assert!(!preview.committed);
-        assert!(preview.ratio < 0.4, "pointer at x=25 of 100 must move the divider left: {}", preview.ratio);
+        assert!(
+            preview.ratio < 0.4,
+            "pointer at x=25 of 100 must move the divider left: {}",
+            preview.ratio
+        );
 
         // The preview drives layout while the drag is in progress.
         app.sync_layout((100, 20));
@@ -29966,8 +30069,7 @@ mod tests {
     fn committed_split_preview_holds_until_the_tree_carries_the_ratio() {
         let (mut app, events, mux, split, _first) =
             split_drag_test_app("split-drag-preview-hold-test");
-        app.split_drag_preview =
-            Some(SplitDragPreview { split, ratio: 0.3, committed: true });
+        app.split_drag_preview = Some(SplitDragPreview { split, ratio: 0.3, committed: true });
         // The authoritative tree still says 0.5 and a mutation is pending: the
         // preview holds so the divider does not snap back for a frame.
         app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
@@ -29989,10 +30091,14 @@ mod tests {
         let tree_json = serde_json::json!({
             "workspaces": [{
                 "id": 1, "name": "one", "active": true,
+                "resource_id": "ws_00000000000000000000000000000001",
                 "screens": [{
                     "id": 2, "active": true, "active_pane": 3,
+                    "resource_id": "screen_00000000000000000000000000000002",
                     "layout": {"type": "leaf", "pane": 3},
-                    "panes": [{"id": 3, "tabs": [
+                    "panes": [{"id": 3,
+                        "resource_id": "pane_00000000000000000000000000000003",
+                        "tabs": [
                         {"surface": 7, "title": "a", "kind": "pty"},
                         {"surface": 8, "title": "b", "kind": "pty"}
                     ]}]
@@ -30002,14 +30108,15 @@ mod tests {
         // The daemon's tab-added delta has already been applied to the cache
         // (here: the snapshot already contains surface 8), and the create
         // response names that surface.
-        let (session, requests) = crate::session::test_remote_session_answering(Arc::new(
-            move |request: &Value| match request.get("cmd").and_then(Value::as_str) {
-                Some("list-workspaces") => tree_json.clone(),
-                Some("list-agents") => serde_json::json!({"agents": []}),
-                Some("new-tab") => serde_json::json!({"surface": 8}),
-                _ => serde_json::json!({}),
-            },
-        ));
+        let (session, requests) =
+            crate::session::test_remote_session_answering(Arc::new(move |request: &Value| {
+                match request.get("cmd").and_then(Value::as_str) {
+                    Some("list-workspaces") => tree_json.clone(),
+                    Some("list-agents") => serde_json::json!({"agents": []}),
+                    Some("new-tab") => serde_json::json!({"surface": 8}),
+                    _ => serde_json::json!({}),
+                }
+            }));
         session.refresh_tree().unwrap();
         let (mut app, events) = test_app_with_events(session);
         app.sidebar_visible = false;
@@ -30021,12 +30128,29 @@ mod tests {
         while !settled {
             let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
             if let AppEvent::SessionMutationSettled { outcome, .. } = &event {
+                let described = match outcome {
+                    super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. } => None,
+                    super::SessionMutationOutcome::CommittedTreeStale { error, .. } => {
+                        Some(format!("CommittedTreeStale({error:?})"))
+                    }
+                    super::SessionMutationOutcome::Failed(error) => {
+                        Some(format!("Failed({error})"))
+                    }
+                    super::SessionMutationOutcome::MutationTimedOut(error) => {
+                        Some(format!("MutationTimedOut({error})"))
+                    }
+                    super::SessionMutationOutcome::CreationResponseAmbiguous(error) => {
+                        Some(format!("CreationResponseAmbiguous({error})"))
+                    }
+                    super::SessionMutationOutcome::SemanticIntent { .. } => {
+                        Some("SemanticIntent".to_string())
+                    }
+                    _ => Some("other outcome".to_string()),
+                };
                 assert!(
-                    matches!(
-                        outcome,
-                        super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. }
-                    ),
-                    "expected the cached tree to be authoritative without a refetch"
+                    described.is_none(),
+                    "expected the cached tree to be authoritative without a refetch, got {}",
+                    described.unwrap_or_default()
                 );
                 settled = true;
             }
@@ -30039,6 +30163,95 @@ mod tests {
             "the create must not refetch the tree it already has: {later:?}"
         );
         assert_eq!(app.tree.active_surface(), Some(8), "the created tab is selected");
+    }
+
+    #[test]
+    fn submitted_tab_rename_shows_at_once_and_yields_to_the_authoritative_name() {
+        let (mux, surface) = test_mux("pending-rename-overlay-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.tree.surface(surface.id).unwrap().name, None);
+
+        // Submitting the rename overlays the typed name before any mutation
+        // has settled, even though the session tree still has no name.
+        app.pending_renames
+            .insert(PendingRenameTarget::Surface(surface.id), Some("logs".to_string()));
+        app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        app.sync_layout((80, 20));
+        assert_eq!(app.tree.surface(surface.id).unwrap().name.as_deref(), Some("logs"));
+        assert_eq!(app.session.tree().surface(surface.id).unwrap().name, None);
+        app.session.pending_mutations.fetch_sub(1, Ordering::AcqRel);
+
+        app.session.rename_surface(surface.id, "logs".to_string());
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.sync_layout((80, 20));
+        assert!(app.pending_renames.is_empty(), "the tree agrees; the overlay must drop");
+        assert_eq!(app.tree.surface(surface.id).unwrap().name.as_deref(), Some("logs"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn refused_rename_overlay_drops_once_mutations_settle() {
+        let (mux, surface) = test_mux("pending-rename-refused-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.pending_renames
+            .insert(PendingRenameTarget::Surface(surface.id), Some("never".to_string()));
+        // Nothing is pending and the tree is current, so the rename was
+        // refused or lost: the overlay must not stick.
+        app.sync_layout((80, 20));
+        assert!(app.pending_renames.is_empty());
+        assert_eq!(app.tree.surface(surface.id).unwrap().name, None);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn attaching_pane_shows_a_starting_line_instead_of_an_empty_grid() {
+        let surface = 7;
+        let (session, attach_started, _release_attach) = test_remote_session_with_deferred_attach();
+        crate::session::test_seed_remote_tree(&session, notify_tree(surface, false));
+        let (mut app, _events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        app.sync_layout((60, 12));
+        // Layout queues the attach; the deferred writer holds it before the
+        // first frame, so the pane has either no mirror yet or a mirror with
+        // its attach claim outstanding. Both must read as starting.
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains(localization::catalog().terminal.pane_starting),
+            "attaching pane must say it is starting:\n{text}"
+        );
+        attach_started.recv_timeout(Duration::from_secs(2)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains(localization::catalog().terminal.pane_starting),
+            "attaching pane must say it is starting:\n{text}"
+        );
+    }
+
+    #[test]
+    fn pane_lifecycle_text_prefers_exit_over_pending_attach() {
+        use crate::ui::pane::{PaneLifecycleText, pane_lifecycle_text};
+        assert_eq!(pane_lifecycle_text(false, true), None);
+        assert_eq!(pane_lifecycle_text(false, false), Some(PaneLifecycleText::Starting));
+        assert_eq!(pane_lifecycle_text(true, true), Some(PaneLifecycleText::Exited));
+        assert_eq!(pane_lifecycle_text(true, false), Some(PaneLifecycleText::Exited));
     }
 
     #[test]
@@ -46472,6 +46685,7 @@ mod tests {
             client_focus_id: None,
             client_focus_epoch: 0,
             split_drag_preview: None,
+            pending_renames: HashMap::new(),
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),

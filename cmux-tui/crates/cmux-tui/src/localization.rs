@@ -110,6 +110,10 @@ pub(crate) struct TerminalMessages {
     pub pty_input_exited: &'static str,
     pub attach_outcome_unknown: &'static str,
     pub operation_failed: &'static str,
+    /// One inline line in a PTY pane whose attach has not delivered a frame.
+    pub pane_starting: &'static str,
+    /// One inline line under the last frame of a PTY pane whose process exited.
+    pub pane_exited: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1264,6 +1268,8 @@ static ENGLISH: Catalog = Catalog {
         pty_input_exited: "Terminal exited; input was not sent",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
+        pane_starting: "starting…",
+        pane_exited: "process exited",
     },
     session: SessionMessages {
         creation_reconciling: "Session creation may have completed; checking its receipt",
@@ -1912,6 +1918,8 @@ static JAPANESE: Catalog = Catalog {
         pty_input_exited: "ターミナルが終了したため、入力は送信されませんでした",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
+        pane_starting: "起動中…",
+        pane_exited: "プロセスが終了しました",
     },
     session: SessionMessages {
         creation_reconciling: "セッションの作成が完了している可能性があります。結果を確認しています",

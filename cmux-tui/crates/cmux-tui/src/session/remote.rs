@@ -498,7 +498,10 @@ impl RemoteTreeCache {
                         None => false,
                     },
                     K::ScreenClosed => {
-                        match workspace.screens.iter().position(|screen| Some(screen.id) == screen_id)
+                        match workspace
+                            .screens
+                            .iter()
+                            .position(|screen| Some(screen.id) == screen_id)
                         {
                             Some(position) => {
                                 workspace.screens.remove(position);
@@ -514,7 +517,10 @@ impl RemoteTreeCache {
                         }
                     }
                     K::ScreenRenamed => {
-                        match workspace.screens.iter_mut().find(|screen| Some(screen.id) == screen_id)
+                        match workspace
+                            .screens
+                            .iter_mut()
+                            .find(|screen| Some(screen.id) == screen_id)
                         {
                             Some(screen) => {
                                 screen.name =
@@ -534,8 +540,12 @@ impl RemoteTreeCache {
                     .workspaces
                     .iter_mut()
                     .find(|ws| ws.id == workspace_id)
-                    .and_then(|ws| ws.screens.iter_mut().find(|screen| Some(screen.id) == screen_id))
-                    .and_then(|screen| screen.panes.iter_mut().find(|pane| Some(pane.id) == pane_id))
+                    .and_then(|ws| {
+                        ws.screens.iter_mut().find(|screen| Some(screen.id) == screen_id)
+                    })
+                    .and_then(|screen| {
+                        screen.panes.iter_mut().find(|pane| Some(pane.id) == pane_id)
+                    })
                 else {
                     return TreeDeltaApply::Resync;
                 };
@@ -2675,17 +2685,9 @@ impl RemoteSession {
                 }
             }
             Some(
-                event @ ("workspace-added"
-                | "workspace-closed"
-                | "workspace-renamed"
-                | "workspace-moved"
-                | "screen-added"
-                | "screen-closed"
-                | "screen-renamed"
-                | "pane-added"
-                | "pane-closed"
-                | "tab-added"
-                | "tab-closed"
+                event @ ("workspace-added" | "workspace-closed" | "workspace-renamed"
+                | "workspace-moved" | "screen-added" | "screen-closed" | "screen-renamed"
+                | "pane-added" | "pane-closed" | "tab-added" | "tab-closed"
                 | "tab-renamed"),
             ) => {
                 let capabilities = {
@@ -2696,7 +2698,8 @@ impl RemoteSession {
                             .contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
                     }
                 };
-                let applied = self.tree.lock().unwrap().apply_tree_delta(event, &value, capabilities);
+                let applied =
+                    self.tree.lock().unwrap().apply_tree_delta(event, &value, capabilities);
                 match applied {
                     TreeDeltaApply::Applied(delta) => self.emit(MuxEvent::TreeDelta(delta)),
                     TreeDeltaApply::Resync => {
@@ -3743,6 +3746,14 @@ impl RemoteSession {
         self.tree.lock().unwrap().view.surface_kind(id)
     }
 
+    /// Seed the cached tree directly, as if a `list-workspaces` snapshot had
+    /// been adopted, so app tests can exercise remote panes without a server.
+    #[cfg(test)]
+    pub(super) fn test_replace_cached_tree(&self, tree: TreeView) {
+        self.tree.lock().unwrap().replace(tree, 0);
+        self.tree_stale.store(false, Ordering::Release);
+    }
+
     pub fn cached_tree(&self) -> TreeView {
         self.tree.lock().unwrap().view.clone()
     }
@@ -4507,11 +4518,11 @@ fn test_session_with_provider_context(
 #[cfg(test)]
 pub(super) fn test_session_answering(
     responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
-) -> (Arc<RemoteSession>, std::sync::mpsc::Receiver<Value>) {
+) -> (Arc<RemoteSession>, Receiver<Value>) {
     struct AnsweringWriter {
         session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
         responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
-        requests: std::sync::mpsc::Sender<Value>,
+        requests: Sender<Value>,
     }
 
     impl RemoteMessageWriter for AnsweringWriter {
@@ -4545,7 +4556,7 @@ pub(super) fn test_session_answering(
     }
 
     let slot = Arc::new(Mutex::new(None));
-    let (requests, received) = std::sync::mpsc::channel();
+    let (requests, received) = channel();
     let session = test_session_with_writer(
         Box::new(AnsweringWriter { session: slot.clone(), responder, requests }),
         None,
@@ -8143,7 +8154,7 @@ mod tests {
         assert!(!session.tree_is_stale(), "an exact tab delta must not force a refetch");
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::TreeDelta(delta)) if delta.kind == cmux_tui_core::TreeDeltaKind::TabAdded
+            Ok(MuxEvent::TreeDelta(delta)) if delta.kind == TreeDeltaKind::TabAdded
         ));
         let tree = session.cached_tree();
         let tabs = &tree.workspaces[0].screens[0].panes[0].tabs;

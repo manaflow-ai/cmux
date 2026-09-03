@@ -1078,8 +1078,7 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
-    let name = if pending.lock().unwrap().as_ref().is_some_and(PtyInputEvent::is_session_mutation)
-    {
+    let name = if pending.lock().unwrap().as_ref().is_some_and(PtyInputEvent::is_session_mutation) {
         "mux-session-mutation"
     } else {
         "mux-surface-operation"

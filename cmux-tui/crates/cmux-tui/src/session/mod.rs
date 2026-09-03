@@ -2937,6 +2937,14 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
     Session::Remote(remote::test_session_with_provider_authority_without_guard())
 }
 
+/// Seed a remote session's cached tree for app tests. Local sessions ignore it.
+#[cfg(test)]
+pub(crate) fn test_seed_remote_tree(session: &Session, tree: TreeView) {
+    if let Session::Remote(remote) = session {
+        remote.test_replace_cached_tree(tree);
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_session_with_deferred_attach()
 -> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
