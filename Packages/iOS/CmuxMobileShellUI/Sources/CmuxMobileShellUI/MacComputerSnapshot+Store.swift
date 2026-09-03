@@ -114,7 +114,7 @@ extension MacComputerSnapshot {
     /// record and later non-online occurrences get labeled "Older pairing".
     /// An online row is never labeled: a running instance is not stale even
     /// if a fresher same-named record exists.
-    private static func markOlderDuplicates(_ snapshots: inout [MacComputerSnapshot]) {
+    static func markOlderDuplicates(_ snapshots: inout [MacComputerSnapshot]) {
         var seenNames: Set<String> = []
         for index in snapshots.indices {
             let name = snapshots[index].title
