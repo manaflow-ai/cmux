@@ -461,6 +461,28 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func nextTransportPairRequiresMacWideAttachTicket() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+        let request = MobileHostRPCRequest(
+            id: "next-pair",
+            method: "mobile.next_transport.pair",
+            params: [
+                "device_id": "phone",
+                "device_public_key": Data(repeating: 1, count: 32).base64EncodedString(),
+                "app_identity": "dev.cmux.next.ios",
+            ],
+            auth: MobileHostRPCAuth(attachToken: scopedTicket.authToken, stackAccessToken: nil)
+        )
+        #expect(
+            MobileHostService.ticketAuthorizationError(
+                ticket: scopedTicket, request: request)?.code == "forbidden")
+        var wideRequest = request
+        wideRequest.auth = MobileHostRPCAuth(
+            attachToken: macWideTicket.authToken, stackAccessToken: nil)
+        #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: wideRequest) == nil)
+    }
+
     private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

@@ -209,7 +209,8 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         }
 
         switch (kind, endpoint) {
-        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer), (.websocket, .url):
+        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer),
+             (.websocket, .url), (.nextTransport, .peer):
             break
         default:
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)
@@ -263,6 +264,28 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case camelCase = "authToken"
     }
 
+    /// Per-entry lossy wrapper keeps a newly-added route kind from invalidating
+    /// the legacy routes that an older client can still use.
+    private struct FailableRoute: Decodable {
+        let value: CmxAttachRoute?
+
+        private enum CodingKeys: String, CodingKey {
+            case kind
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let rawKind = try container.decode(String.self, forKey: .kind)
+            guard CmxAttachTransportKind(rawValue: rawKind) == nil else {
+                // Known routes retain their strict validation errors; only a
+                // genuinely unknown enum value is forward-compatible.
+                value = try CmxAttachRoute(from: decoder)
+                return
+            }
+            value = nil
+        }
+    }
+
     public let version: Int
     public let workspaceID: String
     public let terminalID: String?
@@ -305,7 +328,8 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             ),
             macAppVersion: container.decodeIfPresent(String.self, forKey: .macAppVersion),
             macAppBuild: container.decodeIfPresent(String.self, forKey: .macAppBuild),
-            routes: container.decode([CmxAttachRoute].self, forKey: .routes),
+            routes: try container.decode([FailableRoute].self, forKey: .routes)
+                .compactMap(\.value),
             expiresAt: container.decodeIfPresent(Date.self, forKey: .expiresAt),
             authToken: try Self.decodeAuthToken(from: decoder)
         )

@@ -3,12 +3,15 @@ import CmuxIrohTransport
 import SwiftUI
 
 #if DEBUG
+import CmuxNextTransport
+
 struct IrohAndAgentSessionDebugMenuButtons: View {
     let openReact: () -> Void
     let openSolid: () -> Void
 
     var body: some View {
         IrohTransportDebugMenuButtons()
+        NextTransportDebugMenuButtons()
         AgentSessionDebugMenuButtons(
             openReact: openReact,
             openSolid: openSolid
@@ -72,6 +75,58 @@ struct IrohTransportDebugMenuButtons: View {
 
     private var transportMode: CmxIrohTransportVerificationMode {
         CmxIrohTransportVerificationMode(rawValue: transportModeRaw) ?? .automatic
+    }
+}
+
+/// Graduation P4 (manaflow-ai/cmux#10629): dev toggle for the parallel
+/// next-transport host. Off by default; readiness and state are visible
+/// inline. DEBUG-only like the runtime it drives (`MobileHostNextTransportRuntime`
+/// does not exist in Release builds).
+struct NextTransportDebugMenuButtons: View {
+    @AppStorage(MobileHostNextTransportRuntime.debugDefaultsKey)
+    private var enabled = false
+
+    var body: some View {
+        // State rides the submenu title: a plain Text row inside a Menu
+        // renders dimmed (non-interactive), which buried the one line that
+        // matters. The state string is a dev diagnostic, not product copy.
+        Menu(
+            String(
+                localized: "debug.menu.nextTransport",
+                defaultValue: "Next Transport (dev)"
+            ) + nextTransportStateSuffix
+        ) {
+            Button {
+                MobileHostService.shared.nextTransportRuntime.setEnabled(!enabled)
+            } label: {
+                if enabled {
+                    Label(
+                        String(
+                            localized: "debug.menu.nextTransport.enabled",
+                            defaultValue: "Parallel Host Enabled"
+                        ),
+                        systemImage: "checkmark"
+                    )
+                } else {
+                    Text(
+                        String(
+                            localized: "debug.menu.nextTransport.enable",
+                            defaultValue: "Enable Parallel Host"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private var nextTransportStateSuffix: String {
+        let runtime = MobileHostService.shared.nextTransportRuntime
+        guard runtime.state != "off" else { return "" }
+        let admitted = runtime.admissions
+        let status = " · \(runtime.readiness) · \(runtime.state)"
+        return admitted == 0
+            ? status
+            : status + " · \(admitted) admitted"
     }
 }
 #endif

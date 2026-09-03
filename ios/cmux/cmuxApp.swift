@@ -232,7 +232,16 @@ struct cmuxApp: App {
     }
 
     private var mobileRootScene: CMUXMobileRootScene {
-        CMUXMobileRootScene(
+        #if DEBUG
+        let nextTransportProbe: MobileShellComposite.NextTransportBootstrapProbe? = {
+            client, macID, generation in
+            await Self.root.iroh.nextTransportBootstrapProbe(
+                client: client, macID: macID, generation: generation)
+        }
+        #else
+        let nextTransportProbe: MobileShellComposite.NextTransportBootstrapProbe? = nil
+        #endif
+        return CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
             reachability: Self.root.reachability,
@@ -253,7 +262,8 @@ struct cmuxApp: App {
             personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog
+            diagnosticLog: Self.root.diagnosticLog,
+            nextTransportBootstrapProbe: nextTransportProbe
         )
     }
 }

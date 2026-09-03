@@ -280,6 +280,12 @@ enum MobileHostPortApplyOutcome: Equatable {
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
+#if DEBUG
+    /// Composition-owned DEBUG next-transport host. Keeping this runtime on
+    /// the existing mobile-host service gives all command/menu/lifecycle
+    /// entrypoints one owner without introducing a second process singleton.
+    let nextTransportRuntime = MobileHostNextTransportRuntime()
+#endif
     nonisolated private static let maximumActiveConnectionCount = 10
     /// Process-lifetime owner for the repository-root summary TTL cache.
     let workspaceChangesService = WorkspaceChangesService()
@@ -323,7 +329,21 @@ final class MobileHostService {
         now: Date = Date()
     ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
-        payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        let legacyCompatibleRoutes = routes.filter { $0.kind != .nextTransport }
+        payload["routes"] = legacyCompatibleRoutes.mobileHostJSONObjects(
+            for: .authenticated,
+            at: now
+        )
+        // Additive field for clients that understand the graduation route. It
+        // deliberately stays out of `routes`: older Codable clients reject an
+        // unknown enum case for the entire array rather than dropping one item.
+        if let nextRoute = MobileHostPublicStatusCache.nextTransportSnapshot(),
+            let encodedNextRoute = [nextRoute]
+                .mobileHostJSONObjects(for: .authenticated, at: now)
+                .first
+        {
+            payload["next_transport_route"] = encodedNextRoute
+        }
         payload["capabilities"] = applyingDebugCapabilitySuppressions(
             mobileHostCapabilities
                 + additionalCapabilities
@@ -478,6 +498,9 @@ final class MobileHostService {
     /// otherwise. Running both would reincarnate the binding in a loop.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+#if DEBUG
+        nextTransportRuntime.configure(auth: auth)
+#endif
         if MobileHostIrxRuntime.isEnabled {
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
@@ -497,6 +520,14 @@ final class MobileHostService {
 
     func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
         MobileHostPublicStatusCache.update(irohBinding: binding)
+    }
+
+    /// Publishes (or clears, with `nil`) the graduation-track next-transport
+    /// advertisement. Facade-only: it rides presence/status so new clients can
+    /// discover the parallel host, and is excluded from attach tickets and
+    /// every legacy dial path.
+    func updateNextTransportRoute(_ route: CmxAttachRoute?) {
+        MobileHostPublicStatusCache.update(nextTransportRoute: route)
     }
 
     func closeIrohConnections(bindingID: String) {
@@ -520,6 +551,15 @@ final class MobileHostService {
         guard let auth else { return nil }
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
+
+    /// Synchronous main-actor snapshot for already-authorized local callers.
+    /// Unlike ``currentAuthenticatedLocalUserID()``, this never races session
+    /// restore by waiting; a caller that needs a definitive answer must use
+    /// the async form first.
+    func currentAuthenticatedLocalUserIDIfReady() -> String? {
+        guard let auth, auth.isAuthenticated, !auth.isRestoringSession else { return nil }
         return auth.currentUser?.id
     }
 
@@ -1131,6 +1171,12 @@ final class MobileHostService {
     }
 
     func stop() {
+#if DEBUG
+        // The service owns both listener families. Stop the independent DEBUG
+        // host too, so an explicit mobile-host shutdown cannot leave a live
+        // QUIC endpoint/advertisement behind.
+        nextTransportRuntime.stopForService()
+#endif
         MobileHostIrohRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
@@ -1286,6 +1332,11 @@ final class MobileHostService {
         }
         remoteControlPolicyStopApplied = false
         let defaults = UserDefaults.standard
+#if DEBUG
+        // The managed-policy stop leaves the user's DEBUG opt-in untouched;
+        // re-arm that independent host when policy enforcement is lifted.
+        nextTransportRuntime.startIfEnabled()
+#endif
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
         MobileHostIrohRuntime.shared.setDesiredActive(true)
@@ -1532,7 +1583,12 @@ final class MobileHostService {
         pairingURLScheme: CmxPairingURLScheme? =
             CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
+        // The next-transport advertisement never enters a minted ticket:
+        // tickets decode their routes strictly (one unknown kind fails the
+        // whole ticket on an old client), and every ticket consumer is a
+        // legacy dial path that must not treat the facade route as dialable.
         let routes = MobileHostPublicStatusCache.snapshot()
+            .filter { $0.kind != .nextTransport }
         let filteredRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,

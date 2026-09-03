@@ -35,6 +35,14 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
+    /// Composition-injected DEBUG capability probe. The shell supplies the
+    /// authenticated client and connection generation; the owning composition
+    /// decides how (or whether) to persist a next-transport bootstrap.
+    public typealias NextTransportBootstrapProbe = @Sendable (
+        _ client: MobileCoreRPCClient,
+        _ macDeviceID: String,
+        _ connectionGeneration: UUID
+    ) async -> Void
     /// Bound the peer fleet to five live sessions: one initial focus plus four
     /// warm peers. After the first focus handoff, the focused peer may also keep
     /// its control capability without consuming another transport session.
@@ -1332,6 +1340,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
+    private let nextTransportBootstrapProbe: NextTransportBootstrapProbe?
+    private var nextTransportBootstrapProbeTask: Task<Void, Never>?
+    /// A healthy connection gets at most one capability probe. Server-event
+    /// envelopes arrive at terminal frame rate; tying this marker to the
+    /// connection generation keeps that hot path allocation-free after the
+    /// initial probe while still retrying on a genuinely new connection.
+    private var nextTransportBootstrapProbeGeneration: UUID?
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -1797,7 +1812,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
-        storedMacReconnectRestoringDeadlineSeconds: Double = 15
+        storedMacReconnectRestoringDeadlineSeconds: Double = 15,
+        nextTransportBootstrapProbe: NextTransportBootstrapProbe? = nil
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
@@ -1818,6 +1834,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.simulatorStreamStore = simulatorStreamStore
         self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
+        self.nextTransportBootstrapProbe = nextTransportBootstrapProbe
+        self.nextTransportBootstrapProbeTask = nil
+        self.nextTransportBootstrapProbeGeneration = nil
         self.pairedMacStore = pairedMacStore
         self.connectionMethodStore = connectionMethodStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
@@ -1974,6 +1993,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        #if DEBUG
+        nextTransportBootstrapProbeTask?.cancel()
+        #endif
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
@@ -9584,6 +9606,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
         connectionAttemptGeneration = generation
+        #if DEBUG
+        cancelNextTransportBootstrapProbe()
+        #endif
         connectionGeneration = generation
         await releaseConnectionAttemptClientForReplacement()
         guard isConnectCurrent() else { return nil }
@@ -10354,10 +10379,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
+        // `.nextTransport` is the graduation facade's presence advertisement,
+        // never a legacy dial candidate. Excluded unconditionally (even with
+        // an empty supported-kinds allowlist) so it can never be selected.
         let orderedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
             to: ticket.routes,
             observedAt: Date()
-        ).sorted(by: Self.routeSortsBefore)
+        )
+        .filter { $0.kind != .nextTransport }
+        .sorted(by: Self.routeSortsBefore)
         let supportedRoutes: [CmxAttachRoute]
         if supportedKinds.isEmpty {
             supportedRoutes = orderedRoutes
@@ -10591,7 +10621,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
+    /// Cancels any probe tied to the previous authenticated connection.
+    #if DEBUG
+    private func cancelNextTransportBootstrapProbe() {
+        nextTransportBootstrapProbeTask?.cancel()
+        nextTransportBootstrapProbeTask = nil
+        nextTransportBootstrapProbeGeneration = nil
+    }
+    #endif
+
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+        #if DEBUG
+        cancelNextTransportBootstrapProbe()
+        #endif
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
@@ -10736,6 +10778,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> MobileCoreRPCClient? {
         let previous = remoteClient
         if let previous, previous !== newValue {
+            #if DEBUG
+            cancelNextTransportBootstrapProbe()
+            #endif
             previous.retire()
         }
         remoteClient = newValue
@@ -10762,6 +10807,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Authentication can stage the target while the old client remains
         // routable. Publish a fresh live generation at the actual swap so work
         // begun during staging cannot cross onto the target connection.
+        #if DEBUG
+        cancelNextTransportBootstrapProbe()
+        #endif
         connectionGeneration = generation
         remoteClient = newValue
         if !preservingTerminalHandoffFences {
@@ -11447,6 +11495,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macConnectionStatus = .unavailable
             return
         }
+        #if DEBUG
+        // Graduation bootstrap probe runs over THIS composite's live RPC client
+        // after a connection turns healthy. It is owned by the connection
+        // generation and cancelled when that client is replaced.
+        if let probe = nextTransportBootstrapProbe,
+            let client = remoteClient,
+            let macDeviceID = activeTicket?.macDeviceID,
+            !macDeviceID.isEmpty
+        {
+            let generation = connectionGeneration
+            if nextTransportBootstrapProbeGeneration != generation {
+                nextTransportBootstrapProbeGeneration = generation
+                nextTransportBootstrapProbeTask = Task { [weak self] in
+                    await probe(client, macDeviceID, generation)
+                    guard !Task.isCancelled else { return }
+                    guard let self,
+                        self.connectionGeneration == generation,
+                        self.remoteClient === client
+                    else { return }
+                    self.nextTransportBootstrapProbeTask = nil
+                }
+            }
+        }
+        #endif
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in
                 lastSuccessfulTerminalSubscription

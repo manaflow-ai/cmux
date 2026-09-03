@@ -8129,6 +8129,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
             MobileHostService.shared.start()
+            #if DEBUG
+            // Graduation P4: the parallel next-transport host. DEBUG-only
+            // and OFF until `dev.cmux.nextTransport.enabled` opts in
+            // (Debug > Next Transport toggles it). Startup is cache-first
+            // and register-when-ready: startIfEnabled() returns immediately,
+            // binds without waiting on the broker, and publishes only at
+            // `.published` readiness.
+            MobileHostService.shared.nextTransportRuntime.startIfEnabled()
+            #endif
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 

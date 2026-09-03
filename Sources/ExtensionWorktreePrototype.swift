@@ -12,6 +12,9 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     let generatedArtifactContents: Data
     /// Filesystem identity captured immediately after `git worktree add`.
     /// Rollback refuses to touch a path whose checkout was replaced.
+    /// No inline default: newer Swift toolchains (6.3+) reject assigning an
+    /// already-defaulted `let` in the explicit initializer below, which keeps
+    /// these labels available on every toolchain via its defaulted parameters.
     let worktreeDeviceID: UInt64?
     let worktreeFileID: UInt64?
     /// A convenience command (e.g. a sample dev-server launcher) that should run

@@ -25,6 +25,11 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
+#if DEBUG
+import CmuxIrohTransport
+import CmuxNextTransport
+import CryptoKit
+#endif
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -1330,6 +1335,14 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            // Graduation P4 dev verbs: the parallel next-transport host's
+            // dial ticket and per-device grant mint (dev signer), for handing
+            // an iOS dev build everything it needs to dial. Same semaphore
+            // pattern as iroh_diag; DEBUG-only surface.
+            case "next_transport_ticket":
+                return (true, nextTransportTicketText())
+            case "next_transport_grant":
+                return (true, nextTransportGrantText(args))
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -1571,6 +1584,14 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        #if DEBUG
+        case "mobile.next_transport.pair":
+            // Socket parity with the phone RPC dispatcher, so tooling can
+            // preflight the graduation bootstrap without a device.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                await self.v2MobileNextTransportPair(params: request.params)
+            }
+        #endif
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "mobile.compatible_tags.get":
@@ -1722,6 +1743,7 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "mobile.next_transport.pair"
                 || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
@@ -3880,7 +3902,7 @@ class TerminalController {
 
     nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
-              let payload = JSONValue(foundationObject: result) else {
+              let payload = CmuxControlSocket.JSONValue(foundationObject: result) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.ok(id: idValue, result: payload)
@@ -3889,9 +3911,9 @@ class TerminalController {
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
     /// encode as JSON `null`; an unencodable id reports overall encode
     /// failure (the legacy `isValidJSONObject` behavior).
-    private nonisolated static func v2WireId(_ id: Any?) -> JSONValue? {
+    private nonisolated static func v2WireId(_ id: Any?) -> CmuxControlSocket.JSONValue? {
         guard let id else { return .null }
-        return JSONValue(foundationObject: id)
+        return CmuxControlSocket.JSONValue(foundationObject: id)
     }
 
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
@@ -4023,9 +4045,9 @@ class TerminalController {
         guard let idValue = Self.v2WireId(id) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
-        var dataValue: JSONValue?
+        var dataValue: CmuxControlSocket.JSONValue?
         if let data {
-            guard let bridgedData = JSONValue(foundationObject: data) else {
+            guard let bridgedData = CmuxControlSocket.JSONValue(foundationObject: data) else {
                 return ControlResponseEncoder.encodeFailureResponse
             }
             dataValue = bridgedData
@@ -4067,7 +4089,7 @@ class TerminalController {
     }
 
     private nonisolated func v2Encode(_ object: Any) -> String {
-        guard let value = JSONValue(foundationObject: object) else {
+        guard let value = CmuxControlSocket.JSONValue(foundationObject: object) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.encode(value)
@@ -11813,6 +11835,186 @@ class TerminalController {
         return export
     }
 
+    /// Serves `next_transport_ticket`: the parallel host's dial ticket
+    /// (key + addrs + relay), or an `ERROR: ` reply naming the readiness
+    /// rung that refused it (tickets exist only at `.published`).
+    private nonisolated func nextTransportTicketText() -> String {
+        #if DEBUG
+        return v2MainSync {
+            switch MobileHostService.shared.nextTransportRuntime.mintTicketJSON() {
+            case .success(let ticket):
+                return ticket
+            case .failure(let failure):
+                return "ERROR: " + String(
+                    localized: "cli.nextTransport.ticketUnavailable",
+                    defaultValue: "Next-transport ticket unavailable: \(failure). Enable it in Debug > Next Transport."
+                )
+            }
+        }
+        #else
+        return "ERROR: " + String(
+            localized: "cli.nextTransport.debugOnly",
+            defaultValue: "Next transport is available only in a debug build."
+        )
+        #endif
+    }
+
+    /// Serves `next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>`.
+    private nonisolated func nextTransportGrantText(_ args: String) -> String {
+        #if DEBUG
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
+            return "ERROR: " + String(
+                localized: "cli.nextTransport.grantUsage",
+                defaultValue: "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+            )
+        }
+        return v2MainSync {
+            switch MobileHostService.shared.nextTransportRuntime.mintGrant(
+                deviceID: parts[0], devicePublicKey: key, appIdentity: parts[2])
+            {
+            case .success(let grant):
+                return grant
+            case .failure(let failure):
+                return "ERROR: " + String(
+                    localized: "cli.nextTransport.grantUnavailable",
+                    defaultValue: "Next-transport grant unavailable: \(failure). Enable it in Debug > Next Transport."
+                )
+            }
+        }
+        #else
+        return "ERROR: " + String(
+            localized: "cli.nextTransport.debugOnly",
+            defaultValue: "Next transport is available only in a debug build."
+        )
+        #endif
+    }
+
+    #if DEBUG
+    /// Serves `mobile.next_transport.pair` (graduation slice 2): the phone
+    /// requests its next-transport ticket + grant over the ALREADY
+    /// authenticated channel, replacing the dev-screen paste flow. Params
+    /// carry the phone's next-transport identity; the grant binds to it.
+    @MainActor
+    func v2MobileNextTransportPair(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) -> V2CallResult {
+        guard
+            let deviceID = params["device_id"] as? String,
+            let keyB64 = params["device_public_key"] as? String,
+            let key = Data(base64Encoded: keyB64),
+            let appIdentity = params["app_identity"] as? String
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "device_id, device_public_key (base64), app_identity required",
+                data: nil)
+        }
+        guard Self.nextTransportPairRequesterIsBound(
+            deviceID: deviceID,
+            deviceKey: key,
+            appIdentity: appIdentity,
+            proofBase64: params["device_proof"] as? String,
+            executionContext: executionContext
+        ) else {
+            return .err(
+                code: "forbidden",
+                message: String(
+                    localized: "cli.nextTransport.commandFailed",
+                    defaultValue: "Next-transport command failed. Check Debug > Next Transport."
+                ),
+                data: nil)
+        }
+        let runtime = MobileHostService.shared.nextTransportRuntime
+        guard runtime.isEnabled else {
+            return .err(
+                code: "unavailable",
+                message: "next-transport host disabled (state: \(runtime.state))",
+                data: nil)
+        }
+        let ticket: String
+        switch runtime.mintTicketJSON() {
+        case .success(let minted):
+            ticket = minted
+        case .failure(let failure):
+            return .err(
+                code: "unavailable",
+                message: "next-transport ticket unavailable: \(failure)",
+                data: nil)
+        }
+        let grant: String
+        switch runtime.mintGrant(
+            deviceID: deviceID, devicePublicKey: key, appIdentity: appIdentity)
+        {
+        case .success(let minted):
+            grant = minted
+        case .failure(let failure):
+            return .err(
+                code: "unavailable",
+                message: "next-transport grant unavailable: \(failure)",
+                data: nil)
+        }
+        return .ok([
+            "schema_version": 1,
+            "ticket": ticket,
+            "grant": grant,
+        ])
+    }
+
+    #if DEBUG
+    /// Verifies that a pair request names the already-authenticated caller.
+    /// Network sessions must either prove possession of the supplied private
+    /// key or match the key/device tuple authenticated by Iroh; the local
+    /// control socket remains an explicitly trusted composition-root path.
+    private nonisolated static func nextTransportPairRequesterIsBound(
+        deviceID: String,
+        deviceKey: Data,
+        appIdentity: String,
+        proofBase64: String?,
+        executionContext: MobileHostRPCExecutionContext?
+    ) -> Bool {
+        guard let executionContext else { return true }
+        // The network bootstrap is exclusively for the signed iOS next-
+        // transport client. Other app identities remain available only through
+        // the explicitly trusted local control-socket grant command.
+        guard appIdentity == "dev.cmux.next.ios" else { return false }
+        switch executionContext.authorization {
+        case .irohAdmission(let peer):
+            guard let endpoint = try? CmxIrohPeerIdentity(
+                endpointID: lowercaseHex(deviceKey)
+            ) else { return false }
+            return peer.deviceID == deviceID
+                && peer.endpointID == endpoint
+        case .stackBearer:
+            guard let proofBase64,
+                let proof = Data(base64Encoded: proofBase64),
+                let publicKey = try? Curve25519.Signing.PublicKey(
+                    rawRepresentation: deviceKey
+                )
+            else { return false }
+            let transcript = PairingGrant.requestProofTranscript(
+                deviceID: deviceID,
+                devicePublicKey: deviceKey,
+                appIdentity: appIdentity
+            )
+            return publicKey.isValidSignature(proof, for: transcript)
+        }
+    }
+
+    private nonisolated static func lowercaseHex(_ data: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(data.count * 2)
+        for byte in data {
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    #endif
+    #endif
+
     private nonisolated func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -14924,6 +15126,11 @@ class TerminalController {
                 "schema_version": 1,
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
+        case "mobile.next_transport.pair":
+            result = v2MobileNextTransportPair(
+                params: request.params,
+                executionContext: executionContext
+            )
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)

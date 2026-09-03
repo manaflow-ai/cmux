@@ -39579,6 +39579,328 @@
         }
       }
     },
+    "cli.help.nextTransportGrant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nデバッグ用の次世代トランスポート グラントを0600ファイルに書き込みます。ペアリング情報は表示しません。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } }}
+    },
+    "cli.help.nextTransportTicket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux next-transport-ticket --output <private-file>\n\nデバッグ用の次世代トランスポート チケットを0600ファイルに書き込みます。ペアリング情報は表示しません。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } }}
+    },
+    "cli.nextTransport.debugOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートはデバッグビルドでのみ利用できます。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } }}
+    },
+    "cli.nextTransport.commandFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのコマンドに失敗しました。「デバッグ」>「次世代トランスポート」を確認してください。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } }}
+    },
+    "cli.nextTransport.materialWritten": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報を %@ に書き込みました。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } }}
+    },
+    "cli.nextTransport.outputRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報は表示しません。--output <private-file> を付けて cmux %@ を再実行してください。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } }}
+    },
+    "cli.nextTransport.outputSymlink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シンボリックリンク経由でペアリング情報を書き込むことはできません。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } }}
+    },
+    "cli.nextTransport.outputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: ペアリング情報を受け取るには --output <private-file> を追加してください。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } }}
+    },
+    "cli.nextTransport.outputWriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報を書き込めません。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } }}
+    },
+    "cli.nextTransport.argumentUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next-transport identity arguments cannot contain whitespace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポートの識別子引数に空白を含めることはできません。"
+          }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Next-transport identity arguments cannot contain whitespace." } }}
+    },
+    "cli.nextTransport.grantUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのグラントを利用できません: %@。「デバッグ」>「次世代トランスポート」で有効にしてください。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } }}
+    },
+    "cli.nextTransport.grantUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>" } }}
+    },
+    "cli.nextTransport.ticketUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのチケットを利用できません: %@。「デバッグ」>「次世代トランスポート」で有効にしてください。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } }}
+    },
     "cli.help.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -88904,6 +89226,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "リレーのみ"
+          }
+        }
+      }
+    },
+    "debug.menu.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Transport (dev)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート（開発）"
+          }
+        }
+      }
+    },
+    "debug.menu.nextTransport.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Parallel Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並列ホストを有効にする"
+          }
+        }
+      }
+    },
+    "debug.menu.nextTransport.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parallel Host Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並列ホストが有効"
           }
         }
       }
@@ -186944,6 +187317,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "ループバック"
+          }
+        }
+      }
+    },
+    "settings.mobile.route.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقل التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sljedeći transport"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Næste transport"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster Transport"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente transporte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasporto successivo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដឹកជញ្ជូនបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 전송"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste transport"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Następny transport"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximo transporte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующий транспорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การขนส่งถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki taşıma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наступний транспорт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一代传输"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一代傳輸"
           }
         }
       }

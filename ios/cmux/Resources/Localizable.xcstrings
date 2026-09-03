@@ -18839,6 +18839,23 @@
         }
       }
     },
+    "mobile.settings.activeTransport.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
+          }
+        }
+      }
+    },
     "mobile.settings.activeTransport.simulator": {
       "extractionState": "manual",
       "localizations": {
@@ -74489,6 +74506,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "이로"
+          }
+        }
+      }
+    },
+    "mobile.connections.method.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート"
           }
         }
       }

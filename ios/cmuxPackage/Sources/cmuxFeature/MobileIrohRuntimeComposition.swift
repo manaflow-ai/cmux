@@ -8,10 +8,27 @@ import CryptoKit
 import Foundation
 import OSLog
 
+#if DEBUG
+import CmuxNextTransport
+import CmuxNextTransportBridge
+#endif
+
 nonisolated private let mobileIrohLog = Logger(
     subsystem: "dev.cmux.ios",
     category: "iroh-runtime"
 )
+
+#if DEBUG
+/// Graduation composition-hook diagnostics: which path (bridged / legacy /
+/// fail-hard throw) served each request kind, and the bridged server-events
+/// pump lifecycle. Shares the facade's category so one log filter shows the
+/// whole phone-side graduation story.
+nonisolated private let nextTransportCompositionLog = Logger(
+    subsystem: "dev.cmux.ios",
+    category: "next-transport-graduation"
+)
+
+#endif
 
 /// Resume-once guard for the forget deadline race: whichever racer claims
 /// first owns the continuation, and the loser's late completion is discarded.
@@ -107,6 +124,25 @@ public final class MobileIrohRuntimeComposition:
     MobileIrohMacDiscovering,
     MobileIrohMacForgetting
 {
+    #if DEBUG
+    /// Compact lane-kind name used by the shared next-transport routing gate.
+    nonisolated private static func nextTransportLaneKindName(_ lane: CmxIrohLane) -> String {
+        switch lane {
+        case .control: return "control"
+        case .serverEvents: return "server-events"
+        case .terminal: return "terminal"
+        case .artifact: return "artifact"
+        case .simulatorStream: return "simulator-stream"
+        }
+    }
+
+    /// Redacted Mac id prefix used by graduation diagnostics.
+    nonisolated private static func nextTransportMacPrefix(
+        _ request: CmxByteTransportRequest
+    ) -> String {
+        request.expectedPeerDeviceID.map { String($0.prefix(8)) } ?? "-"
+    }
+    #endif
     enum SettingsError: Error, Equatable {
         case unavailable
         case incompleteCustomRelay
@@ -237,6 +273,42 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    #if DEBUG
+    /// Resolves one next-transport route decision for every lane entrypoint.
+    /// A supported Mac returns its admitted connection; a disconnected
+    /// supported Mac throws (fail-hard); all other requests stay on legacy.
+    private func nextTransportConnection(
+        for request: CmxByteTransportRequest, kind: String
+    ) async throws -> IrohPeerConnection? {
+        if let connection = await nextTransportFacade.admittedConnection(for: request) {
+            nextTransportFacade.noteServedPath(
+                kind: kind, macID: request.expectedPeerDeviceID, outcome: "bridged")
+            return connection
+        }
+        if nextTransportFacade.requiresBridge(for: request) {
+            nextTransportFacade.noteServedPath(
+                kind: kind, macID: request.expectedPeerDeviceID, outcome: "fail-hard-throw")
+            nextTransportCompositionLog.error(
+                """
+                fail-hard: \(kind, privacy: .public) \
+                mac=\(Self.nextTransportMacPrefix(request), privacy: .public) \
+                requires bridge but session is down; throwing NextTransportUnavailableError
+                """)
+            throw NextTransportUnavailableError()
+        }
+        nextTransportFacade.noteServedPath(
+            kind: kind, macID: request.expectedPeerDeviceID, outcome: "legacy")
+        return nil
+    }
+
+    /// The resolved legacy-broker origin, reused by the DEBUG next-transport
+    /// dial path so a home-screen launch (no dev env) mints relay credentials
+    /// for its next-transport identity through the app's signed-in session.
+    private var nextTransportBrokerBaseURL: URL?
+    /// Composition-owned next-transport coordinator. Keeping it on this graph
+    /// ties bootstrap probes, clients, and routing state to one lifecycle.
+    private let nextTransportFacade: NextTransportGraduationFacade
+    #endif
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
@@ -458,6 +530,9 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog: diagnosticLog,
             debugDefaults: defaults
         )
+        #if DEBUG
+        nextTransportBrokerBaseURL = baseURL
+        #endif
     }
 
     init(
@@ -537,6 +612,10 @@ public final class MobileIrohRuntimeComposition:
         self.makeRelayPolicyRefreshBackoff = makeRelayPolicyRefreshBackoff
             ?? { CmxIrohReconnectBackoff() }
         self.diagnosticLog = diagnosticLog
+        #if DEBUG
+        self.nextTransportFacade = NextTransportGraduationFacade(
+            defaults: debugDefaults ?? .standard)
+        #endif
     }
 
     private func makeBrokerBundle(
@@ -573,6 +652,15 @@ public final class MobileIrohRuntimeComposition:
         connectivityInvalidationBaseURL: URL? = nil
     ) {
         self.auth = auth
+        #if DEBUG
+        // Off-WiFi relay credentials for the next-transport dial path: with
+        // no dev launch env, the dial client mints through this signed-in
+        // session against the same broker origin the legacy transport uses.
+        nextTransportFacade.configureSessionBroker(
+            brokerBaseURL: nextTransportBrokerBaseURL,
+            auth: auth
+        )
+        #endif
         if let connectivityInvalidationBaseURL {
             connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: connectivityInvalidationBaseURL,
@@ -603,6 +691,23 @@ public final class MobileIrohRuntimeComposition:
             }
         }
     }
+
+    #if DEBUG
+    /// Runs the authoritative next-transport capability probe for one live
+    /// shell connection. The generation is supplied by the shell so a result
+    /// from a superseded connection cannot mutate routing state.
+    public func nextTransportBootstrapProbe(
+        client: MobileCoreRPCClient, macID: String, generation: UUID
+    ) async {
+        await nextTransportFacade.probeBootstrap(
+            client: client, macID: macID, generation: generation)
+    }
+
+    /// Broker factory injected into the DEBUG dev screen and dial clients.
+    public var nextTransportBrokerFactory: NextTransportDialClient.BrokerFactory? {
+        nextTransportFacade.dialBrokerFactory
+    }
+    #endif
 
     private func setConnectivityInvalidationAccount(_ accountID: String?) async {
         guard connectivityInvalidationAccountID != accountID else { return }
@@ -707,6 +812,11 @@ public final class MobileIrohRuntimeComposition:
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
+        #if DEBUG
+        if let connection = try await nextTransportConnection(for: request, kind: "control") {
+            return try await BridgeLaneDialer.openControlTransport(on: connection)
+        }
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
     }
@@ -723,6 +833,14 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        #if DEBUG
+        if let connection = try await nextTransportConnection(
+            for: request, kind: Self.nextTransportLaneKindName(lane))
+        {
+            return try await BridgeLaneDialer.openLane(
+                on: connection, lane: lane, priority: priority)
+        }
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -797,6 +915,95 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
+        #if DEBUG
+        if let connection = try await nextTransportConnection(
+            for: request, kind: "server-events") {
+            let acceptor = await nextTransportFacade.acceptor(for: connection)
+            let (_, stream) = try await acceptor.acceptServerEventStream()
+            let macPrefix = Self.nextTransportMacPrefix(request)
+            let connID = NextTransportGraduationFacade.objectID(connection)
+            // Byte chunks are ordered payload, not replaceable state. Keep a
+            // bounded oldest-first buffer and fail the lane if a slow consumer
+            // fills it; silently dropping a chunk would corrupt the stream.
+            return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
+                let pump = Task {
+                    let pumpStart = ContinuousClock.now
+                    var chunks = 0
+                    var bytes = 0
+                    nextTransportCompositionLog.notice(
+                        """
+                        server-events pump start mac=\(macPrefix, privacy: .public) \
+                        conn=\(connID, privacy: .public)
+                        """)
+                    do {
+                        while let chunk = try await stream.receiveStream.receive(
+                            maximumByteCount: 1 << 16)
+                        {
+                            chunks += 1
+                            bytes += chunk.count
+                            if chunks % 100 == 0 {
+                                nextTransportCompositionLog.notice(
+                                    """
+                                    server-events pump mac=\(macPrefix, privacy: .public) \
+                                    conn=\(connID, privacy: .public) \
+                                    chunks=\(chunks, privacy: .public) \
+                                    bytes=\(bytes, privacy: .public) \
+                                    elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
+                                    """)
+                            }
+                            switch continuation.yield(chunk) {
+                            case .enqueued:
+                                break
+                            case .dropped:
+                                nextTransportCompositionLog.error(
+                                    "server-events pump buffer overflow mac=\(macPrefix, privacy: .public) conn=\(connID, privacy: .public); failing lane")
+                                continuation.finish(throwing: NextTransportUnavailableError())
+                                await stream.receiveStream.stop(errorCode: 1)
+                                return
+                            case .terminated:
+                                return
+                            @unknown default:
+                                continuation.finish(throwing: NextTransportUnavailableError())
+                                await stream.receiveStream.stop(errorCode: 1)
+                                return
+                            }
+                        }
+                        nextTransportCompositionLog.notice(
+                            """
+                            server-events pump finished (clean EOF) \
+                            mac=\(macPrefix, privacy: .public) \
+                            conn=\(connID, privacy: .public) \
+                            chunks=\(chunks, privacy: .public) \
+                            bytes=\(bytes, privacy: .public) \
+                            elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
+                            """)
+                        continuation.finish()
+                    } catch {
+                        nextTransportCompositionLog.error(
+                            """
+                            server-events pump threw mac=\(macPrefix, privacy: .public) \
+                            conn=\(connID, privacy: .public) \
+                            cause=\(String(describing: error), privacy: .public) \
+                            chunks=\(chunks, privacy: .public) \
+                            bytes=\(bytes, privacy: .public) \
+                            elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
+                            """)
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { reason in
+                    nextTransportCompositionLog.notice(
+                        """
+                        server-events pump terminated mac=\(macPrefix, privacy: .public) \
+                        conn=\(connID, privacy: .public) \
+                        reason=\(String(describing: reason), privacy: .public)
+                        """)
+                    pump.cancel()
+                    Task { await stream.receiveStream.stop(errorCode: 0) }
+                }
+            }
+        }
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)
     }
