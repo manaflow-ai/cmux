@@ -556,6 +556,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private func decodeUTF8(_ data: Data) -> (valid: Data, pending: Data) {
         var valid = Data()
+        valid.reserveCapacity(data.count)
         var index = 0
         while index < data.count {
             let byte = data[index]
@@ -572,9 +573,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
             guard index + width <= data.count else {
                 return (valid, Data(data[index...]))
             }
-            let sequence = Data(data[index..<(index + width)])
-            if String(data: sequence, encoding: .utf8) != nil {
-                valid.append(sequence)
+            if isValidUTF8Sequence(in: data, at: index, width: width) {
+                valid.append(contentsOf: data[index..<(index + width)])
                 index += width
             } else {
                 // Skip only the malformed leading byte. The following bytes
@@ -583,6 +583,21 @@ final class ProcessOutputCollector: @unchecked Sendable {
             }
         }
         return (valid, Data())
+    }
+
+    private func isValidUTF8Sequence(in data: Data, at index: Int, width: Int) -> Bool {
+        guard width > 1 else { return true }
+        let first = data[index]
+        let second = data[index + 1]
+        guard (second & 0xC0) == 0x80 else { return false }
+        if first == 0xE0, second < 0xA0 { return false }
+        if first == 0xED, second >= 0xA0 { return false }
+        if first == 0xF0, second < 0x90 { return false }
+        if first == 0xF4, second >= 0x90 { return false }
+        for offset in 2..<width where (data[index + offset] & 0xC0) != 0x80 {
+            return false
+        }
+        return true
     }
 
     private func finishPendingUTF8Locked() {
