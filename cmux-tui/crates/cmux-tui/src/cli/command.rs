@@ -1676,7 +1676,11 @@ fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let creates_total = creates.checked_mul(clients).ok_or_else(|| {
                 UsageError::new("benchmark request count exceeds safety limit")
             })?;
-            if creates_total.saturating_add(typing_probes) > MAX_BENCH_REQUESTS {
+            let total_requests = creates_total
+                .saturating_mul(4)
+                .saturating_add(if typing_probes > 0 { creates } else { 0 })
+                .saturating_add(typing_probes.saturating_mul(2));
+            if total_requests > MAX_BENCH_REQUESTS {
                 return Err(UsageError::new(format!(
                     "total benchmark requests must be at most {MAX_BENCH_REQUESTS}"
                 )));

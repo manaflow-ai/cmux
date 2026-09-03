@@ -381,7 +381,7 @@ fn same_connection_submission_plan(creates: usize, typing_probes: usize) -> Vec<
 /// the pre-bench snapshot and is not already gone. The bench owns the session
 /// it runs against, so anything that appeared during the run is its own.
 fn teardown_close_plan<'a>(
-    initial: &HashSet<String>,
+    _initial: &HashSet<String>,
     current: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Vec<String> {
     current
@@ -450,6 +450,9 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     };
 
     let report = Arc::new(Mutex::new(Report::new(&socket)));
+    if let Some(id) = baseline.get("terminal_id").and_then(Value::as_str) {
+        report.lock().unwrap().created_terminals.insert(id.to_string());
+    }
     // Concurrent create loops. Each worker submits its whole create batch
     // before reading a response. That gives both typing probes the same
     // in-flight create load to compare.
@@ -502,11 +505,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
 
-    if guard.owner.as_ref().is_some_and(|owner| owner.should_stop()) {
-        close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
-    } else {
-        cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
-    }
+    close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
     if let Some(owner_pid) = guard
         .owner
         .as_ref()
@@ -663,8 +662,12 @@ fn close_created_terminals(
             return;
         }
     };
-    let plan =
-        teardown_close_plan(initial, current.iter().map(|(id, life)| (id.as_str(), life.as_str())));
+    let created = &report.lock().unwrap().created_terminals;
+    let plan = current
+        .iter()
+        .filter(|(id, life)| created.contains(*id) && !matches!(*life, "tombstoned" | "exited"))
+        .map(|(id, _)| id.to_string())
+        .collect::<Vec<_>>();
     for terminal_id in plan {
         match conn.request_until(
             json!({"cmd":"close-terminal","terminal_id":&terminal_id}),
@@ -869,6 +872,9 @@ fn record_create_result(
 ) {
     let surface = data["surface"].as_u64();
     let terminal_id = data.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
+    if let Some(id) = &terminal_id {
+        report.lock().unwrap().created_terminals.insert(id.clone());
+    }
     {
         let mut report = report.lock().unwrap();
         report.create_response.record(response);
@@ -1072,6 +1078,7 @@ fn fastrand_u32_with(
 
 struct Report {
     socket: String,
+    created_terminals: HashSet<String>,
     create_response: Metric,
     create_visible: Metric,
     first_frame: Metric,
@@ -1092,6 +1099,7 @@ impl Report {
     fn new(socket: &std::path::Path) -> Self {
         Self {
             socket: socket.display().to_string(),
+            created_terminals: HashSet::new(),
             create_response: Metric::default(),
             create_visible: Metric::default(),
             first_frame: Metric::default(),
