@@ -1481,7 +1481,7 @@ mod tests {
     #[tokio::test]
     async fn full_writer_queue_keeps_flow_resume_and_worker_completion() {
         let rig = rig().await;
-        let (connection, _writer_rx, flow_rx) = test_connection(&rig);
+        let (connection, mut writer_rx, flow_rx) = test_connection(&rig);
         let pty = attach_test_pty(&rig, &connection).await;
         let mut frame_index = 0_usize;
         while connection.writer_tx.capacity() > WRITER_CONTROL_MESSAGE_RESERVE {
@@ -1504,7 +1504,10 @@ mod tests {
         .await
         .expect("pause should reach the live attachment");
 
-        // A resume published after the queue is full must not be dropped.
+        // Resume only after the message queue drains below its low-water mark.
+        while connection.writer_tx.capacity() < FLOW_RESUME_MESSAGES {
+            writer_rx.recv().await.expect("queued frame");
+        }
         connection.publish_flow(false);
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
