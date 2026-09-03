@@ -50,7 +50,7 @@ struct AgentPromptSubmissionTests {
         }
         surface.requestInputDemandSurfaceStartIfNeeded()
         if surface.hasLiveSurface { return }
-        try await withThrowingTaskGroup(of: Bool.self, returning: Bool.self) {
+        _ = try await withThrowingTaskGroup(of: Bool.self, returning: Bool.self) {
             group in
             group.addTask {
                 for await _ in readiness.stream {
@@ -1634,7 +1634,7 @@ struct AgentPromptSubmissionTests {
         let payload = try #require(rawPayload as? [String: Any])
         #expect(payload["submitted"] as? Bool == true)
         #expect(payload["queued"] as? Bool == true)
-        #expect(payload["queue_reason"] as? String == "prior_prompt_in_flight")
+        #expect(payload["queue_reason"] as? String == "workspace_fifo")
         #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
         #expect(payload["surface_id"] as? String == panelID.uuidString)
         let pending = panel.surface.debugPendingSocketInputForTesting()
@@ -1644,7 +1644,7 @@ struct AgentPromptSubmissionTests {
         #expect(pending.keyEvents == 0)
         #expect(
             TerminalController.shared.agentPromptSubmissionService
-                .pendingCount == 1
+                .pendingCount == 3
         )
     }
 
