@@ -1191,7 +1191,9 @@ jobs:
               # hiding the actual unit test summary.
               # The app-host wrapper also serializes GUI XCTest ownership per Mac,
               # while still allowing shards on separate Macs to run in parallel.
-              scripts/ci/run-in-console-session.sh \
+              CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING=1 \
+                CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=2700 \
+                scripts/ci/run-in-console-session.sh \
                 scripts/ci/run-app-host-xcodebuild.sh \
                 -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
                 -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
@@ -1219,13 +1221,15 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -ne 0 ]; then
-              local batch_summary
-              batch_summary="$(grep "Executed.*tests.*with.*failures" "$batch_output" | tail -1 || true)"
-              if echo "$batch_summary" | grep -q "(0 unexpected)"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
-              fi
+            # Reuse the final classifier for per-batch continuation. It only
+            # tolerates ordinary XCTest statuses (65/125); reserved wrapper
+            # statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary.
+            if [ "$batch_status" -ne 0 ] \
+              && scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null 2>&1; then
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
             return "$batch_status"
           }
@@ -1246,13 +1250,12 @@ jobs:
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1261,17 +1264,10 @@ jobs:
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
           fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            # Expected failures are normalized inside run_unit_test_batch. Any
-            # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
-            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
-            exit "$EXIT_CODE"
-          fi
+          scripts/ci/classify-app-host-test-result.sh "$EXIT_CODE" "$TEST_OUTPUT"
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

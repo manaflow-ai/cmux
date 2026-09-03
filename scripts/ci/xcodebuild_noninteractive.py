@@ -14,18 +14,18 @@ from typing import BinaryIO
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
+SWIFT_TESTING_FAILED_EXIT_CODE = 123
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
+EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
+TOTAL_TIMEOUT_EXIT_CODE = 127
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
-# A test bundle that mixes XCTest and Swift Testing runs XCTest first and then
-# starts a Swift Testing run. The XCTest summary is therefore only terminal
-# when no Swift Testing run follows it; otherwise the Swift Testing run summary
-# is the terminal marker.
-SWIFT_TESTING_RUN_STARTED_MARKER = b"Test run started."
-SWIFT_TESTING_RUN_DONE_RE = re.compile(
-    rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
+SWIFT_TESTING_STARTED_MARKER = b"Test run started."
+SWIFT_TESTING_DONE_RE = re.compile(
+    rb"Test run with [0-9]+ tests?(?: in [0-9]+ suites?)? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+TEST_OUTPUT_TAIL_BYTES = 4096
 
 
 def child_exit_code(status: int) -> int:
@@ -72,6 +72,23 @@ def post_test_timeout_seconds() -> float | None:
     return seconds
 
 
+def total_timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
 def heartbeat_seconds() -> float | None:
     raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS")
     if not raw:
@@ -87,6 +104,46 @@ def heartbeat_seconds() -> float | None:
     if seconds <= 0:
         return None
     return seconds
+
+
+def expects_swift_testing() -> bool:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING", "")
+    if raw in ("", "0"):
+        return False
+    if raw == "1":
+        return True
+    print(
+        "CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING must be 0 or 1",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
+def test_result_exit_code(
+    *,
+    swift_testing_expected: bool,
+    selected_tests_result: str | None,
+    swift_testing_result: str | None,
+    swift_testing_active: bool,
+    require_expected_swift_testing: bool,
+) -> int | None:
+    """Return an authoritative mixed-framework result, if one is known."""
+    swift_testing_missing = (
+        swift_testing_expected
+        and swift_testing_result is None
+        and (
+            require_expected_swift_testing
+            or selected_tests_result is not None
+            or swift_testing_active
+        )
+    )
+    if swift_testing_missing:
+        return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    if swift_testing_result == "failed":
+        return SWIFT_TESTING_FAILED_EXIT_CODE
+    if selected_tests_result == "failed":
+        return POST_TEST_FAILED_EXIT_CODE
+    return None
 
 
 def terminate_child(pid: int) -> None:
@@ -153,15 +210,18 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    total_timeout = total_timeout_seconds()
+    swift_testing_expected = expects_swift_testing()
     heartbeat = heartbeat_seconds()
     started_at = time.monotonic()
-    deadline = time.monotonic() + timeout if timeout else None
+    deadline = started_at + timeout if timeout else None
+    total_deadline = started_at + total_timeout if total_timeout else None
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
+    swift_testing_result: str | None = None
+    swift_testing_active = False
     saw_passing_terminal_summary = False
-    swift_testing_run_started = False
-    swift_testing_run_finished = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
     if log_path:
@@ -196,16 +256,28 @@ def main() -> int:
         os.execvp(sys.argv[1], sys.argv[1:])
 
     prompt_window = b""
+    test_output_buffer = b""
     timed_out = False
     post_test_timed_out = False
+    total_timed_out = False
     while True:
         select_timeout = None
+        if total_deadline is not None:
+            remaining = total_deadline - time.monotonic()
+            if remaining <= 0:
+                total_timed_out = True
+                break
+            select_timeout = min(1, remaining)
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
-            select_timeout = min(1, remaining)
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+                1,
+            )
         if post_test_deadline is not None:
             remaining = post_test_deadline - time.monotonic()
             if remaining <= 0:
@@ -249,32 +321,32 @@ def main() -> int:
         if timeout:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
-        if post_test_timeout:
-            selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
-            if selected_match and selected_tests_result is None:
+        test_output_buffer += chunk
+        while b"\n" in test_output_buffer:
+            line, test_output_buffer = test_output_buffer.split(b"\n", 1)
+            selected_match = SELECTED_TESTS_DONE_RE.search(line)
+            if selected_match:
                 selected_tests_result = selected_match.group(1).decode("ascii")
-                post_test_deadline = time.monotonic() + post_test_timeout
-            if (
-                selected_tests_result is not None
-                and not swift_testing_run_started
-                and SWIFT_TESTING_RUN_STARTED_MARKER in prompt_window
-            ):
-                # Swift Testing runs after XCTest inside the same xcodebuild
-                # invocation. Its suites can legitimately run for minutes, so
-                # the deadline armed by the XCTest summary must wait for the
-                # Swift Testing run summary.
-                swift_testing_run_started = True
+                if post_test_timeout and not swift_testing_active:
+                    post_test_deadline = time.monotonic() + post_test_timeout
+
+            # Xcode runs XCTest and Swift Testing as separate phases inside one
+            # xcodebuild invocation. An XCTest summary is not terminal when a
+            # Swift Testing phase follows it, so suspend the post-test deadline
+            # until Swift Testing emits its own terminal summary.
+            if SWIFT_TESTING_STARTED_MARKER in line:
+                swift_testing_active = True
+                swift_testing_result = None
                 post_test_deadline = None
-            swift_testing_match = SWIFT_TESTING_RUN_DONE_RE.search(prompt_window)
-            if (
-                swift_testing_run_started
-                and not swift_testing_run_finished
-                and swift_testing_match
-            ):
-                swift_testing_run_finished = True
-                if swift_testing_match.group(1) == b"failed":
-                    selected_tests_result = "failed"
-                post_test_deadline = time.monotonic() + post_test_timeout
+
+            swift_testing_match = SWIFT_TESTING_DONE_RE.search(line)
+            if swift_testing_match:
+                swift_testing_active = False
+                swift_testing_result = swift_testing_match.group(1).decode("ascii")
+                if post_test_timeout:
+                    post_test_deadline = time.monotonic() + post_test_timeout
+        if len(test_output_buffer) > TEST_OUTPUT_TAIL_BYTES:
+            test_output_buffer = test_output_buffer[-TEST_OUTPUT_TAIL_BYTES:]
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:
@@ -282,6 +354,19 @@ def main() -> int:
             # noninteractive quit path and let xcodebuild continue reporting.
             os.write(fd, b"q")
             prompt_window = b""
+
+    if total_timed_out:
+        assert total_timeout is not None
+        message = (
+            f"Total timed out after {total_timeout:g}s: "
+            f"{' '.join(sys.argv[1:])}"
+        )
+        print(message, file=sys.stderr)
+        if log_file is not None:
+            log_file.write(f"{message}\n".encode())
+            log_file.close()
+        terminate_child(pid)
+        return TOTAL_TIMEOUT_EXIT_CODE
 
     if timed_out:
         assert timeout is not None
@@ -292,6 +377,15 @@ def main() -> int:
             )
             log_file.close()
         terminate_child(pid)
+        result_exit_code = test_result_exit_code(
+            swift_testing_expected=swift_testing_expected,
+            selected_tests_result=selected_tests_result,
+            swift_testing_result=swift_testing_result,
+            swift_testing_active=swift_testing_active,
+            require_expected_swift_testing=False,
+        )
+        if result_exit_code is not None:
+            return result_exit_code
         return TIMEOUT_EXIT_CODE
 
     if post_test_timed_out:
@@ -305,10 +399,19 @@ def main() -> int:
             log_file.write(f"{message}\n".encode())
             log_file.close()
         terminate_child(pid)
-        if selected_tests_result == "passed" or saw_passing_terminal_summary:
+        result_exit_code = test_result_exit_code(
+            swift_testing_expected=swift_testing_expected,
+            selected_tests_result=selected_tests_result,
+            swift_testing_result=swift_testing_result,
+            swift_testing_active=swift_testing_active,
+            require_expected_swift_testing=True,
+        )
+        if result_exit_code is not None:
+            return result_exit_code
+        if saw_passing_terminal_summary:
             return 0
-        if selected_tests_result == "failed":
-            return POST_TEST_FAILED_EXIT_CODE
+        if "passed" in (selected_tests_result, swift_testing_result):
+            return 0
         return TIMEOUT_EXIT_CODE
 
     if heartbeat is None:
@@ -329,7 +432,17 @@ def main() -> int:
             time.sleep(0.1)
     if log_file is not None:
         log_file.close()
-    return child_exit_code(status)
+    exit_code = child_exit_code(status)
+    result_exit_code = test_result_exit_code(
+        swift_testing_expected=swift_testing_expected,
+        selected_tests_result=selected_tests_result,
+        swift_testing_result=swift_testing_result,
+        swift_testing_active=swift_testing_active,
+        require_expected_swift_testing=exit_code == 0,
+    )
+    if result_exit_code is not None:
+        return result_exit_code
+    return exit_code
 
 
 if __name__ == "__main__":
