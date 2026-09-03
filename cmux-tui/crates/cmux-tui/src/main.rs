@@ -1667,11 +1667,9 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 /// stderr line (the embedder localizes what it shows) and the exit code
 /// carries the respawn decision.
 fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
-    {
-        let mut stderr = io::stderr().lock();
-        let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
-        let _ = stderr.flush();
-    }
+    pipe_io::write_stderr_line_bounded(
+        &serde_json::json!({"exit": {"reason": reason.as_str()}}).to_string(),
+    );
     client_log::exit(reason.exit_code());
 }
 

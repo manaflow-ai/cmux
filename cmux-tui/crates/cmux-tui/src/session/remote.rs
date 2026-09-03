@@ -1802,6 +1802,7 @@ impl PipeIoEvent {
 /// because it is larger than the normal live-output budget.
 struct PipeIoBudgetState {
     retained: usize,
+    live_retained: usize,
     oversized_replay: Option<u64>,
     next_oversized_replay_id: u64,
 }
@@ -1816,6 +1817,7 @@ impl PipeIoByteBudget {
         Self {
             state: Mutex::new(PipeIoBudgetState {
                 retained: 0,
+                live_retained: 0,
                 oversized_replay: None,
                 next_oversized_replay_id: 1,
             }),
@@ -1828,11 +1830,14 @@ impl PipeIoByteBudget {
             return true;
         }
         let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
-        let Some(next) = state.retained.checked_add(bytes) else { return false };
-        if next > self.limit {
+        let Some(next_total) = state.retained.checked_add(bytes) else { return false };
+        let Some(next_live) = state.live_retained.checked_add(bytes) else { return false };
+        let max_total = self.limit.saturating_add(PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES);
+        if next_live > self.limit || next_total > max_total {
             return false;
         }
-        state.retained = next;
+        state.retained = next_total;
+        state.live_retained = next_live;
         true
     }
 
@@ -1878,6 +1883,9 @@ impl PipeIoByteBudget {
         }
         let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
         state.retained = state.retained.saturating_sub(bytes);
+        if matches!(event, PipeIoEvent::Output(_)) {
+            state.live_retained = state.live_retained.saturating_sub(bytes);
+        }
         if let PipeIoEvent::Replay { reservation_id: Some(id), .. } = event
             && state.oversized_replay == Some(*id)
         {
@@ -3554,27 +3562,25 @@ impl RemoteSession {
         token: Option<&Arc<u8>>,
         event: PipeIoEvent,
     ) -> bool {
-        let tap = {
-            let mut slot = self.pipe_io_tap.lock().unwrap();
-            if (surface.is_none() || slot.as_ref().is_some_and(|tap| Some(tap.surface) == surface))
-                && token.is_none_or(|token| {
-                    slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token))
-                })
-            {
-                slot.take()
-            } else {
-                None
-            }
-        };
-        if let Some(tap) = tap {
-            // A second lifecycle event is redundant. If the one-slot signal
-            // channel is already occupied, the first event remains the
-            // authoritative reason and still wakes the relay.
-            let _ = tap.lifecycle_sender.try_send(event);
-            true
-        } else {
-            false
+        let mut slot = self.pipe_io_tap.lock().unwrap();
+        let matches = (surface.is_none()
+            || slot.as_ref().is_some_and(|tap| Some(tap.surface) == surface))
+            && token.is_none_or(|token| {
+                slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token))
+            });
+        let Some(tap) = slot.as_ref() else { return false };
+        if !matches {
+            return false;
         }
+
+        // Publish the lifecycle reason while the tap still owns the byte
+        // sender. The receiver can then observe the structured event before
+        // the byte channel closes when this slot is released.
+        let _ = tap.lifecycle_sender.try_send(event);
+        // A second lifecycle event is redundant. If the one-slot signal
+        // channel is already occupied, the first event remains authoritative.
+        slot.take();
+        true
     }
 
     /// Returns true while this connection has a raw pipe-IO tap for

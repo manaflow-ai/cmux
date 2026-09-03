@@ -26,7 +26,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 #[cfg(test)]
 use std::sync::mpsc::sync_channel;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -63,6 +63,8 @@ const MAX_PIPE_IO_LINE_BYTES: usize = MAX_PIPE_IO_BASE64_BYTES + 128;
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+const STDERR_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const PIPE_IO_FINAL_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 const CLAIM_GEOMETRY_ERROR_CODE: &str = "claim-terminal-geometry-failed";
 const STDIN_PUMP_ERROR_CODE: &str = "stdin-pump-failed";
 const RESIZE_ERROR_CODE: &str = "resize-failed";
@@ -76,28 +78,131 @@ fn log_pipe_io_error(operation: &str, error: &anyhow::Error) {
 /// The stdin pump may remain blocked in a read when the relay ends, so closing
 /// the gate stops later diagnostics without detaching an in-flight write.
 #[derive(Default)]
-struct StderrGate(Mutex<bool>);
+struct StderrGate {
+    state: Mutex<StderrGateState>,
+    idle: Condvar,
+}
+
+#[derive(Default)]
+struct StderrGateState {
+    closed: bool,
+    in_flight: usize,
+}
+
+struct StderrFlight<'a> {
+    gate: &'a StderrGate,
+}
+
+impl Drop for StderrFlight<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.in_flight = state.in_flight.saturating_sub(1);
+        if state.in_flight == 0 {
+            self.gate.idle.notify_all();
+        }
+    }
+}
 
 impl StderrGate {
     fn close(&self) {
-        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.closed = true;
+        while state.in_flight != 0 {
+            state = self.idle.wait(state).unwrap_or_else(|poison| poison.into_inner());
+        }
     }
 
     fn emit_with(&self, line: String, writer: impl FnOnce(&str)) {
-        let closed = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
-        if *closed {
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        if state.closed {
             return;
         }
+        state.in_flight += 1;
+        drop(state);
+        let _flight = StderrFlight { gate: self };
         writer(&line);
     }
 
     fn diag(&self, line: String) {
-        self.emit_with(line, |line| {
-            let mut stderr = io::stderr().lock();
-            let _ = writeln!(stderr, "{line}");
-            let _ = stderr.flush();
-        });
+        self.emit_with(line, |line| write_stderr_line_bounded(line));
     }
+}
+
+/// Writes one stderr line without allowing a stopped embedder to strand the
+/// relay. Unix uses a temporary nonblocking descriptor and a short deadline;
+/// other platforms retain the standard stream writer as their fallback.
+#[cfg(unix)]
+pub(crate) fn write_stderr_line_bounded(line: &str) {
+    let stderr = io::stderr();
+    let Ok(fd) = stderr.as_fd().try_clone_to_owned() else { return };
+    let _ = write_fd_line_bounded(fd.as_raw_fd(), line);
+}
+
+#[cfg(not(unix))]
+pub(crate) fn write_stderr_line_bounded(line: &str) {
+    let mut stderr = io::stderr().lock();
+    let _ = writeln!(stderr, "{line}");
+    let _ = stderr.flush();
+}
+
+#[cfg(unix)]
+fn write_fd_line_bounded(fd: RawFd, line: &str) -> bool {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return false;
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return false;
+    }
+
+    let mut bytes = Vec::with_capacity(line.len() + 1);
+    bytes.extend_from_slice(line.as_bytes());
+    bytes.push(b'\n');
+    let deadline = Instant::now() + STDERR_WRITE_TIMEOUT;
+    let mut offset = 0;
+    let complete = loop {
+        if offset == bytes.len() {
+            break true;
+        }
+        let written =
+            unsafe { libc::write(fd, bytes[offset..].as_ptr().cast(), bytes.len() - offset) };
+        if written > 0 {
+            offset += written as usize;
+            continue;
+        }
+        if written == 0 {
+            break false;
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        if !matches!(
+            error.raw_os_error(),
+            Some(code) if code == libc::EAGAIN || code == libc::EWOULDBLOCK
+        ) {
+            break false;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break false;
+        }
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if ready > 0 {
+            continue;
+        }
+        if ready < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        break false;
+    };
+    // The duplicate shares the stream's open-file description, so restore the
+    // caller's flags before dropping it. The bounded write itself is complete
+    // or explicitly abandoned at the deadline.
+    let _ = unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
+    complete
 }
 
 /// Cancellation shared by the lifecycle monitor and the stdout writer.
@@ -107,11 +212,17 @@ impl StderrGate {
 /// event, with no polling timeout and no detached writer thread.
 #[derive(Clone)]
 struct PipeIoOutputCancellation {
-    reason: Arc<Mutex<Option<PipeIoExitReason>>>,
+    state: Arc<Mutex<PipeIoCancellationState>>,
     #[cfg(unix)]
     wake_reader: Arc<UnixStream>,
     #[cfg(unix)]
     wake_writer: Arc<Mutex<UnixStream>>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PipeIoCancellationState {
+    reason: Option<PipeIoExitReason>,
+    drain_deadline: Option<Instant>,
 }
 
 impl PipeIoOutputCancellation {
@@ -125,21 +236,24 @@ impl PipeIoOutputCancellation {
             wake_reader.set_nonblocking(true)?;
             wake_writer.set_nonblocking(true)?;
             Ok(Self {
-                reason: Arc::new(Mutex::new(None)),
+                state: Arc::new(Mutex::new(PipeIoCancellationState::default())),
                 wake_reader: Arc::new(wake_reader),
                 wake_writer: Arc::new(Mutex::new(wake_writer)),
             })
         }
 
         #[cfg(not(unix))]
-        Ok(Self { reason: Arc::new(Mutex::new(None)) })
+        Ok(Self { state: Arc::new(Mutex::new(PipeIoCancellationState::default())) })
     }
 
     fn request(&self, reason: PipeIoExitReason) {
         let first_reason = {
-            let mut state = self.reason.lock().unwrap_or_else(|poison| poison.into_inner());
-            if state.is_none() {
-                *state = Some(reason);
+            let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            if state.reason.is_none() {
+                state.reason = Some(reason);
+                if reason == PipeIoExitReason::TerminalEnded {
+                    state.drain_deadline = Some(Instant::now() + PIPE_IO_FINAL_DRAIN_TIMEOUT);
+                }
                 true
             } else {
                 false
@@ -156,7 +270,22 @@ impl PipeIoOutputCancellation {
     }
 
     fn reason(&self) -> Option<PipeIoExitReason> {
-        *self.reason.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.state.lock().unwrap_or_else(|poison| poison.into_inner()).reason
+    }
+
+    fn cancellation_state(&self) -> PipeIoCancellationState {
+        *self.state.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn writes_cancelled(&self) -> bool {
+        let state = self.cancellation_state();
+        match state.reason {
+            None => false,
+            Some(PipeIoExitReason::TerminalEnded) => {
+                state.drain_deadline.is_none_or(|deadline| Instant::now() >= deadline)
+            }
+            Some(_) => true,
+        }
     }
 
     #[cfg(unix)]
@@ -220,17 +349,44 @@ fn set_nonblocking(fd: RawFd) -> io::Result<()> {
 impl PipeIoStdout {
     fn wait_until_writable(&self) -> io::Result<()> {
         loop {
+            let cancellation = self.cancellation.cancellation_state();
+            let terminal_drain = cancellation.reason == Some(PipeIoExitReason::TerminalEnded)
+                && cancellation.drain_deadline.is_some_and(|deadline| Instant::now() < deadline);
+            if cancellation.reason.is_some() && !terminal_drain {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
+            }
+            let timeout_ms = if terminal_drain {
+                let remaining = cancellation
+                    .drain_deadline
+                    .expect("terminal drain has a deadline")
+                    .saturating_duration_since(Instant::now());
+                remaining.as_millis().clamp(1, i32::MAX as u128) as i32
+            } else {
+                -1
+            };
             let mut poll_fds = [
                 libc::pollfd { fd: self.file.as_raw_fd(), events: libc::POLLOUT, revents: 0 },
-                libc::pollfd { fd: self.cancellation.wake_fd(), events: libc::POLLIN, revents: 0 },
+                libc::pollfd {
+                    fd: self.cancellation.wake_fd(),
+                    // Once terminal-exit draining begins, ignore the already
+                    // readable wake descriptor and wait for stdout or the
+                    // explicit drain deadline. Otherwise poll would spin on
+                    // the same cancellation byte.
+                    events: if terminal_drain { 0 } else { libc::POLLIN },
+                    revents: 0,
+                },
             ];
-            let ready = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
+            let ready =
+                unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, timeout_ms) };
             if ready < 0 {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() == Some(libc::EINTR) {
                     continue;
                 }
                 return Err(error);
+            }
+            if ready == 0 {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
             }
 
             let output_events = poll_fds[0].revents;
@@ -240,13 +396,6 @@ impl PipeIoStdout {
                 != 0;
             let output_writable = output_events & libc::POLLOUT != 0;
 
-            // If stdout is writable at the same instant as lifecycle
-            // cancellation, allow one more write. This preserves committed
-            // bytes for a normal surface-exit drain. If it is not writable,
-            // return immediately instead of waiting for a reader that stopped.
-            if cancellation_requested && !output_writable {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
-            }
             if output_events & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
                 if let Some(reason) = self.cancellation.reason() {
                     return Err(io::Error::new(
@@ -257,7 +406,16 @@ impl PipeIoStdout {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout closed"));
             }
             if output_writable {
+                if self.cancellation.writes_cancelled() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "pipe-io stdout canceled",
+                    ));
+                }
                 return Ok(());
+            }
+            if cancellation_requested && !terminal_drain {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
             }
         }
     }
@@ -267,6 +425,9 @@ impl PipeIoStdout {
 impl PipeIoOutput for PipeIoStdout {
     fn write_bytes(&mut self, mut bytes: &[u8]) -> io::Result<()> {
         while !bytes.is_empty() {
+            if self.cancellation.writes_cancelled() {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
+            }
             // The descriptor is nonblocking, so a full pipe returns EAGAIN
             // and the poll below can also watch the cancellation wakeup.
             let written =
@@ -551,9 +712,11 @@ pub fn run(
     // authority or every embedder resize is recorded but never applied.
     if let Err(error) = remote.claim_terminal_geometry(surface) {
         log_pipe_io_error("claim terminal geometry", &error);
-        eprintln!(
-            "{}",
-            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": CLAIM_GEOMETRY_ERROR_CODE}}})
+        write_stderr_line_bounded(
+            &serde_json::json!({
+                "diag": {"claim-terminal-geometry": {"error": CLAIM_GEOMETRY_ERROR_CODE}}
+            })
+            .to_string(),
         );
         // Continuing without geometry authority would make later resize
         // requests look accepted while the daemon keeps the wrong PTY size.
@@ -608,9 +771,9 @@ pub fn run(
         Err(error) => {
             let error = anyhow::Error::new(error);
             log_pipe_io_error("spawn stdin pump", &error);
-            eprintln!(
-                "{}",
-                serde_json::json!({"diag": {"stdin-pump": {"error": STDIN_PUMP_ERROR_CODE}}})
+            write_stderr_line_bounded(
+                &serde_json::json!({"diag": {"stdin-pump": {"error": STDIN_PUMP_ERROR_CODE}}})
+                    .to_string(),
             );
             lifecycle_monitor.stop();
             drop(tap_guard);
@@ -1280,7 +1443,7 @@ mod tests {
         // SAFETY: `fds` points to two writable integers owned by this test;
         // `pipe` initializes both descriptors on success.
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-        let reader = unsafe { File::from_raw_fd(fds[0]) };
+        let mut reader = unsafe { File::from_raw_fd(fds[0]) };
         let writer_file = unsafe { File::from_raw_fd(fds[1]) };
         set_nonblocking(writer_file.as_raw_fd()).unwrap();
 
