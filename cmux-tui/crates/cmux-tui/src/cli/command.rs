@@ -1661,6 +1661,9 @@ fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
     match strs(words).as_slice() {
         ["interact"] => {
             let creates = parse_count(flags, "creates", 20)?;
+            if creates == 0 {
+                return Err(UsageError::new("--creates must be at least 1"));
+            }
             let clients = parse_count(flags, "clients", 1)?.max(1);
             let typing_probes = parse_count(flags, "typing-probes", 0)?;
             const MAX_BENCH_CLIENTS: usize = 256;

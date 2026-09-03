@@ -876,11 +876,19 @@ fn record_create_result(
         if let Some(delay) = delay {
             report.lock().unwrap().create_visible.record(delay);
         } else {
-            report.lock().unwrap().visibility_misses += 1;
+            let mut report = report.lock().unwrap();
+            report.visibility_misses += 1;
+            report.errors.push(format!("visibility timeout for surface {surface_id}"));
         }
 
         if let Some(first_frame) = measure_first_frame(socket, surface_id, deadline) {
             report.lock().unwrap().first_frame.record(first_frame);
+        } else {
+            report
+                .lock()
+                .unwrap()
+                .errors
+                .push(format!("first-frame timeout for surface {surface_id}"));
         }
 
         // View-only close of this surface (default destroy for a tab).
@@ -977,13 +985,11 @@ fn fetch_active_pane(conn: &mut Conn) -> Result<u64, String> {
     let workspace = workspaces
         .iter()
         .find(|ws| ws["active"].as_bool() == Some(true))
-        .or_else(|| workspaces.last())
         .ok_or("no active workspace")?;
     let screens = workspace["screens"].as_array().ok_or("no screens")?;
     let screen = screens
         .iter()
         .find(|s| s["active"].as_bool() == Some(true))
-        .or_else(|| screens.first())
         .ok_or("no screen")?;
     screen["active_pane"].as_u64().ok_or_else(|| "no active pane".into())
 }

@@ -1,11 +1,11 @@
 //! Named timing and size budgets shared by the daemon, terminal hosts, and
 //! clients.
 //!
-//! Every bounded wait in cmux-tui is a budget with one name, one value, and
-//! one stage of the interaction lifecycle it belongs to. The constants here are
-//! the single source for the values; the code sites that enforce them import
-//! these constants instead of spelling the number again, and `cmux-tui diag
-//! budgets` prints [`table`] so an operator or an agent can read every bound in
+//! Every named lifecycle wait in cmux-tui is a budget with one name, one value,
+//! and one stage of the interaction lifecycle it belongs to. The constants here
+//! are the source for the values; the code sites that enforce them import these
+//! constants instead of spelling the number again, and `cmux-tui diag budgets`
+//! prints [`table`] so an operator or an agent can read the configured bounds in
 //! one place. A timeout error should name the budget it exhausted.
 //!
 //! Stages:
