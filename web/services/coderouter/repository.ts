@@ -755,10 +755,13 @@ export function createSessionAccountSelector(
   provider: CodeRouterProvider;
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
+  signal?: AbortSignal;
 }) => Promise<StickyRoutedAccount | null> {
   return async (input) => {
+    throwIfAborted(input.signal);
     const excluded = input.excludedAccountIds ?? [];
     await dependencies.sweepLeases(input.teamId);
+    throwIfAborted(input.signal);
     if (input.sessionKey) {
       const bound = await dependencies.findBound(
         input.teamId,
@@ -766,6 +769,7 @@ export function createSessionAccountSelector(
         input.sessionKey,
         excluded,
       );
+      throwIfAborted(input.signal);
       if (bound) return { ...bound, sticky: true };
     }
     const placed = await dependencies.claim(
@@ -773,6 +777,7 @@ export function createSessionAccountSelector(
       input.provider,
       excluded,
     );
+    throwIfAborted(input.signal);
     if (!placed) return null;
     if (input.sessionKey) {
       await dependencies.bind(
@@ -781,9 +786,15 @@ export function createSessionAccountSelector(
         input.sessionKey,
         placed.id,
       );
+      throwIfAborted(input.signal);
     }
     return { ...placed, sticky: false };
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 export const selectAccountForSession = createSessionAccountSelector({

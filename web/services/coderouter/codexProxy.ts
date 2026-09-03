@@ -27,10 +27,12 @@ import {
   type RouteTokenIdentity,
 } from "./routeTokenAuth";
 import {
+  CoderouterOperationDeadlineError,
   CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
   fetchWithHeadersTimeout,
   remainingUpstreamHeadersTimeoutMs,
   upstreamHeadersTimeoutMs,
+  withCoderouterOperationDeadline,
 } from "./upstreamFetch";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
@@ -90,21 +92,48 @@ const STICKY_REFRESH_RETRY_DELAY_MS = 500;
  */
 async function credentialWithStickyPatience(
   dependencies: Pick<CodexResponsesDependencies, "credential">,
-  input: { teamId: string; accountId: string; expectedRevision: number },
+  input: { teamId: string; accountId: string; expectedRevision: number; signal?: AbortSignal },
   sticky: boolean,
 ): Promise<Awaited<ReturnType<CodexResponsesDependencies["credential"]>>> {
   for (let attempt = 0; ; attempt++) {
+    throwIfAborted(input.signal);
     try {
       return await dependencies.credential(input);
     } catch (error) {
       const busy = error && typeof error === "object" && "_tag" in error &&
         (error as { _tag: string })._tag === "CodeRouterRefreshBusy";
       if (!busy || !sticky || attempt >= STICKY_REFRESH_RETRIES) throw error;
-      await new Promise((resolve) =>
-        setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS)
-      );
+      await waitForRetry(input.signal);
     }
   }
+}
+
+async function waitForRetry(signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) {
+    await new Promise((resolve) => setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS));
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, STICKY_REFRESH_RETRY_DELAY_MS);
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 export function createCodexResponsesProxy(
@@ -191,12 +220,40 @@ async function proxyCodexRequestWith(
       break;
     }
     const selectStartedAt = performance.now();
-    const account = await dependencies.select({
-      teamId: identity.teamId,
-      provider: "codex",
-      sessionKey,
-      excludedAccountIds: attempted,
-    });
+    let account: Awaited<ReturnType<CodexResponsesDependencies["select"]>>;
+    try {
+      account = await withCoderouterOperationDeadline(
+        request.signal,
+        upstreamHeaderDeadlineAt,
+        runtime.now,
+        (signal) => dependencies.select({
+          teamId: identity.teamId,
+          provider: "codex",
+          sessionKey,
+          excludedAccountIds: attempted,
+          signal,
+        }),
+      );
+    } catch (error) {
+      if (request.signal.aborted) throw error;
+      recordCoderouterSpan({
+        name: "account_selection",
+        startedAt: selectStartedAt,
+        error: error instanceof CoderouterOperationDeadlineError
+          ? "deadline_exceeded"
+          : error instanceof Error ? error.name : "select_failed",
+        attributes: {
+          provider: "codex",
+          attempt: attempt + 1,
+          ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+        },
+      });
+      if (error instanceof CoderouterOperationDeadlineError) {
+        failureStage = "account_selection";
+        break;
+      }
+      throw error;
+    }
     recordCoderouterSpan({
       name: "account_selection",
       startedAt: selectStartedAt,
@@ -212,14 +269,20 @@ async function proxyCodexRequestWith(
     let credential;
     const credentialStartedAt = performance.now();
     try {
-      credential = await credentialWithStickyPatience(
-        dependencies,
-        {
-          teamId: identity.teamId,
-          accountId: account.id,
-          expectedRevision: account.vaultRevision,
-        },
-        account.sticky,
+      credential = await withCoderouterOperationDeadline(
+        request.signal,
+        upstreamHeaderDeadlineAt,
+        runtime.now,
+        (signal) => credentialWithStickyPatience(
+          dependencies,
+          {
+            teamId: identity.teamId,
+            accountId: account.id,
+            expectedRevision: account.vaultRevision,
+            signal,
+          },
+          account.sticky,
+        ),
       );
       recordCoderouterSpan({ name: "credential", startedAt: credentialStartedAt, attributes: { provider: "codex", attempt: attempt + 1 } });
     } catch (error) {
@@ -231,9 +294,16 @@ async function proxyCodexRequestWith(
       recordCoderouterSpan({
         name: "credential",
         startedAt: credentialStartedAt,
-        error: tag ?? "credential_failed",
-        attributes: { provider: "codex", attempt: attempt + 1 },
+        error: error instanceof CoderouterOperationDeadlineError
+          ? "deadline_exceeded"
+          : tag ?? "credential_failed",
+        attributes: {
+          provider: "codex",
+          attempt: attempt + 1,
+          ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+        },
       });
+      if (error instanceof CoderouterOperationDeadlineError) break;
       if (tag === "CodeRouterRefreshBusy") continue;
       if (tag === "CodeRouterCredentialBroken") continue;
       throw error;
@@ -292,12 +362,18 @@ async function proxyCodexRequestWith(
       );
       const refreshStartedAt = performance.now();
       try {
-        const refreshed = await dependencies.credential({
-          teamId: identity.teamId,
-          accountId: account.id,
-          expectedRevision: account.vaultRevision,
-          force: true,
-        });
+        const refreshed = await withCoderouterOperationDeadline(
+          request.signal,
+          upstreamHeaderDeadlineAt,
+          runtime.now,
+          (signal) => dependencies.credential({
+            teamId: identity.teamId,
+            accountId: account.id,
+            expectedRevision: account.vaultRevision,
+            force: true,
+            signal,
+          }),
+        );
         recordCoderouterSpan({ name: "credential_refresh", startedAt: refreshStartedAt, attributes: { provider: "codex", forced: true } });
         if (refreshed.provider === "codex") {
           const retryHeadersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
@@ -338,10 +414,15 @@ async function proxyCodexRequestWith(
           forced: true,
           request_id: requestId,
         });
+        if (error instanceof CoderouterOperationDeadlineError) {
+          upstream = null;
+          break;
+        }
         continue;
       }
     }
     if (upstream.status === 429) {
+      const cooldownMs = rateLimitDelay(upstream.headers);
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),
@@ -350,7 +431,21 @@ async function proxyCodexRequestWith(
           status: 429,
         },
       );
-      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+      try {
+        await withCoderouterOperationDeadline(
+          request.signal,
+          upstreamHeaderDeadlineAt,
+          runtime.now,
+          () => dependencies.cooldown(account.id, cooldownMs),
+        );
+      } catch (error) {
+        if (request.signal.aborted) throw error;
+        if (error instanceof CoderouterOperationDeadlineError) {
+          failureStage = "upstream_transport";
+          break;
+        }
+        throw error;
+      }
       continue;
     }
     break;

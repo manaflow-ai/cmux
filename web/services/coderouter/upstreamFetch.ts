@@ -31,6 +31,66 @@ export class UpstreamHeadersTimeoutError extends Error {
   }
 }
 
+/** A dependency operation that outlived the request-wide failover budget. */
+export class CoderouterOperationDeadlineError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`CodeRouter operation exceeded the ${timeoutMs} ms request budget`);
+    this.name = "CoderouterOperationDeadlineError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Bound non-fetch work, such as account selection or credential loading, to
+ * the same request-wide deadline used by upstream header attempts. The
+ * operation receives a composed signal so implementations can stop their own
+ * I/O; the race also bounds implementations that do not yet accept a signal.
+ */
+export async function withCoderouterOperationDeadline<T>(
+  outerSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeoutMs = Math.ceil(deadlineAt - now());
+  if (timeoutMs <= 0) throw new CoderouterOperationDeadlineError(0);
+
+  const timeoutController = new AbortController();
+  const signal = AbortSignal.any([outerSignal, timeoutController.signal]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let removeOuterAbortListener: () => void = () => undefined;
+  const outerAbort = new Promise<never>((_, reject) => {
+    const rejectAborted = () => {
+      reject(outerSignal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    if (outerSignal.aborted) {
+      rejectAborted();
+      return;
+    }
+    outerSignal.addEventListener("abort", rejectAborted, { once: true });
+    removeOuterAbortListener = () => outerSignal.removeEventListener("abort", rejectAborted);
+  });
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new CoderouterOperationDeadlineError(timeoutMs);
+      timeoutController.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => operation(signal)),
+      timeout,
+      outerAbort,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    removeOuterAbortListener();
+  }
+}
+
 export function upstreamHeadersTimeoutMs(
   env: Record<string, string | undefined> = process.env,
 ): number {
