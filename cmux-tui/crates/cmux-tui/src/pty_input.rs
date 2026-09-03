@@ -76,8 +76,7 @@ pub(crate) fn mark_operation_known_not_delivered(error: anyhow::Error) -> anyhow
 fn underlying_operation_error(error: &anyhow::Error) -> &anyhow::Error {
     error
         .downcast_ref::<KnownNotDeliveredOperationError>()
-        .map(|marked| &marked.error)
-        .unwrap_or(error)
+        .map_or(error, |marked| &marked.error)
 }
 
 pub struct PtyInputEvent {
