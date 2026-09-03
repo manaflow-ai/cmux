@@ -74,7 +74,7 @@ struct CloudTreeRowContentView: View {
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
         case .displaysPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "VNC Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, let terminalCount, _):
@@ -105,7 +105,7 @@ struct CloudTreeRowContentView: View {
                 icon: "display",
                 tint: CloudTreeIconPalette.display,
                 title: resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title,
-                detail: String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC")
+                detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
             groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
@@ -183,6 +183,28 @@ struct CloudTreeRowContentView: View {
         terminals == 1
             ? String(localized: "cloudTree.workspace.terminalCount.one", defaultValue: "1 terminal")
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
+    }
+
+    /// Formats the transport and screen label shown beneath a VNC display row.
+    /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
+    /// the transport-only detail.
+    static func text(for resource: SurfaceResource) -> String {
+        let transport = String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC")
+        guard let screen = screenLabel(displayKey: resource.id.key) else { return transport }
+        return String(
+            format: String(localized: "cloudTree.node.desktop.detail.screen", defaultValue: "%1$@ · %2$@"),
+            transport,
+            screen
+        )
+    }
+
+    /// Converts a display resource key such as `display:1` to its X display
+    /// label (`:1`), returning nil for keys that are not numbered displays.
+    static func screenLabel(displayKey key: String) -> String? {
+        let prefix = "display:"
+        guard key.hasPrefix(prefix) else { return nil }
+        let number = key.dropFirst(prefix.count)
+        return number.isEmpty ? nil : ":\(number)"
     }
 }
 
@@ -368,13 +390,26 @@ struct CloudTreeTerminalRowContent: View {
 
     private var terminal: SurfaceResource { row.resource }
 
+    /// Detached styling is reserved for a live terminal whose resolved daemon
+    /// view list is empty. A stale exited record can have the same empty list,
+    /// but must retain the ordinary exited presentation.
+    private var showsDetachedState: Bool {
+        guard row.isDetached else { return false }
+        switch terminal.lifecycle {
+        case .launching, .running:
+            return true
+        case .exited, .unavailable:
+            return false
+        }
+    }
+
     var body: some View {
         CloudTreeLeafRow(
             style: style,
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
             title: terminal.title.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : terminal.title,
-            titleDimmed: terminal.lifecycle == .exited,
+            titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
             detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
         ) {
             if let agent = agentLabel {
@@ -383,11 +418,18 @@ struct CloudTreeTerminalRowContent: View {
                     .foregroundStyle(.secondary)
                     .help(agent)
             }
-            if style.showsViewBadges, let views = Self.multiplierBadge(row.viewBadge) {
+            if showsDetachedState {
+                // Zero views: still running on the machine, no daemon tab shows it.
+                // Greyed with a "detached" mark (austin, 2026-09-02 — reversing the
+                // 08-31 "no pill" call) so it stays findable under its workspace;
+                // a click re-attaches it, Kill Terminal is its right-click verb.
+                Text(String(localized: "cloudTree.terminal.detached", defaultValue: "detached"))
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                    .foregroundStyle(.tertiary)
+                    .help(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
+            } else if style.showsViewBadges, let views = Self.multiplierBadge(row.viewBadge) {
                 // Pool rows: how many daemon tabs show this terminal. Only several
-                // views earn a badge (a multiplier). One view is the normal state,
-                // and zero views is just a terminal in the pool — it is NOT called
-                // out (austin, 2026-08-31: no "detached" pill anywhere).
+                // views earn a badge (a multiplier); one view is the normal state.
                 Text(String(format: String(localized: "cloudTree.terminal.badge.views", defaultValue: "×%d"), views))
                     .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                     .foregroundStyle(.secondary)

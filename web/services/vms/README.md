@@ -390,6 +390,12 @@ at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
 `latest`.
 
+Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
+persistent boxes rather than provider-idle workers. A user-open operation probes the live
+provider state even when the control-plane row still says `running`, resumes a paused/stopped
+machine, and only then mints its attach or port endpoint. Machines created before this policy
+are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
+
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
 
