@@ -1298,8 +1298,9 @@ impl WorkerCompletion {
     }
 
     fn install_handle(self: &Arc<Self>, handle: std::thread::JoinHandle<()>) {
+        let current = handle.thread().id() == std::thread::current().id();
         *self.handle.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
-        if self.is_done() {
+        if self.is_done() && !current {
             self.reap_owned_handle();
         }
     }
@@ -1525,8 +1526,12 @@ fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
         std::mem::take(&mut current.pending)
     };
     let mut index = pending.len();
+    let current = std::thread::current().id();
     while index > 0 {
         index -= 1;
+        if pending[index].0.thread().id() == current {
+            continue;
+        }
         if pending[index].1.is_done() {
             let (handle, completion) = pending.swap_remove(index);
             let _ = handle.join();
@@ -1544,6 +1549,10 @@ fn enqueue_worker_reap_in_state(
     handle: std::thread::JoinHandle<()>,
     completion: Arc<WorkerCompletion>,
 ) {
+    if handle.thread().id() == std::thread::current().id() {
+        completion.install_handle(handle);
+        return;
+    }
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
