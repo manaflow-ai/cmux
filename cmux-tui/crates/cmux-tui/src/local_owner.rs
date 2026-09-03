@@ -160,12 +160,13 @@ pub(crate) fn ensure_owner_for_bench(
     session: &str,
     socket: &Path,
 ) -> Result<EnsuredOwnerHandle, String> {
-    let state_root = tempfile::Builder::new()
-        .prefix("cmux-bench-")
-        .tempdir()
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| format!("state dir: {error}"))?
-        .keep()
-        .map_err(|error| format!("state dir: {error}"))?;
+        .as_nanos();
+    let state_root = std::env::temp_dir()
+        .join(format!("cmux-bench-state-{}-{nonce}", std::process::id()));
+    std::fs::create_dir(&state_root).map_err(|error| format!("state dir: {error}"))?;
     let spec = OwnerSpec {
         session: session.to_string(),
         socket: socket.to_path_buf(),
