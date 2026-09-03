@@ -247,7 +247,7 @@ extension DockSplitStore {
         // (for example, a process-detected tmux attach). Keep that snapshot
         // available for manual continuation, but do not synthesize an agent
         // resume command on top of the non-agent startup path.
-        let restorableAgentCanAutoResume = restorableAgent != nil &&
+        let restorableAgentCanAutoResume = restorableAgent?.hasAuthoritativeResumeIdentity == true &&
             (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
         let managedResumeBinding = (
             terminalSnapshot.managedAgentResumeBinding.flatMap {
@@ -481,7 +481,7 @@ extension DockSplitStore {
         }
         if let resumeBinding {
             if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: terminal.id) {
-                surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
+                installSurfaceResumeBinding(resumeBinding, panelId: terminal.id)
             }
         }
         if let managedResumeBinding {

@@ -195,6 +195,7 @@ private struct SidebarObservationState: Equatable {
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
     let browserMediaActivity: BrowserMediaActivity
+    let resumeBindingGapCount: Int
 }
 
 extension Workspace {
@@ -309,9 +310,10 @@ extension Workspace {
         )
             .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
-            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
+            .compactMap { [weak self] values -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (directoryValues, directoryChangeRevision) = values
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = directoryValues
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -336,7 +338,8 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    browserMediaActivity: self.browserMediaActivity
+                    browserMediaActivity: self.browserMediaActivity,
+                    resumeBindingGapCount: self.unresolvedResumeBindingGapCount
                 )
             }
             .removeDuplicates()

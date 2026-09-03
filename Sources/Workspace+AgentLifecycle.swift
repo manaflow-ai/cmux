@@ -386,7 +386,7 @@ extension Workspace {
         }
         binding.autoResume = false
         if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
-            surfaceResumeBindingsByPanelId[panelId] = binding
+            installSurfaceResumeBinding(binding, panelId: panelId)
         }
     }
 
@@ -465,7 +465,8 @@ extension Workspace {
     func isStaleAgentHookBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         panelId: UUID,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        retireWhenCompleteIndexHasNoEntry: Bool = false
     ) -> Bool {
         // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
         // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
@@ -505,6 +506,13 @@ extension Workspace {
             panelId: panelId,
             revalidateProcessEvidence: false
         )
+        guard let liveEntry else {
+            return retireWhenCompleteIndexHasNoEntry && liveIndex.isComplete(
+                forWorkspaceId: id,
+                panelId: panelId,
+                kind: kind
+            )
+        }
         return !AgentResumeLiveness.hasLiveProcess(
             for: liveEntry,
             kind: kind,
@@ -642,6 +650,10 @@ extension Workspace {
             }
             guard let terminal = panels[panelId] as? TerminalPanel else {
                 removeDeferredAgentResumeRestore(panelId: panelId)
+                continue
+            }
+            guard restore.restorableAgent?.hasAuthoritativeResumeIdentity != false else {
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
             guard AgentSessionAutoResumeSettings.isEnabled(

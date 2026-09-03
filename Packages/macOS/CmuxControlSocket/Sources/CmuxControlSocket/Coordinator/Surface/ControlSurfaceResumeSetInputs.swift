@@ -35,6 +35,12 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let remoteWorkspaceID: UUID?
     /// Raw relay parameters retained to authenticate their provenance.
     public let remoteRelayParameters: [String: JSONValue]?
+    /// The current binding generation that a conditional retry may replace.
+    public let expectedBindingUpdatedAt: Double?
+    /// Whether a conditional retry requires the target to remain unbound.
+    public let expectsMissingBinding: Bool
+    /// The app-owned owner generation a conditional retry may replace.
+    public let expectedBindingGeneration: UUID?
 
     /// Creates resume-set inputs.
     ///
@@ -50,6 +56,9 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
     ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
+    ///   - expectedBindingUpdatedAt: The current generation a conditional retry may replace.
+    ///   - expectsMissingBinding: Whether a conditional retry requires no current binding.
+    ///   - expectedBindingGeneration: The app-owned owner generation a conditional retry may replace.
     public init(
         name: String?,
         kind: String?,
@@ -63,7 +72,10 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         autoResume: Bool,
         remoteWorkspaceID: UUID?,
         remoteRelayParameters: [String: JSONValue]?,
-        resumeEvidenceProvenance: String? = nil
+        resumeEvidenceProvenance: String? = nil,
+        expectedBindingUpdatedAt: Double? = nil,
+        expectsMissingBinding: Bool = false,
+        expectedBindingGeneration: UUID? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -78,5 +90,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteRelayParameters = remoteRelayParameters
+        self.expectedBindingUpdatedAt = expectedBindingUpdatedAt
+        self.expectsMissingBinding = expectsMissingBinding
+        self.expectedBindingGeneration = expectedBindingGeneration
     }
 }

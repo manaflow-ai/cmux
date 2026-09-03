@@ -64,6 +64,10 @@ final class AgentResumeLaunchGuard {
     }
 
     private static func key(kind: String, sessionId: String) -> String {
-        "\(kind)\u{1f}\(sessionId)"
+        let canonicalSessionID = ManagedAgentSessionIdentity.canonicalSessionID(
+            kind: kind,
+            sessionID: sessionId
+        )
+        return "\(kind)\u{1f}\(canonicalSessionID)"
     }
 }

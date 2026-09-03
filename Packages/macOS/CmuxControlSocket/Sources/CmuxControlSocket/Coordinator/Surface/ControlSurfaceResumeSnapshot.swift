@@ -24,6 +24,12 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let restoreRecord: ControlSurfaceRestoreRecord?
     /// Whether an optional compare-and-claim request succeeded.
     public let resumeClaimed: Bool?
+    /// The app-owned generation of the surface's resume owner.
+    ///
+    /// This token is returned even when `binding` is `nil`, so a caller
+    /// retrying a publication can distinguish an unchanged empty owner from a
+    /// newer clear or replacement.
+    public let resumeBindingGeneration: UUID?
 
     /// Creates a resume snapshot.
     ///
@@ -34,6 +40,7 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
+    ///   - resumeBindingGeneration: The app-owned owner generation, if available.
     public init(
         windowID: UUID?,
         workspaceID: UUID,
@@ -42,7 +49,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         cleared: Bool,
         binding: ControlSurfaceResumeBinding?,
         restoreRecord: ControlSurfaceRestoreRecord?,
-        resumeClaimed: Bool? = nil
+        resumeClaimed: Bool? = nil,
+        resumeBindingGeneration: UUID? = nil
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -52,5 +60,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.binding = binding
         self.restoreRecord = restoreRecord
         self.resumeClaimed = resumeClaimed
+        self.resumeBindingGeneration = resumeBindingGeneration
     }
 }

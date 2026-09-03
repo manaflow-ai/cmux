@@ -71,6 +71,7 @@ extension SurfaceResumeBindingSnapshot {
                 lhs: identity.checkpointId,
                 rhs: otherIdentity.checkpointId
             )
+
     }
 
     /// Whether an incoming hook refresh belongs to a claimed restore session.
@@ -120,7 +121,9 @@ extension SurfaceResumeBindingSnapshot {
                 ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil),
+            resumeEvidenceProvenance: resumeEvidenceProvenance
+                ?? (continuesPreviousSession ? previousForKind?.resumeEvidenceProvenance : nil)
         )
     }
 

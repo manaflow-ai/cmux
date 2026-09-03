@@ -348,6 +348,7 @@ extension Workspace {
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        setResumeBindingGap(false, panelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -525,8 +526,10 @@ extension Workspace {
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        _ = removeStoredSurfaceResumeBinding(panelId: panelId)
+        surfaceResumeBindingGenerationsByPanelId.removeValue(forKey: panelId)
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        setResumeBindingGap(false, panelId: panelId)
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
