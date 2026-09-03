@@ -353,7 +353,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */

@@ -123,6 +123,7 @@ struct RightSidebarPanelView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
+    let onOpenSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
@@ -424,8 +425,12 @@ struct RightSidebarPanelView: View {
             case .sessions:
                 SessionIndexView(
                     store: sessionIndexStore,
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                    onResume: onResumeSession
+                    onResume: onResumeSession,
+                    onOpen: onOpenSession,
+                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                    onFocus: { entry in
+                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                    }
                 )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)

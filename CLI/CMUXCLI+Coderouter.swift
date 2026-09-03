@@ -16,41 +16,48 @@ extension CMUXCLI {
         `cmux cr ...`, runs the installed CodeRouter CLI unchanged.
 
           cmux coderouter status [--team <id>] [--json]
-              Sign-in state, selected team, and the team's Claude upstream.
+              Sign-in state, selected team, and the team's Claude upstream accounts.
 
           cmux coderouter machines [--team <id>] [--json]
               30-day coderouter usage per Cloud machine (tokens, API-equivalent USD).
 
-          cmux coderouter claude show [--team <id>] [--json]
-              The upstream Cloud machines send `claude` traffic to: kind, masked
-              identifier, region, last update. Secrets are never printed.
+          cmux coderouter claude list [--team <id>] [--json]
+              Every Claude upstream account of the team: id, kind, masked
+              identifier, label, health. Secrets are never printed. Alias: show.
 
-          cmux coderouter claude set oauth-token [--stdin] [--team <id>] [--json]
-              Use a Claude Code OAuth token (sk-ant-oat01-...). Run
+          cmux coderouter claude add oauth-token [--label <s>] [--stdin] [--team <id>] [--json]
+              Add a Claude Code OAuth token (sk-ant-oat01-...). Run
               `claude setup-token` first, then paste the token at the hidden
               prompt, or provide it in CLAUDE_CODE_OAUTH_TOKEN, or pipe it in
-              with --stdin. Never pass a token as an argument.
+              with --stdin. Never pass a token as an argument. Alias: set.
 
-          cmux coderouter claude set api-key [--stdin] [--team <id>] [--json]
-              Use an Anthropic API key (sk-ant-...) from ANTHROPIC_API_KEY,
+          cmux coderouter claude add api-key [--label <s>] [--stdin] [--team <id>] [--json]
+              Add an Anthropic API key (sk-ant-...) from ANTHROPIC_API_KEY,
               --stdin, or a hidden prompt.
 
-          cmux coderouter claude set bedrock [--region <r>] [--model <claude-id>=<bedrock-id>]... [--team <id>] [--json]
-              Use Amazon Bedrock with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-              and optional AWS_SESSION_TOKEN from your shell environment.
-              --region defaults to AWS_REGION or AWS_DEFAULT_REGION.
+          cmux coderouter claude add bedrock [--label <s>] [--region <r>] [--model <claude-id>=<bedrock-id>]... [--team <id>] [--json]
+              Add Amazon Bedrock credentials from AWS_ACCESS_KEY_ID,
+              AWS_SECRET_ACCESS_KEY, and optional AWS_SESSION_TOKEN in your
+              shell environment. --region defaults to AWS_REGION or
+              AWS_DEFAULT_REGION.
+
+          cmux coderouter claude remove <account> [--team <id>] [--json]
+              Remove one account by id, label, or masked identifier.
+
+          cmux coderouter claude disable <account> | enable <account> [--team <id>] [--json]
+              Take an account out of rotation, or put it back.
 
           cmux coderouter claude clear [--team <id>] [--json]
-              Remove the team's Claude upstream. Cloud machines lose `claude`
-              until a new one is set.
+              Remove every Claude upstream account of the team.
 
-        A team has exactly one Claude upstream; setting one replaces the previous.
+        A team routes each Cloud machine to one of its accounts and moves it to
+        another when that account is rate limited, rejected, or unavailable.
         Requires `cmux auth login` and a team where you can manage coderouter.
 
         Examples:
           claude setup-token
-          cmux coderouter claude set oauth-token
-          cmux coderouter claude show
+          cmux coderouter claude add oauth-token --label work
+          cmux coderouter claude list
           cmux coderouter machines --json
         """
 
@@ -78,24 +85,24 @@ extension CMUXCLI {
             try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter status")
             let auth = try client.sendV2(method: "auth.status")
             let signedIn = (auth["signed_in"] as? Bool) ?? false
-            var upstreamResponse: [String: Any]? = nil
-            var upstreamError: String? = nil
+            var accountsResponse: [String: Any]? = nil
+            var accountsError: String? = nil
             if signedIn {
                 do {
-                    upstreamResponse = try client.sendV2(method: "coderouter.claude_upstream.get", params: teamParams(teamOpt))
+                    accountsResponse = try client.sendV2(method: "coderouter.claude_upstream.get", params: teamParams(teamOpt))
                 } catch let error as CLIError {
-                    upstreamError = error.message
+                    accountsError = error.message
                 }
             }
             if jsonOutput {
                 var payload: [String: Any] = ["signed_in": signedIn]
                 if let user = auth["user"] { payload["user"] = user }
                 if let team = auth["selected_team_id"] { payload["selected_team_id"] = team }
-                if let upstreamResponse {
-                    payload["team_id"] = upstreamResponse["teamId"] ?? NSNull()
-                    payload["claude_upstream"] = upstreamResponse["upstream"] ?? NSNull()
+                if let accountsResponse {
+                    payload["team_id"] = accountsResponse["teamId"] ?? NSNull()
+                    payload["claude_accounts"] = accountsResponse["accounts"] ?? []
                 }
-                if let upstreamError { payload["claude_upstream_error"] = upstreamError }
+                if let accountsError { payload["claude_accounts_error"] = accountsError }
                 print(jsonString(payload))
                 return
             }
@@ -106,14 +113,14 @@ extension CMUXCLI {
             let user = auth["user"] as? [String: Any]
             let email = (user?["email"] as? String).map(Self.sanitizeForTerminal) ?? "unknown account"
             print("Signed in as \(email)")
-            let teamID = (upstreamResponse?["teamId"] as? String) ?? (auth["selected_team_id"] as? String)
+            let teamID = (accountsResponse?["teamId"] as? String) ?? (auth["selected_team_id"] as? String)
             if let teamID, !teamID.isEmpty {
                 print("Team: \(Self.sanitizeForTerminal(teamID))")
             }
-            if let upstreamError {
-                print("Claude upstream: unavailable (\(upstreamError))")
-            } else if let upstreamResponse {
-                printClaudeUpstream(upstreamResponse["upstream"] as? [String: Any])
+            if let accountsError {
+                print("Claude upstream accounts: unavailable (\(accountsError))")
+            } else if let accountsResponse {
+                printClaudeAccounts(accountsResponse)
             }
 
         case "machines", "machine":
@@ -139,27 +146,58 @@ extension CMUXCLI {
     }
 
     private func runCoderouterClaudeCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let sub = commandArgs.first?.lowercased() ?? "show"
+        let sub = commandArgs.first?.lowercased() ?? "list"
         let rest = Array(commandArgs.dropFirst())
 
         switch sub {
         case "help", "--help", "-h":
             print(Self.coderouterUsage)
 
-        case "show", "get", "status":
+        case "list", "ls", "show", "get", "status":
             let (teamOpt, remaining) = parseOption(rest, name: "--team")
-            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter claude show")
+            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter claude list")
             let response = try client.sendV2(method: "coderouter.claude_upstream.get", params: teamParams(teamOpt))
             if jsonOutput {
                 print(jsonString(response))
                 return
             }
-            printClaudeUpstream(response["upstream"] as? [String: Any])
+            printClaudeAccounts(response)
 
-        case "set":
-            try runCoderouterClaudeSet(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+        case "add", "set":
+            try runCoderouterClaudeAdd(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
-        case "clear", "remove", "rm", "delete", "unset":
+        case "remove", "rm", "delete":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            let selector = try singleCoderouterSelector(remaining, command: "coderouter claude remove")
+            let account = try resolveClaudeAccount(selector, client: client, teamOpt: teamOpt)
+            var params = teamParams(teamOpt)
+            params["accountId"] = account.id
+            let response = try client.sendV2(method: "coderouter.claude_upstream.remove", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            if (response["removed"] as? Bool) == true {
+                print("OK removed \(account.summary)")
+            } else {
+                print("No Claude upstream account \(account.summary) exists.")
+            }
+
+        case "disable", "enable":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            let selector = try singleCoderouterSelector(remaining, command: "coderouter claude \(sub)")
+            let account = try resolveClaudeAccount(selector, client: client, teamOpt: teamOpt)
+            var params = teamParams(teamOpt)
+            params["accountId"] = account.id
+            params["state"] = sub == "disable" ? "disabled" : "active"
+            let response = try client.sendV2(method: "coderouter.claude_upstream.update", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            print("OK \(sub == "disable" ? "disabled" : "enabled") \(account.summary)")
+
+        case "clear", "remove-all", "unset":
             let (teamOpt, remaining) = parseOption(rest, name: "--team")
             try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter claude clear")
             let response = try client.sendV2(method: "coderouter.claude_upstream.clear", params: teamParams(teamOpt))
@@ -168,9 +206,10 @@ extension CMUXCLI {
                 return
             }
             if (response["removed"] as? Bool) == true {
-                print("OK Claude upstream removed. Cloud machines have no `claude` route until a new one is set.")
+                let count = Self.intValue(response["count"]) ?? 0
+                print("OK removed \(count) Claude upstream account\(count == 1 ? "" : "s"). Cloud machines have no `claude` route until a new one is added.")
             } else {
-                print("No Claude upstream was set.")
+                print("No Claude upstream accounts were set.")
             }
 
         default:
@@ -182,22 +221,26 @@ extension CMUXCLI {
         }
     }
 
-    private func runCoderouterClaudeSet(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+    private func runCoderouterClaudeAdd(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         guard let kindArg = commandArgs.first, !Self.isCoderouterFlagToken(kindArg) else {
             throw CLIError(message: """
-                coderouter claude set requires a credential kind: oauth-token, api-key, or bedrock.
+                coderouter claude add requires a credential kind: oauth-token, api-key, or bedrock.
 
                 \(Self.coderouterUsage)
                 """)
         }
         let rest = Array(commandArgs.dropFirst())
         let (teamOpt, rem0) = parseOption(rest, name: "--team")
+        let (labelOpt, rem1) = parseOption(rem0, name: "--label")
         var params: [String: Any] = teamParams(teamOpt)
+        if let label = Self.nonEmpty(labelOpt) {
+            params["label"] = label
+        }
 
         switch kindArg.lowercased() {
         case "oauth-token", "oauth", "claude-code":
-            let forceStdin = rem0.contains("--stdin")
-            try rejectUnexpectedCoderouterArguments(rem0.filter { $0 != "--stdin" }, command: "coderouter claude set oauth-token")
+            let forceStdin = rem1.contains("--stdin")
+            try rejectUnexpectedCoderouterArguments(rem1.filter { $0 != "--stdin" }, command: "coderouter claude add oauth-token")
             let token = try readCoderouterSecret(
                 label: "Claude Code OAuth token",
                 envVar: "CLAUDE_CODE_OAUTH_TOKEN",
@@ -205,14 +248,14 @@ extension CMUXCLI {
                 hint: "Run `claude setup-token` to mint one."
             )
             guard token.hasPrefix("sk-ant-oat01-") else {
-                throw CLIError(message: "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter claude set api-key`.")
+                throw CLIError(message: "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter claude add api-key`.")
             }
             params["kind"] = "anthropic_oauth"
             params["token"] = token
 
         case "api-key", "apikey", "anthropic-key":
-            let forceStdin = rem0.contains("--stdin")
-            try rejectUnexpectedCoderouterArguments(rem0.filter { $0 != "--stdin" }, command: "coderouter claude set api-key")
+            let forceStdin = rem1.contains("--stdin")
+            try rejectUnexpectedCoderouterArguments(rem1.filter { $0 != "--stdin" }, command: "coderouter claude add api-key")
             let apiKey = try readCoderouterSecret(
                 label: "Anthropic API key",
                 envVar: "ANTHROPIC_API_KEY",
@@ -220,35 +263,35 @@ extension CMUXCLI {
                 hint: "Create one in the Anthropic console."
             )
             guard apiKey.hasPrefix("sk-ant-"), !apiKey.hasPrefix("sk-ant-oat") else {
-                throw CLIError(message: "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter claude set oauth-token`.")
+                throw CLIError(message: "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter claude add oauth-token`.")
             }
             params["kind"] = "anthropic_api_key"
             params["apiKey"] = apiKey
 
         case "bedrock":
-            let (regionOpt, rem1) = parseOption(rem0, name: "--region")
+            let (regionOpt, rem2) = parseOption(rem1, name: "--region")
             var modelIDs: [String: String] = [:]
-            var remaining = rem1
+            var remaining = rem2
             while let index = remaining.firstIndex(of: "--model") {
                 guard index + 1 < remaining.count else {
-                    throw CLIError(message: "coderouter claude set bedrock: --model requires <claude-model-id>=<bedrock-model-id>.")
+                    throw CLIError(message: "coderouter claude add bedrock: --model requires <claude-model-id>=<bedrock-model-id>.")
                 }
                 let pair = remaining[index + 1]
                 guard let equals = pair.firstIndex(of: "="), equals > pair.startIndex, pair.index(after: equals) < pair.endIndex else {
-                    throw CLIError(message: "coderouter claude set bedrock: --model expects <claude-model-id>=<bedrock-model-id>, got '\(Self.sanitizeForTerminal(pair))'.")
+                    throw CLIError(message: "coderouter claude add bedrock: --model expects <claude-model-id>=<bedrock-model-id>, got '\(Self.sanitizeForTerminal(pair))'.")
                 }
                 modelIDs[String(pair[..<equals])] = String(pair[pair.index(after: equals)...])
                 remaining.removeSubrange(index...(index + 1))
             }
-            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter claude set bedrock")
+            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter claude add bedrock")
             let env = ProcessInfo.processInfo.environment
             let region = Self.nonEmpty(regionOpt) ?? Self.nonEmpty(env["AWS_REGION"]) ?? Self.nonEmpty(env["AWS_DEFAULT_REGION"])
             guard let region else {
-                throw CLIError(message: "coderouter claude set bedrock requires --region <r> or AWS_REGION / AWS_DEFAULT_REGION.")
+                throw CLIError(message: "coderouter claude add bedrock requires --region <r> or AWS_REGION / AWS_DEFAULT_REGION.")
             }
             guard let accessKeyID = Self.nonEmpty(env["AWS_ACCESS_KEY_ID"]),
                   let secretAccessKey = Self.nonEmpty(env["AWS_SECRET_ACCESS_KEY"]) else {
-                throw CLIError(message: "coderouter claude set bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from your shell environment; export both, then retry.")
+                throw CLIError(message: "coderouter claude add bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from your shell environment; export both, then retry.")
             }
             params["kind"] = "bedrock"
             params["region"] = region
@@ -262,26 +305,31 @@ extension CMUXCLI {
             }
 
         default:
-            throw CLIError(message: "coderouter claude set: unsupported credential kind '\(Self.sanitizeForTerminal(kindArg))'. Use oauth-token, api-key, or bedrock.")
+            throw CLIError(message: "coderouter claude add: unsupported credential kind '\(Self.sanitizeForTerminal(kindArg))'. Use oauth-token, api-key, or bedrock.")
         }
 
-        let response = try client.sendV2(method: "coderouter.claude_upstream.set", params: params)
+        let response = try client.sendV2(method: "coderouter.claude_upstream.add", params: params)
         if jsonOutput {
             print(jsonString(response))
             return
         }
-        let upstream = response["upstream"] as? [String: Any]
-        let kind = (upstream?["kind"] as? String).map(Self.sanitizeForTerminal) ?? (params["kind"] as? String) ?? "?"
-        let identifier = (upstream?["identifier"] as? String).map(Self.sanitizeForTerminal) ?? ""
-        let replaced = (response["created"] as? Bool) == false
-        print("OK Claude upstream \(replaced ? "replaced" : "set"): \(kind)\(identifier.isEmpty ? "" : " \(identifier)")")
+        let account = (response["account"] as? [String: Any]) ?? (response["upstream"] as? [String: Any])
+        let kind = (account?["kind"] as? String).map(Self.sanitizeForTerminal) ?? (params["kind"] as? String) ?? "?"
+        let identifier = (account?["identifier"] as? String).map(Self.sanitizeForTerminal) ?? ""
+        let label = (account?["label"] as? String).map(Self.sanitizeForTerminal) ?? ""
+        print("OK added Claude upstream account: \(kind)\(identifier.isEmpty ? "" : " \(identifier)")\(label.isEmpty ? "" : " (\(label))")")
+        if let id = (account?["id"] as? String).map(Self.sanitizeForTerminal), !id.isEmpty {
+            print("  id: \(id)")
+        }
         if let teamID = (response["teamId"] as? String).map(Self.sanitizeForTerminal), !teamID.isEmpty {
             print("  team: \(teamID)")
         }
-        if let region = (upstream?["region"] as? String).map(Self.sanitizeForTerminal), !region.isEmpty {
+        if let region = (account?["region"] as? String).map(Self.sanitizeForTerminal), !region.isEmpty {
             print("  region: \(region)")
         }
-        print("Cloud machines route `claude` through this upstream now.")
+        if let total = Self.intValue(response["accountsTotal"]) {
+            print("Cloud machines now route `claude` across \(total) account\(total == 1 ? "" : "s").")
+        }
     }
 
     /// Secret intake order: `--stdin` (or a non-TTY stdin) reads one line from
@@ -332,27 +380,105 @@ extension CMUXCLI {
         return trimmed
     }
 
-    private func printClaudeUpstream(_ upstream: [String: Any]?) {
-        guard let upstream else {
-            print("Claude upstream: none. Cloud machines cannot run `claude` until one is set:")
-            print("  claude setup-token && cmux coderouter claude set oauth-token")
+    // MARK: Account listing and selection
+
+    private struct ClaudeAccountRef {
+        let id: String
+        let summary: String
+    }
+
+    private static let claudeAccountIDPattern = try! NSRegularExpression(
+        pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        options: [.caseInsensitive]
+    )
+
+    /// `<account>` may be the id, the label, or the masked identifier. Ids are
+    /// used as-is; anything else must match exactly one account of the team.
+    private func resolveClaudeAccount(_ selector: String, client: SocketClient, teamOpt: String?) throws -> ClaudeAccountRef {
+        let range = NSRange(selector.startIndex..<selector.endIndex, in: selector)
+        if Self.claudeAccountIDPattern.firstMatch(in: selector, range: range) != nil {
+            return ClaudeAccountRef(id: selector.lowercased(), summary: Self.sanitizeForTerminal(selector))
+        }
+        let response = try client.sendV2(method: "coderouter.claude_upstream.get", params: teamParams(teamOpt))
+        let accounts = (response["accounts"] as? [[String: Any]]) ?? []
+        let needle = selector.lowercased()
+        let matches = accounts.filter { account in
+            [(account["label"] as? String), (account["identifier"] as? String), (account["id"] as? String)]
+                .compactMap { $0?.lowercased() }
+                .contains(needle)
+        }
+        guard matches.count == 1, let match = matches.first, let id = match["id"] as? String else {
+            if matches.isEmpty {
+                throw CLIError(message: "No Claude upstream account matches '\(Self.sanitizeForTerminal(selector))'. Run `cmux coderouter claude list` and use the id, label, or identifier.")
+            }
+            throw CLIError(message: "'\(Self.sanitizeForTerminal(selector))' matches \(matches.count) Claude upstream accounts. Use the id from `cmux coderouter claude list`.")
+        }
+        return ClaudeAccountRef(id: id, summary: Self.claudeAccountSummary(match))
+    }
+
+    private func singleCoderouterSelector(_ args: [String], command: String) throws -> String {
+        if let unknown = args.first(where: Self.isCoderouterFlagToken) {
+            throw CLIError(message: "\(command): unknown flag '\(Self.sanitizeForTerminal(unknown))'.\n\n\(Self.coderouterUsage)")
+        }
+        guard let selector = args.first, !selector.isEmpty else {
+            throw CLIError(message: "\(command) requires an account id, label, or identifier. Run `cmux coderouter claude list`.")
+        }
+        if args.count > 1 {
+            throw CLIError(message: "\(command): unexpected argument '\(Self.sanitizeForTerminal(args[1]))'.")
+        }
+        return selector
+    }
+
+    private static func claudeAccountSummary(_ account: [String: Any]) -> String {
+        let kind = sanitizeForTerminal((account["kind"] as? String) ?? "?")
+        let identifier = (account["identifier"] as? String).map(sanitizeForTerminal) ?? ""
+        let label = (account["label"] as? String).map(sanitizeForTerminal) ?? ""
+        return "\(kind)\(identifier.isEmpty ? "" : " \(identifier)")\(label.isEmpty ? "" : " (\(label))")"
+    }
+
+    private func printClaudeAccounts(_ response: [String: Any]) {
+        let accounts = (response["accounts"] as? [[String: Any]]) ?? []
+        guard !accounts.isEmpty else {
+            print("Claude upstream accounts: none. Cloud machines cannot run `claude` until one is added:")
+            print("  claude setup-token && cmux coderouter claude add oauth-token")
             return
         }
-        let kind = Self.sanitizeForTerminal((upstream["kind"] as? String) ?? "?")
-        let identifier = (upstream["identifier"] as? String).map(Self.sanitizeForTerminal) ?? ""
-        print("Claude upstream: \(kind)\(identifier.isEmpty ? "" : " \(identifier)")")
-        if let region = (upstream["region"] as? String).map(Self.sanitizeForTerminal), !region.isEmpty {
-            print("  region: \(region)")
-        }
-        if let modelIDs = upstream["modelIds"] as? [String: Any], !modelIDs.isEmpty {
-            for key in modelIDs.keys.sorted() {
-                let value = (modelIDs[key] as? String).map(Self.sanitizeForTerminal) ?? "?"
-                print("  model: \(Self.sanitizeForTerminal(key)) -> \(value)")
+        print("Claude upstream accounts (\(accounts.count)):")
+        for account in accounts {
+            let id = Self.sanitizeForTerminal((account["id"] as? String) ?? "?")
+            let health = Self.claudeAccountHealth(account)
+            print("  \(id)  \(Self.claudeAccountSummary(account))  \(health)")
+            if let region = (account["region"] as? String).map(Self.sanitizeForTerminal), !region.isEmpty {
+                print("    region: \(region)")
+            }
+            if let modelIDs = account["modelIds"] as? [String: Any], !modelIDs.isEmpty {
+                for key in modelIDs.keys.sorted() {
+                    let value = (modelIDs[key] as? String).map(Self.sanitizeForTerminal) ?? "?"
+                    print("    model: \(Self.sanitizeForTerminal(key)) -> \(value)")
+                }
             }
         }
-        if let updatedAt = (upstream["updatedAt"] as? String).map(Self.sanitizeForTerminal), !updatedAt.isEmpty {
-            print("  updated: \(updatedAt)")
+    }
+
+    private static func claudeAccountHealth(_ account: [String: Any]) -> String {
+        if (account["state"] as? String) == "disabled" {
+            return "disabled"
         }
+        var parts: [String] = []
+        if let cooldown = (account["cooldownUntil"] as? String), !cooldown.isEmpty,
+           let until = ISO8601DateFormatter.coderouterFlexible.date(from: cooldown), until > Date() {
+            let seconds = Int(until.timeIntervalSinceNow.rounded(.up))
+            parts.append("cooling down \(seconds)s")
+            if let code = (account["lastFailureCode"] as? String).map(sanitizeForTerminal), !code.isEmpty {
+                parts.append(code)
+            }
+        } else {
+            parts.append("active")
+        }
+        if let lastUsed = (account["lastUsedAt"] as? String), !lastUsed.isEmpty {
+            parts.append("last used \(sanitizeForTerminal(lastUsed))")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func printMachineUsage(_ response: [String: Any]) {
@@ -428,4 +554,13 @@ extension CMUXCLI {
     private static func formatUSD(_ value: Double) -> String {
         String(format: "$%.2f", value)
     }
+}
+
+private extension ISO8601DateFormatter {
+    /// Server timestamps carry fractional seconds (`2026-09-02T10:00:00.000Z`).
+    static let coderouterFlexible: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }

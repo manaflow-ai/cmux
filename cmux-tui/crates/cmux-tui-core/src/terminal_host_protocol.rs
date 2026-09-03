@@ -144,17 +144,6 @@ impl TerminalExit {
     }
 }
 
-/// Wait for the native child hidden behind cmux-pty without collapsing Unix
-/// signal/core information into its display-only fallback status.
-///
-/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
-/// is an alternate backend and becomes an explicit unknown outcome.
-pub(crate) fn wait_for_native_child_status(
-    child: &mut (dyn cmux_pty::Child + Send + Sync),
-) -> TerminalExit {
-    wait_for_native_child_status_with_reap_result(child).0
-}
-
 /// Wait for a PTY child and report whether the wait reaped it successfully.
 ///
 /// Callers that retain an owning guard can use the boolean to avoid issuing a
@@ -806,7 +795,7 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{mpsc, Arc, Mutex};
 
     /// Test-only stand-in for a direct pipe reader. The bounded queue models
     /// the byte pump, while the mutex is the single parser owner.
@@ -1115,7 +1104,7 @@ mod tests {
             let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
             let mut spawned = pty.spawn(command).unwrap();
-            wait_for_native_child_status(spawned.child.as_mut()).outcome
+            wait_for_native_child_status_with_reap_result(spawned.child.as_mut()).0.outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });

@@ -1354,32 +1354,105 @@ export const cloudVmNotificationDeliveries = pgTable(
  * `coderouter_credentials`. `config` holds the non-secret part only
  * (Bedrock region, optional model id overrides).
  */
-export const coderouterClaudeUpstreams = pgTable(
-  "coderouter_claude_upstreams",
+export const coderouterClaudeAccounts = pgTable(
+  "coderouter_claude_accounts",
   {
-    teamId: text("team_id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
+    teamId: text("team_id").notNull(),
     kind: text("kind")
       .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
       .notNull(),
+    /** User-chosen name shown next to the masked identifier; may be empty. */
+    label: text("label").notNull().default(""),
+    /** Masked credential (`sk-ant-...ab12`), non-secret, computed at insert. */
+    identifier: text("identifier").notNull().default(""),
+    state: text("state").$type<"active" | "disabled">().notNull().default("active"),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
     ciphertext: text("ciphertext").notNull(),
     nonce: text("nonce").notNull(),
     authTag: text("auth_tag").notNull(),
     encryptedDataKey: text("encrypted_data_key").notNull(),
     kmsKeyId: text("kms_key_id").notNull(),
+    /**
+     * Which AAD/encryption-context binding the ciphertext carries: 1 = the
+     * single-upstream era (team, kind), 2 = (team, account id). Rows migrated
+     * from `coderouter_claude_upstreams` stay at 1 until re-encrypted.
+     */
+    aadVersion: integer("aad_version").notNull().default(2),
     config: jsonb("config").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-    updatedBy: text("updated_by").notNull(),
+    createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    index("coderouter_claude_accounts_team_state_idx").on(table.teamId, table.state),
+    index("coderouter_claude_accounts_cooldown_idx").on(table.cooldownUntil),
     check(
-      "coderouter_claude_upstreams_kind_check",
+      "coderouter_claude_accounts_kind_check",
       sql`${table.kind} IN ('anthropic_api_key', 'anthropic_oauth', 'bedrock')`,
     ),
     check(
-      "coderouter_claude_upstreams_algorithm_check",
+      "coderouter_claude_accounts_state_check",
+      sql`${table.state} IN ('active', 'disabled')`,
+    ),
+    check(
+      "coderouter_claude_accounts_algorithm_check",
       sql`${table.algorithm} = 'aes-256-gcm'`,
     ),
+    check(
+      "coderouter_claude_accounts_aad_version_check",
+      sql`${table.aadVersion} IN (1, 2)`,
+    ),
+  ],
+);
+
+/**
+ * A local mirror of the Stack Auth identity fields our high-volume routes need
+ * (display name, primary email, selected team, team membership and the billing
+ * plan metadata derived from them).
+ *
+ * The device registry and the relay broker authenticate hundreds of requests
+ * per second, and each one used to cost a `GET /users/me` call to Stack. The
+ * access token itself is verified locally against Stack's published signing
+ * keys; this table supplies everything the token does not carry, so a Stack
+ * call is needed only when no fresh snapshot exists.
+ *
+ * The default lifetime of a snapshot is ten minutes. That is the window in
+ * which a user removed from a team keeps that team's registry access, since
+ * Stack sends no membership webhook to invalidate on. Sign-out deletes the row. Deletion is also enforced on read: the snapshot path checks
+ * the account-deletion tombstone directly, so a tombstone takes effect on the
+ * next request rather than waiting for the row to be cleared.
+ */
+export const stackIdentitySnapshots = pgTable(
+  "stack_identity_snapshots",
+  {
+    userId: text("user_id").primaryKey(),
+    displayName: text("display_name"),
+    primaryEmail: text("primary_email"),
+    selectedTeamId: text("selected_team_id"),
+    billingCustomerType: text("billing_customer_type")
+      .$type<"team" | "user">()
+      .notNull(),
+    billingTeamId: text("billing_team_id").notNull(),
+    userBillingPlanId: text("user_billing_plan_id"),
+    billingPlanId: text("billing_plan_id"),
+    billingSeats: integer("billing_seats"),
+    /** Every team the snapshot proves membership of, with its billing fields. */
+    teams: jsonb("teams")
+      .$type<{
+        id: string;
+        displayName: string | null;
+        billingPlanId: string | null;
+        billingSeats: number | null;
+      }[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stack_identity_snapshots_refreshed_idx").on(table.refreshedAt),
   ],
 );

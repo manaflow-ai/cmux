@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
   verifyRequest,
@@ -44,7 +45,6 @@ import {
   type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
-import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
   jsonResponse,
@@ -54,6 +54,7 @@ import {
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
   resolveVmProvisioningAccountScope,
+  runAfterResponse,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
@@ -173,6 +174,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -561,19 +564,6 @@ export async function POST(request: Request): Promise<Response> {
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;
 
-/**
- * Run best-effort work once the response has been sent. Vercel keeps the
- * function alive for `after` callbacks; outside a request scope (tests, a
- * plain Node server) `after` throws, and the work runs detached instead.
- */
-function runAfterResponse(work: () => Promise<void>): void {
-  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
-  try {
-    after(guarded);
-  } catch {
-    void guarded();
-  }
-}
 
 export async function withBillingReconcileDeadline(
   reconcile: Promise<boolean>
