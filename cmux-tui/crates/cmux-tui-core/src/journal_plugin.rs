@@ -746,6 +746,26 @@ mod tests {
         assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
     }
 
+    #[test]
+    fn persisted_start_generation_is_not_reduced_after_configuration() {
+        let runtime = JournalPluginRuntime::default();
+        runtime.configure(Some(JournalPluginOptions {
+            id: "screen_detector".into(),
+            command: vec!["/tmp/screen-detector".into()],
+            cwd: None,
+            revision: None,
+        }));
+
+        runtime.start_with_generation_seed(
+            PathBuf::from("/tmp/cmux-tui-test.sock"),
+            "main".into(),
+            17,
+        );
+        let generation = runtime.state.0.lock().unwrap().generation;
+        assert_eq!(generation, 17);
+        runtime.shutdown();
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_runtime_can_cross_thread_boundaries() {
