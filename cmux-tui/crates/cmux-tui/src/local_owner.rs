@@ -198,9 +198,7 @@ fn owner_process_matches(pid: u64, start_marker: Option<&str>) -> bool {
         .map(|output| {
             let output = String::from_utf8_lossy(&output.stdout);
             let Some(marker) = start_marker else { return false };
-            output.contains(marker)
-                && output.contains("cmux-tui")
-                && output.contains("--headless")
+            output.contains(marker) && output.contains("cmux-tui") && output.contains("--headless")
         })
         .unwrap_or(false)
 }

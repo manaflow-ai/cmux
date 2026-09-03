@@ -494,10 +494,8 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     // teardown can close exactly what this run created.
     let mut control = Conn::open(&socket)?;
     control.request_until(json!({"cmd":"identify"}), bench_deadline)?;
-    let initial_terminals = list_terminal_ids(&mut control, bench_deadline)?
-        .into_iter()
-        .map(|(id, _)| id)
-        .collect();
+    let initial_terminals =
+        list_terminal_ids(&mut control, bench_deadline)?.into_iter().map(|(id, _)| id).collect();
     let baseline = control.request_until(json!({"cmd":"new-workspace"}), bench_deadline)?;
     let Some(baseline_surface) = baseline["surface"].as_u64() else {
         cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
@@ -629,7 +627,9 @@ fn run_separate_typing_probe(
     if let Some(connection) = conn.as_mut() {
         for _ in 0..probes {
             let sent = Instant::now();
-            match connection.send_until(json!({"cmd":"send","surface":surface,"text":"x"}), deadline) {
+            match connection
+                .send_until(json!({"cmd":"send","surface":surface,"text":"x"}), deadline)
+            {
                 Ok(id) => pending.push((id, sent)),
                 Err(error) => {
                     setup_error = Some(format!("typing(separate) send: {error}"));
@@ -704,10 +704,7 @@ fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -
 }
 
 /// `(terminal_id, lifecycle)` for every terminal the daemon knows about.
-fn list_terminal_ids(
-    conn: &mut Conn,
-    deadline: Instant,
-) -> Result<Vec<(String, String)>, String> {
+fn list_terminal_ids(conn: &mut Conn, deadline: Instant) -> Result<Vec<(String, String)>, String> {
     let data = conn.request_until(json!({"cmd":"list-terminals"}), deadline)?;
     Ok(data["terminals"]
         .as_array()
@@ -849,7 +846,9 @@ fn run_create_loop(
         );
         for submission in submissions {
             let sent = Instant::now();
-            match connection.send_until(command_for_submission(submission, pane, baseline_surface), deadline) {
+            match connection
+                .send_until(command_for_submission(submission, pane, baseline_surface), deadline)
+            {
                 Ok(id) => pending.push(PendingRequest { id, sent, kind: submission }),
                 Err(error) => {
                     setup_error = Some(format!("create[{client}] send: {error}"));
@@ -1065,8 +1064,9 @@ fn measure_first_frame(
     let mut conn = Conn::open(socket).ok()?;
     conn.identify().ok()?;
     let start = Instant::now();
-    let id =
-        conn.send_until(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"}), deadline).ok()?;
+    let id = conn
+        .send_until(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"}), deadline)
+        .ok()?;
     let deadline = Instant::now() + bounded_wait_duration(deadline, RPC_TIMEOUT);
     loop {
         if Instant::now() >= deadline {
