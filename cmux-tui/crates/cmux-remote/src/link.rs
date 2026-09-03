@@ -3,6 +3,7 @@ use std::fmt;
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -16,6 +17,7 @@ const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
+const PHYSICAL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 // ReliableSession owns one physical send loop per lane, so at most one caller
 // per lane can wait for LaneMuxLink queue admission in production.
 const OUTBOUND_FRAMES_PER_LANE: usize = PRIORITY_BURST_FRAMES * PRIORITY_LANES.len();
@@ -876,7 +878,13 @@ impl FrameLink for LaneMuxLink {
                 }
                 let _ = join_all(tasks).await;
                 incoming.lock().await.discard();
-                for result in join_all(links.iter().map(|link| link.close())).await {
+                let results = tokio::time::timeout(
+                    PHYSICAL_CLOSE_TIMEOUT,
+                    join_all(links.iter().map(|link| link.close())),
+                )
+                .await
+                .map_err(|_| LinkError::Transport("timed out closing physical link".into()))?;
+                for result in results {
                     result?;
                 }
                 Ok(())
@@ -1027,6 +1035,8 @@ mod tests {
         release: Arc<Semaphore>,
         finished: Arc<Semaphore>,
     }
+
+    struct StuckCloseLink;
 
     fn controlled_receive_link(
         description: &str,
@@ -1204,6 +1214,29 @@ mod tests {
             self.release.acquire().await.map_err(|_| LinkError::Closed)?.forget();
             self.finished.add_permits(1);
             Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for StuckCloseLink {
+        fn description(&self) -> &str {
+            "stuck-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            pending().await
         }
     }
 
@@ -1587,6 +1620,33 @@ mod tests {
             .unwrap()
             .unwrap();
         wait_for_signal(&handle.finished, "completed physical close").await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_is_bounded_when_physical_close_stalls() {
+        let physical = Arc::new(StuckCloseLink);
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical }],
+            )
+            .unwrap(),
+        );
+
+        let close = tokio::spawn({
+            let mux = mux.clone();
+            async move { mux.close().await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = tokio::time::timeout(Duration::from_secs(1), close)
+            .await
+            .expect("aggregate close remained blocked on physical close")
+            .unwrap();
+        assert!(matches!(
+            result,
+            Err(LinkError::Transport(message)) if message == "timed out closing physical link"
+        ));
     }
 
     #[tokio::test]
