@@ -53,7 +53,8 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
+    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, ResolvedCwd, random_hex, session_name_ok,
+    surface_ref_ok,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -939,7 +940,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             _session: &str,
             _socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())
