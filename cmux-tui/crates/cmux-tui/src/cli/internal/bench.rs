@@ -851,7 +851,7 @@ fn ensure_session(global: &GlobalArgs) -> Result<(std::path::PathBuf, SessionGua
         let owner = crate::local_owner::ensure_owner_for_bench(session, &socket)?;
         return Ok((socket.clone(), SessionGuard { socket, owner: Some(owner) }));
     }
-    let session = format!("bench-{:08x}", fastrand_u32());
+    let session = format!("bench-{:08x}", fastrand_u32()?);
     let socket = cmux_tui_core::server::try_default_socket_path(&session)
         .map_err(|e| format!("socket path: {e}"))?;
     let owner = crate::local_owner::ensure_owner_for_bench(&session, &socket)?;
@@ -866,10 +866,17 @@ impl Drop for SessionGuard {
     }
 }
 
-fn fastrand_u32() -> u32 {
+fn fastrand_u32() -> Result<u32, String> {
+    fastrand_u32_with(getrandom::fill)
+}
+
+fn fastrand_u32_with(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+) -> Result<u32, String> {
     let mut buf = [0u8; 4];
-    getrandom::fill(&mut buf).ok();
-    u32::from_le_bytes(buf)
+    fill(&mut buf)
+        .map_err(|error| format!("cannot allocate benchmark session identity: {error}"))?;
+    Ok(u32::from_le_bytes(buf))
 }
 
 // ---- report -------------------------------------------------------------
