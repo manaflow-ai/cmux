@@ -7279,7 +7279,6 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: ProjectionRowsCache,
-    agent_generation: u64,
     sidebar_generation: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
@@ -9554,7 +9553,6 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_rows_cache: ProjectionRowsCache::default(),
-        agent_generation: 0,
         sidebar_generation: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
@@ -10486,10 +10484,6 @@ impl App {
     fn bump_projection_rows_generation(&mut self, index: usize) {
         let state = self.projection_rail_state_mut(index);
         state.rows_generation = state.rows_generation.saturating_add(1);
-    }
-
-    fn bump_agent_generation(&mut self) {
-        self.agent_generation = self.agent_generation.saturating_add(1);
     }
 
     fn invoke_sidebar_action(
@@ -13320,7 +13314,7 @@ impl App {
     }
 
     fn invalidate_projection_agents(&mut self) {
-        self.projection_agents_generation = self.projection_agents_generation.wrapping_add(1);
+        self.projection_agents_generation = self.projection_agents_generation.saturating_add(1);
         self.projection_agents = None;
     }
 
@@ -15700,10 +15694,6 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
-                Ok(RenderAction::Draw)
-            }
-            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
-                self.bump_agent_generation();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -44399,7 +44389,7 @@ mod tests {
         let workspace_before = app.projection_rows_cache.revision_for("workspace-view").unwrap();
         let agent_before = app.projection_rows_cache.revision_for("agent-view").unwrap();
 
-        app.bump_agent_generation(surface.id);
+        app.invalidate_projection_agents();
         app.projection_rows(0);
         app.projection_rows(1);
         let workspace_after = app.projection_rows_cache.revision_for("workspace-view").unwrap();
@@ -44458,62 +44448,6 @@ mod tests {
         assert_eq!(second_before, second_after);
 
         mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn projection_rows_scope_agent_revision_to_selected_workspace() {
-        let (mux, first_surface) = test_mux("projection-agent-owner-scope-test", None);
-        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
-        app.config.sidebar.columns.clear();
-        app.config.sidebar.views = vec![SidebarViewSpec {
-            id: "agent-view".into(),
-            levels: vec![SidebarResourceKind::Agents],
-            actions: Vec::new(),
-            actions_position: crate::config::ActionsPosition::Bottom,
-            width: 40,
-            max_width: 0,
-            collapse_priority: 30,
-        }];
-        app.config.sidebar.views_explicit = true;
-        app.replace_tree(app.session.tree());
-        app.sidebar_workspace_selection = 0;
-        app.projection_rows(0);
-        let before = app.projection_rows_cache.revision_for("agent-view").unwrap();
-
-        app.bump_agent_generation(second_surface.id);
-        app.projection_rows(0);
-        let after = app.projection_rows_cache.revision_for("agent-view").unwrap();
-
-        assert_eq!(before, after);
-
-        mux.close_surface(first_surface.id).unwrap();
-        mux.close_surface(second_surface.id).unwrap();
-    }
-
-    #[test]
-    fn projection_agent_generations_prune_removed_workspaces() {
-        let (mux, first_surface) = test_mux("projection-agent-generation-prune-test", None);
-        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-        let first_workspace = app.tree.workspaces()[0].id;
-        let second_workspace = app.tree.workspaces()[1].id;
-
-        app.bump_agent_generation(first_surface.id);
-        app.bump_agent_generation(second_surface.id);
-        assert_eq!(app.agent_generations.len(), 2);
-
-        let mut replacement = app.tree.clone();
-        replacement.workspaces_mut().remove(0);
-        replacement.active_workspace = 0;
-        app.replace_tree(replacement);
-
-        assert!(!app.agent_generations.contains_key(&first_workspace));
-        assert!(app.agent_generations.contains_key(&second_workspace));
-
-        mux.close_surface(first_surface.id).unwrap();
-        mux.close_surface(second_surface.id).unwrap();
     }
 
     #[test]
@@ -46797,7 +46731,6 @@ mod tests {
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
             projection_rows_cache: ProjectionRowsCache::default(),
-            agent_generation: 0,
             sidebar_generation: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
