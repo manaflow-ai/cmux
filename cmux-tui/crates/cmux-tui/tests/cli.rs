@@ -4597,10 +4597,10 @@ fn pipe_io_startup_connect_failure_reports_daemon_lost() {
 #[cfg(unix)]
 #[test]
 fn pipe_io_startup_socket_validation_reports_setup_failed() {
-    // Session-name validation happens before a remote socket can be opened.
+    // Session-name path validation happens before a remote socket can be opened.
     // Pipe-IO clients still require the structured terminal result so they do
     // not have to parse a human-facing startup error.
-    let invalid_session = "x".repeat(256);
+    let invalid_session = "bad/session";
     let output = Command::new(bin())
         .args(["attach", "--session"])
         .arg(&invalid_session)
