@@ -1338,3 +1338,53 @@ export const cloudVmNotificationDeliveries = pgTable(
       .on(table.eventId, table.status),
   ],
 );
+
+// Subrouter credential vault. Entries are team-scoped: authorization comes from
+// Stack Auth team membership, and the secret payload is encrypted at rest so a
+// database dump alone does not yield usable OAuth refresh chains.
+export const srVaultEntries = pgTable(
+  "sr_vault_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    // Provider account identity, e.g. "codex" + "lawrence@manaflow.ai".
+    provider: text("provider").notNull(),
+    accountLabel: text("account_label").notNull(),
+    // AES-256-GCM envelope: nonce and ciphertext are stored separately so the
+    // key can be rotated without reparsing an opaque blob.
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    createdByUserId: text("created_by_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("sr_vault_entries_team_provider_account_unique")
+      .on(table.teamId, table.provider, table.accountLabel),
+    index("sr_vault_entries_team_idx").on(table.teamId),
+  ],
+);
+
+// Pending device-code logins. Short-lived by construction: poll deletes the row
+// on success and expired rows are swept on read, so this never accumulates.
+export const srDeviceCodes = pgTable(
+  "sr_device_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // Shown to the human, entered in a browser.
+    userCode: text("user_code").notNull(),
+    // Held only by the CLI, exchanged for a token.
+    deviceCodeHash: text("device_code_hash").notNull(),
+    userId: text("user_id"),
+    teamId: text("team_id"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("sr_device_codes_user_code_unique").on(table.userCode),
+    uniqueIndex("sr_device_codes_hash_unique").on(table.deviceCodeHash),
+    index("sr_device_codes_expires_idx").on(table.expiresAt),
+  ],
+);
