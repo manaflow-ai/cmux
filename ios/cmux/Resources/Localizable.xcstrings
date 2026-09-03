@@ -5674,6 +5674,17 @@
         }
       }
     },
+    "mobile.cloud.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
     "mobile.cloud.empty": {
       "extractionState": "manual",
       "localizations": {
