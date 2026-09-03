@@ -7068,7 +7068,9 @@ impl Mux {
                         let _ = self.persist_terminal_exit(
                             &terminal_hex,
                             None,
-                            &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
+                            &TerminalExit::unknown(format!(
+                                "launch-failed: {HOST_LAUNCH_FAILED_CAUSE}"
+                            )),
                         );
                         return Err(error);
                     }
@@ -7121,7 +7123,9 @@ impl Mux {
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
+                        &TerminalExit::unknown(format!(
+                            "launch-failed: {HOST_LAUNCH_FAILED_CAUSE}"
+                        )),
                     );
                     return Err(error);
                 }
@@ -7259,7 +7263,9 @@ impl Mux {
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
+                        &TerminalExit::unknown(format!(
+                            "launch-failed: {HOST_LAUNCH_FAILED_CAUSE}"
+                        )),
                     );
                     return Err(error);
                 }

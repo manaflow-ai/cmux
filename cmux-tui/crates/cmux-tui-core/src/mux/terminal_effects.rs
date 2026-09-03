@@ -180,13 +180,13 @@ impl TerminalEffectExecutor {
             }
         }
         if !deferred.is_empty() {
-            let _ = std::thread::Builder::new()
-                .name("terminal-effect-reaper".to_string())
-                .spawn(move || {
+            let _ = std::thread::Builder::new().name("terminal-effect-reaper".to_string()).spawn(
+                move || {
                     for worker in deferred {
                         let _ = worker.join();
                     }
-                });
+                },
+            );
         }
     }
 
