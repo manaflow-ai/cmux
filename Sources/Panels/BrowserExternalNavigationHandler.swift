@@ -64,13 +64,25 @@ struct BrowserExternalNavigationHandler {
     }
 
     /// Returns whether a user-activated main-frame navigation should be external.
+    ///
+    /// Downloads keep the download flow. WebKit reports a script calling
+    /// `click()` on an anchor as `.linkActivated`, the same as a real click,
+    /// so the rules on their own would let a page hand itself a system-browser
+    /// open at a moment of its choosing; requiring an AppKit event in flight
+    /// makes the page ride a click the user actually made. It is a bound
+    /// rather than a proof — `NSApp.currentEvent` says an event is being
+    /// dispatched, not that this navigation is the thing the user asked for.
     func shouldOpenExternally(
         _ url: URL,
         navigationType: WKNavigationType,
-        targetFrameIsMain: Bool?
+        targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation()
     ) -> Bool {
         guard navigationType == .linkActivated,
               targetFrameIsMain != false,
+              !shouldPerformDownload,
+              hasUserActivation,
               Self.isWebNavigationURL(url),
               !Self.isAppOwnedInternalURL(url) else {
             return false
@@ -146,12 +158,16 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation(),
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> Bool {
         if case .opened = openConfiguredExternallyResult(
             url,
             navigationType: navigationType,
             targetFrameIsMain: targetFrameIsMain,
+            shouldPerformDownload: shouldPerformDownload,
+            hasUserActivation: hasUserActivation,
             onOpened: onOpened
         ) {
             return true
@@ -165,13 +181,17 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation(),
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> OpenResult {
         let externalURL = canonicalURL(for: url)
         guard shouldOpenExternally(
             externalURL,
             navigationType: navigationType,
-            targetFrameIsMain: targetFrameIsMain
+            targetFrameIsMain: targetFrameIsMain,
+            shouldPerformDownload: shouldPerformDownload,
+            hasUserActivation: hasUserActivation
         ) else {
             return .notConfigured
         }

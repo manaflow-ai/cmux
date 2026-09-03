@@ -67,7 +67,10 @@ func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
     switch currentEventType {
-    case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp:
+    case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp,
+         .otherMouseDown, .otherMouseUp:
+        // Middle-clicks arrive as otherMouse events and are user input the
+        // same as a left click, so a matched link still escapes on them.
         return true
     default:
         return false
