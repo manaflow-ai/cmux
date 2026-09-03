@@ -941,15 +941,10 @@ impl ScheduledSender {
             budget.fetch_sub(bytes, Ordering::AcqRel);
             return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
         }
-        tokio::select! {
-            _ = self.inner.cancel.cancelled() => {
-                Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed))
-            }
-            result = result => match result {
+        match result.await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(message)) => Err(ScheduleError::Ambiguous(SessionError::LinkMessage(message))),
             Err(_) => Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed)),
-            }
         }
     }
 }
@@ -967,11 +962,13 @@ async fn run_lane_sender(
         let scheduled = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
+                receiver.close();
                 fail_pending(&mut receiver, &budgets, "scheduler closed");
                 return;
             }
             changed = failed_rx.changed() => {
                 if changed.is_ok() && *failed_rx.borrow() {
+                    receiver.close();
                     fail_pending(&mut receiver, &budgets, "physical link failed");
                     return;
                 }
