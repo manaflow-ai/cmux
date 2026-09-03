@@ -9785,6 +9785,7 @@
      "tab-added",
      "tab-closed",
      "tab-renamed",
+     "terminal-lifecycle",
      "terminal-registry-changed",
      "title-changed",
      "tree-changed",
@@ -9812,6 +9813,7 @@
       "tab-added",
       "tab-closed",
       "tab-renamed",
+      "terminal-lifecycle",
       "tree-changed"
      ]
     },

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f395df08f33b988125e243acef60ed368882e25edcc5f92f833043e1395e3dcc. */
+/* cmux-tui mux protocol 12, IR 28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f395df08f33b988125e243acef60ed368882e25edcc5f92f833043e1395e3dcc" as const;
+export const SDK_IR_SHA256 = "28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1172,6 +1172,7 @@ export const COMMAND_METADATA = {
         "tab-added",
         "tab-closed",
         "tab-renamed",
+        "terminal-lifecycle",
         "terminal-registry-changed",
         "title-changed",
         "tree-changed",
@@ -1200,6 +1201,7 @@ export const COMMAND_METADATA = {
           "tab-added",
           "tab-closed",
           "tab-renamed",
+          "terminal-lifecycle",
           "tree-changed"
         ]
       },

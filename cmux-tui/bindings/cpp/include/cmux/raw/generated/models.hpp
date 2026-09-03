@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f395df08f33b988125e243acef60ed368882e25edcc5f92f833043e1395e3dcc";
+inline constexpr std::string_view kProtocolIrSha256 = "28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d";
 
 struct AgentRecord;
 enum class AgentReportSource;
