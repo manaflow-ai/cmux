@@ -167,7 +167,7 @@ impl SurfaceSessionScope {
             // A lifecycle transition names the placement it happened on; a
             // terminal without a live placement is not this client's concern.
             MuxEvent::TerminalLifecycle { surface, .. } => {
-                surface.is_none_or(|surface| surface == self.surface)
+                surface.is_some_and(|surface| surface == self.surface)
             }
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful

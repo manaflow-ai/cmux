@@ -1445,7 +1445,7 @@ fields. Retrying with the same `origin`, `mutation_id`, and logical request
 returns the same terminal and exit record without recreating its tab or
 process. Reusing a mutation identity with different parameters is an error.
 
-Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests. When a deferred default-shell launch cannot start, its durable exit reason is the stable message `launch-failed: host-launch-failed`; detailed spawn errors stay in internal diagnostics.
 
 Example:
 

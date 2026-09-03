@@ -493,7 +493,7 @@
     {
       "name": "terminal-lifecycle",
       "streams": [
-        "subscribe"
+        "subscribe-deltas"
       ]
     },
     {

@@ -606,6 +606,11 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    # `terminal-lifecycle` is serialized by the shared event helper, but the
+    # subscription loop sends it only for the explicit `tree_events:deltas`
+    # branch. Align the policy with that dispatch gate.
+    hints.setdefault("terminal-lifecycle", set()).discard("subscribe")
+    hints.setdefault("terminal-lifecycle", set()).add("subscribe-deltas")
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",

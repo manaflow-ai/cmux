@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable terminal-lifecycle event. Protocol v12; streams: subscribe. */
+/** Immutable terminal-lifecycle event. Protocol v12; streams: subscribe-deltas. */
 public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final String cause;
     private final UInt64 discardedInputBytes;

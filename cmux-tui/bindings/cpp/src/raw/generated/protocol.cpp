@@ -18417,7 +18417,7 @@ constexpr std::array<EventMetadata, 48> kEvents{{
     {"tab-added", 7U, "", "subscribe-deltas", "emitted"},
     {"tab-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"tab-renamed", 7U, "", "subscribe-deltas", "emitted"},
-    {"terminal-lifecycle", 12U, "", "subscribe", "emitted"},
+    {"terminal-lifecycle", 12U, "", "subscribe-deltas", "emitted"},
     {"terminal-registry-changed", 9U, "", "subscribe", "emitted"},
     {"title-changed", 5U, "", "subscribe", "emitted"},
     {"tree-changed", 5U, "", "subscribe", "emitted"},

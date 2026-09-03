@@ -79,6 +79,8 @@ use crate::{
     SurfaceId, SurfaceKind, WorkspaceId,
 };
 
+const HOST_LAUNCH_FAILED_CAUSE: &str = "host-launch-failed";
+
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
 /// Receives diagnostics that must not be written to a frontend's terminal.
@@ -9146,11 +9148,10 @@ impl Mux {
             })
         };
         if let Err(error) = ready {
-            surface.kill();
-            self.launching_terminals.lock().unwrap().remove(&surface.id);
             eprintln!(
                 "cmux-tui: terminal {terminal_id} could not commit terminal-ready: {error:#}"
             );
+            self.fail_terminal_launch(&surface, &terminal_id, "terminal-ready commit failed");
             return;
         }
         self.emit_terminal_lifecycle(
@@ -9198,7 +9199,8 @@ impl Mux {
     /// an exited terminal that shows the cause; buffered typeahead is
     /// discarded and counted, never replayed anywhere else.
     fn fail_terminal_launch(&self, surface: &Arc<Surface>, terminal_id: &str, cause: &str) {
-        let exit = TerminalExit::unknown(format!("launch-failed: {cause}"));
+        let stable_cause = format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}");
+        let exit = TerminalExit::unknown(stable_cause.clone());
         #[cfg(unix)]
         let discarded = surface.fail_launch(exit.clone());
         #[cfg(not(unix))]
@@ -9215,7 +9217,7 @@ impl Mux {
             terminal_id,
             Some(surface.id),
             TerminalLifecycle::Exited,
-            Some(cause.to_string()),
+            Some(stable_cause),
             discarded as u64,
         );
         self.emit(MuxEvent::SurfaceOutput(surface.id));
@@ -9236,8 +9238,7 @@ impl Mux {
             self.terminate_terminal_runtime(&runtime);
             return;
         }
-        let job =
-            TerminalEffectJob::Terminate(TerminateJob { runtime: runtime.clone() });
+        let job = TerminalEffectJob::Terminate(TerminateJob { runtime: runtime.clone() });
         if !self.terminal_effects.enqueue(job) {
             self.terminate_terminal_runtime(&runtime);
         }

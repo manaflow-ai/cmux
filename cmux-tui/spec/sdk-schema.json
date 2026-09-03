@@ -12363,7 +12363,7 @@
    "since": 12,
    "capability": null,
    "streams": [
-    "subscribe"
+    "subscribe-deltas"
    ],
    "emission": "emitted",
    "payload": {

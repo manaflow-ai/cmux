@@ -26,8 +26,9 @@ IX2 makes true.
 
 ## Terminal lifecycle
 
-A terminal moves through `launching → running → closing → exited → tombstoned`
-(`adopting` maps to `launching` publicly). The lifecycle is tree-visible: a
+A terminal moves through `launching → running → exited` publicly. `closing` and
+`tombstoned` are internal cleanup states, and `adopting` maps to `launching`
+publicly. The lifecycle is tree-visible: a
 placement is bound at reservation with lifecycle `launching`, so a new pane, tab,
 split, or workspace appears in the tree within a frame of the keypress, before
 its host process exists.
@@ -36,8 +37,9 @@ its host process exists.
   mirror renders empty at the creation size. Input is buffered as typeahead.
 - **running**: the host has attached, `Activate` has been sent, PTY bytes flow.
 - **exited**: the child ended, or the launch never produced a process. A failed
-  launch keeps the placement and records an exit whose reason begins
-  `launch-failed: <cause>`. The pane shows that cause where its content would be.
+  launch keeps the placement and records the stable reason
+  `launch-failed: host-launch-failed`. Detailed spawn errors stay in internal
+  diagnostics. The pane shows the stable reason where its content would be.
 - **tombstoned**: catalog removal by an explicit `terminal.close`; never in the
   tree.
 
@@ -81,7 +83,8 @@ deltas.
 }
 ```
 
-`cause` is a stable string on a failed launch (`launch-failed: spawn ENOENT ...`).
+`cause` is the stable string `launch-failed: host-launch-failed` on a failed
+launch. Detailed spawn errors stay in internal diagnostics.
 `discarded_input_bytes` reports typeahead dropped when a launch fails; that input
 is never replayed to any other terminal.
 
