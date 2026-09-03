@@ -39,53 +39,23 @@ extension CmxIrohClientRuntime {
             || profile.allowedRelayURLs.isSubset(of: replacementManagedURLs) else {
             throw CmxIrohClientRuntimeError.relayFleetMismatch
         }
-        let revision = lifecycleRevision
 
-        await relayCoordinator?.deactivate()
-        relayCoordinator = nil
-        if profile.source == .managed, !profile.allowedRelayURLs.isEmpty {
-            let refreshSchedule = CmxIrohRelayRefreshSchedule(
-                role: .client,
-                endpointIdentity: binding.endpointID
-            )
-            let coordinator = CmxIrohRelayCredentialCoordinator(
-                supervisor: connectivityEngine,
-                broker: broker,
-                managedRelayURLs: replacementManagedURLs,
-                selectedRelayURLs: profile.allowedRelayURLs,
-                jitter: { now, refreshAfter in
-                    refreshSchedule.deadline(now: now, refreshAfter: refreshAfter)
-                },
-                retrySchedule: .foregroundClient,
-                automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-                credentialDidInstall: { [handleRelayCredential] response in
-                    await handleRelayCredential(response, binding)
-                }
-            )
-            relayCoordinator = coordinator
-            do {
-                try await coordinator.activateManagedPolicy(
-                    bindingID: binding.bindingID,
-                    endpointIdentity: binding.endpointID,
-                    profile: profile,
-                    bootstrap: relayBootstrap
-                )
-            } catch {
-                await coordinator.deactivate()
-                if relayCoordinator === coordinator {
-                    relayCoordinator = nil
-                }
-                throw error
+        let revision = try await swapRelayCoordinator(
+            profile: profile,
+            replacementManagedURLs: replacementManagedURLs,
+            relayBootstrap: relayBootstrap,
+            role: .client,
+            bindingID: binding.bindingID,
+            endpointIdentity: binding.endpointID,
+            connectivityEngine: connectivityEngine,
+            broker: broker,
+            retrySchedule: .foregroundClient,
+            automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
+            credentialDidInstall: { [handleRelayCredential] response in
+                await handleRelayCredential(response, binding)
             }
-        } else {
-            try await connectivityEngine.replaceRelayProfile(
-                profile,
-                expectedIdentity: binding.endpointID
-            )
-        }
-        try requireCurrent(revision)
+        )
 
-        managedRelayURLs = replacementManagedURLs
         endpointRelayProfile = profile
         let expectation = try CmxIrohLocalBindingExpectation(
             deviceID: binding.deviceID,
