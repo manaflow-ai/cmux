@@ -4870,7 +4870,21 @@ mod tests {
         let entered = TestArc::new(Barrier::new(2));
         let release = TestArc::new(Barrier::new(2));
         h.configure_subscribe_block(TestArc::clone(&entered), TestArc::clone(&release));
-        let context = h.context("supervised", h.owner.clone());
+        let error_seen = Arc::new(AtomicBool::new(false));
+        let attachment_visible_on_error = Arc::new(AtomicBool::new(false));
+        let error_seen_for_send = Arc::clone(&error_seen);
+        let attachment_visible_for_send = Arc::clone(&attachment_visible_on_error);
+        let manager_for_send = h.manager.clone();
+        let sent = Arc::clone(&h.sent);
+        let mut context = h.context("supervised", h.owner.clone());
+        context.send = Arc::new(move |frame| {
+            if frame["type"] == "pty_error" {
+                error_seen_for_send.store(true, Ordering::SeqCst);
+                attachment_visible_for_send
+                    .store(manager_for_send.has_attachment("p1"), Ordering::SeqCst);
+            }
+            sent.lock().expect("sent lock").push(frame);
+        });
         let cancellation = context.cancellation.clone();
         let frame = serde_json::json!({
             "version": 4,
@@ -4890,6 +4904,11 @@ mod tests {
             .await
             .expect("cancelled open returns without waiting for the publication gate")
             .expect("cancelled open task");
+        assert!(error_seen.load(Ordering::SeqCst), "cancelled open reports a terminal error");
+        assert!(
+            !attachment_visible_on_error.load(Ordering::SeqCst),
+            "start failure must retire the attachment before publishing its error"
+        );
         tokio::task::spawn_blocking(move || release.wait()).await.expect("subscribe released");
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
