@@ -50,7 +50,7 @@ type AccessMessageKey = keyof typeof englishMessages.cloudPublicationAccess;
 
 const englishAccess = englishMessages.cloudPublicationAccess;
 const accessKeys = Object.keys(englishAccess).sort() as AccessMessageKey[];
-const signInCopyKeys = ["title", "signedOutBody", "signIn"] as const;
+const signInCopyKeys = ["title", "signIn", "switchAccount"] as const;
 
 function placeholders(value: string): string[] {
   return [...value.matchAll(/\{[^{}]+\}/g)]

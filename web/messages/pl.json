@@ -61,11 +61,10 @@
     "backToSignIn": "Wróć do logowania"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "chmura cmux",
     "title": "Nie masz dostępu",
-    "signedOutBody": "Zaloguj się do cmux, aby wyświetlić tę witrynę.",
     "signIn": "Zaloguj się do cmux",
     "signedInAs": "Zalogowano jako {identity}",
+    "switchAccount": "Zmień konto",
     "invalidTitle": "Ten link dostępu jest nieprawidłowy",
     "invalidBody": "Wróć do witryny i spróbuj ponownie.",
     "footer": "Dostępem zarządza cmux."
