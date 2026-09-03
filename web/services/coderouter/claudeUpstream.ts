@@ -1,13 +1,18 @@
-// Per-team Claude upstream for the coderouter `/v1/messages` leg.
+// Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
-// Exactly one row per team, no fallback: a team either forwards Claude
-// traffic to the upstream stored here or gets a 503 telling it to configure
-// one. Secrets are KMS envelope-encrypted with the same scheme as
-// `coderouter_credentials`; the AAD and KMS encryption context bind the
-// ciphertext to (team, kind) so a row cannot be replayed for another team.
-import { eq } from "drizzle-orm";
+// A team holds any number of accounts of any kind (Anthropic API key, Claude
+// Code OAuth token, Bedrock credentials). The data plane picks one healthy
+// account per request: a client with a stable key (its Cloud VM, or its route
+// token) is pinned to the same account by rendezvous hashing so Anthropic's
+// per-organization prompt cache keeps hitting, and a 429/401/5xx puts that
+// account in cooldown and moves the client to the next one. Secrets are KMS
+// envelope-encrypted like `coderouter_credentials`; the AAD and KMS context
+// bind the ciphertext to (team, account id, kind) so a row cannot be replayed
+// for another team or account.
+import { createHash, randomUUID } from "node:crypto";
+import { and, asc, eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { coderouterClaudeUpstreams } from "../../db/schema";
+import { coderouterClaudeAccounts } from "../../db/schema";
 import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
@@ -25,6 +30,8 @@ export const CLAUDE_UPSTREAM_KINDS: readonly ClaudeUpstreamKind[] = [
   "anthropic_oauth",
   "bedrock",
 ];
+
+export type ClaudeAccountState = "active" | "disabled";
 
 export type ClaudeUpstreamSecret =
   | { readonly kind: "anthropic_api_key"; readonly apiKey: string }
@@ -44,26 +51,39 @@ export type ClaudeUpstreamConfig = {
   readonly modelIds?: Readonly<Record<string, string>>;
 };
 
+/** One decrypted account, as the data plane uses it. Server-only. */
 export type ClaudeUpstream = {
+  readonly accountId: string;
   readonly teamId: string;
   readonly kind: ClaudeUpstreamKind;
+  readonly label: string;
   readonly secret: ClaudeUpstreamSecret;
   readonly config: ClaudeUpstreamConfig;
   readonly updatedAt: Date;
 };
 
-/** What the dashboard and the GET route see. Never carries a secret. */
-export type ClaudeUpstreamDescription = {
+/** What the dashboard, the CLI, and the GET route see. Never carries a secret. */
+export type ClaudeAccountDescription = {
+  readonly id: string;
   readonly kind: ClaudeUpstreamKind;
+  readonly label: string;
   readonly identifier: string;
   readonly region: string | null;
   readonly modelIds: Readonly<Record<string, string>>;
+  readonly state: ClaudeAccountState;
+  readonly cooldownUntil: string | null;
+  readonly lastFailureCode: string | null;
+  readonly lastUsedAt: string | null;
+  readonly createdAt: string;
   readonly updatedAt: string;
 };
 
+/** Kept for clients that still read one `upstream` object. */
+export type ClaudeUpstreamDescription = ClaudeAccountDescription;
+
 export type ClaudeUpstreamInput =
-  | { readonly kind: "anthropic_api_key"; readonly apiKey: string }
-  | { readonly kind: "anthropic_oauth"; readonly token: string }
+  | { readonly kind: "anthropic_api_key"; readonly apiKey: string; readonly label?: string }
+  | { readonly kind: "anthropic_oauth"; readonly token: string; readonly label?: string }
   | {
     readonly kind: "bedrock";
     readonly region: string;
@@ -71,27 +91,73 @@ export type ClaudeUpstreamInput =
     readonly secretAccessKey: string;
     readonly sessionToken?: string;
     readonly modelIds?: Readonly<Record<string, string>>;
+    readonly label?: string;
   };
 
-export type ClaudeUpstreamRow = {
+export type ClaudeAccountPatch = {
+  readonly label?: string;
+  readonly state?: ClaudeAccountState;
+};
+
+export type ClaudeAccountRow = {
+  readonly id: string;
   readonly teamId: string;
   readonly kind: ClaudeUpstreamKind;
+  readonly label: string;
+  /** Empty on rows migrated from the single-upstream table until backfilled. */
+  readonly identifier: string;
+  readonly state: ClaudeAccountState;
+  readonly cooldownUntil: Date | null;
+  readonly lastUsedAt: Date | null;
+  readonly lastFailureCode: string | null;
+  readonly aadVersion: 1 | 2;
   readonly config: Record<string, unknown>;
-  readonly updatedBy: string;
+  readonly createdBy: string;
+  readonly createdAt: Date;
   readonly updatedAt: Date;
 } & SecretEnvelope;
 
-export type ClaudeUpstreamStore = {
-  read(teamId: string): Promise<ClaudeUpstreamRow | null>;
-  write(row: Omit<ClaudeUpstreamRow, "updatedAt">): Promise<ClaudeUpstreamRow>;
-  remove(teamId: string): Promise<boolean>;
+export type ClaudeAccountInsert = Omit<ClaudeAccountRow, "createdAt" | "updatedAt">;
+
+export type ClaudeAccountStore = {
+  /** Every account of the team, oldest first. */
+  list(teamId: string): Promise<readonly ClaudeAccountRow[]>;
+  insert(row: ClaudeAccountInsert): Promise<ClaudeAccountRow>;
+  update(
+    teamId: string,
+    accountId: string,
+    patch: { readonly label?: string; readonly state?: ClaudeAccountState; readonly identifier?: string },
+  ): Promise<ClaudeAccountRow | null>;
+  remove(teamId: string, accountId: string): Promise<boolean>;
+  removeAll(teamId: string): Promise<number>;
+  markCooldown(accountId: string, until: Date, failureCode: string): Promise<void>;
+  touchUsed(accountId: string, at: Date): Promise<void>;
 };
 
 export type ClaudeUpstreamDependencies = {
-  readonly store: ClaudeUpstreamStore;
+  readonly store: ClaudeAccountStore;
   readonly keys?: CredentialKeyService;
   readonly keyId?: string;
+  readonly now?: () => Date;
+  readonly newId?: () => string;
 };
+
+export type ClaudeSelectionInput = {
+  /**
+   * Stable per-client key (Cloud VM id, else the route token). Clients with
+   * the same key land on the same account while it stays healthy.
+   */
+  readonly stickyKey: string | null;
+  /** Accounts already tried for this request. */
+  readonly excludedAccountIds?: readonly string[];
+};
+
+export type ClaudeSelection =
+  | { readonly kind: "selected"; readonly upstream: ClaudeUpstream; readonly total: number; readonly healthy: number }
+  /** The team has no accounts at all. */
+  | { readonly kind: "none" }
+  /** Every remaining account is disabled, cooling down, or already tried. */
+  | { readonly kind: "exhausted"; readonly total: number; readonly retryAfterSeconds: number };
 
 const ANTHROPIC_API_KEY = /^sk-ant-(?!oat)[A-Za-z0-9_-]{20,500}$/;
 const ANTHROPIC_OAUTH_TOKEN = /^sk-ant-oat01-[A-Za-z0-9_-]{20,1000}$/;
@@ -104,20 +170,35 @@ const ANTHROPIC_MODEL_ID = /^claude-[a-z0-9.-]{1,64}$/;
 const BEDROCK_MODEL_ID =
   /^(?:(?:global|us|eu|apac|jp|au|ca)\.)?anthropic\.claude-[a-z0-9.:-]{1,96}$/;
 const MAX_MODEL_OVERRIDES = 32;
+export const MAX_ACCOUNT_LABEL_CHARS = 64;
+const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Cooldown bounds mirror `markAccountCooldown` on the Codex side. */
+const MIN_COOLDOWN_MS = 1_000;
+const MAX_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_EXHAUSTED_RETRY_SECONDS = 15;
+
+export function isClaudeAccountId(value: unknown): value is string {
+  return typeof value === "string" && ACCOUNT_ID.test(value);
+}
 
 export function parseClaudeUpstreamInput(value: unknown): ClaudeUpstreamInput | null {
   if (!isRecord(value)) return null;
+  const label = parseLabel(value.label);
+  if (label === null) return null;
+  const withLabel = <T extends object>(input: T): T & { label?: string } =>
+    label ? { ...input, label } : input;
   switch (value.kind) {
     case "anthropic_api_key": {
       const apiKey = trimmed(value.apiKey);
       return apiKey && ANTHROPIC_API_KEY.test(apiKey)
-        ? { kind: "anthropic_api_key", apiKey }
+        ? withLabel({ kind: "anthropic_api_key" as const, apiKey })
         : null;
     }
     case "anthropic_oauth": {
       const token = trimmed(value.token);
       return token && ANTHROPIC_OAUTH_TOKEN.test(token)
-        ? { kind: "anthropic_oauth", token }
+        ? withLabel({ kind: "anthropic_oauth" as const, token })
         : null;
     }
     case "bedrock": {
@@ -136,18 +217,44 @@ export function parseClaudeUpstreamInput(value: unknown): ClaudeUpstreamInput | 
       }
       const modelIds = parseModelIds(value.modelIds);
       if (modelIds === null) return null;
-      return {
-        kind: "bedrock",
+      return withLabel({
+        kind: "bedrock" as const,
         region,
         accessKeyId,
         secretAccessKey,
         ...(sessionToken ? { sessionToken } : {}),
         ...(Object.keys(modelIds).length > 0 ? { modelIds } : {}),
-      };
+      });
     }
     default:
       return null;
   }
+}
+
+/** `undefined` when absent, `null` when present but invalid. */
+export function parseClaudeAccountPatch(value: unknown): ClaudeAccountPatch | null {
+  if (!isRecord(value)) return null;
+  const patch: { label?: string; state?: ClaudeAccountState } = {};
+  if (value.label !== undefined) {
+    const label = parseLabel(value.label);
+    if (label === null) return null;
+    patch.label = label;
+  }
+  if (value.state !== undefined) {
+    if (value.state !== "active" && value.state !== "disabled") return null;
+    patch.state = value.state;
+  }
+  if (patch.label === undefined && patch.state === undefined) return null;
+  return patch;
+}
+
+/** Empty string when absent; `null` when present but not a short single line. */
+function parseLabel(value: unknown): string | null {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  return label;
 }
 
 function parseModelIds(value: unknown): Record<string, string> | null {
@@ -168,78 +275,180 @@ function parseModelIds(value: unknown): Record<string, string> | null {
 
 export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependencies) {
   const { store } = dependencies;
+  const now = dependencies.now ?? (() => new Date());
+  const newId = dependencies.newId ?? randomUUID;
 
-  async function get(teamId: string): Promise<ClaudeUpstream | null> {
-    const row = await store.read(teamId);
-    if (!row) return null;
+  async function decrypt(row: ClaudeAccountRow): Promise<ClaudeUpstream> {
     const value = await decryptSecretEnvelope(row, {
-      aad: upstreamAad(row),
-      encryptionContext: upstreamEncryptionContext(row),
+      aad: accountAad(row),
+      encryptionContext: accountEncryptionContext(row),
       keys: dependencies.keys,
     });
     const secret = parseSecret(value, row.kind);
-    if (!secret) throw new Error("decrypted coderouter claude upstream is invalid");
+    if (!secret) throw new Error("decrypted coderouter claude account is invalid");
     return {
+      accountId: row.id,
       teamId: row.teamId,
       kind: row.kind,
+      label: row.label,
       secret,
       config: parseConfig(row.config),
       updatedAt: row.updatedAt,
     };
   }
 
-  async function put(
+  /** Rows migrated from the single-upstream table carry no identifier yet. */
+  async function withIdentifier(row: ClaudeAccountRow): Promise<ClaudeAccountRow> {
+    if (row.identifier) return row;
+    const upstream = await decrypt(row);
+    const identifier = maskedIdentifier(upstream.secret);
+    const updated = await store.update(row.teamId, row.id, { identifier });
+    return updated ?? { ...row, identifier };
+  }
+
+  async function list(teamId: string): Promise<readonly ClaudeAccountDescription[]> {
+    const rows = await store.list(teamId);
+    const described: ClaudeAccountDescription[] = [];
+    for (const row of rows) {
+      described.push(describeRow(await withIdentifier(row)));
+    }
+    return described;
+  }
+
+  async function add(
     teamId: string,
     stackUserId: string,
     input: ClaudeUpstreamInput,
-  ): Promise<ClaudeUpstreamDescription> {
-    if (!teamId || !stackUserId) throw new Error("invalid coderouter claude upstream owner");
+  ): Promise<ClaudeAccountDescription> {
+    if (!teamId || !stackUserId) throw new Error("invalid coderouter claude account owner");
     const secret = secretFromInput(input);
     const config = configFromInput(input);
-    const identity = { teamId, kind: input.kind };
+    const id = newId();
+    const identity = { id, teamId, kind: input.kind, aadVersion: 2 as const };
     const envelope = await encryptSecretEnvelope({
-      aad: upstreamAad(identity),
-      encryptionContext: upstreamEncryptionContext(identity),
+      aad: accountAad(identity),
+      encryptionContext: accountEncryptionContext(identity),
       secret,
       keyId: dependencies.keyId,
       keys: dependencies.keys,
     });
-    const row = await store.write({
+    const row = await store.insert({
+      id,
       teamId,
       kind: input.kind,
+      label: input.label ?? "",
+      identifier: maskedIdentifier(secret),
+      state: "active",
+      cooldownUntil: null,
+      lastUsedAt: null,
+      lastFailureCode: null,
+      aadVersion: 2,
       config,
-      updatedBy: stackUserId,
+      createdBy: stackUserId,
       ...envelope,
     });
-    return describeRow(row, secret);
+    return describeRow(row);
   }
 
-  async function remove(teamId: string): Promise<{ removed: boolean }> {
-    return { removed: await store.remove(teamId) };
+  async function update(
+    teamId: string,
+    accountId: string,
+    patch: ClaudeAccountPatch,
+  ): Promise<ClaudeAccountDescription | null> {
+    const row = await store.update(teamId, accountId, patch);
+    return row ? describeRow(await withIdentifier(row)) : null;
   }
 
-  async function describe(teamId: string): Promise<ClaudeUpstreamDescription | null> {
-    const upstream = await get(teamId);
-    if (!upstream) return null;
-    return {
-      kind: upstream.kind,
-      identifier: maskedIdentifier(upstream.secret),
-      region: upstream.config.region ?? null,
-      modelIds: upstream.config.modelIds ?? {},
-      updatedAt: upstream.updatedAt.toISOString(),
-    };
+  async function remove(teamId: string, accountId: string): Promise<{ removed: boolean }> {
+    return { removed: await store.remove(teamId, accountId) };
   }
 
-  return { get, put, remove, describe };
+  async function removeAll(teamId: string): Promise<{ removed: number }> {
+    return { removed: await store.removeAll(teamId) };
+  }
+
+  /**
+   * Picks the account a request should use. Healthy = active, not cooling
+   * down, not already tried. A sticky key pins the client to one healthy
+   * account by rendezvous hashing (each account scores the key; the highest
+   * wins), so removing or cooling one account moves only that account's
+   * clients. Without a key the least recently used account is chosen.
+   */
+  async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
+    const rows = await store.list(teamId);
+    if (rows.length === 0) return { kind: "none" };
+    const at = now();
+    const excluded = new Set(input.excludedAccountIds ?? []);
+    const eligible = rows.filter((row) => row.state === "active" && !excluded.has(row.id));
+    const healthy = eligible.filter((row) => !row.cooldownUntil || row.cooldownUntil.getTime() <= at.getTime());
+    if (healthy.length === 0) {
+      return { kind: "exhausted", total: rows.length, retryAfterSeconds: retryAfter(eligible, at) };
+    }
+    const chosen = input.stickyKey
+      ? rendezvousPick(input.stickyKey, healthy)
+      : leastRecentlyUsed(healthy);
+    return { kind: "selected", upstream: await decrypt(chosen), total: rows.length, healthy: healthy.length };
+  }
+
+  async function cooldown(accountId: string, durationMs: number, failureCode: string): Promise<void> {
+    const clamped = Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.floor(durationMs)));
+    await store.markCooldown(accountId, new Date(now().getTime() + clamped), failureCode);
+  }
+
+  async function touchUsed(accountId: string): Promise<void> {
+    await store.touchUsed(accountId, now());
+  }
+
+  return { list, add, update, remove, removeAll, select, cooldown, touchUsed };
 }
 
-function describeRow(row: ClaudeUpstreamRow, secret: ClaudeUpstreamSecret): ClaudeUpstreamDescription {
+function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
+  let soonest: number | null = null;
+  for (const row of eligible) {
+    if (!row.cooldownUntil) continue;
+    const seconds = Math.ceil((row.cooldownUntil.getTime() - at.getTime()) / 1000);
+    if (soonest === null || seconds < soonest) soonest = seconds;
+  }
+  return Math.max(1, soonest ?? DEFAULT_EXHAUSTED_RETRY_SECONDS);
+}
+
+/** Highest-random-weight choice: stable per key, minimal reshuffle on change. */
+export function rendezvousPick<T extends { readonly id: string }>(key: string, candidates: readonly T[]): T {
+  let best: T | null = null;
+  let bestScore = "";
+  for (const candidate of candidates) {
+    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    if (best === null || score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best!;
+}
+
+function leastRecentlyUsed(rows: readonly ClaudeAccountRow[]): ClaudeAccountRow {
+  return [...rows].sort((a, b) => {
+    const au = a.lastUsedAt?.getTime() ?? 0;
+    const bu = b.lastUsedAt?.getTime() ?? 0;
+    if (au !== bu) return au - bu;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  })[0]!;
+}
+
+function describeRow(row: ClaudeAccountRow): ClaudeAccountDescription {
   const config = parseConfig(row.config);
   return {
+    id: row.id,
     kind: row.kind,
-    identifier: maskedIdentifier(secret),
+    label: row.label,
+    identifier: row.identifier,
     region: config.region ?? null,
     modelIds: config.modelIds ?? {},
+    state: row.state,
+    cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
+    lastFailureCode: row.lastFailureCode,
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -309,23 +518,35 @@ function parseSecret(value: unknown, kind: ClaudeUpstreamKind): ClaudeUpstreamSe
   }
 }
 
-function upstreamAad(input: { readonly teamId: string; readonly kind: string }): Buffer {
-  return Buffer.from(
-    JSON.stringify(["coderouter-claude-upstream", 1, input.teamId, input.kind]),
-    "utf8",
-  );
+type AadIdentity = {
+  readonly id: string;
+  readonly teamId: string;
+  readonly kind: string;
+  readonly aadVersion: 1 | 2;
+};
+
+/**
+ * Version 1 is the single-upstream binding (team, kind) that migrated rows
+ * still carry; version 2 adds the account id so two accounts of the same
+ * kind on one team cannot be swapped.
+ */
+function accountAad(input: AadIdentity): Buffer {
+  return input.aadVersion === 1
+    ? Buffer.from(JSON.stringify(["coderouter-claude-upstream", 1, input.teamId, input.kind]), "utf8")
+    : Buffer.from(JSON.stringify(["coderouter-claude-account", 2, input.teamId, input.id, input.kind]), "utf8");
 }
 
-function upstreamEncryptionContext(
-  input: { readonly teamId: string; readonly kind: string },
-): Readonly<Record<string, string>> {
-  return {
-    service: "coderouter",
-    version: "1",
-    scope: "claude-upstream",
-    team: input.teamId,
-    kind: input.kind,
-  };
+function accountEncryptionContext(input: AadIdentity): Readonly<Record<string, string>> {
+  return input.aadVersion === 1
+    ? { service: "coderouter", version: "1", scope: "claude-upstream", team: input.teamId, kind: input.kind }
+    : {
+      service: "coderouter",
+      version: "2",
+      scope: "claude-account",
+      team: input.teamId,
+      account: input.id,
+      kind: input.kind,
+    };
 }
 
 function trimmed(value: unknown): string | null {
@@ -340,55 +561,83 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const drizzleStore: ClaudeUpstreamStore = {
-  async read(teamId) {
-    const [row] = await cloudDb()
+const drizzleStore: ClaudeAccountStore = {
+  async list(teamId) {
+    const rows = await cloudDb()
       .select()
-      .from(coderouterClaudeUpstreams)
-      .where(eq(coderouterClaudeUpstreams.teamId, teamId))
-      .limit(1);
-    return row ? rowFromDb(row) : null;
+      .from(coderouterClaudeAccounts)
+      .where(eq(coderouterClaudeAccounts.teamId, teamId))
+      .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id));
+    return rows.map(rowFromDb);
   },
-  async write(row) {
+  async insert(row) {
     const now = new Date();
     const [written] = await cloudDb()
-      .insert(coderouterClaudeUpstreams)
+      .insert(coderouterClaudeAccounts)
       .values({ ...row, createdAt: now, updatedAt: now })
-      .onConflictDoUpdate({
-        target: coderouterClaudeUpstreams.teamId,
-        set: {
-          kind: row.kind,
-          algorithm: row.algorithm,
-          ciphertext: row.ciphertext,
-          nonce: row.nonce,
-          authTag: row.authTag,
-          encryptedDataKey: row.encryptedDataKey,
-          kmsKeyId: row.kmsKeyId,
-          config: row.config,
-          updatedBy: row.updatedBy,
-          updatedAt: now,
-        },
-      })
       .returning();
-    if (!written) throw new Error("coderouter claude upstream upsert returned no row");
+    if (!written) throw new Error("coderouter claude account insert returned no row");
     return rowFromDb(written);
   },
-  async remove(teamId) {
+  async update(teamId, accountId, patch) {
+    const [written] = await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.state !== undefined ? { state: patch.state } : {}),
+        ...(patch.identifier !== undefined ? { identifier: patch.identifier } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
+      .returning();
+    return written ? rowFromDb(written) : null;
+  },
+  async remove(teamId, accountId) {
     const deleted = await cloudDb()
-      .delete(coderouterClaudeUpstreams)
-      .where(eq(coderouterClaudeUpstreams.teamId, teamId))
-      .returning({ teamId: coderouterClaudeUpstreams.teamId });
+      .delete(coderouterClaudeAccounts)
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
+      .returning({ id: coderouterClaudeAccounts.id });
     return deleted.length > 0;
+  },
+  async removeAll(teamId) {
+    const deleted = await cloudDb()
+      .delete(coderouterClaudeAccounts)
+      .where(eq(coderouterClaudeAccounts.teamId, teamId))
+      .returning({ id: coderouterClaudeAccounts.id });
+    return deleted.length;
+  },
+  async markCooldown(accountId, until, failureCode) {
+    await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .where(eq(coderouterClaudeAccounts.id, accountId));
+  },
+  async touchUsed(accountId, at) {
+    await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ lastUsedAt: at })
+      .where(eq(coderouterClaudeAccounts.id, accountId));
   },
 };
 
-function rowFromDb(row: typeof coderouterClaudeUpstreams.$inferSelect): ClaudeUpstreamRow {
+function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAccountRow {
   if (row.algorithm !== "aes-256-gcm") {
-    throw new Error("unsupported coderouter claude upstream encryption algorithm");
+    throw new Error("unsupported coderouter claude account encryption algorithm");
+  }
+  if (row.aadVersion !== 1 && row.aadVersion !== 2) {
+    throw new Error("unsupported coderouter claude account aad version");
   }
   return {
+    id: row.id,
     teamId: row.teamId,
     kind: row.kind,
+    label: row.label,
+    identifier: row.identifier,
+    state: row.state,
+    cooldownUntil: row.cooldownUntil,
+    lastUsedAt: row.lastUsedAt,
+    lastFailureCode: row.lastFailureCode,
+    aadVersion: row.aadVersion,
     algorithm: row.algorithm,
     ciphertext: row.ciphertext,
     nonce: row.nonce,
@@ -396,15 +645,20 @@ function rowFromDb(row: typeof coderouterClaudeUpstreams.$inferSelect): ClaudeUp
     encryptedDataKey: row.encryptedDataKey,
     kmsKeyId: row.kmsKeyId,
     config: row.config,
-    updatedBy: row.updatedBy,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
 const defaultService = createClaudeUpstreamService({ store: drizzleStore });
 
-/** Decrypted upstream for the data plane. Server-only; never serialize it. */
-export const getClaudeUpstream = defaultService.get;
-export const putClaudeUpstream = defaultService.put;
-export const deleteClaudeUpstream = defaultService.remove;
-export const describeClaudeUpstream = defaultService.describe;
+export const listClaudeAccounts = defaultService.list;
+export const addClaudeAccount = defaultService.add;
+export const updateClaudeAccount = defaultService.update;
+export const removeClaudeAccount = defaultService.remove;
+export const removeAllClaudeAccounts = defaultService.removeAll;
+/** Data-plane selection; the result carries a decrypted secret. Never serialize it. */
+export const selectClaudeUpstream = defaultService.select;
+export const markClaudeAccountCooldown = defaultService.cooldown;
+export const touchClaudeAccountUsed = defaultService.touchUsed;
