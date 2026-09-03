@@ -41,4 +41,12 @@ describe("email verification handler page", () => {
 
     expect(renderToStaticMarkup(page)).toBe("");
   });
+
+  test("renders a loading state when any Stack handler path suspends", async () => {
+    const page = await StackHandlerPage({
+      params: Promise.resolve({ stack: ["team-invitation"] }),
+    });
+
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
+  });
 });
