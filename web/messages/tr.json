@@ -61,11 +61,10 @@
     "backToSignIn": "Girişe dön"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux bulut",
     "title": "Erişim izniniz yok",
-    "signedOutBody": "Bu siteyi görüntülemek için cmux'ta oturum açın.",
     "signIn": "cmux'ta oturum aç",
     "signedInAs": "{identity} olarak oturum açıldı",
+    "switchAccount": "Hesap değiştir",
     "invalidTitle": "Bu erişim bağlantısı geçerli değil",
     "invalidBody": "Siteye dönüp tekrar deneyin.",
     "footer": "Erişim cmux tarafından yönetilir."

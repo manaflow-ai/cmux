@@ -61,11 +61,10 @@
     "backToSignIn": "ត្រឡប់ទៅការចូល"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "ពពក cmux",
     "title": "អ្នកមិនមានសិទ្ធិចូលប្រើទេ",
-    "signedOutBody": "ចូលគណនី cmux ដើម្បីមើលគេហទំព័រនេះ។",
     "signIn": "ចូលគណនី cmux",
     "signedInAs": "បានចូលជា {identity}",
+    "switchAccount": "ប្ដូរគណនី",
     "invalidTitle": "តំណចូលប្រើនេះមិនត្រឹមត្រូវទេ",
     "invalidBody": "ត្រឡប់ទៅគេហទំព័រ ហើយព្យាយាមម្តងទៀត។",
     "footer": "សិទ្ធិចូលប្រើត្រូវបានគ្រប់គ្រងដោយ cmux។"
