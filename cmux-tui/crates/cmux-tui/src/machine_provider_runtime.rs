@@ -5658,6 +5658,7 @@ mod tests {
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         let server_catalog = catalog.clone();
+        let (close_received, wait_for_close) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
@@ -5752,6 +5753,7 @@ mod tests {
                     protocol::CloseMachineResult { revision: 2 },
                 ),
             );
+            close_received.send(()).unwrap();
 
             let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
@@ -5805,6 +5807,7 @@ mod tests {
             runtime.open.as_ref().map(|open| open.connection_id.as_str()),
             Some("keep-first-open")
         );
+        wait_for_close.recv_timeout(Duration::from_secs(2)).unwrap();
         runtime.refresh().expect("provider control connection remains usable");
         drop(runtime);
         server.join().unwrap();
