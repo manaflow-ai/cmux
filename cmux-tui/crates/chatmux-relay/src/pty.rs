@@ -2943,7 +2943,6 @@ impl Inner {
             };
             // The viewer is installed while the publication gate is held.
             // Subsequent PTY output therefore waits behind replay callbacks.
-            ready();
             if let Some(banner) = banner {
                 emit_bounded_bytes(&on_data, Bytes::from(banner));
             }
@@ -2952,13 +2951,13 @@ impl Inner {
                     emit_bounded_bytes(&on_data, chunk);
                 }
             }
-            if released.load(Ordering::SeqCst) {
-                return;
-            }
-            if !alive {
+            if !released.load(Ordering::SeqCst) && !alive {
                 on_exit(0);
-                return;
             }
+            // Publish readiness only after the complete banner and replay
+            // handoff. Cancellation after readiness can retire this
+            // generation, so signalling first could discard terminal state.
+            ready();
         });
 
         Ok(Opened {
