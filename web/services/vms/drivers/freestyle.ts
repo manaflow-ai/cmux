@@ -33,6 +33,12 @@ import {
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import { context as otelContext } from "@opentelemetry/api";
+import {
+  DEVBOX_DESKTOP_NOVNC_PORT,
+  DEVBOX_DESKTOP_START_SCRIPT,
+  DEVBOX_DESKTOP_UNIT,
+  devboxDesktopOpenUrl,
+} from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { guestCliInstallCommand } from "../guestCli";
 import {
@@ -108,8 +114,20 @@ import {
 // of https://<host>/api/coderouter/vm-usage/self (a 200 proves the injected
 // token is bound to this machine) and rolls the machine back if it never
 // succeeds.
+//
+// The desktop and forwarded ports (`openPort`) travel the same private path
+// as the daemon: the URL is the machine's VPC address, reachable only through
+// the owner's tunnel, and the platform is never asked for a public ingress.
+// The devbox desktop serves noVNC on 6901 with no VNC-level auth (the
+// network is the gate, exactly as it is for the daemon port), so a machine
+// that is not on a private network gets no desktop URL at all rather than a
+// public one.
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
+/** The lease ledger's record of a port open; the private address itself never expires. */
+export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
+const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 
 /**
@@ -280,6 +298,63 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
 }
 
 /**
+ * The address a machine's HTTP ports are opened at: its private VPC address,
+ * v4 first for the same tunnel-routing reason the daemon route prefers it.
+ * There is deliberately no public fallback, unlike the daemon route: the
+ * daemon authenticates every session itself (Noise device enrollment), the
+ * desktop and a dev server do not, so only the network may gate them. A
+ * machine without a private network therefore has no port to open.
+ */
+export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: string): string {
+  const networks = addresses.vpcs ?? addresses.networks ?? [];
+  for (const network of networks) {
+    const ipv4 = network.ipv4?.trim();
+    if (ipv4) return ipv4;
+  }
+  for (const network of networks) {
+    const ipv6 = network.ipv6?.trim();
+    if (ipv6) return ipv6;
+  }
+  throw new ProviderError(
+    "freestyle",
+    networks.length > 0
+      ? `VM ${vmId} is attached to a private network but holds no address on it, so its ports cannot be opened`
+      : `VM ${vmId} is not on a private network: its desktop and ports are reachable only over the owner's private network (a machine created before private networking must be recreated), and the platform has no ingress to arbitrary ports`,
+  );
+}
+
+/**
+ * The URLs a port open returns: `url` is the bare origin at the private
+ * address, `openUrl` what a pane navigates to. For the desktop port that is
+ * the noVNC page (web/services/vms/images/desktop.ts), with a query for the
+ * app to append its display options to.
+ */
+export function freestylePortUrls(addresses: FreestyleRouteAddresses, vmId: string, port: number): { url: string; openUrl: string } {
+  const address = freestylePortAddress(addresses, vmId);
+  const host = address.includes(":") ? `[${address}]` : address;
+  const url = `http://${host}:${port}/`;
+  return { url, openUrl: port === DEVBOX_DESKTOP_NOVNC_PORT ? devboxDesktopOpenUrl(address) : url };
+}
+
+/**
+ * Guest-side desktop heal, one exec, no polling: `systemctl start` on the
+ * cmux-desktop unit returns when the unit is active, and the unit is
+ * Type=notify, so "active" means start-vnc.sh has reported READY (the display
+ * accepts connections, noVNC is bound on 6901, the session env is published).
+ * On a healthy machine the start is a no-op; after a cold boot or an operator
+ * stop it blocks on the owner's signal, bounded by the unit's start timeout
+ * and the exec's own. Exit 3 means the image carries no desktop layer at all
+ * (a base machine); any other failure means the desktop did not come up.
+ */
+export function freestyleDesktopHealCommand(): string {
+  return (
+    `[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
+    `if [ -d /run/systemd/system ]; then systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1; fi; ` +
+    `ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`
+  );
+}
+
+/**
  * The machine's private-network addresses as persistable metadata. Addresses
  * are allocated at create, so the create response already carries them; a
  * response without any (no network) contributes nothing.
@@ -398,15 +473,30 @@ export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, s
 }
 
 /**
- * cmux port-preview domains are capability URLs: an unguessable free style.dev
- * subdomain (no verification, certificate-ready) whose random suffix is the
- * preview token. 96 bits of entropy — possession of the URL is the grant,
- * exactly the trust model of the old tokened proxy URLs.
+ * cmux port-preview domains are capability URLs: an unguessable subdomain whose
+ * random suffix is the preview token. 96 bits of entropy — possession of the
+ * URL is the grant, exactly the trust model of the old tokened proxy URLs.
+ *
+ * The preferred suffix is the cmux-owned wildcard (`cmux.sh`, verified on the
+ * Freestyle edge with wildcard TLS); `style.dev` (free, no verification) is
+ * the fallback when a cmux-owned rule is refused — e.g. a deployment whose
+ * provider account has not verified the domain. CMUX_VM_PORT_PREVIEW_DOMAIN
+ * pins the first choice explicitly.
  */
-export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.style\.dev$/;
+export const FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES = ["cmux.sh", "style.dev"] as const;
 
-export function mintFreestylePortRuleDomain(): string {
-  return `cmux-${randomBytes(12).toString("hex")}.style.dev`;
+export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.((?:cmux\.sh)|(?:cmux\.site)|(?:style\.dev))$/;
+
+export function freestylePortRuleDomainSuffixes(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const pinned = env.CMUX_VM_PORT_PREVIEW_DOMAIN?.trim().toLowerCase();
+  if (pinned && FREESTYLE_PORT_RULE_DOMAIN_RE.test(`cmux-${"0".repeat(24)}.${pinned}`)) {
+    return [pinned, ...FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES.filter((s) => s !== pinned)];
+  }
+  return FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES;
+}
+
+export function mintFreestylePortRuleDomain(suffix: string = FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES[0]): string {
+  return `cmux-${randomBytes(12).toString("hex")}.${suffix}`;
 }
 
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
@@ -1143,10 +1233,53 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  // No openAttach/openSSH: Freestyle machines attach only through the cmux-tui
-  // remote daemon (transport cmux-remote). Workflows refuse other transports
-  // before reaching the driver, and vmCapabilitiesOf derives the transport list
-  // from method presence.
+  /**
+   * A machine's HTTP port as a URL the owner's Mac can open: the private VPC
+   * address over the WireGuard tunnel, the same path the daemon route takes
+   * (see the header). Nothing is minted at the platform and nothing public is
+   * opened. The desktop port additionally proves the desktop is up, healing
+   * the cmux-desktop unit first when it is not, so the Displays row opens a
+   * live screen rather than a connection error. The token exists only for the
+   * lease ledger, as with the cmux-remote route.
+   */
+  async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
+    return withVmSpan(
+      "cmux.vm.provider.open_port",
+      spanAttributes(vmId, "open_port", { "cmux.vm.port": port }),
+      async (span) => {
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_TUI_PORT) {
+          throw new ProviderError("freestyle", `openPort(${vmId}) requires a valid port other than the daemon's ${CMUX_TUI_PORT}`);
+        }
+        try {
+          const fs = this.deps.client();
+          const vm = fs.vms.ref(vmId);
+          const data = await vm.data();
+          const urls = freestylePortUrls(data, vmId, port);
+          const desktop = port === DEVBOX_DESKTOP_NOVNC_PORT;
+          span.setAttribute("cmux.vm.port.desktop", desktop);
+          if (desktop) {
+            const healed = await this.execResult(vm, freestyleDesktopHealCommand(), DESKTOP_HEAL_TIMEOUT_MS);
+            if (healed?.exitCode === 3) {
+              throw new ProviderError("freestyle", `VM ${vmId} has no desktop: its image carries no desktop layer (a base machine)`);
+            }
+            if (healed?.exitCode !== 0) {
+              throw new ProviderError(
+                "freestyle",
+                `VM ${vmId}: the desktop did not come up on port ${port} (exit ${healed?.exitCode ?? "n/a"}): ${(healed?.stderr ?? healed?.stdout ?? "").trim().slice(0, 300)}`,
+              );
+            }
+          }
+          return {
+            ...urls,
+            token: `cmux-freestyle-port-${randomBytes(32).toString("hex")}`,
+            expiresAtMs: Date.now() + PORT_OPEN_LEASE_TTL_SECONDS * 1000,
+          };
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `openPort(${vmId}, ${port}) failed`, err);
+        }
+      },
+    );
+  }
 
   /**
    * The in-VM `cmux` shim (guestCli.ts): local verbs over this machine's own
@@ -1177,50 +1310,6 @@ export class FreestyleProvider implements VMProvider {
     } catch (err) {
       throw new ProviderError("freestyle", `model-plane env write in ${vmId} failed`, err);
     }
-  }
-
-  /**
-   * A token-gated HTTPS preview URL for one VM port, built from the platform's
-   * TLS edge: `{ public } -> { vmId, port }` on an unguessable free style.dev
-   * subdomain. The subdomain IS the token (a capability URL, same trust model
-   * as the old tokened proxy URLs). Rules are reused per (vm, port) — they are
-   * durable, cascade-deleted with the VM, and account-capped, so one standing
-   * rule per port beats a fresh name per call.
-   */
-  async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
-    return withVmSpan(
-      "cmux.vm.provider.open_port",
-      { ...spanAttributes(vmId, "open_port"), "cmux.vm.port": port },
-      async () => {
-        try {
-          const fs = freestyleClient();
-          const existing = await fs.tls.rules.list({ vmId });
-          const match = existing.rules.find((rule) =>
-            rule.action === "allow" &&
-            rule.protocol === "http" &&
-            rule.source.public === true &&
-            rule.destination.vmId != null &&
-            rule.destination.port === port &&
-            FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain));
-          const domain = match?.domain ?? mintFreestylePortRuleDomain();
-          if (!match) {
-            await fs.tls.rules.create({
-              action: "allow",
-              domain,
-              source: { public: true },
-              destination: { vmId, port },
-            });
-          }
-          const token = FREESTYLE_PORT_RULE_DOMAIN_RE.exec(domain)?.[1] ?? domain;
-          const url = `https://${domain}`;
-          return { url, token, openUrl: url };
-        } catch (err) {
-          throw err instanceof ProviderError
-            ? err
-            : new ProviderError("freestyle", `openPort(${vmId}, ${port}) failed`, err);
-        }
-      },
-    );
   }
 
   /**

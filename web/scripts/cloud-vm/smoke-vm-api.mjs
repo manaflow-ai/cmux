@@ -294,7 +294,7 @@ try {
       // route is the guest-side proof that the bound token arrived.
       const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
-      const codex = await exec(`${guestEnv} cd /root && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20`, 240_000);
+      const codex = await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
       // codex echoes the prompt, so only a line that is exactly the answer counts.
       const codexPong = codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
@@ -331,7 +331,7 @@ try {
       if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
       if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
       if (claudeCheck && edge.claudeOutcome !== "answered") problems.push(`claude turn through the edge did not answer: ${edge.claudeTail}`);
-      if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")}`);
+      if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")} :: ${JSON.stringify(edge)}`);
     }
 
     const destroyStartedAt = performance.now();

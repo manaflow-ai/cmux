@@ -74,7 +74,7 @@ Policy (shared with `run` and `agent`): the machine bound to the directory → a
 ## Lifecycle
 
 ```bash
-cmux vm new --detach                   # new shell-only machine, headless create (--desktop: screen + shell, when the deployment has a desktop image)
+cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
 cmux vm new --base --detach            # shell-only machine
 cmux vm new --size 20g --detach        # memory preset: 20g (the plan machine) or raw MB; the backend resolves other sizes to the plan machine
 cmux vm new --name "build box" --detach # display label; the id stays the address

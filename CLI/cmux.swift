@@ -4349,10 +4349,10 @@ struct CMUXCLI {
         if let mb = Int(key), mb >= 512 { return mb }
         return nil
     }
-    /// `--desktop` → a machine with a screen; anything else (including `--base`,
-    /// `--no-desktop`, and no flag) → shell-only, the same default as `vm new`.
+    /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
+    /// and no flag) → a machine with a screen, the same default as `vm new`.
     static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
-        args.contains("--desktop") ? .desktop : .base
+        args.contains("--base") || args.contains("--no-desktop") ? .base : .desktop
     }
     private static let cloudVMDesktopPort = 6901
     /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
@@ -5954,13 +5954,10 @@ struct CMUXCLI {
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 // No provider ships a desktop image right now, so a bare `vm new`
                 // asks for a shell-only machine; requesting `--desktop` anyway fails
-                // closed with a server-side image config error rather than silently
-                // handing back a screenless box. Flip this back to desktop-by-default
-                // once a desktop image lands in the manifest.
-                // `--base`/`--no-desktop` stay accepted for scripts written against
-                // the old desktop default.
-                _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
-                let desktop = hasFlag(rem2, name: "--desktop")
+                // The devbox bakes the TigerVNC desktop, so a screen is the default
+                // again (what the New Machine sheet's Kind picker starts on); `--base` /
+                // `--no-desktop` ask for a shell-only machine.
+                let desktop = !(hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop"))
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
                 let memoryMb: Int?
                 if let sizeOpt {
@@ -5987,8 +5984,8 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop, the default)
-                          --desktop         machine with a screen (no image available yet)
+                          --base            shell-only machine (no screen)
+                          --desktop         machine with a screen (the default)
                           --size <20g|<mb>>   memory preset (20g is the plan machine) or MB
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -18671,8 +18668,8 @@ struct CMUXCLI {
               base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        open picks the kind (shell-only by default;
-                                        --desktop for a screen).
+                                        open picks the kind (desktop by default;
+                                        --base for shell-only).
                                         --focus false opens it without switching
                                         to its workspace.
               base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
@@ -18680,8 +18677,8 @@ struct CMUXCLI {
                                         VM is retained so accidental resets are
                                         recoverable.
               new [--desktop|--base] [--size <20g|<mb>>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
-                                        Create a new machine by kind (shell-only by
-                                        default; --desktop for a screen). The server
+                                        Create a new machine by kind (desktop by
+                                        default; --base for shell-only). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
                                         --focus false opens the machine without
