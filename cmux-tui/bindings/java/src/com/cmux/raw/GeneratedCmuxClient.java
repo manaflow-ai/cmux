@@ -456,8 +456,19 @@ public abstract class GeneratedCmuxClient {
     }
 
     public final ServerStatsResult serverStats() throws CmuxException {
+        if (request.follow().isPresent() && Boolean.TRUE.equals(request.follow().value())) {
+            ServerStatsStream stream = serverStatsFollow(request);
+            try { return stream.initialResult(); } finally { stream.close(); }
+        }
         Object result = execute(Commands.SERVER_STATS, Map.of());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final ServerStatsStream serverStatsFollow() throws CmuxException {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>(Map.of());
+        params.put("follow", true);
+        CmuxStream<ProtocolEvent> stream = openStream(Commands.SERVER_STATS, params);
+        return new ServerStatsStream(ServerStatsResult.fromWire(stream.initialData()), stream);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {

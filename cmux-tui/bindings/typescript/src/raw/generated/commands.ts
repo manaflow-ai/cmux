@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR c57264d1acdabb8737e8250135a4837a8474cd828079e0d0a2513c384efeacf1. */
 
 
 import type * as T from "./types.js";
@@ -401,6 +401,12 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
 }
 export type ListWorkspacesResult = T.Tree;
+
+/** Protocol v12; authority: control. */
+export interface MachineStatsRequest extends CmuxRequestBase {
+  cmd: "machine-stats";
+  "follow"?: boolean;
+}
 
 /** Protocol v12; authority: control. */
 export interface MachineUsageRequest extends CmuxRequestBase {
@@ -987,6 +993,7 @@ export type CmuxRequest =
   | ListClientsRequest
   | ListTerminalsRequest
   | ListWorkspacesRequest
+  | MachineStatsRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
@@ -1396,6 +1403,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "machine-stats": {
+    request: MachineStatsRequest;
+    result: T.MachineStatsResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-stats-v1";
+    stream: "subscribe";
+  };
   "machine-usage": {
     request: MachineUsageRequest;
     result: T.MachineUsageResult;
@@ -1738,7 +1753,7 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
-    stream: null;
+    stream: "subscribe";
   };
   "set-cell-pixels": {
     request: SetCellPixelsRequest;

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
+inline constexpr std::string_view kProtocolIrSha256 = "c57264d1acdabb8737e8250135a4837a8474cd828079e0d0a2513c384efeacf1";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -64,6 +64,8 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct MachineStats;
+struct MachineStatsResult;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
@@ -175,6 +177,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
+struct MachineStatsRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
@@ -253,6 +256,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct LayoutChangedEvent;
+struct MachineStatsChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
 struct OutputEvent;
@@ -1500,6 +1504,34 @@ struct LivePane {
     std::optional<std::string> short_id{};
     std::vector<Tab> tabs{};
     friend bool operator==(const LivePane&, const LivePane&) = default;
+};
+
+struct MachineStats {
+    std::optional<double> cpu_percent{};
+    std::uint32_t cpus{};
+    std::string disk_path{};
+    std::optional<std::uint64_t> disk_total_mb{};
+    std::optional<std::uint64_t> disk_used_mb{};
+    double load_average_1m{};
+    std::uint64_t memory_total_mb{};
+    std::uint64_t memory_used_mb{};
+    std::uint64_t sampled_at_ms{};
+    friend bool operator==(const MachineStats&, const MachineStats&) = default;
+};
+
+struct MachineStatsChangedEvent {
+    std::optional<MachineStats> stats{};
+    friend bool operator==(const MachineStatsChangedEvent&, const MachineStatsChangedEvent&) = default;
+};
+
+struct MachineStatsRequest {
+    std::optional<bool> follow{};
+    friend bool operator==(const MachineStatsRequest&, const MachineStatsRequest&) = default;
+};
+
+struct MachineStatsResult {
+    std::optional<MachineStats> stats{};
+    friend bool operator==(const MachineStatsResult&, const MachineStatsResult&) = default;
 };
 
 struct MachineUsage {
@@ -2958,6 +2990,18 @@ struct Codec<LivePane> {
 };
 
 template <>
+struct Codec<MachineStats> {
+    static Result<Json> encode(const MachineStats& value);
+    static Result<MachineStats> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineStatsResult> {
+    static Result<Json> encode(const MachineStatsResult& value);
+    static Result<MachineStatsResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -3624,6 +3668,12 @@ struct Codec<ListWorkspacesRequest> {
 };
 
 template <>
+struct Codec<MachineStatsRequest> {
+    static Result<Json> encode(const MachineStatsRequest& value);
+    static Result<MachineStatsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsageRequest> {
     static Result<Json> encode(const MachineUsageRequest& value);
     static Result<MachineUsageRequest> decode(const Json& value);
@@ -4089,6 +4139,12 @@ template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineStatsChangedEvent> {
+    static Result<Json> encode(const MachineStatsChangedEvent& value);
+    static Result<MachineStatsChangedEvent> decode(const Json& value);
 };
 
 template <>
