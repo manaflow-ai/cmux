@@ -1605,9 +1605,26 @@ impl InteractiveWriter {
     }
 
     fn wait_until_written_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        }
         #[cfg(test)]
         self.await_wait_until_written_gate(sequence);
-        let mut state = self.shared.state.lock();
+        let Some(mut state) = self.shared.state.try_lock_until(deadline) else {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        };
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        }
         loop {
             if state.last_written_sequence >= sequence {
                 return Ok(());
