@@ -428,8 +428,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # Lint in every hosted mode. When this ran only in full mode, warnings
+      # accumulated on main unnoticed because the full lane was rarely used.
       - name: cargo clippy
-        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
