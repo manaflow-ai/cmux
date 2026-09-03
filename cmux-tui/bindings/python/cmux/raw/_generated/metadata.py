@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c57264d1acdabb8737e8250135a4837a8474cd828079e0d0a2513c384efeacf1'
+IR_SHA256 = '4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90'
 
 
 @dataclass(frozen=True)
@@ -1161,7 +1161,7 @@ COMMANDS = {
         12,
         'server-stats-v1',
         ('local-admin',),
-        'subscribe',
+        None,
         {
         },
     ),

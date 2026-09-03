@@ -10381,21 +10381,7 @@
     "kind": "ref",
     "name": "ServerStatsResult"
    },
-   "stream": {
-    "kind": "subscribe",
-    "event_names": [
-     "machine-stats-changed"
-    ],
-    "mode_field": "follow",
-    "modes": {
-     "false": [],
-     "true": [
-      "machine-stats-changed"
-     ]
-    },
-    "ordering": "The initial response precedes machine-stats-changed events. Events preserve enqueue order until the connection closes.",
-    "terminal_event": null
-   },
+   "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
    ]

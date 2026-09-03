@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c57264d1acdabb8737e8250135a4837a8474cd828079e0d0a2513c384efeacf1. */
+/* cmux-tui mux protocol 12, IR 4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c57264d1acdabb8737e8250135a4837a8474cd828079e0d0a2513c384efeacf1" as const;
+export const SDK_IR_SHA256 = "4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1003,21 +1003,7 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "server-stats-v1",
     "fields": {},
-    "stream": {
-      "event_names": [
-        "machine-stats-changed"
-      ],
-      "kind": "subscribe",
-      "mode_field": "follow",
-      "modes": {
-        "false": [],
-        "true": [
-          "machine-stats-changed"
-        ]
-      },
-      "ordering": "The initial response precedes machine-stats-changed events. Events preserve enqueue order until the connection closes.",
-      "terminal_event": null
-    },
+    "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll."
     ]
