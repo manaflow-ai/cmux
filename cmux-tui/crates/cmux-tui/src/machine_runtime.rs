@@ -454,6 +454,7 @@ struct MachineConnectionHubInner {
     changed: Condvar,
     closed: AtomicBool,
     warm_limit: usize,
+    connect_attempt_deadline: Duration,
     use_counter: AtomicU64,
     /// The machine whose session is on screen. Its warm connection is never
     /// evicted, whatever its LRU age: evicting it would kill the session the
@@ -465,6 +466,7 @@ struct MachineConnectionHubInner {
 struct MachineConnectionSlot {
     connector: MachineConnectFn,
     state: MachineConnectionState,
+    timed_out_worker: Option<std::thread::JoinHandle<()>>,
     /// Monotonic use stamp for least-recently-used eviction of Ready slots.
     last_used: u64,
 }
@@ -487,6 +489,14 @@ impl MachineConnectionHub {
         connectors: impl IntoIterator<Item = (MachineKey, MachineConnectFn)>,
         warm_limit: usize,
     ) -> Self {
+        Self::with_warm_limit_and_deadline(connectors, warm_limit, CONNECT_ATTEMPT_DEADLINE)
+    }
+
+    fn with_warm_limit_and_deadline(
+        connectors: impl IntoIterator<Item = (MachineKey, MachineConnectFn)>,
+        warm_limit: usize,
+        connect_attempt_deadline: Duration,
+    ) -> Self {
         let slots = connectors
             .into_iter()
             .map(|(key, connector)| {
@@ -495,6 +505,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        timed_out_worker: None,
                         last_used: 0,
                     },
                 )
@@ -509,6 +520,7 @@ impl MachineConnectionHub {
                 // second most recently used connection and must never be
                 // evicted while it is still presented.
                 warm_limit: warm_limit.max(2),
+                connect_attempt_deadline,
                 use_counter: AtomicU64::new(0),
                 presented: Mutex::new(None),
             }),
@@ -596,6 +608,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        timed_out_worker: None,
                         last_used: 0,
                     },
                 );
@@ -678,6 +691,17 @@ impl MachineConnectionHub {
                     return Err(anyhow::anyhow!(error.clone()));
                 }
                 MachineConnectionState::Disconnected | MachineConnectionState::Failed(_) => {
+                    if let Some(worker) = slot.timed_out_worker.take() {
+                        if worker.is_finished() {
+                            let _ = worker.join();
+                        } else {
+                            slot.timed_out_worker = Some(worker);
+                            return Err(anyhow::anyhow!(
+                                "machine connection timed out after {} seconds; the previous attempt is still stopping",
+                                self.inner.connect_attempt_deadline.as_secs_f64()
+                            ));
+                        }
+                    }
                     let connector = Arc::clone(&slot.connector);
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
@@ -687,14 +711,30 @@ impl MachineConnectionHub {
                     // The worker owns no hub state, so a late result is safely
                     // discarded after timeout or cancellation.
                     let (result_tx, result_rx) = mpsc::sync_channel(1);
-                    std::thread::spawn(move || {
-                        let _ = result_tx.send(connector());
-                    });
-                    let result = match result_rx.recv_timeout(CONNECT_ATTEMPT_DEADLINE) {
+                    let worker = match std::thread::Builder::new()
+                        .name("machine-connector".to_string())
+                        .spawn(move || {
+                            let _ = result_tx.send(connector());
+                        }) {
+                        Ok(worker) => worker,
+                        Err(error) => {
+                            let mut slots = self.inner.slots.lock().map_err(|_| {
+                                anyhow::anyhow!(crate::localization::catalog()
+                                    .sidebar
+                                    .machine_catalog_updates_failed)
+                            })?;
+                            if let Some(slot) = slots.get_mut(&key) {
+                                slot.state = MachineConnectionState::Failed(error.to_string());
+                            }
+                            self.inner.changed.notify_all();
+                            return Err(error.into());
+                        }
+                    };
+                    let result = match result_rx.recv_timeout(self.inner.connect_attempt_deadline) {
                         Ok(result) => result,
                         Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
                             "machine connection timed out after {} seconds",
-                            CONNECT_ATTEMPT_DEADLINE.as_secs()
+                            self.inner.connect_attempt_deadline.as_secs_f64()
                         )),
                         Err(mpsc::RecvTimeoutError::Disconnected) => Err(anyhow::anyhow!(
                             "machine connection worker stopped"
@@ -710,6 +750,11 @@ impl MachineConnectionHub {
                             crate::localization::catalog().sidebar.client_machine_unavailable
                         ));
                     };
+                    if worker.is_finished() {
+                        let _ = worker.join();
+                    } else {
+                        slot.timed_out_worker = Some(worker);
+                    }
                     if self.inner.closed.load(Ordering::Acquire) {
                         slot.state = MachineConnectionState::Disconnected;
                         self.inner.changed.notify_all();
@@ -1053,6 +1098,30 @@ mod tests {
             runtime.entry(first).map(|entry| &entry.target),
             Some(MachineTargetConfig::Unix { socket }) if socket == &PathBuf::from("/tmp/current.sock")
         ));
+    }
+
+    #[test]
+    fn timed_out_connector_is_not_restarted_while_previous_attempt_is_running() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let calls_for_connector = Arc::clone(&calls);
+        let connector: MachineConnectFn = Arc::new(move || {
+            calls_for_connector.fetch_add(1, Ordering::Relaxed);
+            std::thread::sleep(Duration::from_millis(100));
+            Err(anyhow::anyhow!("blocked"))
+        });
+        let key = MachineKey(7);
+        let hub = MachineConnectionHub::with_warm_limit_and_deadline(
+            [(key, connector)],
+            2,
+            Duration::from_millis(10),
+        );
+
+        assert!(hub.connect(key).is_err());
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 
     #[test]
