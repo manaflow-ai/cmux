@@ -613,6 +613,12 @@ impl ConnectionAttempt {
     fn cancel_and_join(&self) {
         self.context.cancel();
         self.join();
+        // A connector can finish just as cancellation wins. Its result is
+        // buffered until the owner consumes it, so close a late session
+        // explicitly before releasing the attempt.
+        if let Some(Ok(connection)) = self.drain_result() {
+            connection.session.begin_shutdown();
+        }
     }
 
     fn join(&self) {
