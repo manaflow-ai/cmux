@@ -1,20 +1,30 @@
 "use client";
 
 import { useLocale } from "next-intl";
-import { useRouter, usePathname } from "../../../i18n/navigation";
-import { locales, localeNames, type Locale } from "../../../i18n/routing";
+import { usePathname } from "../../../i18n/navigation";
+import {
+  locales,
+  localeNames,
+  routing,
+  type Locale,
+} from "../../../i18n/routing";
 
 export function LanguageSwitcher() {
   const locale = useLocale() as Locale;
-  const router = useRouter();
   const pathname = usePathname();
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
-    const qs = typeof window !== "undefined"
-      ? window.location.search + window.location.hash
-      : "";
-    router.replace(pathname + qs, { locale: newLocale });
+    if (newLocale === locale || typeof window === "undefined") return;
+    // The server only sets NEXT_LOCALE on a locale-prefixed URL, so the
+    // default locale needs it written here.
+    document.cookie = `NEXT_LOCALE=${newLocale};path=/;samesite=lax`;
+    const prefix = newLocale === routing.defaultLocale ? "" : `/${newLocale}`;
+    const qs = window.location.search + window.location.hash;
+    // A client transition reuses the cached RSC payload and skips
+    // generateMetadata, leaving the body and title in the old locale.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the reload is the fix
+    window.location.assign(`${prefix}${pathname}${qs}`);
   }
 
   return (
