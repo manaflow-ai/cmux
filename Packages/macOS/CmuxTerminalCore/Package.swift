@@ -53,15 +53,22 @@ let package = Package(
         // GhosttyRuntimeCInterop: SwiftPM cannot link the GhosttyKit macOS
         // archive (its binary lacks the lib prefix), so the test runner
         // satisfies the link with a stub. The app links the real GhosttyKit.
+        // Named distinctly from CmuxTerminal's stub target: SwiftPM requires target
+        // names to be unique across the whole package graph, and CmuxTerminal depends
+        // on this package, so two targets both called GhosttyRuntimeTestStubs collide
+        // and break resolution for any client that sees both. The two stubs are not
+        // interchangeable - this one is a small set of *weak* fallbacks so xcodebuild
+        // can prefer GhosttyKit's real symbols, while CmuxTerminal's is a large set of
+        // strong instrumented fakes its tests inspect - so they cannot simply be shared.
         .target(
-            name: "GhosttyRuntimeTestStubs",
+            name: "GhosttyRuntimeCoreTestStubs",
             path: "Tests/GhosttyRuntimeTestStubs"
         ),
         .testTarget(
             name: "CmuxTerminalCoreTests",
             dependencies: [
                 "CmuxTerminalCore",
-                "GhosttyRuntimeTestStubs",
+                "GhosttyRuntimeCoreTestStubs",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
