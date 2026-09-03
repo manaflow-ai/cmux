@@ -284,8 +284,9 @@ export async function listEncryptedCredentials(
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
+  signal?: AbortSignal,
 ): Promise<EncryptedCredential | null> {
-  const [row] = await cloudDb()
+  const [row] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .select({
       accountId: coderouterCredentials.accountId,
       teamId: coderouterCredentials.teamId,
@@ -303,7 +304,7 @@ export async function encryptedCredentialForAccount(
       eq(coderouterCredentials.teamId, teamId),
       eq(coderouterCredentials.accountId, accountId),
     ))
-    .limit(1);
+    .limit(1));
   return row ? encryptedCredentialRow(row) : null;
 }
 
@@ -872,24 +873,26 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
+  signal?: AbortSignal,
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       cooldownUntil: new Date(Date.now() + bounded),
       lastFailureCode: "rate_limited",
       updatedAt: new Date(),
     })
-    .where(eq(coderouterAccounts.id, accountId));
+    .where(eq(coderouterAccounts.id, accountId)));
 }
 
 export async function claimRefreshLease(
   accountId: string,
   now = new Date(),
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const leaseId = randomUUID();
-  const [claimed] = await cloudDb()
+  const [claimed] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: "refreshing",
@@ -904,7 +907,7 @@ export async function claimRefreshLease(
         lte(coderouterAccounts.refreshLeaseExpiresAt, now),
       ),
     ))
-    .returning({ id: coderouterAccounts.id });
+    .returning({ id: coderouterAccounts.id }));
   return claimed ? leaseId : null;
 }
 
@@ -914,8 +917,9 @@ export async function completeRefreshLease(input: {
   readonly expectedRevision: number;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
+  readonly signal?: AbortSignal;
 }): Promise<void> {
-  await cloudDb().transaction(async (tx) => {
+  await runWithCloudDbQuerySignal(input.signal, () => cloudDb().transaction(async (tx) => {
     const [updatedCredential] = await tx
       .update(coderouterCredentials)
       .set({
@@ -950,14 +954,15 @@ export async function completeRefreshLease(input: {
     if (!completed) {
       throw new CodeRouterCredentialRace("credential refresh lost lease");
     }
-  });
+  }));
 }
 
 export async function releaseRefreshLease(
   accountId: string,
   leaseId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: "active",
@@ -969,7 +974,7 @@ export async function releaseRefreshLease(
     .where(and(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
-    ));
+    )));
 }
 
 export async function failRefreshLease(
@@ -977,8 +982,9 @@ export async function failRefreshLease(
   leaseId: string,
   terminal: boolean,
   code: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: terminal ? "broken" : "active",
@@ -990,7 +996,7 @@ export async function failRefreshLease(
     .where(and(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
-    ));
+    )));
 }
 
 export async function withVaultLease<T>(

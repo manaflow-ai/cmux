@@ -12,6 +12,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
 import {
   decryptSecretEnvelope,
@@ -121,7 +122,7 @@ export type ClaudeAccountInsert = Omit<ClaudeAccountRow, "createdAt" | "updatedA
 
 export type ClaudeAccountStore = {
   /** Every account of the team, oldest first. */
-  list(teamId: string): Promise<readonly ClaudeAccountRow[]>;
+  list(teamId: string, signal?: AbortSignal): Promise<readonly ClaudeAccountRow[]>;
   insert(row: ClaudeAccountInsert): Promise<ClaudeAccountRow>;
   update(
     teamId: string,
@@ -130,8 +131,8 @@ export type ClaudeAccountStore = {
   ): Promise<ClaudeAccountRow | null>;
   remove(teamId: string, accountId: string): Promise<boolean>;
   removeAll(teamId: string): Promise<number>;
-  markCooldown(accountId: string, until: Date, failureCode: string): Promise<void>;
-  touchUsed(accountId: string, at: Date): Promise<void>;
+  markCooldown(accountId: string, until: Date, failureCode: string, signal?: AbortSignal): Promise<void>;
+  touchUsed(accountId: string, at: Date, signal?: AbortSignal): Promise<void>;
 };
 
 export type ClaudeUpstreamDependencies = {
@@ -379,7 +380,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    */
   async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
     throwIfAborted(input.signal);
-    const rows = await store.list(teamId);
+    const rows = await store.list(teamId, input.signal);
     throwIfAborted(input.signal);
     if (rows.length === 0) return { kind: "none" };
     const at = now();
@@ -397,13 +398,18 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }
 
-  async function cooldown(accountId: string, durationMs: number, failureCode: string): Promise<void> {
+  async function cooldown(
+    accountId: string,
+    durationMs: number,
+    failureCode: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const clamped = Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.floor(durationMs)));
-    await store.markCooldown(accountId, new Date(now().getTime() + clamped), failureCode);
+    await store.markCooldown(accountId, new Date(now().getTime() + clamped), failureCode, signal);
   }
 
-  async function touchUsed(accountId: string): Promise<void> {
-    await store.touchUsed(accountId, now());
+  async function touchUsed(accountId: string, signal?: AbortSignal): Promise<void> {
+    await store.touchUsed(accountId, now(), signal);
   }
 
   return { list, add, update, remove, removeAll, select, cooldown, touchUsed };
@@ -574,12 +580,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const drizzleStore: ClaudeAccountStore = {
-  async list(teamId) {
-    const rows = await cloudDb()
+  async list(teamId, signal) {
+    const rows = await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .select()
       .from(coderouterClaudeAccounts)
       .where(eq(coderouterClaudeAccounts.teamId, teamId))
-      .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id));
+      .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id)));
     return rows.map(rowFromDb);
   },
   async insert(row) {
@@ -618,17 +624,17 @@ const drizzleStore: ClaudeAccountStore = {
       .returning({ id: coderouterClaudeAccounts.id });
     return deleted.length;
   },
-  async markCooldown(accountId, until, failureCode) {
-    await cloudDb()
+  async markCooldown(accountId, until, failureCode, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
-      .where(eq(coderouterClaudeAccounts.id, accountId));
+      .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
-  async touchUsed(accountId, at) {
-    await cloudDb()
+  async touchUsed(accountId, at, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({ lastUsedAt: at })
-      .where(eq(coderouterClaudeAccounts.id, accountId));
+      .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
 };
 

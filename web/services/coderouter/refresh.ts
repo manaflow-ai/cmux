@@ -77,7 +77,7 @@ export function createCredentialRefresher(
       return before.credential;
     }
 
-    const leaseId = await dependencies.claim(input.accountId);
+    const leaseId = await dependencies.claim(input.accountId, new Date(), input.signal);
     if (!leaseId) {
       throwIfAborted(input.signal);
       addCoderouterBreadcrumb("refresh", "Credential refresh already in progress", {
@@ -99,7 +99,7 @@ export function createCredentialRefresher(
         !input.force &&
         current.credential.expiresAt > Date.now() + REFRESH_SKEW_MS
       ) {
-        await dependencies.release(input.accountId, leaseId);
+        await dependencies.release(input.accountId, leaseId, input.signal);
         throwIfAborted(input.signal);
         return current.credential;
       }
@@ -121,6 +121,7 @@ export function createCredentialRefresher(
         expectedRevision: current.envelope.credentialRevision,
         credential: refreshed,
         encrypted,
+        signal: input.signal,
       });
       throwIfAborted(input.signal);
       addCoderouterBreadcrumb("refresh", "Credential refresh completed", {
@@ -129,7 +130,7 @@ export function createCredentialRefresher(
       return refreshed;
     } catch (error) {
       if (input.signal?.aborted) {
-        await dependencies.release(input.accountId, leaseId).catch(() => undefined);
+        await dependencies.release(input.accountId, leaseId, input.signal).catch(() => undefined);
         throw error;
       }
       const terminal = dependencies.isTerminal(error);
@@ -142,6 +143,7 @@ export function createCredentialRefresher(
         leaseId,
         terminal,
         dependencies.failureCode(error),
+        input.signal,
       ).catch(() => undefined);
       if (terminal) {
         throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
@@ -169,7 +171,7 @@ export const freshCredential = createCredentialRefresher({
 });
 
 async function readCredential(teamId: string, accountId: string, signal?: AbortSignal) {
-  const envelope = await encryptedCredentialForAccount(teamId, accountId);
+  const envelope = await encryptedCredentialForAccount(teamId, accountId, signal);
   if (!envelope) {
     throw new CodeRouterCredentialBroken("encrypted credential not found");
   }

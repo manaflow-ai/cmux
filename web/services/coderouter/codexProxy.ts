@@ -436,7 +436,7 @@ async function proxyCodexRequestWith(
           request.signal,
           upstreamHeaderDeadlineAt,
           runtime.now,
-          () => dependencies.cooldown(account.id, cooldownMs),
+          (signal) => dependencies.cooldown(account.id, cooldownMs, signal),
         );
       } catch (error) {
         if (request.signal.aborted) throw error;
@@ -618,6 +618,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         await dependencies.cooldown(
           account.id,
           rateLimitDelay(upstream.headers),
+          request.signal,
         );
         continue;
       }

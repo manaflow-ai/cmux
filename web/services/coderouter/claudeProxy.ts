@@ -523,7 +523,7 @@ async function routeWithFailover(
       },
     });
     if (verdict.kind === "done") {
-      void dependencies.touchUsed(upstream.accountId).catch(() => undefined);
+      void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
       return { kind: "response", response: verdict.response, upstream, attempts, failed: false, failureStage: "none" };
     }
     if (attempt.kind === "transport") {
@@ -553,7 +553,7 @@ async function routeWithFailover(
         request.signal,
         upstreamHeaderDeadlineAt,
         runtime.now,
-        () => dependencies.cooldown(upstream.accountId, verdict.cooldownMs, verdict.failureCode),
+        (signal) => dependencies.cooldown(upstream.accountId, verdict.cooldownMs, verdict.failureCode, signal),
       );
     } catch (error) {
       if (request.signal.aborted) throw error;
