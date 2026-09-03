@@ -256,7 +256,20 @@ export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, s
     `export OPENAI_BASE_URL=${quote(baseUrl)}`,
   ];
   if (envs.OPENAI_API_KEY) lines.push(`export OPENAI_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
-  if (envs.CMUX_CODEROUTER_URL) lines.push(`export CMUX_CODEROUTER_URL=${quote(envs.CMUX_CODEROUTER_URL)}`);
+  const coderouterURL = envs.CMUX_CODEROUTER_URL?.trim();
+  if (coderouterURL) {
+    lines.push(`export CMUX_CODEROUTER_URL=${quote(coderouterURL)}`);
+    // Keep Claude usable when a VM was created from an older devbox snapshot
+    // whose agent-config.sh predates the derived Anthropic stanza. The route
+    // token is already present in OPENAI_API_KEY for this legacy model-plane
+    // contract; exposing the same value under Claude's standard names makes
+    // the persisted file self-sufficient across resurrection and image drift.
+    lines.push(`export ANTHROPIC_BASE_URL=${quote(coderouterURL)}`);
+    if (envs.OPENAI_API_KEY) {
+      lines.push(`export ANTHROPIC_AUTH_TOKEN=${quote(envs.OPENAI_API_KEY)}`);
+      lines.push(`export ANTHROPIC_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -323,6 +336,34 @@ export function freestyleStartDaemonCommand(): string {
 
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
+}
+
+function isConflict(err: unknown): boolean {
+  return err instanceof FreestyleApiError && (err.status === 409 || err.code === "CONFLICT");
+}
+
+/**
+ * Recover a provider tunnel whose create response was lost after the provider
+ * committed it. This is intentionally a small seam: the workflow can repair a
+ * missing local row without rotating a key that another running app may still
+ * be using.
+ */
+export async function recoverFreestyleTunnelAfterConflict(
+  tunnels: Pick<Freestyle["tunnels"], "get" | "attachVpc">,
+  options: CreateProviderTunnelOptions,
+  clientPublicKey: string,
+): Promise<ProviderTunnel> {
+  let existing = await tunnels.get(options.slug);
+  if (existing.clientPublicKey.trim() !== clientPublicKey) {
+    throw new ProviderError(
+      "freestyle",
+      `tunnel ${options.slug} already exists with a different client key; use the original installation or revoke it before re-enrolling`,
+    );
+  }
+  if (!existing.attachments.some((entry) => entry.vpcId === options.networkId)) {
+    existing = await tunnels.attachVpc(existing.tunnelId ?? existing.id, options.networkId);
+  }
+  return mapFreestyleTunnel(existing, options.networkId);
 }
 
 /**
@@ -406,11 +447,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         "cmux.vm.network.id": options.networkId,
       },
       async (span) => {
+        const fs = freestyleClient();
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
           // for the Mac to fill in from its own Keychain.
-          const data = await freestyleClient().tunnels.create({
+          const data = await fs.tunnels.create({
             slug: options.slug,
             displayName: options.displayName,
             clientPublicKey,
@@ -420,6 +462,32 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return tunnel;
         } catch (err) {
+          // A previous request can commit the provider tunnel and lose the
+          // response before our database row is inserted (the exact recovery
+          // case after a local DB reset). Treat the provider's slug conflict as
+          // an idempotent success by reading that tunnel back and attaching the
+          // requested network. The slug is a hash of the authenticated user and
+          // device, so this cannot select another account's tunnel by accident;
+          // a key mismatch is still rejected rather than rotating a live
+          // Nightly/dev connection out from under it.
+          if (isConflict(err)) {
+            try {
+              const tunnel = await recoverFreestyleTunnelAfterConflict(
+                fs.tunnels,
+                options,
+                clientPublicKey,
+              );
+              setSpanAttributes(span, {
+                "cmux.vm.tunnel.id": tunnel.id,
+                "cmux.vm.tunnel.created": false,
+                "cmux.vm.tunnel.recovered": true,
+              });
+              return tunnel;
+            } catch (recoveryError) {
+              if (recoveryError instanceof ProviderError) throw recoveryError;
+              throw new ProviderError("freestyle", `recoverTunnel(${options.slug})`, recoveryError);
+            }
+          }
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }
       },
