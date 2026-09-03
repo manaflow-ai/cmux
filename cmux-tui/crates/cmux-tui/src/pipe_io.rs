@@ -953,6 +953,14 @@ enum PipeIoControlResult<T> {
     Failed(anyhow::Error),
 }
 
+fn control_result_requires_transport_loss<T>(result: &PipeIoControlResult<T>) -> bool {
+    match result {
+        PipeIoControlResult::Gone => true,
+        PipeIoControlResult::Failed(error) => crate::session::is_pipe_io_retryable_error(error),
+        PipeIoControlResult::Completed(_) => false,
+    }
+}
+
 fn run_stdin_pump(
     reader: &mut impl BufRead,
     remote: &Weak<RemoteSession>,
@@ -1053,7 +1061,12 @@ fn run_stdin_pump_with_handlers(
             Ok(PipeIoRequest::Resize { cols, rows }) => {
                 let result = resize(cols, rows);
                 emit_diag(resize_diag_line(cols, rows, &result));
-                if matches!(result, PipeIoControlResult::Gone) {
+                if control_result_requires_transport_loss(&result) {
+                    // A retryable request failure means this session's
+                    // transport cannot make progress. End the pump so the
+                    // parent can classify it as daemon loss; explicit
+                    // protocol/setup rejections remain diagnostics and the
+                    // embedder may continue issuing requests.
                     stop_event = Some(PipeIoEvent::TransportLost);
                     break;
                 }
@@ -1065,7 +1078,7 @@ fn run_stdin_pump_with_handlers(
                 // for every claim.
                 let result = claim();
                 emit_diag(claim_diag_line(&result));
-                if matches!(result, PipeIoControlResult::Gone) {
+                if control_result_requires_transport_loss(&result) {
                     stop_event = Some(PipeIoEvent::TransportLost);
                     break;
                 }
