@@ -1215,6 +1215,11 @@ mod tests {
 
     struct StuckCloseLink;
 
+    struct CloseTrackedLink {
+        started: Arc<Semaphore>,
+        aborted: Arc<Semaphore>,
+    }
+
     #[async_trait]
     impl FrameLink for RejectingLink {
         fn description(&self) -> &str {
@@ -1354,6 +1359,34 @@ mod tests {
 
         async fn close(&self) -> Result<(), LinkError> {
             std::future::pending().await
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for CloseTrackedLink {
+        fn description(&self) -> &str {
+            "close-tracked"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.started.add_permits(1);
+            std::future::pending().await
+        }
+
+        fn abort_close(&self) {
+            self.aborted.add_permits(1);
         }
     }
 
@@ -1704,6 +1737,29 @@ mod tests {
             Err(SessionError::Link(LinkError::Transport(message)))
                 if message == "timed out closing link"
         ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropped_uncommitted_link_aborts_timed_out_close() {
+        let started = Arc::new(Semaphore::new(0));
+        let aborted = Arc::new(Semaphore::new(0));
+        let link =
+            Arc::new(CloseTrackedLink { started: started.clone(), aborted: aborted.clone() });
+        let weak_link = Arc::downgrade(&link);
+        drop(CloseUncommittedLink(Some(link)));
+
+        let started_wait = tokio::time::timeout(Duration::from_secs(1), started.acquire());
+        tokio::pin!(started_wait);
+        tokio::task::yield_now().await;
+        started_wait.await.expect("uncommitted link cleanup did not start").unwrap().forget();
+
+        tokio::time::advance(RECONNECT_CLEANUP_TIMEOUT + Duration::from_secs(1)).await;
+        let aborted_wait = tokio::time::timeout(Duration::from_secs(1), aborted.acquire());
+        tokio::pin!(aborted_wait);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        aborted_wait.await.expect("timed-out cleanup did not abort the link").unwrap().forget();
+        assert!(weak_link.upgrade().is_none(), "timed-out cleanup retained the link");
     }
 
     #[tokio::test]
