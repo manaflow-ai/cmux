@@ -9598,6 +9598,33 @@ mod tests {
     }
 
     #[test]
+    fn bounded_ordered_wait_does_not_block_on_contended_state_mutex() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let (wait_started_rx, resume_wait_tx) =
+            session.interactive_writer.gate_next_wait_until_written();
+        let waiting_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let deadline = Instant::now() + Duration::from_millis(50);
+        let waiter = std::thread::spawn(move || {
+            finished_tx
+                .send(waiting_session.interactive_writer.wait_until_written_until(1, deadline))
+                .unwrap();
+        });
+
+        wait_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        resume_wait_tx.send(()).unwrap();
+        let result = finished_rx.recv_timeout(Duration::from_millis(200));
+        drop(queue_guard);
+        waiter.join().unwrap();
+
+        let error = result
+            .expect("deadline-bounded ordered wait blocked on the state mutex")
+            .expect_err("an unwritten sequence unexpectedly completed");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
     fn fixed_request_deadline_caps_queue_write_and_response_wait() {
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
