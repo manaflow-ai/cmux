@@ -146,7 +146,7 @@ struct VMTunnelManagerTests {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let system = VMTunnelManager(home: home, identity: .system)
-        let app = VMTunnelManager(home: home, identity: .app)
+        let app = VMTunnelManager(home: home, identity: .app(instanceTag: VMTunnelManager.Identity.releaseInstanceTag))
 
         // One minted device id, two fingerprints: the hub is visibly the same Mac.
         let base = try system.deviceFingerprint()
@@ -188,7 +188,7 @@ struct VMTunnelManagerTests {
     func configuredRoutesReadTheIdentityConfigOnDisk() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let app = VMTunnelManager(home: home, identity: .app)
+        let app = VMTunnelManager(home: home, identity: .app(instanceTag: VMTunnelManager.Identity.releaseInstanceTag))
         #expect(app.configuredRoutes() == [])
         try FileManager.default.createDirectory(at: app.stateDir, withIntermediateDirectories: true)
         try """
@@ -202,5 +202,68 @@ struct VMTunnelManagerTests {
         #expect(app.configuredRoutes() == ["10.0.0.0/8"])
         // The system identity has no config here; it never reads the app's.
         #expect(VMTunnelManager(home: home).configuredRoutes() == [])
+    }
+
+    @Test
+    func taggedInstancesScopeTheAppIdentityByInstanceTag() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let system = VMTunnelManager(home: home, identity: .system)
+        let base = try system.deviceFingerprint()
+        // Stable release: the unscoped names, unchanged.
+        let release = VMTunnelManager(home: home, identity: .app(instanceTag: "default"))
+        #expect(try release.deviceFingerprint() == base + "-app")
+        #expect(release.privateKeyURL.lastPathComponent == "app.key")
+        #expect(release.configURL.lastPathComponent == "cmux-app.conf")
+        // Tagged DEV builds: scoped by the instance tag that owns their debug socket.
+        let wghub = VMTunnelManager(home: home, identity: .app(instanceTag: "wghub"))
+        #expect(try wghub.deviceFingerprint() == base + "-app-wghub")
+        #expect(wghub.privateKeyURL.lastPathComponent == "app-wghub.key")
+        #expect(wghub.configURL.lastPathComponent == "cmux-app-wghub.conf")
+        let wgios = VMTunnelManager(home: home, identity: .app(instanceTag: "wgios"))
+        #expect(try wgios.deviceFingerprint() == base + "-app-wgios")
+        // Two tagged builds on one Mac never share a key file or a config.
+        let wghubKeys = try wghub.keypair()
+        let wgiosKeys = try wgios.keypair()
+        #expect(wghubKeys.privateKey != wgiosKeys.privateKey)
+        #expect(wghub.privateKeyURL != wgios.privateKeyURL)
+        #expect(wghub.configURL != wgios.configURL)
+        #expect(wghub.privateKeyURL != release.privateKeyURL)
+        // Other channels are scoped too, and the system identity is untouched.
+        #expect(VMTunnelManager(home: home, identity: .app(instanceTag: "nightly")).configURL.lastPathComponent == "cmux-app-nightly.conf")
+        #expect(system.privateKeyURL.lastPathComponent == "private.key")
+        #expect(system.configURL.lastPathComponent == "cmux.conf")
+    }
+
+    @Test(arguments: [
+        ("default", ""),
+        ("", ""),
+        ("nightly", "nightly"),
+        ("rc", "rc"),
+        ("wghub", "wghub"),
+        ("Feat_Thing.2", "feat-thing-2"),
+    ])
+    func appScopeIsTheSanitizedInstanceTag(_ instanceTag: String, _ expected: String) {
+        #expect(VMTunnelManager.Identity.appScope(instanceTag: instanceTag) == expected)
+    }
+
+    @Test
+    func aTaggedDebugBundleResolvesToItsTagWithoutLaunchEnvironment() {
+        // The canonical derivation the debug socket uses: a tagged DEV bundle id
+        // yields its tag, so the hub identity follows the same scope as the socket.
+        let tag = MobileHostIdentity.instanceTag(environment: [:], bundleIdentifier: "com.cmuxterm.app.debug.wghub")
+        #expect(tag == "wghub")
+        #expect(VMTunnelManager.Identity.app(instanceTag: tag).fingerprintSuffix == "-app-wghub")
+        let stable = MobileHostIdentity.instanceTag(environment: [:], bundleIdentifier: "com.cmuxterm.app")
+        #expect(VMTunnelManager.Identity.app(instanceTag: stable).fingerprintSuffix == "-app")
+    }
+
+    @Test
+    func forThisAppUsesTheRunningInstanceTag() {
+        guard case .app(let tag) = VMTunnelManager.Identity.forThisApp() else {
+            Issue.record("expected an app identity")
+            return
+        }
+        #expect(tag == MobileHostIdentity.instanceTag())
     }
 }

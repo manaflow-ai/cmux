@@ -252,7 +252,7 @@ extension TerminalController {
                 let hasConfig = FileManager.default.fileExists(atPath: manager.configURL.path)
                 // The app hub is a second identity on the same network (`-app`); its
                 // process state comes from the registry that owns it.
-                let appManager = VMTunnelManager(identity: .app)
+                let appManager = VMTunnelManager(identity: .forThisApp())
                 let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
                 let hubStatus = await hub?.status()
                 return [
