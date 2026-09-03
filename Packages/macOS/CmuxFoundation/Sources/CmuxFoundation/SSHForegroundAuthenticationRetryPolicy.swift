@@ -242,6 +242,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     extend Fiddle::Importer
                     dlload "/usr/lib/libproc.dylib"
                     extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
+                    # libproc.h declares this private API as
+                    # proc_signal_with_audittoken(audit_token_t *, int). The
+                    # validated pid and pidversion live inside the token.
                     extern "int proc_signal_with_audittoken(void*, int)"
                   end
                   # Read the documented component flavors separately. Flavor
@@ -1147,10 +1150,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               exit 2 unless signals.key?(signal_name) && input_path && output_path
 
               module CmuxLibproc
-                extend Fiddle::Importer
-                dlload "/usr/lib/libproc.dylib"
-                extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
-                extern "int proc_signal_with_audittoken(void*, int)"
+                    extend Fiddle::Importer
+                    dlload "/usr/lib/libproc.dylib"
+                    extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
+                    # libproc.h declares this private API as
+                    # proc_signal_with_audittoken(audit_token_t *, int). The
+                    # validated pid and pidversion live inside the token.
+                    extern "int proc_signal_with_audittoken(void*, int)"
               end
 
               bsd_flavor = 3
