@@ -44340,6 +44340,7 @@ mod tests {
 
         // A failed focus request must not leave a partial workspace mutation
         // behind, or the cached active row can become stale.
+        assert_eq!(app.tree.active_workspace, 0);
         assert!(app.projection_rows(0).iter().any(|row| {
             row.resource == SidebarResourceKind::Workspaces
                 && row.active
