@@ -1,28 +1,340 @@
 {
-  "format": "iSH fakefs archive",
-  "version": "Alpine Linux 3.24.1",
+  "format": "Alpine Linux root filesystem tarball; converted to an iSH fakefs on the device at first launch",
+  "version": "Alpine Linux 3.24.1 with cmux tool set 2026.09.02",
+  "image_version": "2026.09.02",
   "architecture": "x86",
-  "source": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86/alpine-minirootfs-3.24.1-x86.tar.gz",
-  "generated_by": "vendor/ish/tools/fakefsify",
-  "ish_revision": "efd2fa7a2b5a46d601fb0b9e667032591c7ad54d",
+  "source": "https://github.com/manaflow-ai/ish/releases/download/cmux-rootfs-2026.09.02/alpine-rootfs-3.24.1-x86-cmux-2026.09.02.tar.gz",
+  "base_image": "docker.io/library/alpine:3.24 (linux/386)",
+  "generated_by": "scripts/bake-ish-rootfs.sh",
   "archive": "alpine-rootfs.tar.gz",
-  "sha256": "634355e2245c9d56186d1b86fb6e034453eb303aea15b573ca250b343376fffd",
+  "sha256": "1b843033cda58c495469ad9d90f90a5ac3a930b6d2bbbaeaf094e00e0f2b8454",
   "packages": [
-    { "name": "alpine-baselayout", "version": "3.7.2-r1", "license": "GPL-2.0-only" },
-    { "name": "alpine-baselayout-data", "version": "3.7.2-r1", "license": "GPL-2.0-only" },
-    { "name": "alpine-keys", "version": "2.6-r0", "license": "MIT" },
-    { "name": "alpine-release", "version": "3.24.1-r0", "license": "MIT" },
-    { "name": "apk-tools", "version": "3.0.6-r0", "license": "GPL-2.0-only" },
-    { "name": "busybox", "version": "1.37.0-r31", "license": "GPL-2.0-only" },
-    { "name": "busybox-binsh", "version": "1.37.0-r31", "license": "GPL-2.0-only" },
-    { "name": "ca-certificates-bundle", "version": "20260611-r0", "license": "MPL-2.0 AND MIT" },
-    { "name": "libapk", "version": "3.0.6-r0", "license": "GPL-2.0-only" },
-    { "name": "libcrypto3", "version": "3.5.7-r0", "license": "Apache-2.0" },
-    { "name": "libssl3", "version": "3.5.7-r0", "license": "Apache-2.0" },
-    { "name": "musl", "version": "1.2.6-r2", "license": "MIT" },
-    { "name": "musl-utils", "version": "1.2.6-r2", "license": "MIT AND BSD-2-Clause AND GPL-2.0-or-later" },
-    { "name": "scanelf", "version": "1.3.9-r1", "license": "GPL-2.0-only" },
-    { "name": "ssl_client", "version": "1.37.0-r31", "license": "GPL-2.0-only" },
-    { "name": "zlib", "version": "1.3.2-r0", "license": "Zlib" }
-  ]
+    {
+      "name": "alpine-baselayout",
+      "version": "3.7.2-r1",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "alpine-baselayout-data",
+      "version": "3.7.2-r1",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "alpine-keys",
+      "version": "2.6-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "alpine-release",
+      "version": "3.24.1-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "apk-tools",
+      "version": "3.0.6-r0",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "bash",
+      "version": "5.3.9-r1",
+      "license": "GPL-3.0-or-later"
+    },
+    {
+      "name": "brotli-libs",
+      "version": "1.2.0-r1",
+      "license": "MIT"
+    },
+    {
+      "name": "busybox",
+      "version": "1.37.0-r31",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "busybox-binsh",
+      "version": "1.37.0-r31",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "c-ares",
+      "version": "1.34.8-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "ca-certificates",
+      "version": "20260611-r0",
+      "license": "MPL-2.0 AND MIT"
+    },
+    {
+      "name": "ca-certificates-bundle",
+      "version": "20260611-r0",
+      "license": "MPL-2.0 AND MIT"
+    },
+    {
+      "name": "curl",
+      "version": "8.21.0-r0",
+      "license": "curl"
+    },
+    {
+      "name": "gdbm",
+      "version": "1.26-r0",
+      "license": "GPL-3.0-or-later"
+    },
+    {
+      "name": "git",
+      "version": "2.54.0-r0",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "git-init-template",
+      "version": "2.54.0-r0",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "jq",
+      "version": "1.8.2-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "libapk",
+      "version": "3.0.6-r0",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "libbz2",
+      "version": "1.0.8-r6",
+      "license": "bzip2-1.0.6"
+    },
+    {
+      "name": "libcrypto3",
+      "version": "3.5.7-r0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "libcurl",
+      "version": "8.21.0-r0",
+      "license": "curl"
+    },
+    {
+      "name": "libedit",
+      "version": "20260508.3.1-r1",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "libevent",
+      "version": "2.1.13-r0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "libexpat",
+      "version": "2.8.4-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "libffi",
+      "version": "3.5.2-r1",
+      "license": "MIT"
+    },
+    {
+      "name": "libgcc",
+      "version": "15.2.0-r5",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later"
+    },
+    {
+      "name": "libidn2",
+      "version": "2.3.8-r0",
+      "license": "GPL-2.0-or-later OR LGPL-3.0-or-later"
+    },
+    {
+      "name": "libncursesw",
+      "version": "6.6_p20260516-r0",
+      "license": "X11"
+    },
+    {
+      "name": "libpanelw",
+      "version": "6.6_p20260516-r0",
+      "license": "X11"
+    },
+    {
+      "name": "libpsl",
+      "version": "0.21.5-r3",
+      "license": "MIT"
+    },
+    {
+      "name": "libssl3",
+      "version": "3.5.7-r0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "libstdc++",
+      "version": "15.2.0-r5",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later"
+    },
+    {
+      "name": "libunistring",
+      "version": "1.4.2-r0",
+      "license": "GPL-2.0-or-later OR LGPL-3.0-or-later"
+    },
+    {
+      "name": "mpdecimal",
+      "version": "4.0.1-r0",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "musl",
+      "version": "1.2.6-r2",
+      "license": "MIT"
+    },
+    {
+      "name": "musl-utils",
+      "version": "1.2.6-r2",
+      "license": "MIT AND BSD-2-Clause AND GPL-2.0-or-later"
+    },
+    {
+      "name": "nano",
+      "version": "9.2-r0",
+      "license": "GPL-3.0-or-later"
+    },
+    {
+      "name": "ncurses-terminfo-base",
+      "version": "6.6_p20260516-r0",
+      "license": "X11"
+    },
+    {
+      "name": "nghttp2-libs",
+      "version": "1.69.0-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "oniguruma",
+      "version": "6.9.10-r0",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "openssh-client-common",
+      "version": "10.3_p1-r1",
+      "license": "SSH-OpenSSH"
+    },
+    {
+      "name": "openssh-client-default",
+      "version": "10.3_p1-r1",
+      "license": "SSH-OpenSSH"
+    },
+    {
+      "name": "openssh-keygen",
+      "version": "10.3_p1-r1",
+      "license": "SSH-OpenSSH"
+    },
+    {
+      "name": "pcre2",
+      "version": "10.47-r1",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "py3-pip",
+      "version": "26.1.2-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "py3-pip-pyc",
+      "version": "26.1.2-r0",
+      "license": "MIT"
+    },
+    {
+      "name": "pyc",
+      "version": "3.14.7-r1",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "python3",
+      "version": "3.14.7-r1",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "python3-pyc",
+      "version": "3.14.7-r1",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "python3-pycache-pyc0",
+      "version": "3.14.7-r1",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "readline",
+      "version": "8.3.3-r1",
+      "license": "GPL-3.0-or-later"
+    },
+    {
+      "name": "ripgrep",
+      "version": "15.1.0-r0",
+      "license": "MIT OR Unlicense"
+    },
+    {
+      "name": "scanelf",
+      "version": "1.3.9-r1",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "sqlite-libs",
+      "version": "3.53.4-r0",
+      "license": "blessing"
+    },
+    {
+      "name": "ssl_client",
+      "version": "1.37.0-r31",
+      "license": "GPL-2.0-only"
+    },
+    {
+      "name": "tmux",
+      "version": "3.7c-r0",
+      "license": "ISC"
+    },
+    {
+      "name": "tree",
+      "version": "2.3.2-r0",
+      "license": "GPL-2.0-or-later"
+    },
+    {
+      "name": "vim",
+      "version": "9.2.1014-r0",
+      "license": "Vim"
+    },
+    {
+      "name": "vim-common",
+      "version": "9.2.1014-r0",
+      "license": "Vim"
+    },
+    {
+      "name": "xxd",
+      "version": "9.2.1014-r0",
+      "license": "Vim"
+    },
+    {
+      "name": "xz-libs",
+      "version": "5.8.3-r0",
+      "license": "GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later"
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2-r0",
+      "license": "Zlib"
+    },
+    {
+      "name": "zstd-libs",
+      "version": "1.5.7-r2",
+      "license": "BSD-3-Clause OR GPL-2.0-or-later"
+    }
+  ],
+  "optional_tool_sets": {
+    "node": {
+      "install": "cmux-linux add node",
+      "apk_packages": [
+        "nodejs",
+        "npm"
+      ],
+      "npm_packages": [
+        "@earendil-works/pi-coding-agent@0.84.4"
+      ]
+    }
+  }
 }

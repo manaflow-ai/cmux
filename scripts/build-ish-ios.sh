@@ -8,12 +8,15 @@
 # separately. That needlessly re-entered the Meson external target and was
 # racy on recent Xcode versions ("never received target ended message").
 #
-# The default root filesystem is the Alpine Linux 3.24.1 x86 minirootfs.
-# It is an i386 userland for iSH's user-mode emulator, not an x86_64 image.
-# The URL and SHA-256 are pinned below. The archive is copied into the Swift
-# package's resource directory and is checked on every build. iSH and Alpine
-# licensing information stays with the vendored source and the package
-# NOTICE; the generated manifest records the exact source and revisions.
+# The default root filesystem is an Alpine Linux 3.24 x86 image baked by
+# scripts/bake-ish-rootfs.sh with the cmux tool set (bash, git, ssh, python3,
+# vim, ...) and published as a release asset on manaflow-ai/ish. It is an i386
+# userland for iSH's user-mode emulator, not an x86_64 image, and is converted
+# to an iSH fakefs on the device at first launch. The URL and SHA-256 are
+# pinned below. The archive is not tracked in Git: it is downloaded into the
+# Swift package's resource directory and checked on every build. Licensing
+# information stays with the vendored source and the package NOTICE; the
+# manifest beside the archive records the exact source and package versions.
 set -euo pipefail
 
 # Keep the normal space-first separator so `${array[*]}` is readable while
@@ -30,11 +33,11 @@ OUT="$BUILD_ROOT/ish-kernel"
 ROOTFS_DEST="$ROOT/Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz"
 ROOTFS_PROVENANCE="$ROOT/Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json"
 
-# Alpine 3.24.1 x86 (i386) minirootfs. The checksum is the value published
-# beside the archive by dl-cdn.alpinelinux.org. Keep both values together so
-# changing the image requires an intentional review of the provenance.
-readonly DEFAULT_ROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86/alpine-minirootfs-3.24.1-x86.tar.gz"
-readonly DEFAULT_ROOTFS_SHA256="634355e2245c9d56186d1b86fb6e034453eb303aea15b573ca250b343376fffd"
+# cmux Alpine 3.24.1 x86 (i386) image. Both values are printed by
+# scripts/bake-ish-rootfs.sh --publish; keep them together so changing the
+# image requires an intentional review of the manifest beside it.
+readonly DEFAULT_ROOTFS_URL="https://github.com/manaflow-ai/ish/releases/download/cmux-rootfs-2026.09.02/alpine-rootfs-3.24.1-x86-cmux-2026.09.02.tar.gz"
+readonly DEFAULT_ROOTFS_SHA256="1b843033cda58c495469ad9d90f90a5ac3a930b6d2bbbaeaf094e00e0f2b8454"
 
 ROOTFS_URL="${CMUX_ISH_ROOTFS_URL:-$DEFAULT_ROOTFS_URL}"
 ROOTFS_SHA256="${CMUX_ISH_ROOTFS_SHA256:-$DEFAULT_ROOTFS_SHA256}"
@@ -231,16 +234,16 @@ validate_rootfs_provenance() {
     fi
     [[ -f "$ROOTFS_PROVENANCE" ]] || die "missing rootfs provenance: $ROOTFS_PROVENANCE"
 
-    local ish_revision
-    ish_revision="$(git -C "$ISH" rev-parse HEAD 2>/dev/null)" || die "cannot read vendor/ish revision"
+    # The image is independent of the iSH revision; the kernel's own
+    # provenance sidecar records that. Only the archive identity is checked.
     python3 - "$ROOTFS_PROVENANCE" "$(basename "$ROOTFS_DEST")" \
-        "$ROOTFS_SHA256" "$DEFAULT_ROOTFS_URL" "$ish_revision" <<'PY'
+        "$ROOTFS_SHA256" "$DEFAULT_ROOTFS_URL" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-archive, digest, source, ish_revision = sys.argv[2:]
+archive, digest, source = sys.argv[2:]
 try:
     metadata = json.loads(path.read_text(encoding="utf-8"))
 except (OSError, json.JSONDecodeError) as error:
@@ -250,7 +253,6 @@ expected = {
     "archive": archive,
     "sha256": digest,
     "source": source,
-    "ish_revision": ish_revision,
 }
 for key, value in expected.items():
     if metadata.get(key) != value:
@@ -280,7 +282,7 @@ install_rootfs() {
     elif [[ -f "$ROOTFS_DEST" ]]; then
         validate_rootfs "$ROOTFS_DEST"
     else
-        echo "rootfs missing, downloading pinned Alpine archive"
+        echo "rootfs missing, downloading pinned cmux Alpine image"
         local downloaded
         downloaded="$(mktemp "$ROOTFS_DEST.part.XXXXXX")"
         ROOTFS_PART="$downloaded"

@@ -222,7 +222,7 @@ def parse_installed_packages(rootfs: Path) -> dict[str, dict[str, str]]:
         fail(f"invalid Alpine rootfs archive: {exc}")
 
 
-def validate_rootfs(rootfs: Path, provenance: Path, actual_hash: str, ish_revision: str) -> None:
+def validate_rootfs(rootfs: Path, provenance: Path, actual_hash: str) -> None:
     metadata = read_json(provenance, "rootfs provenance")
     if not isinstance(metadata, dict):
         fail("rootfs provenance is not an object")
@@ -254,15 +254,6 @@ def validate_rootfs(rootfs: Path, provenance: Path, actual_hash: str, ish_revisi
                     f"expected {package.get(field)!r}, got {actual.get(key)!r}"
                 )
 
-    expected_ish_revision = metadata.get("ish_revision")
-    if not isinstance(expected_ish_revision, str) or not expected_ish_revision:
-        fail("rootfs provenance has no iSH revision")
-    if ish_revision != expected_ish_revision:
-        fail(
-            "rootfs was generated with iSH revision "
-            f"{expected_ish_revision}, but vendor/ish is {ish_revision}; "
-            "regenerate the rootfs or update its provenance"
-        )
 
 
 def validate(args: argparse.Namespace) -> str:
@@ -280,7 +271,7 @@ def validate(args: argparse.Namespace) -> str:
         shim_sha,
         args.deployment_target,
     )
-    validate_rootfs(args.rootfs, args.provenance, rootfs_sha, ish_revision)
+    validate_rootfs(args.rootfs, args.provenance, rootfs_sha)
     return "IshKernel artifacts OK: " + ", ".join(sorted(required)) + f"; rootfs sha256={rootfs_sha}"
 
 
