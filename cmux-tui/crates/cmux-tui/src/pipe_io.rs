@@ -1541,6 +1541,23 @@ mod tests {
     }
 
     #[test]
+    fn stdin_pump_does_not_retry_non_transport_input_failures() {
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
+
+        run_stdin_pump_with_handlers(
+            &mut input,
+            &lifecycle_sender,
+            |_bytes| PipeIoControlResult::Failed(anyhow::anyhow!("healthy daemon rejected input")),
+            |_cols, _rows| PipeIoControlResult::Completed(true),
+            || PipeIoControlResult::Completed(()),
+            |_line| {},
+        );
+
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinError);
+    }
+
+    #[test]
     fn stdin_pump_reports_line_read_errors_as_stdin_errors() {
         let inputs = vec![b"\xff\n".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
         for input in inputs {
