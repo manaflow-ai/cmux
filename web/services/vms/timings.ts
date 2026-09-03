@@ -12,7 +12,7 @@ export type VmTimingStage =
   | "billing"
   | "billing_reconcile"
   | "resolve_network"
-  | "model_plane_env"
+  | "model_plane_provision"
   | "provider_create"
   | "mark_running"
   | "mark_base_running"

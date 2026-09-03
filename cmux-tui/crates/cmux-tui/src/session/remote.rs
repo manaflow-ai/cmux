@@ -2537,6 +2537,9 @@ impl RemoteSession {
                     self.emit(MuxEvent::GraphicsStatus(status));
                 }
             }
+            Some("machine-usage-changed") => {
+                self.emit(MuxEvent::MachineUsageChanged(super::parse_machine_usage(&value)));
+            }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
             Some("window-title-requested") => {
                 if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
