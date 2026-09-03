@@ -111,35 +111,16 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    // Capture the watermark first. Output that arrives after this point is
-    // newer than the returned snapshot, so a client waiting on `revision`
-    // cannot skip an intervening frame.
-    let revision = surface.terminal_stream_revision().unwrap_or_default();
-    let (text, cols, rows, cursor_col, cursor_row, cursor_visible) = surface
-        .try_with_terminal(|terminal| {
-            let text = terminal.viewport_text()?;
-            let (cursor_col, cursor_row) = terminal.cursor_position().unwrap_or((0, 0));
-            Ok::<_, ghostty_vt::Error>((
-                text,
-                terminal.cols(),
-                terminal.rows(),
-                cursor_col,
-                cursor_row,
-                terminal.mode(25, false),
-            ))
-        })
-        .map_err(resource_operation_error)?
-        .map_err(|error| resource_operation_error(error.into()))?;
-    let osc_progress = surface.terminal_osc_progress().unwrap_or_default();
+    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
     Ok(json!({
-        "text":text,
-        "cols":cols,
-        "rows":rows,
-        "cursor_row":cursor_row,
-        "cursor_col":cursor_col,
-        "cursor_visible":cursor_visible,
-        "revision":revision.to_string(),
-        "osc_progress":osc_progress,
+        "text":snapshot.text,
+        "cols":snapshot.cols,
+        "rows":snapshot.rows,
+        "cursor_row":snapshot.cursor_row,
+        "cursor_col":snapshot.cursor_col,
+        "cursor_visible":snapshot.cursor_visible,
+        "revision":snapshot.revision.to_string(),
+        "osc_progress":snapshot.osc_progress,
     }))
 }
 

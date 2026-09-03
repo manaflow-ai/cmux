@@ -3648,6 +3648,7 @@ mod unix {
                     // command submitter publishes the smart resync marker
                     // while it still owns source order.
                     self.broadcast(MessageKind::Output, clear.clone());
+                    self.stream_progress.notify();
                     ParserClearHistoryResult::Cleared(clear)
                 }
                 ClearHistoryTransition::Blocked => ParserClearHistoryResult::Blocked,
@@ -5050,10 +5051,12 @@ mod unix {
                             // snapshot cannot include output that its boundary
                             // still describes as unapplied.
                             parser_host.smart.mark_applied(source_cursor);
+                            // Keep the host stream watermark on the same side
+                            // of the terminal lock as the applied bytes.
+                            parser_host.stream_progress.notify();
                             title
                         };
                         parser_host.note_parser_progress();
-                        parser_host.stream_progress.notify();
                         parser_host.parser_budget.release(accounted_bytes);
                         if let Some(title) = title {
                             parser_host.broadcast(MessageKind::Title, title.into_bytes());
@@ -5095,7 +5098,6 @@ mod unix {
                             .map_err(|error| error.to_string());
                         if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
                             parser_host.note_parser_progress();
-                            parser_host.stream_progress.notify();
                         }
                         flush_pending_responses();
                         let _ = response.send(result);

@@ -67,6 +67,21 @@ pub enum GuardedMouseEncode {
     Contended,
 }
 
+/// A terminal viewport and its output watermark captured at one parser
+/// boundary. The stream writers advance their revision while holding the
+/// terminal lock, so a reader cannot pair text from one boundary with a
+/// revision from another.
+pub(crate) struct TerminalScreenSnapshot {
+    pub(crate) text: String,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cursor_col: u16,
+    pub(crate) cursor_row: u16,
+    pub(crate) cursor_visible: bool,
+    pub(crate) revision: u64,
+    pub(crate) osc_progress: String,
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -2553,10 +2568,14 @@ impl Surface {
                             // for the reader loop, so any journal allocation can happen after
                             // releasing the lock.
                             let journal_output = journal_enabled.then_some(normalized);
-                            (
-                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
-                                journal_output,
-                            )
+                            let generation =
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                            // Advance the output watermark before releasing
+                            // the parser lock. Screen snapshots take the same
+                            // lock, so they cannot observe this frame with the
+                            // previous revision.
+                            pty.stream_progress.notify();
+                            (generation, journal_output)
                         };
                         let (generation, journal_output) = generation;
                         if let (Some(journal_target), Some(journal_output)) =
@@ -2565,7 +2584,6 @@ impl Surface {
                             pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
                         drop(journal_update);
-                        pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
                             && let Some(mux) = mux.upgrade()
@@ -2750,9 +2768,9 @@ impl Surface {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
             }
+            pty.stream_progress.notify();
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
-        pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
@@ -3121,6 +3139,11 @@ impl Surface {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
                                     }
+                                    // Advance the output watermark while the
+                                    // parser lock is held. A screen snapshot
+                                    // cannot then pair this text with an old
+                                    // revision.
+                                    pty.stream_progress.notify();
                                     (
                                         pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
                                         journal_output,
@@ -3133,7 +3156,6 @@ impl Surface {
                                     pty.journal_output_if_open(journal_target, journal_output);
                                 }
                                 drop(journal_update.take());
-                                pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
@@ -3577,10 +3599,10 @@ impl Surface {
                                 kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                             });
+                            pty.stream_progress.notify_reconnect();
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
                         drop(geometry);
-                        pty.stream_progress.notify_reconnect();
                         pty.request_frame(generation);
                         if !reconnect_mux.terminal_host_reconnected(
                             surface.id,
@@ -4469,6 +4491,33 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
+    /// Capture the viewport, generic terminal metadata, and stream revision
+    /// while the parser lock is held. This is the only screen-read path that
+    /// can safely use the revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let text = term.viewport_text()?;
+        let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
+        let cursor_visible = term.mode(25, false);
+        // Match the parser's lock order, term -> metadata -> stream progress.
+        // The revision is advanced before the terminal lock is released.
+        let osc_progress = pty.terminal_osc_progress();
+        let revision = pty.stream_progress.revision();
+        Ok(TerminalScreenSnapshot {
+            text,
+            cols: term.cols(),
+            rows: term.rows(),
+            cursor_col,
+            cursor_row,
+            cursor_visible,
+            revision,
+            osc_progress,
+        })
+    }
+
     /// Return the latest bounded OSC 9 progress payload observed on this
     /// terminal. This is generic terminal metadata. Agent plugins decide if
     /// and how to interpret it.
@@ -4508,7 +4557,6 @@ impl Surface {
         term.vt_write(bytes);
         pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-        drop(term);
         pty.stream_progress.notify();
         Some(())
     }
@@ -6717,6 +6765,9 @@ impl PtySurface {
                 colors,
             });
         }
+        // Geometry changes are terminal-stream transitions too. Publish the
+        // revision before releasing the parser lock so screen snapshots have
+        // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(true)
     }
