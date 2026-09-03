@@ -4092,6 +4092,12 @@ impl RemoteSession {
         self.exited_surfaces.lock().unwrap().ids.contains(&id)
     }
 
+    /// Reports explicit retirement captured at the surface-exit boundary.
+    /// Pipe-IO uses this fence when a claim response races terminal exit.
+    pub(crate) fn surface_is_retired(&self, id: SurfaceId) -> bool {
+        self.retired_surfaces.lock().unwrap().contains(&id)
+    }
+
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
         self.tree.lock().unwrap().view.surface_kind(id)
     }

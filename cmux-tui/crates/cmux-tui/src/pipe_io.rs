@@ -283,7 +283,7 @@ pub fn run(
         // requests look accepted while the daemon keeps the wrong PTY size.
         // Classify the startup failure so the embedder can either stop for a
         // retired terminal or reconnect after a lost daemon transport.
-        return Ok(attach_failure_exit_reason(&error));
+        return Ok(classify_claim_failure(remote, surface, &error));
     }
     // Older daemons do not accept geometry in the attach request. Apply the
     // requested initial size explicitly after claiming authority so the
@@ -370,6 +370,21 @@ fn attach_failure_exit_reason(error: &anyhow::Error) -> PipeIoExitReason {
         PipeIoExitReason::DaemonLost
     } else {
         PipeIoExitReason::SetupFailed
+    }
+}
+
+/// A claim can be rejected after the terminal-exit event retires its surface.
+/// Preserve the terminal-ended contract for that known race; unrelated claim
+/// failures retain their setup or daemon-loss classification.
+pub(crate) fn classify_claim_failure(
+    remote: &RemoteSession,
+    surface: SurfaceId,
+    error: &anyhow::Error,
+) -> PipeIoExitReason {
+    if remote.surface_is_retired(surface) {
+        PipeIoExitReason::TerminalEnded
+    } else {
+        attach_failure_exit_reason(error)
     }
 }
 
