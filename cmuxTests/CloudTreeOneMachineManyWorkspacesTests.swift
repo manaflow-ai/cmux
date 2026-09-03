@@ -7,6 +7,15 @@ import Testing
 @testable import cmux
 #endif
 
+private final class CloudTreeCLIBundleToken: NSObject {}
+
+private struct CloudTreeCLIResult {
+    let status: Int32
+    let stdout: String
+    let stderr: String
+    let requests: [String]
+}
+
 /// The Cloud sidebar's model is one big machine hosting MANY cmux-tui
 /// workspaces (the shape cmux Cloud had on Blaxel, now on Freestyle) — never
 /// "one VM = one workspace". These pin what the outline builds for such a
@@ -38,10 +47,14 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         )
     }
 
-    private func info(workspaces: [SurfaceRemoteWorkspace], hasDesktop: Bool = false) -> SurfaceMachineInfo {
+    private func info(
+        workspaces: [SurfaceRemoteWorkspace],
+        hasDesktop: Bool = false,
+        linkState: SurfaceLinkState = .connected
+    ) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: machine, name: "Big Machine", status: "running", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
-            hasDesktop: hasDesktop, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            hasDesktop: hasDesktop, memoryMb: nil, diskMb: nil, linkState: linkState, linkError: nil,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: workspaces
         )
     }
@@ -51,10 +64,15 @@ struct CloudTreeOneMachineManyWorkspacesTests {
     }
 
     /// A terminal viewed in `workspaces` (a daemon tab in each); none = alive in the pool only.
-    private func terminal(_ key: String, title: String = "bash", in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
+    private func terminal(
+        _ key: String,
+        title: String = "bash",
+        lifecycle: SurfaceLifecycle = .running,
+        in workspaces: [SurfaceRemoteWorkspace]
+    ) -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root",
-            lifecycle: .running, agent: nil, remoteWorkspace: workspaces.first, port: nil, url: nil
+            lifecycle: lifecycle, agent: nil, remoteWorkspace: workspaces.first, port: nil, url: nil
         )
         resource.remoteViews = workspaces.enumerated().map { SurfaceRemoteView(tabID: "tab_\(key)_\($0.offset)", workspace: $0.element) }
         return resource
@@ -75,6 +93,69 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ))
     }
 
+    /// Exercise the shipped CLI binary through its socket boundary. `CMUXCLI` belongs to
+    /// the separate executable target and cannot be imported by the app-hosted test target;
+    /// running the bundled helper keeps this assertion behavioral and compile-safe.
+    private func runCLICloudTree(
+        machine: [String: Any],
+        resources: [[String: Any]]
+    ) throws -> CloudTreeCLIResult {
+        let socketPath = "/tmp/cmux-cloud-tree-cli-\(UUID().uuidString.prefix(8)).sock"
+        let machineID = machine["id"] as? String
+        let catalogResources = resources.map { resource -> [String: Any] in
+            var resource = resource
+            // The socket catalog carries the owning machine separately from the
+            // resource id. Fixtures can omit that redundant field when they are
+            // used directly by the sidebar builder; fill it for the CLI wire
+            // path so the command sees the same resources.
+            if resource["machine"] == nil, let machineID {
+                resource["machine"] = machineID
+            }
+            return resource
+        }
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "machines": [machine],
+                "resources": catalogResources,
+                "projections": [],
+            ],
+        ])
+        let response = String(decoding: responseData, as: UTF8.self)
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.executableURL = try BundledCLITestSupport.bundledCLIURL(
+            for: CloudTreeCLIBundleToken.self
+        )
+        process.arguments = ["vm", "tree"]
+        process.environment = environment
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        try process.run()
+        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let error = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        return CloudTreeCLIResult(
+            status: process.terminationStatus,
+            stdout: String(decoding: output, as: UTF8.self),
+            stderr: String(decoding: error, as: UTF8.self),
+            requests: responder.receivedRequests
+        )
+    }
+
     @Test("A machine with a single workspace keeps its Workspaces group row and the group's +")
     func singleWorkspaceKeepsItsGroupRow() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
@@ -89,6 +170,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/workspaces",
             "machine:brave-otter/ws/ws_main",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1",
+            "machine:brave-otter/terminals",
+            "resource:brave-otter/terminal/term_1",
         ], "the group is its own row above the lone workspace — never folded into it")
         let group = try #require(tree.first { $0.id == "machine:brave-otter/workspaces" })
         #expect(group.structureTag == "workspacesGroup")
@@ -344,10 +427,16 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "remote_views": [[String: Any]](),
         ]
 
-        let lines = CMUXCLI.vmTreeLines(
+        let result = try runCLICloudTree(
             machine: machine,
             resources: [visible, detached, display, port]
         )
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            result.requests.contains { $0.contains("surface.catalog") },
+            Comment(rawValue: result.requests.joined(separator: "\n"))
+        )
+        let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
         let workspaces = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "workspaces/" })
         let ports = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "ports/" })
         let displays = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "VNC Displays/" })
@@ -358,6 +447,64 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(displays < terminals)
         #expect(!lines[..<terminals].contains { $0.contains("term_detached") }, "a zero-view terminal is not a detached workspace child")
         #expect(lines[terminals...].contains { $0.contains("term_detached") }, "the final Terminals section lists every machine-owned terminal")
+    }
+
+    @Test("CLI keeps machine-owned terminals visible while a cloud link is unavailable")
+    func cliTreeKeepsTerminalsWhenLinkUnavailable() throws {
+        let machine: [String: Any] = [
+            "id": machineID,
+            "status": "paused",
+            "link_state": "asleep",
+            "remote_workspaces": [],
+        ]
+        let terminal: [String: Any] = [
+            "id": "\(machineID)/terminal/term_sleeping",
+            "key": "term_sleeping",
+            "kind": "terminal",
+            "title": "worker",
+            "lifecycle": "running",
+            "remote_views": [[String: Any]](),
+        ]
+
+        let result = try runCLICloudTree(machine: machine, resources: [terminal])
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
+        let terminals = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "terminals/" })
+
+        #expect(lines[terminals...].contains { $0.contains("term_sleeping") })
+    }
+
+    @Test("An exited terminal with no resolved views is not marked detached")
+    func exitedZeroViewTerminalIsNotDetached() throws {
+        let exited = terminal("term_exited", lifecycle: .exited, in: [])
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [])],
+            resources: [exited],
+            projections: []
+        )
+
+        let tree = rows(snapshot)
+        guard case .terminal(let row) = try #require(
+            tree.first { $0.id == "resource:brave-otter/terminal/term_exited" }
+        ).kind else {
+            Issue.record("expected the exited terminal row")
+            return
+        }
+        #expect(!row.isDetached, "an exited record with unresolved views stays an ordinary exited row")
+    }
+
+    @Test("Sidebar keeps machine-owned terminals visible for unavailable cloud links")
+    func sidebarKeepsTerminalsWhenLinkUnavailable() throws {
+        let terminal = terminal("term_sleeping", in: [])
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [], linkState: .asleep)],
+            resources: [terminal],
+            projections: []
+        )
+
+        let tree = rows(snapshot)
+        #expect(tree.contains { $0.id == "machine:brave-otter/terminals" })
+        #expect(tree.contains { $0.id == "resource:brave-otter/terminal/term_sleeping" })
     }
 
     @Test("`vm workspace open` resolves a workspace the way its row does: by id, by unique name, every view counted")
