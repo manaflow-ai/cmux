@@ -18670,6 +18670,14 @@ impl App {
         }
         let rows = self.projection_rows(view_index);
         let actions = self.sidebar_action_rows(view_index);
+        {
+            let state = self.projection_rail_state_mut(view_index);
+            state.selected_action = state
+                .selected_action
+                .map(|index| index.min(actions.len().saturating_sub(1)))
+                .filter(|_| !actions.is_empty());
+            state.reconcile_selection(&rows);
+        }
         let selectable_rows = rows.len().saturating_add(actions.len());
         let current = self
             .config
