@@ -1096,19 +1096,81 @@ enum RequestDeadline {
 }
 
 impl RequestDeadline {
-    fn remaining(self) -> Result<Duration, RemoteRequestError> {
+    fn resolve(self) -> Result<ResolvedRequestDeadline, RemoteRequestError> {
+        self.resolve_at(Instant::now())
+    }
+
+    fn resolve_at(self, started: Instant) -> Result<ResolvedRequestDeadline, RemoteRequestError> {
         match self {
-            Self::Standard => Ok(REMOTE_REQUEST_TIMEOUT),
-            Self::Fixed(timeout) => Ok(timeout),
-            Self::Until(deadline) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() { Err(RemoteRequestError::Timeout) } else { Ok(remaining) }
+            Self::Standard => Ok(ResolvedRequestDeadline::Absolute {
+                deadline: checked_request_deadline(started, REMOTE_REQUEST_TIMEOUT)?,
+            }),
+            Self::Attach => Ok(ResolvedRequestDeadline::Attach {
+                write_deadline: checked_request_deadline(started, remote_write_timeout())?,
+                response_deadline: checked_request_deadline(started, REMOTE_ATTACH_MAX_TIMEOUT)?,
+            }),
+            Self::Fixed(timeout) => Ok(ResolvedRequestDeadline::Absolute {
+                deadline: checked_request_deadline(started, timeout)?,
+            }),
+            Self::Until(deadline) if deadline > started => {
+                Ok(ResolvedRequestDeadline::Absolute { deadline })
             }
-            // Attach has its own progress-aware response deadline, but its
-            // enqueue/write phase still needs the normal bounded write wait.
-            Self::Attach => Ok(remote_write_timeout()),
+            Self::Until(_) => Err(RemoteRequestError::Timeout),
         }
     }
+}
+
+fn checked_request_deadline(
+    started: Instant,
+    timeout: Duration,
+) -> Result<Instant, RemoteRequestError> {
+    started
+        .checked_add(timeout)
+        .filter(|deadline| *deadline > started)
+        .ok_or(RemoteRequestError::Timeout)
+}
+
+#[derive(Clone, Copy)]
+enum ResolvedRequestDeadline {
+    /// Standard, fixed, and shared probe requests use one absolute deadline
+    /// for queue admission, ordered writing, and response delivery.
+    Absolute { deadline: Instant },
+    /// Attach keeps a short write budget and a longer progress-aware response
+    /// budget, both anchored at the request start. The response idle window
+    /// begins only after the ordered attach write completes.
+    Attach { write_deadline: Instant, response_deadline: Instant },
+}
+
+impl ResolvedRequestDeadline {
+    fn is_attach(self) -> bool {
+        matches!(self, Self::Attach { .. })
+    }
+
+    fn write_deadline(self) -> Instant {
+        match self {
+            Self::Absolute { deadline } | Self::Attach { write_deadline: deadline, .. } => deadline,
+        }
+    }
+
+    fn response_deadline(self) -> Instant {
+        match self {
+            Self::Absolute { deadline } => deadline,
+            Self::Attach { response_deadline, .. } => response_deadline,
+        }
+    }
+
+    fn write_remaining(self) -> Result<Duration, RemoteRequestError> {
+        remaining_until(self.write_deadline())
+    }
+
+    fn response_remaining(self) -> Result<Duration, RemoteRequestError> {
+        remaining_until(self.response_deadline())
+    }
+}
+
+fn remaining_until(deadline: Instant) -> Result<Duration, RemoteRequestError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() { Err(RemoteRequestError::Timeout) } else { Ok(remaining) }
 }
 
 struct AttachResponseDeadline {
@@ -1127,10 +1189,26 @@ impl AttachResponseDeadline {
         idle_timeout: Duration,
         maximum_timeout: Duration,
     ) -> Self {
+        Self::new_with_maximum_deadline(
+            started,
+            request_progress,
+            attach_progress,
+            idle_timeout,
+            started + maximum_timeout,
+        )
+    }
+
+    fn new_with_maximum_deadline(
+        started: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+        idle_timeout: Duration,
+        maximum_deadline: Instant,
+    ) -> Self {
         Self {
             idle_timeout,
             idle_deadline: started + idle_timeout,
-            maximum_deadline: started + maximum_timeout,
+            maximum_deadline,
             observed_request_progress: request_progress,
             observed_attach_progress: attach_progress,
         }
@@ -1521,9 +1599,12 @@ impl InteractiveWriter {
     }
 
     fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
+        self.wait_until_written_until(sequence, Instant::now() + timeout)
+    }
+
+    fn wait_until_written_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
         #[cfg(test)]
         self.await_wait_until_written_gate(sequence);
-        let deadline = Instant::now() + timeout;
         let mut state = self.shared.state.lock();
         loop {
             if state.last_written_sequence >= sequence {
@@ -3246,19 +3327,21 @@ impl RemoteSession {
         mut cmd: Value,
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
-        // A shared deadline must cover enqueueing, the ordered write, and the
-        // response wait. Check it before creating a pending request so an
-        // expired reconnect probe cannot add work to the relay.
-        if let Err(error) = deadline.remaining() {
+        let deadline = deadline.resolve()?;
+        // Resolve the request budget before enqueueing. Standard, fixed, and
+        // shared-probe requests use one absolute deadline for every phase;
+        // attach requests use two absolute caps anchored at this same start.
+        // Check the write cap before creating a pending request so an expired
+        // probe cannot add work to the relay.
+        if let Err(error) = deadline.write_remaining() {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
-        let attach_progress = matches!(deadline, RequestDeadline::Attach)
-            .then(|| self.attach_progress.load(Ordering::Acquire));
-        let attach_surface = matches!(deadline, RequestDeadline::Attach)
-            .then(|| cmd.get("surface").and_then(Value::as_u64))
-            .flatten();
+        let attach_progress =
+            deadline.is_attach().then(|| self.attach_progress.load(Ordering::Acquire));
+        let attach_surface =
+            deadline.is_attach().then(|| cmd.get("surface").and_then(Value::as_u64)).flatten();
         cmd["id"] = json!(id);
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
@@ -3270,7 +3353,7 @@ impl RemoteSession {
         // Serialization and request construction can consume a shared probe
         // deadline. Do not add a pending request or queue work after it has
         // expired.
-        if let Err(error) = deadline.remaining() {
+        if let Err(error) = deadline.write_remaining() {
             return Err(error.into());
         }
 
@@ -3282,24 +3365,8 @@ impl RemoteSession {
         // Control requests have a bounded admission budget for both the queue
         // mutex and queue capacity. Normal PTY input uses `request_no_wait`
         // and keeps its blocking FIFO behavior during brief contention.
-        let enqueue_result = match deadline {
-            RequestDeadline::Standard => self.interactive_writer.enqueue_until(
-                message,
-                false,
-                Instant::now() + REMOTE_REQUEST_TIMEOUT,
-            ),
-            RequestDeadline::Attach => self.interactive_writer.enqueue_until(
-                message,
-                false,
-                Instant::now() + remote_write_timeout(),
-            ),
-            RequestDeadline::Fixed(timeout) => {
-                self.interactive_writer.enqueue_until(message, false, Instant::now() + timeout)
-            }
-            RequestDeadline::Until(probe_deadline) => {
-                self.interactive_writer.enqueue_until(message, false, probe_deadline)
-            }
-        };
+        let enqueue_result =
+            self.interactive_writer.enqueue_until(message, false, deadline.write_deadline());
         let sequence = match enqueue_result {
             Ok(sequence) => sequence,
             Err(error) => {
@@ -3307,14 +3374,11 @@ impl RemoteSession {
                 return Err(RemoteRequestError::Transport(error).into());
             }
         };
-        let write_timeout = match deadline.remaining() {
-            Ok(timeout) => timeout,
-            Err(error) => {
-                self.pending.lock().unwrap().remove(&id);
-                return Err(error.into());
-            }
-        };
-        if let Err(error) = self.wait_for_ordered_write_with_timeout(sequence, write_timeout) {
+        if let Err(error) = deadline.write_remaining() {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(error.into());
+        }
+        if let Err(error) = self.wait_for_ordered_write_until(sequence, deadline.write_deadline()) {
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(error).into());
         }
@@ -3354,14 +3418,12 @@ impl RemoteSession {
     fn wait_for_response(
         &self,
         rx: Receiver<Value>,
-        deadline: RequestDeadline,
+        deadline: ResolvedRequestDeadline,
         progress: Arc<AtomicU64>,
         attach_progress: Option<u64>,
     ) -> Result<Value, RemoteRequestError> {
-        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) | RequestDeadline::Until(_) =
-            deadline
-        {
-            let timeout = deadline.remaining().map_err(|_| RemoteRequestError::Timeout)?;
+        if !deadline.is_attach() {
+            let timeout = deadline.response_remaining()?;
             return match rx.recv_timeout(timeout) {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
@@ -3372,13 +3434,16 @@ impl RemoteSession {
             };
         }
 
-        let started = Instant::now();
-        let mut deadline = AttachResponseDeadline::new(
-            started,
+        let response_deadline = match deadline {
+            ResolvedRequestDeadline::Attach { response_deadline, .. } => response_deadline,
+            ResolvedRequestDeadline::Absolute { .. } => unreachable!("non-attach deadline branch"),
+        };
+        let mut deadline = AttachResponseDeadline::new_with_maximum_deadline(
+            Instant::now(),
             progress.load(Ordering::Acquire),
             attach_progress.expect("attach response wait requires an attach progress epoch"),
             REMOTE_ATTACH_IDLE_TIMEOUT,
-            REMOTE_ATTACH_MAX_TIMEOUT,
+            response_deadline,
         );
         loop {
             let request_progress = progress.load(Ordering::Acquire);
@@ -3572,7 +3637,11 @@ impl RemoteSession {
         sequence: u64,
         timeout: Duration,
     ) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, timeout) {
+        self.wait_for_ordered_write_until(sequence, Instant::now() + timeout)
+    }
+
+    fn wait_for_ordered_write_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        match self.interactive_writer.wait_until_written_until(sequence, deadline) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -8516,6 +8585,32 @@ mod tests {
     }
 
     #[test]
+    fn request_deadline_modes_anchor_all_phase_budgets_at_request_start() {
+        let started = Instant::now();
+        let standard = RequestDeadline::Standard.resolve_at(started).unwrap();
+        assert_eq!(
+            standard.write_deadline(),
+            started + REMOTE_REQUEST_TIMEOUT,
+            "standard admission and write budget moved after request construction"
+        );
+        assert_eq!(standard.response_deadline(), started + REMOTE_REQUEST_TIMEOUT);
+
+        let fixed_timeout = Duration::from_millis(123);
+        let fixed = RequestDeadline::Fixed(fixed_timeout).resolve_at(started).unwrap();
+        assert_eq!(fixed.write_deadline(), started + fixed_timeout);
+        assert_eq!(fixed.response_deadline(), started + fixed_timeout);
+
+        let attach = RequestDeadline::Attach.resolve_at(started).unwrap();
+        assert_eq!(attach.write_deadline(), started + remote_write_timeout());
+        assert_eq!(attach.response_deadline(), started + REMOTE_ATTACH_MAX_TIMEOUT);
+
+        let shared_deadline = started + Duration::from_secs(1);
+        let shared = RequestDeadline::Until(shared_deadline).resolve_at(started).unwrap();
+        assert_eq!(shared.write_deadline(), shared_deadline);
+        assert_eq!(shared.response_deadline(), shared_deadline);
+    }
+
+    #[test]
     fn attach_progress_reverse_index_tracks_only_live_matching_requests() {
         let mut pending = PendingRemoteRequests::default();
         let unrelated_progress = Arc::new(AtomicU64::new(0));
@@ -9549,6 +9644,76 @@ mod tests {
             elapsed < timeout + Duration::from_millis(70),
             "fixed request deadline was reset between phases: started at {started:?}, elapsed {elapsed:?}"
         );
+    }
+
+    fn blocked_request_write_timeout(
+        deadline: RequestDeadline,
+        command: Value,
+        contention: Duration,
+    ) -> (Duration, anyhow::Result<Value>) {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let request_session = session.clone();
+        let (started_tx, started_rx) = channel();
+        let (finished_tx, finished_rx) = channel();
+        let request = std::thread::spawn(move || {
+            let started = Instant::now();
+            started_tx.send(started).unwrap();
+            let result = request_session.request_with_deadline(command, deadline);
+            finished_tx.send((started.elapsed(), result)).unwrap();
+        });
+
+        let started = started_rx.recv().unwrap();
+        let pending_deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < pending_deadline, "request did not reach pending state");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(contention);
+        drop(queue_guard);
+
+        let result = finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("blocked request did not finish");
+        request.join().unwrap();
+        // The timeout path aborts the writer, releasing the test stream even
+        // though this helper deliberately never releases it itself.
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "blocked request helper exceeded its cleanup bound"
+        );
+        result
+    }
+
+    #[test]
+    fn request_deadline_modes_cap_ordered_write_after_queue_contention() {
+        let contention = Duration::from_millis(70);
+        let timeout = remote_write_timeout();
+        let cases = [
+            ("standard", RequestDeadline::Standard, json!({"cmd": "standard-deadline"})),
+            ("attach", RequestDeadline::Attach, json!({"cmd": "attach-surface", "surface": 7})),
+            ("fixed", RequestDeadline::Fixed(timeout), json!({"cmd": "fixed-deadline"})),
+        ];
+
+        for (name, deadline, command) in cases {
+            let (elapsed, result) = blocked_request_write_timeout(deadline, command, contention);
+            assert!(matches!(
+                result
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+                Some(RemoteRequestError::Transport(error))
+                    if error.kind() == io::ErrorKind::TimedOut
+            ));
+            assert!(
+                elapsed < timeout + Duration::from_millis(45),
+                "{name} request reset its ordered-write deadline after queue contention: {elapsed:?}"
+            );
+        }
     }
 
     #[test]
