@@ -353,6 +353,12 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
+            # verify-ios-release-origins.sh gates every archive on the baked
+            # production origins; a real Release build carries exactly these.
+            "CMUXAuthEnvironment": "production",
+            "CMUXApiBaseURL": "https://cmux.com",
+            "CMUXIrohBrokerBaseURL": "https://cmux.com",
+            "CMUXPresenceBaseURL": "https://presence.cmux.dev",
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -562,6 +568,12 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
+        # verify-ios-release-origins.sh gates every archive on the baked
+        # production origins; a real Release build carries exactly these.
+        "CMUXAuthEnvironment": "production",
+        "CMUXApiBaseURL": "https://cmux.com",
+        "CMUXIrohBrokerBaseURL": "https://cmux.com",
+        "CMUXPresenceBaseURL": "https://presence.cmux.dev",
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)
@@ -587,6 +599,8 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/upload-testflight.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        # upload-testflight.sh gates every archive through this since #11524.
+        "scripts/lib/verify-ios-release-origins.sh",
     ):
         source = ROOT / relative
         destination = repo / relative
