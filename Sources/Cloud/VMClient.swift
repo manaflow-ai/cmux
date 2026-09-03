@@ -961,7 +961,10 @@ actor VMClient {
             )
         }
         var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
-        if let raw = obj["networkAddresses"] as? [String: Any] {
+        // The HTTP API uses camelCase. The local control socket uses the
+        // snake_case wire contract. Accept both at this boundary so a proxy
+        // or an older app cannot silently drop the address metadata.
+        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
             let ipv4 = raw["ipv4"] as? String
             let ipv6 = raw["ipv6"] as? String
             if ipv4 != nil || ipv6 != nil {
