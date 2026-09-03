@@ -533,6 +533,7 @@ mod tests {
     use cmux_tui_core::{Node, SurfaceKind};
     use std::time::Instant;
 
+    use crate::config::{AgentRowFilter, AgentSortMode};
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
     fn tree() -> TreeView {
@@ -599,8 +600,8 @@ mod tests {
             collapse_priority: 20,
             row_lines: 1,
             scope: SidebarViewScope::Workspace,
-            sort: crate::config::AgentSortMode::default(),
-            filter: crate::config::AgentRowFilter::default(),
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }
     }
 
@@ -666,7 +667,7 @@ mod tests {
 
     #[test]
     fn agent_row_filter_ands_its_criteria() {
-        let filter = crate::config::AgentRowFilter {
+        let filter = AgentRowFilter {
             agents: vec!["claude".into()],
             states: vec!["blocked".into(), "working".into()],
             seen: None,
@@ -680,7 +681,7 @@ mod tests {
         assert!(!agent_row_passes_filter(&filter, None, "blocked", false));
 
         // The seen criterion is its own AND leg.
-        let unseen_only = crate::config::AgentRowFilter {
+        let unseen_only = AgentRowFilter {
             agents: Vec::new(),
             states: Vec::new(),
             seen: Some(false),
@@ -689,7 +690,7 @@ mod tests {
         assert!(!agent_row_passes_filter(&unseen_only, Some("claude"), "idle", true));
 
         // An empty filter keeps everything and reads inactive.
-        let empty = crate::config::AgentRowFilter::default();
+        let empty = AgentRowFilter::default();
         assert!(agent_row_passes_filter(&empty, None, "unknown", true));
         assert!(!empty.is_active());
     }
@@ -720,7 +721,7 @@ mod tests {
         let mut agents_spec = spec(vec![SidebarResourceKind::Agents]);
         let rows_priority = rows(
             &agents_spec,
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -730,7 +731,7 @@ mod tests {
         // Recency reorders the same rows without touching the spec.
         let rows_recency = rows(
             &agents_spec,
-            crate::config::AgentSortMode::Recency,
+            AgentSortMode::Recency,
             &tree,
             &agents,
             &HashSet::new(),
@@ -748,14 +749,14 @@ mod tests {
         );
 
         // A state filter hides the idle row entirely.
-        agents_spec.filter = crate::config::AgentRowFilter {
+        agents_spec.filter = AgentRowFilter {
             agents: Vec::new(),
             states: vec!["blocked".into(), "working".into()],
             seen: None,
         };
         let filtered = rows(
             &agents_spec,
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -780,7 +781,7 @@ mod tests {
         }];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -807,7 +808,7 @@ mod tests {
         collapsed.insert(ProjectionBranch::Workspace(1));
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &[],
             &HashSet::new(),
@@ -828,7 +829,7 @@ mod tests {
                 SidebarResourceKind::Panes,
                 SidebarResourceKind::Tabs,
             ]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &[],
             &HashSet::new(),
@@ -855,7 +856,7 @@ mod tests {
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree(),
             &[],
             &HashSet::new(),
@@ -877,7 +878,7 @@ mod tests {
         }];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree(),
             &agents,
             &HashSet::new(),
@@ -1009,7 +1010,7 @@ mod tests {
         ];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -1043,7 +1044,7 @@ mod tests {
         ];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
-            crate::config::AgentSortMode::Priority,
+            AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),

@@ -26115,8 +26115,9 @@ mod tests {
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
-        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarProfileSpec,
-        SidebarResourceKind, SidebarSplitDir, SidebarView, SidebarViewSpec, action_definitions,
+        Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition,
+        SidebarColumnKind, SidebarProfileSpec, SidebarResourceKind, SidebarSplitDir, SidebarView,
+        SidebarViewScope, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
