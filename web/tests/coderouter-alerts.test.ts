@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AlertInput, AlertResult } from "../services/observability/alerts";
-import { runCoderouterAlertChecks } from "../services/observability/coderouterAlerts";
+import {
+  coderouterAlertSinkReady,
+  runCoderouterAlertChecks,
+} from "../services/observability/coderouterAlerts";
 import type { CoderouterHealth } from "../services/coderouter/health";
 
 const healthy: CoderouterHealth = {
@@ -34,6 +37,14 @@ function harness(rows: Row[] | { reason: string }, health: CoderouterHealth = he
 const webhook = { CMUX_ALERTS_SLACK_WEBHOOK_URL: "https://hooks.slack.test/x" };
 
 describe("coderouter alert checks", () => {
+  test("requires a webhook or a plain-text acknowledgement for a missing sink", () => {
+    expect(coderouterAlertSinkReady({})).toBe(false);
+    expect(coderouterAlertSinkReady({ CMUX_ALERTS_SLACK_WEBHOOK_URL: "  " })).toBe(false);
+    expect(coderouterAlertSinkReady({ CMUX_ALERTS_SINK_UNCONFIGURED_ACK: "[SENSITIVE]" })).toBe(false);
+    expect(coderouterAlertSinkReady({ CMUX_ALERTS_SINK_UNCONFIGURED_ACK: "lawrence approved the temporary gap" })).toBe(true);
+    expect(coderouterAlertSinkReady(webhook)).toBe(true);
+  });
+
   test("a healthy quiet window sends nothing", async () => {
     const { sent, run } = harness([
       { outcome: "success", failure_stage: "none", team_id: "t1", provider: "codex", c: 12 },
