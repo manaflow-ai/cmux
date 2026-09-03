@@ -10355,7 +10355,7 @@ impl App {
         crate::sidebar_projection::rows(
             spec,
             &self.tree,
-            &agents,
+            agents,
             self.sidebar_workspace_selection,
             collapsed,
         )
