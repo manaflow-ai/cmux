@@ -75,13 +75,21 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return false,
-            "--socket" | "--session" | "--machine" => index += 2,
+            "--socket" | "--session" | "--machine" => {
+                if !args.get(index + 1).is_some_and(|value| !value.starts_with("--")) {
+                    return false;
+                }
+                index += 2;
+            }
             "--json" | "--jsonl" | "--quiet" => index += 1,
             value
                 if value.starts_with("--socket=")
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
+                if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
+                    return false;
+                }
                 index += 1;
             }
             value if value.starts_with('-') => return false,
@@ -365,7 +373,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
-    args.get(index + 1).cloned().ok_or_else(|| UsageError::new(format!("{flag} needs a value")))
+    match args.get(index + 1) {
+        Some(value) if !value.starts_with("--") => Ok(value.clone()),
+        _ => Err(UsageError::new(format!("{flag} needs a value"))),
+    }
 }
 
 fn set_output_mode(
@@ -736,6 +747,22 @@ mod tests {
     }
 
     #[test]
+    fn global_value_options_reject_following_option() {
+        let error =
+            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--session needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_accept_hyphen_prefixed_values() {
+        let (global, command) =
+            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
+        assert_eq!(global.session.as_deref(), Some("-1"));
+        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
+        assert!(command.is_empty());
+    }
+
+    #[test]
     fn server_lifecycle_routing_flags_follow_action() {
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
             parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
@@ -836,6 +863,9 @@ mod tests {
     fn remote_invocation_allows_leading_global_options() {
         assert!(is_remote_invocation(&strings(&["remote", "connect"])));
         assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session", "-1", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--socket", "-tmp/socket", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session=dev", "remote", "connect"])));
         assert!(is_remote_invocation(&strings(&[
             "--session",
             "dev",
@@ -851,6 +881,16 @@ mod tests {
     fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
         assert!(!is_remote_invocation(&strings(&["--session"])));
         assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--json", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&[
+            "--socket",
+            "--session=dev",
+            "remote",
+            "connect",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session=", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
         assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
     }
 }
