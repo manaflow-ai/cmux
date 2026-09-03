@@ -1287,41 +1287,40 @@ impl Inner {
                 return;
             }
         }
-        let mut opening = self.opening_state.lock().expect("opening state lock");
         // This is the publication linearization point. Read the live
         // authority only after waiting for any prior generation's publication
         // gate and while the opening state is held. Do not invoke the public
         // live-auth callback while the attachment map mutex is held. The
         // opening lock serializes competing reservations; reacquiring the
         // attachment map after the read keeps callbacks outside map locks.
-        let live_auth = Self::auth_snapshot(context);
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        if !self.auth_allows_claim(&live_auth, actor, &cwd.path, 0) {
-            drop(opening);
-            drop(attachments);
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
-            fail("trust_revoked", "terminal trust changed while opening");
-            return;
-        }
-        let previous = attachments.insert(
-            pty_id.clone(),
-            Attachment {
-                closing: opened.closing,
-                close_pending: Arc::new(AtomicBool::new(false)),
-                control: Arc::clone(&opened.control),
-                actor_id: actor.to_owned(),
-                cwd: cwd.path.clone(),
-                auth_version: live_auth.version,
-                transport_id: context.transport_id.clone(),
-                generation: opened.generation,
-                publication_gate: Arc::clone(&opened.publication_gate),
-                control_ops: Arc::new(ControlOperationState::new()),
-            },
-        );
-        opening.ids.remove(&pty_id);
-        drop(opening);
-        drop(attachments);
+        let previous = {
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            let live_auth = Self::auth_snapshot(context);
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            if !self.auth_allows_claim(&live_auth, actor, &cwd.path, 0) {
+                opened.closing.store(true, Ordering::SeqCst);
+                opened.control.kill();
+                fail("trust_revoked", "terminal trust changed while opening");
+                return;
+            }
+            let previous = attachments.insert(
+                pty_id.clone(),
+                Attachment {
+                    closing: opened.closing,
+                    close_pending: Arc::new(AtomicBool::new(false)),
+                    control: Arc::clone(&opened.control),
+                    actor_id: actor.to_owned(),
+                    cwd: cwd.path.clone(),
+                    auth_version: live_auth.version,
+                    transport_id: context.transport_id.clone(),
+                    generation: opened.generation,
+                    publication_gate: Arc::clone(&opened.publication_gate),
+                    control_ops: Arc::new(ControlOperationState::new()),
+                },
+            );
+            opening.ids.remove(&pty_id);
+            previous
+        };
         if let Some(previous) = previous {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
@@ -1816,18 +1815,19 @@ impl Inner {
         transport_id: Option<&str>,
         generation: Option<u64>,
     ) {
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
-            (
-                entry.generation,
-                transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
-            )
-        }) && generation.is_none_or(|expected| entry_generation == expected)
-            && owns_opening
         {
-            opening.cancelled.insert(pty_id.to_owned(), entry_generation);
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            if let Some((entry_generation, owns_opening)) = opening.ids.get(pty_id).map(|entry| {
+                (
+                    entry.generation,
+                    transport_id.is_none() || entry.transport_id.as_deref() == transport_id,
+                )
+            }) && generation.is_none_or(|expected| entry_generation == expected)
+                && owns_opening
+            {
+                opening.cancelled.insert(pty_id.to_owned(), entry_generation);
+            }
         }
-        drop(opening);
         let attachment = {
             let attachments = self.attachments.lock().expect("attach lock");
             attachments.get(pty_id).cloned()
@@ -2181,8 +2181,11 @@ impl Inner {
                         return;
                     }
                 };
-            let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-            else {
+            let current = {
+                let attachments = self.attachments.lock().expect("attach lock");
+                attachments.get(pty_id).cloned()
+            };
+            let Some(current) = current else {
                 return;
             };
             if generation.is_some_and(|expected| current.generation != expected)
@@ -2212,8 +2215,11 @@ impl Inner {
                         return;
                     }
                 };
-            let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-            else {
+            let current = {
+                let attachments = self.attachments.lock().expect("attach lock");
+                attachments.get(pty_id).cloned()
+            };
+            let Some(current) = current else {
                 return;
             };
             if generation.is_some_and(|expected| current.generation != expected)
@@ -2327,8 +2333,11 @@ impl Inner {
                     return;
                 }
             };
-        let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
+        let current = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(pty_id).cloned()
+        };
+        let Some(current) = current else {
             return;
         };
         if current.generation != attachment.generation
@@ -2356,8 +2365,11 @@ impl Inner {
                     return;
                 }
             };
-        let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
+        let current = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(pty_id).cloned()
+        };
+        let Some(current) = current else {
             return;
         };
         if current.generation != attachment.generation
