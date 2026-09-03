@@ -7395,6 +7395,192 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_replay_forwards_the_coupled_color_state() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "vt-state",
+            "surface": 7,
+            "cols": 80,
+            "rows": 24,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#112233",
+                "bg": "#445566",
+                "cursor": "#778899",
+                "cursor_style": "bar",
+                "cursor_blink": false,
+                "palette": {"1": "#aabbcc"},
+            },
+        }));
+
+        let PipeIoEvent::Replay { bytes, .. } =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("vt-state did not forward a replay event");
+        };
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+                Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }),
+                Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[1], Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc }));
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+    }
+
+    #[test]
+    fn pipe_io_output_keeps_color_state_after_live_bytes() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"live"),
+            "colors": {
+                "fg": "#102030",
+                "bg": "#405060",
+                "cursor": "#708090",
+                "cursor_style": "underline",
+                "cursor_blink": true,
+                "palette": {"196": "#010203"},
+            },
+        }));
+
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("output did not forward an output event");
+        };
+        assert!(bytes.starts_with(b"live"), "color restoration must follow live bytes");
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0x40, g: 0x50, b: 0x60 }),
+                Some(Rgb { r: 0x70, g: 0x80, b: 0x90 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[196], Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, true));
+    }
+
+    #[test]
+    fn pipe_io_colors_changed_is_forwarded_to_an_owned_surface() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": "#fedcba",
+            "cursor_style": "block",
+            "cursor_blink": true,
+            "palette": {"2": "#0a0b0c"},
+        }));
+
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("colors-changed did not forward an output event");
+        };
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }),
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0xfe, g: 0xdc, b: 0xba }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[2], Some(Rgb { r: 0x0a, g: 0x0b, b: 0x0c }));
+    }
+
+    #[test]
+    fn pipe_io_resized_replay_restores_the_coupled_color_state() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 100,
+            "rows": 30,
+            "replay": base64::engine::general_purpose::STANDARD.encode(b"resized"),
+            "colors": {
+                "fg": "#203040",
+                "bg": "#506070",
+                "cursor": "#8090a0",
+                "cursor_style": "block",
+                "cursor_blink": false,
+                "palette": {"3": "#0d0e0f"},
+            },
+        }));
+
+        let PipeIoEvent::Replay { bytes, .. } =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("resized did not forward a replay event");
+        };
+        let mut terminal = Terminal::new(100, 30, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x20, g: 0x30, b: 0x40 }),
+                Some(Rgb { r: 0x50, g: 0x60, b: 0x70 }),
+                Some(Rgb { r: 0x80, g: 0x90, b: 0xa0 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[3], Some(Rgb { r: 0x0d, g: 0x0e, b: 0x0f }));
+    }
+
+    #[test]
     fn pipe_io_budget_keeps_same_length_oversized_replay_reserved() {
         let budget = PipeIoByteBudget::new(16);
         let mut first = PipeIoEvent::replay(vec![b'A'; 16]);
