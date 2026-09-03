@@ -23,7 +23,7 @@ extension RemoteTmuxWindowMirror {
     /// tab's own title directly beneath it and carries nothing else, which reads as a doubled
     /// tab bar. Split the window and the same bars start earning their space: they name each
     /// pane and carry its close and split buttons.
-    static func paneTabBarVisibility(paneCount: Int) -> TabBarVisibility {
+    nonisolated static func paneTabBarVisibility(paneCount: Int) -> TabBarVisibility {
         paneCount > 1 ? .always : .multipleTabs
     }
 
