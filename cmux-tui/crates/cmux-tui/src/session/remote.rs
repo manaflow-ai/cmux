@@ -7072,6 +7072,22 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_budget_keeps_same_length_oversized_replay_reserved() {
+        let budget = PipeIoByteBudget::new(16);
+        let first = PipeIoEvent::Replay { bytes: vec![b'A'; 16] };
+        let second = PipeIoEvent::Replay { bytes: vec![b'B'; 16] };
+        let third = PipeIoEvent::Replay { bytes: vec![b'C'; 16] };
+
+        assert!(budget.try_reserve_event(&first));
+        assert!(budget.try_reserve_event(&second));
+        budget.release_event(&first);
+        assert!(!budget.try_reserve_event(&third));
+        budget.release_event(&second);
+        assert!(budget.try_reserve_event(&third));
+        budget.release_event(&third);
+    }
+
+    #[test]
     fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),

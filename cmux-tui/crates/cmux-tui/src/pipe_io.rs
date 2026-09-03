@@ -679,8 +679,8 @@ mod tests {
             parse_request(r#"{"claim":{"geometry":true}}"#).unwrap(),
             PipeIoRequest::ClaimGeometry
         );
-        assert_eq!(parse_request(r#"{"claim":true}"#).unwrap(), PipeIoRequest::ClaimGeometry);
         for line in [
+            r#"{"claim":true}"#,
             r#"{"claim":false}"#,
             r#"{"claim":null}"#,
             r#"{"claim":{"geometry":false}}"#,
