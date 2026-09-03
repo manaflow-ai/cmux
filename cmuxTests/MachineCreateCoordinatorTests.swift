@@ -429,10 +429,26 @@ struct MainActorOutputCoalescerTests {
         )
 
         coalescer.enqueue(Data("progress".utf8))
-        coalescer.finish()
+        await coalescer.finishAndWait()
 
         try await Self.waitForTermination(termination)
         #expect(handler.values == ["progress"])
+    }
+
+    @Test func finishAndWaitDrainsBufferedChunksBeforeReturning() async {
+        let values = OutputHandlerProbe()
+        let coalescer = MainActorOutputCoalescer(
+            handler: { text in values.values.append(text) }
+        )
+        for index in 0..<32 {
+            coalescer.enqueue(Data("chunk-\(index)".utf8))
+        }
+
+        await coalescer.finishAndWait()
+
+        #expect(values.values.count == 32)
+        #expect(values.values.first == "chunk-0")
+        #expect(values.values.last == "chunk-31")
     }
 
     @Test func cancellationReleasesTaskAndHandlerAfterStreamTermination() async throws {
