@@ -828,13 +828,14 @@ struct MachineRowActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             successTitle: successTitle,
-            presentOutputOnSuccess: presentOutputOnSuccess
-        ) { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+            presentOutputOnSuccess: presentOutputOnSuccess,
+            onCompletion: { completion in
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        }
+        )
     }
 
     @MainActor
