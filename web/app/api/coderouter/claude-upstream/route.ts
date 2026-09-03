@@ -1,8 +1,12 @@
+// Team Claude upstream accounts: list, add, remove all. One account is
+// addressed under ./[accountId]. Any team member may read; `manageAccounts`
+// (every member today) may write. Secrets never leave the server: responses
+// carry masked identifiers only.
 import {
-  deleteClaudeUpstream,
-  describeClaudeUpstream,
+  addClaudeAccount,
+  listClaudeAccounts,
   parseClaudeUpstreamInput,
-  putClaudeUpstream,
+  removeAllClaudeAccounts,
 } from "../../../../services/coderouter/claudeUpstream";
 import {
   resolveCoderouterUsageTeam,
@@ -14,22 +18,22 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-const MAX_BODY_BYTES = 64 * 1_024;
+export const MAX_CLAUDE_UPSTREAM_BODY_BYTES = 64 * 1_024;
 
 export type ClaudeUpstreamRouteDependencies = {
   readonly resolveUsageTeam: typeof resolveCoderouterUsageTeam;
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly describe: typeof describeClaudeUpstream;
-  readonly put: typeof putClaudeUpstream;
-  readonly remove: typeof deleteClaudeUpstream;
+  readonly list: typeof listClaudeAccounts;
+  readonly add: typeof addClaudeAccount;
+  readonly removeAll: typeof removeAllClaudeAccounts;
 };
 
 const defaultDependencies: ClaudeUpstreamRouteDependencies = {
   resolveUsageTeam: resolveCoderouterUsageTeam,
   resolveContext: resolveCodeRouterRequestContext,
-  describe: describeClaudeUpstream,
-  put: putClaudeUpstream,
-  remove: deleteClaudeUpstream,
+  list: listClaudeAccounts,
+  add: addClaudeAccount,
+  removeAll: removeAllClaudeAccounts,
 };
 
 export function makeClaudeUpstreamHandlers(
@@ -39,77 +43,69 @@ export function makeClaudeUpstreamHandlers(
     const resolved = await dependencies.resolveUsageTeam(request);
     if (!resolved.ok) return resolved.response;
     try {
-      const upstream = await dependencies.describe(resolved.teamId);
+      const accounts = await dependencies.list(resolved.teamId);
       return Response.json(
-        { teamId: resolved.teamId, upstream },
+        // `upstream` mirrors the first account for clients written against the
+        // single-upstream contract; new clients read `accounts`.
+        { teamId: resolved.teamId, accounts, upstream: accounts[0] ?? null },
         { headers: { "cache-control": "no-store" } },
       );
     } catch (error) {
-      reportCoderouterFailure("rds", error, { operation: "describe_claude_upstream" });
-      return unavailable("coderouter could not load the Claude upstream. Retry shortly.");
+      reportCoderouterFailure("rds", error, { operation: "list_claude_accounts" });
+      return claudeUpstreamUnavailable("coderouter could not load the Claude upstream accounts. Retry shortly.");
     }
   }
 
-  async function PUT(request: Request): Promise<Response> {
+  /** Adds an account. `PUT` is accepted as an alias for older clients. */
+  async function POST(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const length = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-      return Response.json({ error: "payload_too_large" }, { status: 413 });
-    }
-    const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > MAX_BODY_BYTES) {
-      return Response.json({ error: "payload_too_large" }, { status: 413 });
-    }
-    let value: unknown;
-    try {
-      value = JSON.parse(new TextDecoder().decode(bytes));
-    } catch {
-      return Response.json({ error: "invalid_request" }, { status: 400 });
-    }
-    const input = parseClaudeUpstreamInput(value);
+    const body = await readJsonBody(request);
+    if (!body.ok) return body.response;
+    const input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const teamId = resolved.value.team.teamId;
     const stackUserId = resolved.value.user.id;
     try {
-      const previous = await dependencies.describe(teamId);
-      const upstream = await dependencies.put(teamId, stackUserId, input);
+      const before = await dependencies.list(teamId);
+      const account = await dependencies.add(teamId, stackUserId, input);
       captureCoderouterEvent({
         event: "coderouter_claude_upstream_set",
         userId: stackUserId,
         teamId,
-        properties: { upstream_kind: input.kind, replaced: previous !== null },
+        properties: { upstream_kind: input.kind, replaced: false },
       });
-      addCoderouterBreadcrumb("account", "Claude upstream stored", {
+      addCoderouterBreadcrumb("account", "Claude upstream account added", {
         upstream_kind: input.kind,
-        replaced: previous !== null,
+        accounts_total: before.length + 1,
       });
       return Response.json(
-        { teamId, upstream },
-        { status: previous ? 200 : 201, headers: { "cache-control": "no-store" } },
+        { teamId, account, upstream: account, accountsTotal: before.length + 1 },
+        { status: 201, headers: { "cache-control": "no-store" } },
       );
     } catch (error) {
-      reportCoderouterFailure("rds", error, { operation: "put_claude_upstream" });
-      return unavailable("coderouter could not store the Claude upstream. Nothing was changed; retry shortly.");
+      reportCoderouterFailure("rds", error, { operation: "add_claude_account" });
+      return claudeUpstreamUnavailable("coderouter could not store the Claude upstream account. Nothing was changed; retry shortly.");
     }
   }
 
+  /** Removes every account of the team. */
   async function DELETE(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
     const teamId = resolved.value.team.teamId;
     let result;
     try {
-      result = await dependencies.remove(teamId);
+      result = await dependencies.removeAll(teamId);
     } catch (error) {
-      reportCoderouterFailure("rds", error, { operation: "remove_claude_upstream" });
-      return unavailable("coderouter could not remove the Claude upstream. Nothing was changed; retry shortly.");
+      reportCoderouterFailure("rds", error, { operation: "remove_all_claude_accounts" });
+      return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream accounts. Nothing was changed; retry shortly.");
     }
-    if (!result.removed) {
+    if (result.removed === 0) {
       return Response.json(
-        { error: "not_found", message: "This team has no Claude upstream.", retryable: false },
+        { error: "not_found", message: "This team has no Claude upstream accounts.", retryable: false },
         { status: 404, headers: { "cache-control": "no-store" } },
       );
     }
@@ -119,14 +115,36 @@ export function makeClaudeUpstreamHandlers(
       teamId,
       properties: {},
     });
-    addCoderouterBreadcrumb("account", "Claude upstream removed");
-    return Response.json(result, { headers: { "cache-control": "no-store" } });
+    addCoderouterBreadcrumb("account", "Claude upstream accounts removed", { removed: result.removed });
+    return Response.json(
+      { removed: true, count: result.removed },
+      { headers: { "cache-control": "no-store" } },
+    );
   }
 
-  return { GET, PUT, DELETE };
+  return { GET, POST, PUT: POST, DELETE };
 }
 
-function unavailable(message: string): Response {
+export async function readJsonBody(request: Request): Promise<
+  | { ok: true; value: unknown }
+  | { ok: false; response: Response }
+> {
+  const length = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(length) && length > MAX_CLAUDE_UPSTREAM_BODY_BYTES) {
+    return { ok: false, response: Response.json({ error: "payload_too_large" }, { status: 413 }) };
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAX_CLAUDE_UPSTREAM_BODY_BYTES) {
+    return { ok: false, response: Response.json({ error: "payload_too_large" }, { status: 413 }) };
+  }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, response: Response.json({ error: "invalid_request" }, { status: 400 }) };
+  }
+}
+
+export function claudeUpstreamUnavailable(message: string): Response {
   return Response.json(
     { error: "claude_upstream_unavailable", message, retryable: true },
     { status: 503, headers: { "cache-control": "no-store", "retry-after": "5" } },
@@ -135,5 +153,6 @@ function unavailable(message: string): Response {
 
 const handlers = makeClaudeUpstreamHandlers();
 export const GET = handlers.GET;
+export const POST = handlers.POST;
 export const PUT = handlers.PUT;
 export const DELETE = handlers.DELETE;

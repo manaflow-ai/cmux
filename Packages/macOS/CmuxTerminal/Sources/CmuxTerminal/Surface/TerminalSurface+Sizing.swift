@@ -5,6 +5,22 @@ public import GhosttyKit
 // MARK: - Surface sizing and scale
 
 extension TerminalSurface {
+    /// Holds surface-size writes while a host is committing an interactive
+    /// geometry transaction. The next size reconciliation after this flag is
+    /// cleared supplies the authoritative frame and renderer drawable size.
+    @MainActor
+    public func setSurfaceSizeUpdatesDeferred(_ deferred: Bool) {
+        surfaceSizeUpdatesDeferred = deferred
+    }
+
+    /// Reports whether the host has explicitly deferred surface size writes.
+    /// The portal owns this phase so the final resize pass does not depend on
+    /// AppKit's `inLiveResize` value, which may clear before that pass runs.
+    @MainActor
+    private var shouldDeferSurfaceSizeUpdates: Bool {
+        surfaceSizeUpdatesDeferred
+    }
+
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
     /// from backing-space points and truncated (never rounded up).
     func pixelDimension(from value: CGFloat) -> UInt32 {
@@ -165,7 +181,8 @@ extension TerminalSurface {
     @MainActor
     public func reapplyAssignedGrid() {
         guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
-              lastXScale > 0, lastYScale > 0 else { return }
+              lastXScale > 0, lastYScale > 0,
+              !shouldDeferSurfaceSizeUpdates else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
             height: CGFloat(lastUncappedPixelHeight) / lastYScale,
@@ -205,6 +222,7 @@ extension TerminalSurface {
         suppressAssignedGridPin: Bool = false,
         caller: StaticString = #function
     ) -> Bool {
+        guard !shouldDeferSurfaceSizeUpdates else { return false }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 

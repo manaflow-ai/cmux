@@ -77,8 +77,13 @@ public final class CmuxResolvedIconRenderer {
                 )
 
                 if let tintColor = candidate.tintColor {
+                    // Use the source alpha as a mask for the tint. `sourceAtop`
+                    // blends a translucent semantic color with multicolor SF
+                    // Symbols (for example, leaving Calendar's red header
+                    // visible), so two icons that request the same neutral
+                    // tint can still render in different hues.
                     tintColor.setFill()
-                    NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
+                    NSRect(origin: .zero, size: imageSize).fill(using: .sourceIn)
                 }
                 let isVisible = containsVisiblePixels(in: bitmap)
                 NSGraphicsContext.restoreGraphicsState()
