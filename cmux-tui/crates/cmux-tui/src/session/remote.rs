@@ -2535,15 +2535,13 @@ impl RemoteSession {
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
-                let pipe_io_owned =
-                    self.pipe_io_forward(id, || PipeIoEvent::replay(replay.clone()));
                 // A pipe-IO relay consumes the authoritative VT byte stream
                 // itself. Do not also parse the same replay into a local
                 // `RemoteSurface`: that duplicate parser can fail or mutate
                 // state even though the embedder never reads it.
-                if pipe_io_owned {
+                let Some(replay) = self.pipe_io_forward_replay(id, replay) else {
                     return;
-                }
+                };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
@@ -2654,14 +2652,21 @@ impl RemoteSession {
                         replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
                     ),
                 );
-                let pipe_io_owned = if let Some(replay) = replay.as_ref() {
-                    self.pipe_io_forward(id, || PipeIoEvent::replay(replay.clone()))
-                } else {
-                    self.pipe_io_owns_surface(id)
+                let replay = match replay {
+                    Some(replay) => {
+                        let replay = self.pipe_io_forward_replay(id, replay);
+                        if replay.is_none() {
+                            return;
+                        }
+                        replay
+                    }
+                    None => {
+                        if self.pipe_io_owns_surface(id) {
+                            return;
+                        }
+                        None
+                    }
                 };
-                if pipe_io_owned {
-                    return;
-                }
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -3523,6 +3528,17 @@ impl RemoteSession {
             }
         }
         Ok(())
+    }
+
+    /// Forwards a replay while retaining ownership for the local mirror when
+    /// no matching pipe-IO tap exists. The relay path consumes the vector, so
+    /// this avoids cloning large replay frames on the session reader thread.
+    fn pipe_io_forward_replay(&self, surface: SurfaceId, replay: Vec<u8>) -> Option<Vec<u8>> {
+        match self.pipe_io_forward_owned(surface, PipeIoEvent::replay(replay)) {
+            Ok(()) => None,
+            Err(PipeIoEvent::Replay { bytes, .. }) => Some(bytes),
+            Err(_) => None,
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
