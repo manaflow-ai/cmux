@@ -1840,7 +1840,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_completion_ack_fd=",
             "cmux_ssh_auth_completion_fds_open=0",
             "cmux_ssh_auth_prepare_signal_completion() { cmux_ssh_auth_completion_fds_open=0; if [ -n \"$cmux_ssh_auth_event_token\" ] && [ -p \"$cmux_ssh_auth_term_event_fifo\" ] && [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec {cmux_ssh_auth_completion_event_fd}<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null && exec {cmux_ssh_auth_completion_ack_fd}<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_fds_open=1; else exec {cmux_ssh_auth_completion_event_fd}>&- 2>/dev/null || true; exec {cmux_ssh_auth_completion_ack_fd}>&- 2>/dev/null || true; cmux_ssh_auth_completion_event_fd=; cmux_ssh_auth_completion_ack_fd=; fi; }",
-            "cmux_ssh_auth_signal_completion() { if [ \"$cmux_ssh_auth_completion_fds_open\" = 1 ]; then cmux_ssh_auth_marker_cleanup_deferred=1; printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&$cmux_ssh_auth_completion_event_fd 2>/dev/null || true; cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&$cmux_ssh_auth_completion_ack_fd || true; fi; if [ -n \"${cmux_ssh_auth_completion_event_fd:-}\" ]; then exec {cmux_ssh_auth_completion_event_fd}>&- 2>/dev/null || true; fi; if [ -n \"${cmux_ssh_auth_completion_ack_fd:-}\" ]; then exec {cmux_ssh_auth_completion_ack_fd}>&- 2>/dev/null || true; fi; cmux_ssh_auth_completion_event_fd=; cmux_ssh_auth_completion_ack_fd=; cmux_ssh_auth_completion_fds_open=0; }",
+            // The cleanup helper creates the event FIFOs when cancellation
+            // begins, after this wrapper has started. Retry the open at signal
+            // completion so the normal startup race cannot disable the
+            // completion handshake.
+            "cmux_ssh_auth_signal_completion() { if [ \"$cmux_ssh_auth_completion_fds_open\" != 1 ]; then cmux_ssh_auth_prepare_signal_completion; fi; if [ \"$cmux_ssh_auth_completion_fds_open\" = 1 ]; then cmux_ssh_auth_marker_cleanup_deferred=1; printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&$cmux_ssh_auth_completion_event_fd 2>/dev/null || true; cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&$cmux_ssh_auth_completion_ack_fd || true; fi; if [ -n \"${cmux_ssh_auth_completion_event_fd:-}\" ]; then exec {cmux_ssh_auth_completion_event_fd}>&- 2>/dev/null || true; fi; if [ -n \"${cmux_ssh_auth_completion_ack_fd:-}\" ]; then exec {cmux_ssh_auth_completion_ack_fd}>&- 2>/dev/null || true; fi; cmux_ssh_auth_completion_event_fd=; cmux_ssh_auth_completion_ack_fd=; cmux_ssh_auth_completion_fds_open=0; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
             "    exec {cmux_ssh_auth_classifier_guard_fd}>&-",
@@ -1860,8 +1864,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  cmux_ssh_auth_capture_signal_name=\"$2\"",
             "  trap - EXIT HUP INT TERM",
             "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
-            "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
             "    cmux_ssh_auth_prepare_signal_completion",
+            "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
             "    cmux_ssh_auth_command_pid=",
             "    cmux_ssh_auth_signal_completion",
