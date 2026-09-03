@@ -187,6 +187,49 @@ describe("codex responses proxy session routing", () => {
     expect(selected).toEqual(["acct-1", "acct-2"]);
   });
 
+  test("does not fail over after the caller cancels the request", async () => {
+    const controller = new AbortController();
+    const selected: string[] = [];
+    const abortingFetch = (async (_input: unknown, _init?: RequestInit) => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+    const abortingProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, { fetch: abortingFetch });
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer crt_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "gpt-test", input: [] }),
+      signal: controller.signal,
+    });
+
+    await expect(abortingProxy(request)).rejects.toMatchObject({ name: "AbortError" });
+    expect(selected).toEqual(["acct-1"]);
+  });
+
   test("a sticky session waits out an in-flight refresh instead of moving", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     credentialBusyBudgets.set("acct-1", 2);
