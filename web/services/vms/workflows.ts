@@ -378,6 +378,8 @@ export function createVm(input: {
   readonly memoryMb?: number;
   /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
   readonly imageSize?: CreateOptions["imageSize"];
+  /** See CreateOptions.afterResponse: the edge probe runs here instead of inside the request. */
+  readonly afterResponse?: CreateOptions["afterResponse"];
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -488,6 +490,7 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         imageSize: input.imageSize,
+        afterResponse: input.afterResponse,
         envs: materials?.envs,
         edgeRules: materials?.edgeRules,
         ...(network ? { network: { id: network.providerNetworkId } } : {}),
