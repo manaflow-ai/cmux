@@ -167,7 +167,7 @@ async fn dropping_the_tunnel_ends_its_streams() {
 /// fixing checksums. A Linux WireGuard peer accepts such packets because the
 /// AEAD already authenticated them; so must we, or IPv6 works while IPv4
 /// silently times out.
-fn corrupt_checksums(packet: &mut Vec<u8>) {
+fn corrupt_checksums(packet: &mut [u8]) {
     match packet.first().map(|byte| byte >> 4) {
         Some(4) if packet.len() >= 20 => {
             packet[10] = 0;
@@ -191,7 +191,11 @@ async fn authenticated_packets_with_bad_checksums_are_still_accepted() {
     let LoopbackPair { client, server, client_socket, server_socket, server_v4, server_v6, .. } =
         loopback_pair().await.unwrap();
     let server =
-        WgNet::start_with_transmit_hook(server, server_socket, Box::new(corrupt_checksums))
+        WgNet::start_with_transmit_hook(
+            server,
+            server_socket,
+            Box::new(|packet: &mut Vec<u8>| corrupt_checksums(packet)),
+        )
             .await
             .unwrap();
     let client = WgNet::start(client, client_socket).await.unwrap();
