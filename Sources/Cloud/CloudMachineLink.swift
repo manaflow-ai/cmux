@@ -315,12 +315,12 @@ actor CloudMachineLink {
 
     /// Returns the active stats stream and retries its child when the previous
     /// stream ended while the link itself stayed connected.
-    func currentStatsStream() -> AsyncStream<VMStats?> {
+    func currentStatsStream() -> (stream: AsyncStream<VMStats?>, generation: Int) {
         if statsProcess == nil, let socketPath = connected?.socketPath {
             makeStatsStream()
             startStatsFollow(socketPath: socketPath)
         }
-        return stats
+        return (stats, statsGeneration)
     }
 
     private func statsFollowDidEnd(generation: Int) {
