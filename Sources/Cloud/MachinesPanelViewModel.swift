@@ -565,7 +565,21 @@ final class MachinesPanelViewModel: ObservableObject {
     private func applyCatalogMachineUpdate(_ machine: SurfaceMachineID) {
         guard let info = SurfaceCatalog.shared.machineInfo(for: machine) else { return }
         if let index = catalogMachineIndexes[machine] {
-            catalog.machines[index] = info
+            if catalog.machines[index].name == info.name {
+                catalog.machines[index] = info
+            } else {
+                // A rename can change the canonical name order. Reinsert only
+                // on this infrequent structural change, never per stats sample.
+                catalog.machines.remove(at: index)
+                let insertion = catalog.machines.firstIndex { candidate in
+                    if candidate.id == .local { return false }
+                    return candidate.name.localizedStandardCompare(info.name) == .orderedDescending
+                } ?? catalog.machines.endIndex
+                catalog.machines.insert(info, at: insertion)
+                catalogMachineIndexes = Dictionary(
+                    uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
+                )
+            }
         } else {
             let insertion = catalog.machines.firstIndex { candidate in
                 if candidate.id == .local { return false }
