@@ -725,6 +725,26 @@ describe("claude proxy failover across accounts", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
+  test("passes the request deadline signal to Claude cooldown writes", async () => {
+    let cooldownSignal: AbortSignal | undefined;
+    const cooldown: ClaudeProxyDependencies["cooldown"] = async (...args) => {
+      cooldownSignal = (args as readonly unknown[])[3] as AbortSignal | undefined;
+      return await new Promise<void>(() => undefined);
+    };
+    upstreamResponse = () => new Response("{}", { status: 429 });
+    const bounded = createClaudeMessagesProxy({ ...dependencies, cooldown }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const { response } = await routedWith(bounded, messagesRequest());
+
+    expect(response.status).toBe(429);
+    expect(cooldownSignal).toBeDefined();
+    expect(cooldownSignal?.aborted).toBe(true);
+  });
+
   test("usage rows name the account that served the request", async () => {
     upstream = apiKeyUpstream;
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
