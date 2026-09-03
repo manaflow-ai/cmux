@@ -45,6 +45,9 @@ struct MachineSnapshot: Equatable, Identifiable {
     var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     var stats: VMStats?
+    /// Coderouter spend over the usage window; nil until the team usage
+    /// payload names this machine (and nil forever on backends without it).
+    var usage: MachineUsageSnapshot?
     /// The machine's address on its owner's private network; nil for machines
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
@@ -279,6 +282,21 @@ enum MachineSnapshotBuilder {
         return expiry.addingTimeInterval(-TimeInterval(daysLeft - 1) * 86_400)
     }
 
+    /// Stamps each snapshot with its usage readout, keyed by the machine id
+    /// (`GET /api/vm` `id`, which the usage payload echoes as `vmId`). Machines
+    /// the payload does not name lose any earlier readout so a machine that
+    /// dropped out of the window never keeps a stale number.
+    static func applyingUsage(
+        to snapshots: [MachineSnapshot],
+        usage: [String: MachineUsageSnapshot]
+    ) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            var next = snapshot
+            next.usage = usage[snapshot.id]
+            return next
+        }
+    }
+
     /// Recomputes only the free-access facet of existing snapshots against a
     /// fresh clock — no network, stats and identity preserved.
     static func applyingFreeAccess(
@@ -340,6 +358,11 @@ final class MachinesPanelViewModel: ObservableObject {
     /// plan gate needs an upgrade, and only genuinely transient failures get
     /// the retry-first "unreachable" presentation.
     @Published private(set) var listProblem: CloudListProblem?
+    /// Per-machine coderouter spend from the last successful usage fetch,
+    /// keyed by machine id. Refreshed with every machine-list refresh (the
+    /// slow poll and the explicit Refresh verb), never more often. Empty on
+    /// backends without the usage route; a failed fetch keeps the last value.
+    @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
     enum CloudListProblem: Equatable {
         /// HTTP 401: the Cloud service no longer accepts this session.
@@ -404,6 +427,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    private var usageTask: Task<Void, Never>?
     /// One-shot timer armed at the exact next free-access transition (a
     /// countdown day-boundary or an expiry). Expiry is client-computable from
     /// createdAt + window, so rows flip at the boundary itself — scheduling,
@@ -567,6 +591,27 @@ final class MachinesPanelViewModel: ObservableObject {
             }
         }
     }
+    /// Fetches the team's per-machine coderouter spend and stamps it onto the
+    /// rows. Rides the machine-list refresh, so it shares that cadence. Any
+    /// failure (404 on a backend without the route, network) is "no data":
+    /// nothing is surfaced, and the previous readout stays until a fetch
+    /// succeeds. An `unavailable` payload clears it.
+    func refreshUsage() {
+        usageTask?.cancel()
+        guard let client = MachineUsageClient.shared else { return }
+        usageTask = Task { [weak self] in
+            guard let usage = try? await client.teamUsage() else { return }
+            guard !Task.isCancelled, let self else { return }
+            self.applyUsage(usage.byMachineID)
+        }
+    }
+
+    /// The one place usage lands: the lookup and the row snapshots move together.
+    func applyUsage(_ usage: [String: MachineUsageSnapshot]) {
+        usageByMachineID = usage
+        machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
+    }
+
     private static let pollInterval: Duration = .seconds(45)
 
     /// A refresh asked for while one is in flight runs again afterwards: a
@@ -609,6 +654,8 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+        usageTask?.cancel()
+        usageTask = nil
         treeTask?.cancel()
         treeTask = nil
         freeAccessTransitionTask?.cancel()
@@ -650,6 +697,8 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoading = false
         statsTask?.cancel()
         statsTask = nil
+        usageTask?.cancel()
+        usageTask = nil
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
         treeTask?.cancel()
@@ -657,6 +706,7 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
+        usageByMachineID = [:]
         catalog = .empty
         localWorkspaces = []
         treeErrorDescription = nil
@@ -685,10 +735,12 @@ final class MachinesPanelViewModel: ObservableObject {
             for index in snapshots.indices {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
+            snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()
+            refreshUsage()
             readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil

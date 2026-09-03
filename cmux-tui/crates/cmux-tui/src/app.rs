@@ -25,11 +25,12 @@ use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
     GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
-    MIN_VIEWPORT_PANE_WIDTH, Mux, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
-    PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
-    ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
-    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
+    MIN_VIEWPORT_PANE_WIDTH, MachineUsage, Mux, MuxEvent, Node, PairingChallenge, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId,
+    SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult,
+    VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
+    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
+    split_sides, zellij_default_pane_layout,
 };
 use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
@@ -2209,6 +2210,30 @@ impl OrderedSession {
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
+    }
+
+    /// Fetch the daemon's machine spend readout off the UI thread and feed
+    /// it back as a `MachineUsageChanged` event. The event is scoped to this
+    /// session generation, so a late answer from a replaced session is
+    /// dropped. A failed read is silent: the readout is informational and
+    /// the next `machine-usage-changed` event corrects it.
+    fn refresh_machine_usage_background(&self) {
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let spawn =
+            std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
+                match session.machine_usage() {
+                    Ok(usage) => {
+                        let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
+                    }
+                    Err(error) => {
+                        crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+                    }
+                }
+            });
+        if let Err(error) = spawn {
+            crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+        }
     }
 
     fn refresh_clients_background(&self) {
@@ -7138,6 +7163,9 @@ pub struct App {
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
+    /// Machine-level model spend readout from the session's daemon; `None`
+    /// hides the sidebar readout.
+    pub machine_usage: Option<MachineUsage>,
     /// When set, render only this PTY surface without session chrome.
     surface_only: Option<SurfaceId>,
     pub sidebar_visible: bool,
@@ -9511,10 +9539,12 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         retiring_status_workers: Vec::new(),
         status_outputs_generation: Arc::new(AtomicU64::new(0)),
         status_segments_cache: None,
+        machine_usage: None,
     };
     app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
+        app.session.refresh_machine_usage_background();
     }
 
     if let Err(error) = app.restart_machine_updates() {
@@ -11827,6 +11857,7 @@ impl App {
             }
             self.session.apply_config(self.config.clone());
             self.session.refresh_clients_background();
+            self.session.refresh_machine_usage_background();
         }
 
         if let Some(mut previous_worker) = previous_worker {
@@ -11842,6 +11873,9 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        // The readout belongs to the previous daemon; the replacement's own
+        // value arrives from its background refresh.
+        self.machine_usage = None;
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -15436,6 +15470,13 @@ impl App {
             AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {
                 self.write_window_title(&title)?;
                 Ok(RenderAction::None)
+            }
+            AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)) => {
+                if self.machine_usage == usage {
+                    return Ok(RenderAction::None);
+                }
+                self.machine_usage = usage;
+                Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 self.graphics_dirty_surfaces.insert(id);
@@ -40315,6 +40356,79 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_shows_machine_usage_readout_only_when_available() {
+        let (mux, surface) = test_mux("machine-usage-readout-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 24;
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden = buffer_text(terminal.backend().buffer());
+        assert!(!hidden.contains("/ 30d"), "{hidden}");
+
+        let usage = cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 184_220,
+            api_equivalent_usd: 1.234,
+            as_of: None,
+        };
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage.clone())))).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.machine_usage.as_ref(), Some(&usage));
+        let repeat = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage)))).unwrap();
+        assert_eq!(repeat, RenderAction::None, "an unchanged readout does not redraw");
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let shown = buffer_text(terminal.backend().buffer());
+        let expected = localization::catalog().sidebar.machine_usage_readout(1.234, 30);
+        assert_eq!(expected, "$1.23 / 30d");
+        let first_row = shown.lines().next().unwrap();
+        assert!(first_row.contains(&expected), "readout sits on the rail's top pad row: {shown}");
+        assert!(
+            !shown.lines().skip(1).any(|line| line.contains(&expected)),
+            "readout stays out of the body rows: {shown}"
+        );
+        let readout_end = first_row.find(&expected).unwrap() + expected.len();
+        assert!(
+            readout_end < usize::from(app.sidebar_width),
+            "readout stays inside the rail: {first_row}"
+        );
+
+        let cleared = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(None))).unwrap();
+        assert_eq!(cleared, RenderAction::Draw);
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden_again = buffer_text(terminal.backend().buffer());
+        assert!(!hidden_again.contains("/ 30d"), "{hidden_again}");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn machine_usage_readout_is_skipped_when_the_rail_is_too_narrow() {
+        let (mux, surface) = test_mux("machine-usage-narrow-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 8;
+        app.tree = notify_tree(surface.id, false);
+        app.machine_usage = Some(cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 0,
+            api_equivalent_usd: 12345.0,
+            as_of: None,
+        });
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains('$'), "a readout that does not fit is not drawn at all: {text}");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn files_filter_exposes_ratatui_cursor_and_accepts_mouse_cursor_placement() {
         let temp = test_temp_dir("files-filter-cursor");
         let (mux, surface) = test_mux("files-filter-cursor-test", Some(&temp));
@@ -45924,6 +46038,7 @@ mod tests {
             retiring_status_workers: Vec::new(),
             status_outputs_generation: Arc::new(AtomicU64::new(0)),
             status_segments_cache: None,
+            machine_usage: None,
         };
         (app, receiver)
     }

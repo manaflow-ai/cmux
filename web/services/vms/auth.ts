@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { Team } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import { hasAuthRateLimitSignal } from "./authErrors";
 import { cloudDb } from "../../db/client";
@@ -30,9 +29,6 @@ export type AuthedUser = {
   billingPlanId: string | null;
   /** Paid seats on the resolved billing team; null for user billing or unknown. */
   billingSeats: number | null;
-  resolveSubrouterPermissions: (
-    teamId: string,
-  ) => Promise<SubrouterPermissions>;
 };
 
 export type AuthedTeam = {
@@ -40,11 +36,6 @@ export type AuthedTeam = {
   displayName: string | null;
   billingPlanId: string | null;
   billingSeats: number | null;
-};
-
-export type SubrouterPermissions = {
-  readonly use: boolean;
-  readonly manageAccounts: boolean;
 };
 
 export class SubrouterAuthorizationConfigurationError extends Error {
@@ -106,7 +97,8 @@ const MAX_QUEUED_STACK_AUTHORIZATION_CALLS = 32;
 // which surfaced as HTTP 429 rate_limited to end users. Successful verifications are cached
 // for a short TTL keyed by a hash of the exact tokens plus the result-affecting options, so a
 // burst costs one Stack call. Failures and throttles are never cached, and the cookie and
-// subrouter paths are never cached (cookies vary per request; subrouter enforces permissions).
+// subrouter paths are never cached (cookies vary per request; subrouter verification runs
+// under its own deadline and may page through every team).
 const DEFAULT_AUTH_CACHE_TTL_MS = 30_000;
 const MAX_AUTH_CACHE_ENTRIES = 256;
 
@@ -236,7 +228,7 @@ const stackAuthorizationWaiters: Array<{
 export async function withSubrouterAuthorizationDeadline<T>(
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  assertSubrouterAuthorizationConfiguration();
+  const timeoutMs = subrouterStackAuthorizationTimeoutMs();
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -245,7 +237,7 @@ export async function withSubrouterAuthorizationDeadline<T>(
       reject(new SubrouterAuthorizationTimeoutError(
         "Stack authorization deadline exceeded",
       ));
-    }, subrouterStackAuthorizationTimeoutMs());
+    }, timeoutMs);
   });
   try {
     return await Promise.race([
@@ -277,46 +269,6 @@ export function isSubrouterAuthorizationError(
   return error instanceof SubrouterAuthorizationConfigurationError ||
     error instanceof SubrouterAuthorizationTimeoutError ||
     error instanceof SubrouterAuthorizationUnavailableError;
-}
-
-export function subrouterAllowedTeamIds(
-  raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
-): ReadonlySet<string> | "*" {
-  const values = raw
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (!values?.length) {
-    throw new SubrouterAuthorizationConfigurationError(
-      "SUBROUTER_ALLOWED_TEAM_IDS must be an explicit team list or *",
-    );
-  }
-  if (values.includes("*")) {
-    if (values.length !== 1) {
-      throw new SubrouterAuthorizationConfigurationError(
-        "SUBROUTER_ALLOWED_TEAM_IDS cannot combine * with team IDs",
-      );
-    }
-    return "*";
-  }
-  return new Set(values);
-}
-
-function assertSubrouterAuthorizationConfiguration(): void {
-  subrouterPermissionEnforcementEnabled();
-  subrouterAllowedTeamIds();
-  subrouterStackAuthorizationTimeoutMs();
-}
-
-function subrouterPermissionEnforcementEnabled(
-  raw = process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
-): boolean {
-  const normalized = raw?.trim();
-  if (normalized === "1") return true;
-  if (normalized === "0") return false;
-  throw new SubrouterAuthorizationConfigurationError(
-    "SUBROUTER_ENFORCE_STACK_PERMISSIONS must be explicitly set to 0 or 1",
-  );
 }
 
 function subrouterStackAuthorizationTimeoutMs(
@@ -566,8 +518,7 @@ async function authedUserFromStackUser(
     return null;
   }
 
-  const selectedTeamRaw = user.selectedTeam;
-  const selectedTeam = billingTeamFromUnknown(selectedTeamRaw);
+  const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
@@ -602,26 +553,12 @@ async function authedUserFromStackUser(
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
-  const rawTeams = new Map<string, unknown>();
-  if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
-  for (const raw of listedTeamRaw) {
-    const team = billingTeamFromUnknown(raw);
-    if (team) rawTeams.set(team.id, raw);
-  }
-  const enforceSubrouterPermissions =
-    options.subrouterAuthorizationSignal
-      ? subrouterPermissionEnforcementEnabled()
-      : false;
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
-  const subrouterPermissionCache = new Map<
-    string,
-    Promise<SubrouterPermissions>
-  >();
 
   return {
     id: user.id,
@@ -635,53 +572,6 @@ async function authedUserFromStackUser(
     userBillingPlanId,
     billingPlanId,
     billingSeats,
-    resolveSubrouterPermissions: async (teamId) => {
-      const cached = subrouterPermissionCache.get(teamId);
-      if (cached) return cached;
-      const pending = teamId === user.id
-        ? subrouterPermissions(
-          user,
-          undefined,
-          enforceSubrouterPermissions,
-          options.subrouterAuthorizationSignal,
-        )
-        : (() => {
-          const rawTeam = rawTeams.get(teamId);
-          return rawTeam
-            ? subrouterPermissions(
-              user,
-              rawTeam,
-              enforceSubrouterPermissions,
-              options.subrouterAuthorizationSignal,
-            )
-            : Promise.resolve({ use: false, manageAccounts: false });
-        })();
-      subrouterPermissionCache.set(teamId, pending);
-      return pending;
-    },
-  };
-}
-
-async function subrouterPermissions(
-  user: StackUserLike,
-  team: unknown,
-  enforce: boolean,
-  signal: AbortSignal | undefined,
-): Promise<SubrouterPermissions> {
-  if (!enforce) return { use: true, manageAccounts: true };
-  if (typeof user.listPermissions !== "function") {
-    return { use: false, manageAccounts: false };
-  }
-  const permissions = await stackAuthorizationCall(
-    () => team
-      ? user.listPermissions!(team as Team)
-      : user.listPermissions!(),
-    signal,
-  );
-  const permissionIds = new Set(permissions.map((permission) => permission.id));
-  return {
-    use: permissionIds.has("subrouter:use"),
-    manageAccounts: permissionIds.has("subrouter:manage_accounts"),
   };
 }
 
@@ -772,15 +662,6 @@ type StackUserLike = {
       readonly query?: string;
     },
   ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
-  readonly listPermissions?: {
-    (
-      scope: Team,
-      options?: { readonly recursive?: boolean },
-    ): Promise<readonly { readonly id: string }[]>;
-    (
-      options?: { readonly recursive?: boolean },
-    ): Promise<readonly { readonly id: string }[]>;
-  };
 };
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {

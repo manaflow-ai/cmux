@@ -56,7 +56,7 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void
         ...process.env,
         HOME: home,
         OPENAI_BASE_URL: `${coderouterOrigin}/v1`,
-        OPENAI_API_KEY: "crt_test-token",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: coderouterOrigin,
       },
       stdio: "ignore",
@@ -370,15 +370,61 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
-    // The build check proves the pi config generates and carries no token,
-    // and that an unreachable config endpoint writes no opencode config.
-    expect(dockerfile).toContain(
-      `grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json`,
-    );
-    expect(dockerfile).toContain("! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json");
-    expect(dockerfile).toContain(
+    // The build check proves the pi config generates with the placeholder JWT
+    // and no route-token header (the edge injects it), that every model-plane
+    // var is persisted, and that an unreachable config endpoint writes no
+    // opencode config. The same check runs in the Freestyle bake and verify.
+    for (const check of [
+      `grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json`,
+      "! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json",
+      "! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json",
       "test ! -e /tmp/agent-config-check/.config/opencode/opencode.json",
+      `grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env`,
+      `grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env`,
+    ]) {
+      expect(dockerfile).toContain(check);
+    }
+    for (const script of ["build-devbox-freestyle.ts", "verify-devbox-image.ts"]) {
+      const source = readScript(script);
+      expect(source).toContain("OPENAI_API_KEY=cmux-vm-edge-placeholder");
+      expect(source).toContain("CMUX_VM_ID=vm-check");
+      expect(source).toContain("x-coderouter-route-token");
+      expect(source).not.toContain("OPENAI_API_KEY=crt_check");
+    }
+    // No bake self-check may feed a token-shaped key into the generator.
+    expect(dockerfile).not.toContain("crt_check");
+    expect(dockerfile).not.toContain("crt_persisted");
+  });
+
+  test("agent config exports the platform CA to Node only when the file exists", () => {
+    const agentConfig = read("agent-config.sh");
+    expect(agentConfig).toContain(
+      "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/freestyle-tls.crt",
     );
+    // The export is guarded by the file's existence and does not override a
+    // user's own setting; on this host the file is absent, so nothing leaks.
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-ca-"));
+    try {
+      const result = spawnSync(
+        "sh",
+        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${NODE_EXTRA_CA_CERTS-unset}"`],
+        { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: undefined } },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout.toString()).toBe(
+        existsSync("/usr/local/share/ca-certificates/freestyle-tls.crt")
+          ? "/usr/local/share/ca-certificates/freestyle-tls.crt"
+          : "unset",
+      );
+      const kept = spawnSync(
+        "sh",
+        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "$NODE_EXTRA_CA_CERTS"`],
+        { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: "/tmp/mine.crt" } },
+      );
+      expect(kept.stdout.toString()).toBe("/tmp/mine.crt");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("agent config generator materializes the coderouter plane from boot env", () => {
@@ -392,8 +438,11 @@ describe("devbox image template", () => {
             ...process.env,
             HOME: home,
             OPENAI_BASE_URL: "https://example.invalid/v1",
-            OPENAI_API_KEY: "crt_test",
+            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
             CMUX_CODEROUTER_URL: "https://example.invalid",
+            ANTHROPIC_BASE_URL: "https://example.invalid",
+            ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder",
+            CMUX_VM_ID: "11111111-2222-4333-8444-555555555555",
           },
         },
       );
@@ -406,14 +455,24 @@ describe("devbox image template", () => {
       // instead of relying on the custom-provider default.
       expect(codex).toContain("supports_websockets = false");
       expect(codex).toContain('persistence = "save-all"');
+      // Every model-plane var is persisted generically, single-quoted.
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");
-      expect(plane).toContain("export OPENAI_API_KEY='crt_test'");
-      expect(plane).toContain("export CMUX_CODEROUTER_URL='https://example.invalid'");
-      // pi: the built-in openai-codex provider is pointed at the plane. The
-      // route token rides the x-coderouter-route-token header as an env
-      // reference pi resolves at request time; the apiKey is the public
-      // placeholder JWT (pi requires a JWT-shaped key client-side), so the
-      // file carries no secret.
+      expect(plane).toBe(
+        [
+          "# generated by cmux from machine boot env; managed, do not edit",
+          "export OPENAI_BASE_URL='https://example.invalid/v1'",
+          "export OPENAI_API_KEY='cmux-vm-edge-placeholder'",
+          "export CMUX_CODEROUTER_URL='https://example.invalid'",
+          "export ANTHROPIC_BASE_URL='https://example.invalid'",
+          "export ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'",
+          "export CMUX_VM_ID='11111111-2222-4333-8444-555555555555'",
+          "",
+        ].join("\n"),
+      );
+      // pi: the built-in openai-codex provider is pointed at the plane with
+      // the public placeholder JWT (pi requires a JWT-shaped key
+      // client-side). No route-token header is configured: the edge injects
+      // it, so the file carries no secret and no header line.
       const pi = readFileSync(path.join(home, ".pi/agent/models.json"), "utf8");
       expect(JSON.parse(pi)).toEqual({
         providers: {
@@ -422,11 +481,13 @@ describe("devbox image template", () => {
             baseUrl: "https://example.invalid/v1",
             apiKey:
               "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature",
-            headers: { "x-coderouter-route-token": "$OPENAI_API_KEY" },
           },
         },
       });
-      expect(pi).not.toContain("crt_test");
+      expect(pi).not.toContain("x-coderouter-route-token");
+      expect(pi).not.toContain("crt_");
+      // claude: env only, nothing generated.
+      expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode: the config endpoint is unreachable here, so nothing may be
       // written (the next shell retries).
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
@@ -457,11 +518,12 @@ describe("devbox image template", () => {
     });
     try {
       await sourceAgentConfig(home, server.origin);
-      expect(authorization).toBe("Bearer crt_test-token");
+      // The guest sends only the placeholder; the edge adds the route token.
+      expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
       const written = readFileSync(configPath, "utf8");
-      // The inlined route token is swapped for a runtime env reference, so a
-      // resurrected machine with a fresh token needs no rewrite.
+      // A route token the endpoint inlined is swapped for a runtime env
+      // reference (as is the placeholder itself), so no token lands on disk.
       expect(JSON.parse(written)).toEqual({
         provider: {
           go: {
@@ -526,15 +588,18 @@ describe("devbox image template", () => {
 });
 
 describe("model-plane env reaches provider creates", () => {
-  // The vm route mints coderouter model-plane env into CreateOptions.envs and
-  // the devbox agent-config generator consumes it. Freestyle has no VM-level
-  // create env, so the driver persists the file the guest sources instead.
-  test("freestyle persists the model-plane env file its guests source", () => {
+  // The workflow provisions coderouter model-plane env (placeholders) into
+  // CreateOptions.envs plus the edge rule into CreateOptions.edgeRules; the
+  // devbox agent-config generator consumes the env. Freestyle has no VM-level
+  // create env, so the driver persists the file the guest sources instead and
+  // passes the rule inline on the create.
+  test("freestyle persists the model-plane env file its guests source and passes edge rules inline", () => {
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
     expect(driver).toContain("renderFreestyleModelPlaneEnvFile");
     expect(driver).toContain("/root/.config/cmux/model-plane.env");
+    expect(driver).toContain("tls: { rules: tlsRules }");
   });
 });

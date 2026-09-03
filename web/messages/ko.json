@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
       "title": "coderouter",
-      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다."
+      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "machines": {
+        "title": "머신",
+        "description": "최근 {days}일 동안 {team}의 머신별 coderouter 사용량입니다.",
+        "machineColumn": "머신",
+        "tokensColumn": "총 토큰",
+        "apiEquivalentColumn": "API 환산 금액",
+        "unnamed": "이름 없는 머신",
+        "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
+        "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
+        "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      }
     },
     "accountMenu": {
       "label": "계정 메뉴",
