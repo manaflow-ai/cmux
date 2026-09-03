@@ -486,6 +486,7 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_2"]!.kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.viewBadge, 0, "zero views = still alive on the machine, no tab shows it")
+            XCTAssertFalse(row.isDetached, "an exited terminal with unresolved zero views is not a live detached terminal")
         } else { XCTFail("expected term_2 pool row") }
         // Pointer rows have workspace-scoped identity, no badge, and the terminal's own facts.
         if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {

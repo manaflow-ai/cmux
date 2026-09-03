@@ -294,6 +294,71 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "display:") == nil)
     }
 
+    @Test("The CLI keeps detached terminals in the final Terminals section and mirrors the sidebar order")
+    func cliTreeUsesTheFourGroupOrder() throws {
+        let workspace: [String: Any] = [
+            "id": "ws_main",
+            "name": "main",
+            "index": 0,
+            "focused": true,
+        ]
+        let machine: [String: Any] = [
+            "id": machineID,
+            "status": "running",
+            "link_state": "connected",
+            "has_desktop": true,
+            "remote_workspaces": [workspace],
+        ]
+        let visible: [String: Any] = [
+            "id": "\(machineID)/terminal/term_visible",
+            "key": "term_visible",
+            "kind": "terminal",
+            "title": "bash",
+            "lifecycle": "running",
+            "remote_workspace": workspace,
+            "remote_views": [["workspace": workspace]],
+        ]
+        let detached: [String: Any] = [
+            "id": "\(machineID)/terminal/term_detached",
+            "key": "term_detached",
+            "kind": "terminal",
+            "title": "worker",
+            "lifecycle": "running",
+            "remote_views": [[String: Any]](),
+        ]
+        let display: [String: Any] = [
+            "id": "\(machineID)/display/display:1",
+            "key": "display:1",
+            "kind": "display",
+            "title": "Desktop",
+            "detail": "noVNC",
+            "lifecycle": "running",
+        ]
+        let port: [String: Any] = [
+            "id": "\(machineID)/browser/port:3000",
+            "key": "port:3000",
+            "kind": "browser",
+            "port": 3000,
+            "detail": "http",
+            "remote_views": [[String: Any]](),
+        ]
+
+        let lines = CMUXCLI.vmTreeLines(
+            machine: machine,
+            resources: [visible, detached, display, port]
+        )
+        let workspaces = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "workspaces/" })
+        let ports = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "ports/" })
+        let displays = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "VNC Displays/" })
+        let terminals = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "terminals/" })
+
+        #expect(workspaces < ports)
+        #expect(ports < displays)
+        #expect(displays < terminals)
+        #expect(!lines[..<terminals].contains { $0.contains("term_detached") }, "a zero-view terminal is not a detached workspace child")
+        #expect(lines[terminals...].contains { $0.contains("term_detached") }, "the final Terminals section lists every machine-owned terminal")
+    }
+
     @Test("`vm workspace open` resolves a workspace the way its row does: by id, by unique name, every view counted")
     func lookupMatchesTheRow() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
