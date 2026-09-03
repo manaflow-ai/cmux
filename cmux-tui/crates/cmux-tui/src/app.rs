@@ -2397,6 +2397,13 @@ impl OrderedSession {
         self.inner.cached_surface(id)
     }
 
+    /// Whether a remote surface was retired after its process exited while
+    /// the authoritative tree still lists its tab. Local sessions keep the
+    /// handle until removal, so they always report false.
+    pub(crate) fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        self.inner.surface_is_exited(id)
+    }
+
     fn has_surface(&self, id: SurfaceId) -> bool {
         self.inner.has_surface(id)
     }
@@ -38734,6 +38741,14 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
             AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
+    }
+
+    #[test]
+    fn ordered_session_forwards_surface_exit_state_to_inner_session() {
+        let (mux, surface) = test_mux("ordered-session-exit-state-test", None);
+        let app = test_app(Session::Local(mux));
+
+        assert!(!app.session.surface_is_exited(surface.id));
     }
 
     #[test]
