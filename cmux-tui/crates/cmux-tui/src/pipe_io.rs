@@ -24,7 +24,7 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Write};
 use std::path::Path;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -61,6 +61,34 @@ const CLAIM_ERROR_CODE: &str = "claim-failed";
 
 fn log_pipe_io_error(operation: &str, error: &anyhow::Error) {
     crate::client_log::error("pipe-io", &format!("{operation}: {error}"));
+}
+
+/// Serializes stdin diagnostics with the final machine-readable exit record.
+/// The stdin pump may remain blocked in a read when the relay ends, so closing
+/// the gate stops later diagnostics without detaching an in-flight write.
+#[derive(Default)]
+struct StderrGate(Mutex<bool>);
+
+impl StderrGate {
+    fn close(&self) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+    }
+
+    fn emit_with(&self, line: String, writer: impl FnOnce(&str)) {
+        let closed = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if *closed {
+            return;
+        }
+        writer(&line);
+    }
+
+    fn diag(&self, line: String) {
+        self.emit_with(line, |line| {
+            let mut stderr = std::io::stderr().lock();
+            let _ = writeln!(stderr, "{line}");
+            let _ = stderr.flush();
+        });
+    }
 }
 
 #[cfg(unix)]
@@ -265,7 +293,8 @@ pub fn run(
             return Ok(attach_failure_exit_reason(&error));
         }
     }
-    let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
+    let stderr_gate = Arc::new(StderrGate::default());
+    let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender, stderr_gate.clone()) {
         Ok(pump) => pump,
         Err(error) => {
             let error = anyhow::Error::new(error);
@@ -280,8 +309,19 @@ pub fn run(
     };
     // On Unix, duplicate the raw stdout descriptor so VT bytes bypass the
     // standard library's line writer. The protocol flushes each event.
-    let mut stdout = pipe_io_stdout()?;
-    let reason = pump_events_to_stdout(&receiver, &lifecycle_receiver, &byte_budget, &mut stdout)?;
+    let mut stdout = match pipe_io_stdout() {
+        Ok(stdout) => stdout,
+        Err(error) => {
+            stderr_gate.close();
+            return Err(error.into());
+        }
+    };
+    let pump_result =
+        pump_events_to_stdout(&receiver, &lifecycle_receiver, &byte_budget, &mut stdout);
+    // The stdin pump can still be blocked in read(2). Close the gate before
+    // returning so no late resize/claim diagnostic can follow the exit record.
+    stderr_gate.close();
+    let reason = pump_result?;
     // Stop forwarding while the daemon probe runs. The probe has its own
     // request path, and events for the finished relay must not fill the data
     // queue or tear down a replacement transport.
@@ -401,6 +441,7 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
 fn spawn_stdin_pump(
     handle: PipeIoSurfaceHandle,
     lifecycle_sender: Sender<PipeIoEvent>,
+    stderr_gate: Arc<StderrGate>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     let remote = Arc::downgrade(&handle.remote);
     let surface = handle.surface;
@@ -409,7 +450,7 @@ fn spawn_stdin_pump(
         .spawn(move || {
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
-            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender);
+            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender, &stderr_gate);
         })
         .map_err(|error| std::io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
@@ -425,15 +466,12 @@ fn run_stdin_pump(
     remote: &Weak<RemoteSession>,
     surface: SurfaceId,
     lifecycle_sender: &Sender<PipeIoEvent>,
+    stderr_gate: &StderrGate,
 ) {
     let input_remote = remote.clone();
     let resize_remote = remote.clone();
     let claim_remote = remote.clone();
-    let mut emit_diag = |line: String| {
-        let mut stderr = std::io::stderr().lock();
-        let _ = writeln!(stderr, "{line}");
-        let _ = stderr.flush();
-    };
+    let mut emit_diag = |line: String| stderr_gate.diag(line);
     run_stdin_pump_with_handlers(
         reader,
         lifecycle_sender,
@@ -849,8 +887,9 @@ mod tests {
     fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
+        let stderr_gate = StderrGate::default();
 
-        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
+        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
 
         assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
     }
@@ -861,7 +900,8 @@ mod tests {
         for input in inputs {
             let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             let mut input = Cursor::new(input.to_vec());
-            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
+            let stderr_gate = StderrGate::default();
+            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
             assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinError);
         }
     }
