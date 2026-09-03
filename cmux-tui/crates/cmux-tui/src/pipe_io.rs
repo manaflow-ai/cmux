@@ -1628,6 +1628,42 @@ mod tests {
     }
 
     #[test]
+    fn stdin_pump_stops_on_retryable_resize_or_claim_failure() {
+        for (line, resize_case) in [
+            (r#"{"resize":{"cols":80,"rows":24}}"#, true),
+            (r#"{"claim":{"geometry":true}}"#, false),
+        ] {
+            let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+            let mut input = Cursor::new(format!("{line}\n{{\"input\":\"aGk=\"}}\n").into_bytes());
+            let mut diagnostics = Vec::new();
+
+            run_stdin_pump_with_handlers(
+                &mut input,
+                &lifecycle_sender,
+                |_bytes| PipeIoControlResult::Completed(()),
+                move |_cols, _rows| {
+                    if resize_case {
+                        PipeIoControlResult::Failed(crate::session::test_remote_transport_error())
+                    } else {
+                        PipeIoControlResult::Completed(true)
+                    }
+                },
+                move || {
+                    if resize_case {
+                        PipeIoControlResult::Completed(())
+                    } else {
+                        PipeIoControlResult::Failed(crate::session::test_remote_transport_error())
+                    }
+                },
+                |line| diagnostics.push(line),
+            );
+
+            assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
+            assert_eq!(diagnostics.len(), 1);
+        }
+    }
+
+    #[test]
     fn stdin_pump_reports_line_read_errors_as_stdin_errors() {
         let inputs = vec![b"\xff\n".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
         for input in inputs {
