@@ -10,10 +10,10 @@ import SwiftUI
 /// scrolling, and rendering are the shared terminal surface's own HIG-checked
 /// behavior, reused unchanged.
 struct CloudTerminalScreen: View {
-    let connection: CloudMachineConnection
+    let machine: CloudMachine
     let terminal: CloudTerminalSummary
+    let controller: CloudSessionController
     @State private var model = CloudTerminalScreenModel()
-    @Environment(\.cloudSessionController) private var controller
 
     var body: some View {
         CloudTerminalSurface(model: model)
@@ -22,10 +22,16 @@ struct CloudTerminalScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .overlay { statusOverlay }
             .task(id: terminal.id) {
+                // Resolve the connection here, after the push settled, never
+                // in a destination builder (observable mutation during body).
+                guard let connection = controller.connection(for: machine) else {
+                    model.markTunnelUnavailable()
+                    return
+                }
                 await model.attach(connection: connection, terminalID: terminal.id)
             }
-            .onAppear { controller?.sectionDidAppear() }
-            .onDisappear { controller?.sectionDidDisappear() }
+            .onAppear { controller.sectionDidAppear() }
+            .onDisappear { controller.sectionDidDisappear() }
     }
 
     @ViewBuilder
@@ -36,7 +42,10 @@ struct CloudTerminalScreen: View {
                 .accessibilityIdentifier("CloudTerminalAttaching")
         case .failed(let failure):
             CloudFailureRow(failure: failure) {
-                Task { await model.attach(connection: connection, terminalID: terminal.id) }
+                Task {
+                    guard let connection = controller.connection(for: machine) else { return }
+                    await model.attach(connection: connection, terminalID: terminal.id)
+                }
             }
             .padding()
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))

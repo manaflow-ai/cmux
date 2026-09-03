@@ -54,9 +54,6 @@ struct CloudTerminalCatalogContent: View {
             createSection
         }
         .listStyle(.insetGrouped)
-        .navigationDestination(for: CloudTerminalSummary.self) { terminal in
-            CloudTerminalScreen(connection: connection, terminal: terminal)
-        }
         .task { connection.refreshTerminals() }
         .refreshable { connection.refreshTerminals() }
     }
@@ -69,7 +66,7 @@ struct CloudTerminalCatalogContent: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(terminals) { terminal in
-                    NavigationLink(value: terminal) {
+                    NavigationLink(value: CloudTerminalRoute(machine: connection.machine, terminal: terminal)) {
                         Text(terminal.name ?? terminal.id)
                     }
                 }

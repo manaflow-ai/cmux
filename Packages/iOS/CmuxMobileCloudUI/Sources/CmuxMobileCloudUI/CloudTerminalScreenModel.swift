@@ -64,6 +64,11 @@ public final class CloudTerminalScreenModel {
         }
     }
 
+    /// The tunnel is not ready, so there is no connection to attach through.
+    public func markTunnelUnavailable() {
+        phase = .failed(CloudSessionFailure(kind: .tunnel, detail: "tunnel not ready"))
+    }
+
     /// Bytes the surface produced (typing, paste, mouse reports).
     public func sendInput(_ data: Data) {
         attachment?.send(data)
