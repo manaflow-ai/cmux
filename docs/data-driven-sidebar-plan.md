@@ -34,7 +34,7 @@ Full machine catalog: `cmux capabilities` (method list) — should be generated 
 Query methods returning structured payloads (project all into the `data` tree):
 - `workspace.list` / `workspace.current` / `workspace.group.list` — id, ref, title, description, selected, pinned, listening_ports, remote, current_directory, custom_color, latest_conversation_message, latest_submitted_message, latest_submitted_at, index.
 - `extension.sidebar.snapshot` (richest) — adds root_path, project_root_path, branch_summary, remote_display_target, remote_connection_state, unread_count, latest_notification_text, pull_request_urls, panel_directories, git_branches. (`TerminalController.swift:5525`)
-- `surface.list` / `surface.current` — id, ref, index, type, title, focused, pane_id, working dir, initial_command, resume_binding; browser: developer_tools_visible. (`:8615`)
+- `surface.list` — id, ref, index, type, title, focused, pane_id, working dir, initial_command, resume_binding; file-backed previews: file_path; browser: developer_tools_visible. `surface.current` returns the focused surface identity and type. (`:8615`)
 - `pane.list`, `window.list`/`window.current`, `notification.list`, `feed.list`, `vm.list`, `auth.status`, `workspace.remote.status`.
 
 Underlying model (`Workspace.swift:10243+`) carries even more per-workspace/per-surface state: `gitBranch`/`panelGitBranches` (branch + dirty), `pullRequest`/`panelPullRequests`, `surfaceListeningPorts`, `remote*` (connection state, detected/forwarded/conflicting ports, live SSH session count), `latestConversationMessage`/`latestSubmittedMessage`, `progress`, `logEntries`, `statusEntries`, `metadataBlocks`, `manualUnreadPanelIds`, `panelShellActivityStates`, `agentPIDs`/`agentPIDPanelIdsByKey`.
