@@ -34,6 +34,17 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: lhs, .. }, Self::Workspace { id: rhs, .. }) => lhs == rhs,
+            (Self::Pane { pane: lhs, .. }, Self::Pane { pane: rhs, .. }) => lhs == rhs,
+            (Self::Surface { surface: lhs, .. }, Self::Surface { surface: rhs, .. }) => lhs == rhs,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -82,7 +93,11 @@ impl ProjectionRailState {
             return;
         }
         if let Some(target) = self.selected_target {
-            if let Some(index) = rows.iter().position(|row| row.target == target) {
+            if let Some(index) = rows
+                .iter()
+                .position(|row| row.target == target)
+                .or_else(|| rows.iter().position(|row| row.target.same_resource(target)))
+            {
                 self.selected = index;
                 return;
             }
@@ -607,9 +622,11 @@ mod tests {
         let mut state = ProjectionRailState { selected: 1, ..Default::default() };
         state.reconcile_selection(&initial);
 
+        let mut moved_tree = tree.clone();
+        moved_tree.workspaces[0].screens[0].panes[0].tabs.insert(0, tab(7, "moved before"));
         let reordered = rows(
             &spec,
-            &tree,
+            &moved_tree,
             &agents([("blocked", 1), ("working", 20), ("blocked", 40)]),
             0,
             &HashSet::new(),
