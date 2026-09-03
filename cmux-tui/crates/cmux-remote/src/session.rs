@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::link::{FrameLink, LinkError};
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const SCHEDULER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const SCHEDULER_ABORT_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -529,7 +530,13 @@ impl ReliableSession {
         // Stop ACK production first. Lane writers keep an already admitted
         // frame in flight, then observe cancellation after the link closes.
         self.scheduler.request_shutdown();
-        let link_result = self.link.close().await.map_err(SessionError::Link);
+        let link_result = match tokio::time::timeout(SESSION_CLOSE_TIMEOUT, self.link.close()).await
+        {
+            Ok(result) => result.map_err(SessionError::Link),
+            Err(_) => {
+                Err(SessionError::Link(LinkError::Transport("timed out closing link".into())))
+            }
+        };
         let scheduler_result = self.scheduler.wait_for_shutdown().await;
         match (link_result, scheduler_result) {
             (Err(error), _) => Err(error),
