@@ -67,8 +67,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
-        guard row < 0 else { return super.menu(for: event) }
-        return workspaceController?.emptyAreaMenu()
+        guard row >= 0 else { return workspaceController?.emptyAreaMenu() }
+        // AppKit can ask the table for a Control-click but the cell for a
+        // physical right-click. Resolve the row here so both gestures reach
+        // the same live cell-owned menu provider.
+        return workspaceController?.menu(forRow: row, event: event)
+            ?? super.menu(for: event)
     }
 
     private func updatePointer(with event: NSEvent) {

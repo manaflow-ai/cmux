@@ -2051,6 +2051,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         actions?.createEmptyWorkspaceGroup()
     }
 
+    func menu(forRow row: Int, event: NSEvent) -> NSMenu? {
+        guard rows.indices.contains(row),
+              let table = containerView?.tableView else { return nil }
+        let cell: NSView
+        switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+        case let workspaceCell as SidebarWorkspaceRowTableCellView:
+            cell = workspaceCell
+        case let headerCell as SidebarGroupHeaderTableCellView:
+            cell = headerCell
+        default:
+            // Hosted SwiftUI rows retain their existing responder-chain path.
+            return nil
+        }
+
+        return SidebarWorkspaceContextMenuResolver(rowView: cell).menu(for: event)
+    }
+
     func emptyAreaMenu() -> NSMenu {
         let menu = NSMenu()
         let item = NSMenuItem(
