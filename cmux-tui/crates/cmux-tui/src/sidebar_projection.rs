@@ -9,7 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
-use crate::config::{SidebarResourceKind, SidebarViewSpec};
+use crate::config::{
+    AgentRowFilter, AgentSortMode, SidebarResourceKind, SidebarViewScope, SidebarViewSpec,
+};
 use crate::session::{AgentInfo, TreeView};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,6 +41,22 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    /// Compare the projected resource identity while ignoring positions that
+    /// can change when a fresh tree snapshot is rebuilt.
+    pub(crate) fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: left, .. }, Self::Workspace { id: right, .. }) => left == right,
+            (Self::Pane { pane: left, .. }, Self::Pane { pane: right, .. }) => left == right,
+            (
+                Self::Surface { surface: left, agent: left_agent, .. },
+                Self::Surface { surface: right, agent: right_agent, .. },
+            ) => left == right && left_agent == right_agent,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -46,6 +64,7 @@ pub(crate) struct ProjectionRow {
     pub name: String,
     pub subtitle: String,
     pub agent_state: Option<String>,
+    pub agent_label: Option<String>,
     pub active: bool,
     pub branch: Option<ProjectionBranch>,
     pub expanded: bool,
@@ -57,6 +76,8 @@ pub(crate) struct ProjectionRailState {
     /// Selected resource-row index. Action selection is tracked separately so
     /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    /// Stable resource identity for preserving selection when rows reorder.
+    pub selected_target: Option<ProjectionTarget>,
     pub selected_action: Option<usize>,
     pub scroll: usize,
     pub footer_scroll: usize,
@@ -64,114 +85,56 @@ pub(crate) struct ProjectionRailState {
     pub collapsed: HashSet<ProjectionBranch>,
 }
 
-/// Reusable ordering for agent rows. The order changes only when the agent
-/// roster or terminal topology changes, so renders can reuse the index.
-#[derive(Default)]
-pub(crate) struct AgentOrderCache {
-    key: Option<AgentOrderCacheKey>,
-    order: Vec<SurfaceId>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct AgentOrderCacheKey {
-    tree_workspace_revision: u64,
-    tree_pane_revision: Option<u64>,
-    tree_surfaces: Vec<SurfaceId>,
-    agents: Vec<(SurfaceId, u8, u64)>,
-}
-
-impl AgentOrderCache {
-    fn ordered_surfaces(&mut self, tree: &TreeView, agents: &[AgentInfo]) -> &[SurfaceId] {
-        let cache_is_valid = self.key.as_ref().is_some_and(|key| {
-            if key.tree_workspace_revision != tree.workspace_revision
-                || key.tree_pane_revision != tree.pane_revision
-                || key.agents.len() != agents.len()
-            {
-                return false;
-            }
-            if !key.agents.iter().zip(agents).all(
-                |(&(surface, attention, updated_at_ms), agent)| {
-                    (surface, attention, updated_at_ms)
-                        == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
-                },
-            ) {
-                return false;
-            }
-            tree_surface_sequence_matches(tree, &key.tree_surfaces)
-        });
-        if cache_is_valid {
-            return &self.order;
-        }
-
-        let tree_surfaces = tree
-            .workspaces()
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .map(|tab| tab.surface)
-            .collect::<Vec<_>>();
-        let agent_metadata = agents
-            .iter()
-            .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
-            .collect::<Vec<_>>();
-        let agent_keys = agents
-            .iter()
-            .map(|agent| {
-                (
-                    agent.surface,
-                    (u8::MAX - agent_attention(&agent.state), u64::MAX - agent.updated_at_ms),
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        let mut indexed = tree_surfaces
-            .iter()
-            .enumerate()
-            .filter_map(|(index, surface)| {
-                agent_keys
-                    .get(surface)
-                    .map(|&(attention, recency)| (attention, recency, index, *surface))
-            })
-            .collect::<Vec<_>>();
-        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
-        self.order = indexed.into_iter().map(|(_, _, _, surface)| surface).collect();
-        self.key = Some(AgentOrderCacheKey {
-            tree_workspace_revision: tree.workspace_revision,
-            tree_pane_revision: tree.pane_revision,
-            tree_surfaces,
-            agents: agent_metadata,
-        });
-        &self.order
-    }
-}
-
-fn tree_surface_sequence_matches(tree: &TreeView, expected: &[SurfaceId]) -> bool {
-    let mut expected = expected.iter();
-    for surface in tree
-        .workspaces()
-        .iter()
-        .flat_map(|workspace| workspace.screens.iter())
-        .flat_map(|screen| screen.panes.iter())
-        .flat_map(|pane| pane.tabs.iter())
-        .map(|tab| tab.surface)
-    {
-        if expected.next() != Some(&surface) {
-            return false;
-        }
-    }
-    expected.next().is_none()
-}
-
 impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
             selected: 0,
+            selected_target: None,
             selected_action: None,
             scroll: 0,
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
         }
+    }
+}
+
+impl ProjectionRailState {
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if rows.is_empty() {
+            self.selected = 0;
+            self.selected_target = None;
+            return;
+        }
+        if let Some(target) = self.selected_target
+            && let Some((index, row)) =
+                rows.iter().enumerate().find(|(_, row)| row.target.same_resource(target))
+        {
+            self.selected = index;
+            self.selected_target = Some(row.target);
+            return;
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
+    }
+}
+
+/// Return the workspace-selection component that can affect this projection.
+/// Flat all-scoped tab/agent views enumerate every workspace themselves, and
+/// workspace rows do the same. Keeping those views independent of the current
+/// highlight lets their snapshots survive a highlight-only move.
+pub(crate) fn selected_workspace_cache_key(
+    spec: &SidebarViewSpec,
+    selected_workspace: usize,
+) -> Option<usize> {
+    match spec.levels.first().copied() {
+        Some(SidebarResourceKind::Panes) => Some(selected_workspace),
+        Some(SidebarResourceKind::Tabs | SidebarResourceKind::Agents)
+            if spec.scope != SidebarViewScope::All =>
+        {
+            Some(selected_workspace)
+        }
+        _ => None,
     }
 }
 
@@ -182,25 +145,22 @@ struct ProjectionContext {
     pane: Option<PaneId>,
 }
 
-#[cfg(test)]
+/// Surfaces whose CURRENT idle state the user has already looked at. Seen
+/// is per-client presentation state (derived from this client's focus
+/// history), never journal state: two attached clients can rank the same
+/// idle agent differently, which is correct for a per-viewer property.
+pub(crate) type SeenIdleSurfaces = HashSet<SurfaceId>;
+
 pub(crate) fn rows(
     spec: &SidebarViewSpec,
+    // The EFFECTIVE sort mode: the caller resolves the client-local runtime
+    // override over `spec.sort`. The filter always comes from the spec.
+    sort: AgentSortMode,
     tree: &TreeView,
     agents: &[AgentInfo],
+    seen_idle: &SeenIdleSurfaces,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
-) -> Vec<ProjectionRow> {
-    let mut order_cache = AgentOrderCache::default();
-    rows_cached(spec, tree, agents, selected_workspace, collapsed, &mut order_cache)
-}
-
-pub(crate) fn rows_cached(
-    spec: &SidebarViewSpec,
-    tree: &TreeView,
-    agents: &[AgentInfo],
-    selected_workspace: usize,
-    collapsed: &HashSet<ProjectionBranch>,
-    order_cache: &mut AgentOrderCache,
 ) -> Vec<ProjectionRow> {
     // Workspace rows are the common projection and can reach roughly 1000
     // entries. Reserve that baseline up front so a render does not repeatedly
@@ -208,36 +168,117 @@ pub(crate) fn rows_cached(
     let mut rows = Vec::with_capacity(tree.workspaces().len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
-    // Tabs and other resource views keep tree order. Do not walk the full
-    // topology to prepare an agent index when this view has no agent level.
-    let agent_order = if spec.levels.contains(&SidebarResourceKind::Agents) {
-        order_cache.ordered_surfaces(tree, agents)
-    } else {
-        &[]
-    };
     append_level(
         &mut rows,
         &spec.levels,
+        spec.scope,
+        sort,
+        &spec.filter,
         0,
         None,
         tree,
         &agents_by_surface,
-        agent_order,
+        seen_idle,
         selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
     rows
 }
 
+/// Priority order and seen semantics derived from herdr
+/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
+/// (src/app/agent_view.rs), modified by manaflow.
+///
+/// herdr's agent priority order: a blocked agent waits on a human, an idle
+/// agent the user has not looked at yet carries unreviewed output, a working
+/// agent is in flight, and a seen idle agent is at rest.
+fn agent_priority(state: &str, seen: bool) -> u8 {
+    match state {
+        "blocked" => 4,
+        "idle" if !seen => 3,
+        "working" => 2,
+        "idle" => 1,
+        _ => 0,
+    }
+}
+
+/// Everything one agents row exposes to sorting; sorting and filtering
+/// derived from herdr (https://github.com/herdrdev/herdr), Apache-2.0,
+/// commit 7b675f42af35 (src/app/agent_view.rs `apply_agent_view` /
+/// `compare_entries`), modified by manaflow: herdr's per-view sort field
+/// lists are collapsed into the five named modes cmux exposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentSortFields {
+    pub(crate) priority: u8,
+    pub(crate) updated_at_ms: u64,
+    /// Row name, lowercased for case-insensitive ordering.
+    pub(crate) name: String,
+    /// Adapter id ("claude", "codex", ...); empty sorts after named agents.
+    pub(crate) agent: String,
+    pub(crate) state: String,
+    /// Tree-order position, the final tie breaker in every mode.
+    pub(crate) index: usize,
+}
+
+pub(crate) fn compare_agent_rows(
+    mode: AgentSortMode,
+    a: &AgentSortFields,
+    b: &AgentSortFields,
+) -> std::cmp::Ordering {
+    let recency = |a: &AgentSortFields, b: &AgentSortFields| b.updated_at_ms.cmp(&a.updated_at_ms);
+    let ordering = match mode {
+        AgentSortMode::Priority => b.priority.cmp(&a.priority).then_with(|| recency(a, b)),
+        AgentSortMode::Recency => recency(a, b),
+        AgentSortMode::Name => a.name.cmp(&b.name).then_with(|| recency(a, b)),
+        // Empty adapter ids (a tab the roster knows only through a socket
+        // report) sort after named agents rather than before everything.
+        AgentSortMode::Agent => a
+            .agent
+            .is_empty()
+            .cmp(&b.agent.is_empty())
+            .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| recency(a, b)),
+        AgentSortMode::State => a.state.cmp(&b.state).then_with(|| recency(a, b)),
+    };
+    ordering.then_with(|| a.index.cmp(&b.index))
+}
+
+/// Whether one agents row survives the view filter. Criteria combine with
+/// AND; an empty criterion keeps everything.
+pub(crate) fn agent_row_passes_filter(
+    filter: &AgentRowFilter,
+    agent_id: Option<&str>,
+    state: &str,
+    seen: bool,
+) -> bool {
+    if !filter.agents.is_empty()
+        && !agent_id.is_some_and(|id| filter.agents.iter().any(|wanted| wanted == id))
+    {
+        return false;
+    }
+    if !filter.states.is_empty() && !filter.states.iter().any(|wanted| wanted == state) {
+        return false;
+    }
+    if let Some(wanted) = filter.seen
+        && seen != wanted
+    {
+        return false;
+    }
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 fn append_level(
     output: &mut Vec<ProjectionRow>,
     levels: &[SidebarResourceKind],
+    scope: SidebarViewScope,
+    sort: AgentSortMode,
+    filter: &AgentRowFilter,
     depth: usize,
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
-    agent_order: &[SurfaceId],
+    seen_idle: &SeenIdleSurfaces,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -255,6 +296,7 @@ fn append_level(
                     name: workspace.name.clone(),
                     subtitle: workspace.short_id.clone(),
                     agent_state: None,
+                    agent_label: None,
                     active: workspace_index == tree.active_workspace,
                     branch,
                     expanded,
@@ -267,6 +309,9 @@ fn append_level(
                     append_level(
                         output,
                         levels,
+                        scope,
+                        sort,
+                        filter,
                         depth + 1,
                         Some(ProjectionContext {
                             workspace: workspace_index,
@@ -275,7 +320,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
-                        agent_order,
+                        seen_idle,
                         selected_workspace,
                         collapsed,
                     );
@@ -304,6 +349,7 @@ fn append_level(
                         name: pane.display_name().to_string(),
                         subtitle: pane.short_id.clone(),
                         agent_state: None,
+                        agent_label: None,
                         active: workspace_index == tree.active_workspace
                             && screen_index == workspace.active_screen
                             && pane.id == screen.active_pane,
@@ -319,6 +365,9 @@ fn append_level(
                         append_level(
                             output,
                             levels,
+                            scope,
+                            sort,
+                            filter,
                             depth + 1,
                             Some(ProjectionContext {
                                 workspace: workspace_index,
@@ -327,7 +376,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
-                            agent_order,
+                            seen_idle,
                             selected_workspace,
                             collapsed,
                         );
@@ -337,97 +386,144 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
-            // Agents views sort by (attention desc, recency desc): a blocked
-            // agent outranks a working one regardless of age, and within a
-            // bucket the latest transition floats up. Tab views keep tree
-            // order. The herdr-style idle-unseen bucket needs frontend focus
-            // history and is deferred.
-            let mut agent_entries = HashMap::<SurfaceId, ProjectionRow>::new();
-            let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
-            for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                if context.is_some_and(|context| {
-                    context.screen.is_some_and(|candidate| candidate != screen_index)
-                }) {
-                    continue;
-                }
-                for pane in &screen.panes {
+            // A flat `all`-scoped view sweeps every workspace; the historical
+            // behavior scopes the flat view to the selected workspace and a
+            // nested view to its parent context.
+            let all_workspaces = context.is_none() && scope == SidebarViewScope::All;
+            let workspace_indices: Vec<usize> = if all_workspaces {
+                (0..tree.workspaces().len()).collect()
+            } else {
+                vec![context.map_or(selected_workspace, |context| context.workspace)]
+            };
+            // Complexity note: this is the only O(A log A) projection path,
+            // where A is the agent-row count of the view. Every other path
+            // appends in O(A). The ignored 1000-workspace fixture below is
+            // the measurement hook for this intentional tradeoff, without
+            // claiming a local timing.
+            //
+            // Agents views sort by the effective mode (priority is herdr's
+            // attention order; recency, name, agent, and state are the
+            // cycle alternatives); the tree-order index breaks exact ties
+            // in every mode.
+            let mut entries: Vec<(AgentSortFields, ProjectionRow)> = Vec::new();
+            for workspace_index in workspace_indices {
+                let Some(workspace) = tree.workspaces().get(workspace_index) else { continue };
+                for (screen_index, screen) in workspace.screens.iter().enumerate() {
                     if context.is_some_and(|context| {
-                        context.pane.is_some_and(|candidate| candidate != pane.id)
+                        context.screen.is_some_and(|candidate| candidate != screen_index)
                     }) {
                         continue;
                     }
-                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
-                        let agent = agents.get(&tab.surface).copied();
-                        if agent_only && agent.is_none() {
+                    for pane in &screen.panes {
+                        if context.is_some_and(|context| {
+                            context.pane.is_some_and(|candidate| candidate != pane.id)
+                        }) {
                             continue;
                         }
-                        let name = tab
-                            .name
-                            .as_deref()
-                            .filter(|name| !name.is_empty())
-                            .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
-                            .unwrap_or(tab.short_id.as_str())
-                            .to_string();
-                        let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
-                            agent
-                                .session
+                        for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                            let agent = agents.get(&tab.surface).copied();
+                            if agent_only
+                                && (agent.is_none()
+                                    || agent.is_some_and(|agent| agent.state == "unknown"))
+                            {
+                                continue;
+                            }
+                            if agent_only
+                                && let Some(agent) = agent
+                                && !agent_row_passes_filter(
+                                    filter,
+                                    agent.agent.as_deref(),
+                                    &agent.state,
+                                    seen_idle.contains(&agent.surface),
+                                )
+                            {
+                                continue;
+                            }
+                            let name = tab
+                                .name
                                 .as_deref()
-                                .filter(|session| !session.is_empty())
-                                .unwrap_or(pane.short_id.as_str())
-                                .to_string()
-                        } else {
-                            pane.short_id.clone()
-                        };
-                        let row = ProjectionRow {
-                            resource,
-                            depth: depth as u16,
-                            name,
-                            subtitle,
-                            agent_state: agent
-                                .filter(|_| agent_only)
-                                .map(|agent| agent.state.clone()),
-                            active: workspace_index == tree.active_workspace
-                                && screen_index == workspace.active_screen
-                                && pane.id == screen.active_pane
-                                && pane.active_tab == tab_index,
-                            branch: None,
-                            expanded: false,
-                            target: ProjectionTarget::Surface {
-                                workspace: workspace_index,
-                                screen: screen_index,
-                                pane: pane.id,
-                                index: tab_index,
-                                surface: tab.surface,
-                                agent: agent_only,
-                            },
-                        };
-                        if agent_only {
-                            debug_assert!(agent.is_some(), "agent rows are filtered above");
-                            agent_entries.insert(tab.surface, row);
-                        } else {
-                            output.push(row);
+                                .filter(|name| !name.is_empty())
+                                .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
+                                // An untitled agent tab reads better as its
+                                // agent type than as a short id.
+                                .or_else(|| {
+                                    agent
+                                        .filter(|_| agent_only)
+                                        .and_then(|agent| agent.agent.as_deref())
+                                })
+                                .unwrap_or(tab.short_id.as_str())
+                                .to_string();
+                            let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
+                                agent
+                                    .session
+                                    .as_deref()
+                                    .filter(|session| !session.is_empty())
+                                    .unwrap_or_else(|| {
+                                        // In an all-workspaces sweep the
+                                        // workspace locates the agent better
+                                        // than a pane short id.
+                                        if all_workspaces {
+                                            workspace.name.as_str()
+                                        } else {
+                                            pane.short_id.as_str()
+                                        }
+                                    })
+                                    .to_string()
+                            } else {
+                                pane.short_id.clone()
+                            };
+                            let sort_fields = agent.filter(|_| agent_only).map(|agent| {
+                                let seen = seen_idle.contains(&agent.surface);
+                                AgentSortFields {
+                                    priority: agent_priority(&agent.state, seen),
+                                    updated_at_ms: agent.updated_at_ms,
+                                    name: name.to_lowercase(),
+                                    agent: agent.agent.clone().unwrap_or_default(),
+                                    state: agent.state.clone(),
+                                    // Tree-order tie breaker, assigned on push.
+                                    index: 0,
+                                }
+                            });
+                            let row = ProjectionRow {
+                                resource,
+                                depth: depth as u16,
+                                name,
+                                subtitle,
+                                agent_state: agent
+                                    .filter(|_| agent_only)
+                                    .map(|agent| agent.state.clone()),
+                                agent_label: agent
+                                    .filter(|_| agent_only)
+                                    .and_then(|agent| agent.agent.clone()),
+                                active: workspace_index == tree.active_workspace
+                                    && screen_index == workspace.active_screen
+                                    && pane.id == screen.active_pane
+                                    && pane.active_tab == tab_index,
+                                branch: None,
+                                expanded: false,
+                                target: ProjectionTarget::Surface {
+                                    workspace: workspace_index,
+                                    screen: screen_index,
+                                    pane: pane.id,
+                                    index: tab_index,
+                                    surface: tab.surface,
+                                    agent: agent_only,
+                                },
+                            };
+                            match sort_fields {
+                                Some(mut fields) => {
+                                    fields.index = entries.len();
+                                    entries.push((fields, row));
+                                }
+                                None => output.push(row),
+                            }
                         }
                     }
                 }
             }
-            for surface in agent_order {
-                if let Some(row) = agent_entries.remove(surface) {
-                    output.push(row);
-                }
-            }
+            entries.sort_by(|(a, _), (b, _)| compare_agent_rows(sort, a, b));
+            output.extend(entries.into_iter().map(|(_, row)| row));
         }
-    }
-}
-
-/// How urgently an agent state needs the user: blocked agents wait on a
-/// human, working agents may block next, idle agents are at rest.
-fn agent_attention(state: &str) -> u8 {
-    match state {
-        "blocked" => 3,
-        "working" => 2,
-        "idle" => 1,
-        _ => 0,
     }
 }
 
@@ -435,6 +531,7 @@ fn agent_attention(state: &str) -> u8 {
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::time::Instant;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -500,7 +597,174 @@ mod tests {
             width: 22,
             max_width: 0,
             collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }
+    }
+
+    fn sort_fields(
+        priority: u8,
+        updated_at_ms: u64,
+        name: &str,
+        agent: &str,
+        state: &str,
+        index: usize,
+    ) -> AgentSortFields {
+        AgentSortFields {
+            priority,
+            updated_at_ms,
+            name: name.into(),
+            agent: agent.into(),
+            state: state.into(),
+            index,
+        }
+    }
+
+    #[test]
+    fn sort_modes_order_rows_by_their_own_field_and_recency() {
+        use crate::config::AgentSortMode::*;
+        use std::cmp::Ordering;
+        let blocked_old = sort_fields(4, 10, "beta", "codex", "blocked", 0);
+        let working_new = sort_fields(2, 90, "alpha", "claude", "working", 1);
+
+        // Priority: the blocked agent outranks newer working output.
+        assert_eq!(compare_agent_rows(Priority, &blocked_old, &working_new), Ordering::Less);
+        // Recency: newest state change first.
+        assert_eq!(compare_agent_rows(Recency, &blocked_old, &working_new), Ordering::Greater);
+        // Name: case-insensitive ascending ("alpha" < "beta").
+        assert_eq!(compare_agent_rows(Name, &blocked_old, &working_new), Ordering::Greater);
+        // Agent: adapter id ascending ("claude" < "codex").
+        assert_eq!(compare_agent_rows(Agent, &blocked_old, &working_new), Ordering::Greater);
+        // State: state name ascending ("blocked" < "working").
+        assert_eq!(compare_agent_rows(State, &blocked_old, &working_new), Ordering::Less);
+
+        // An adapter-less row sorts after named agents in agent mode.
+        let unnamed = sort_fields(2, 99, "zeta", "", "working", 2);
+        assert_eq!(compare_agent_rows(Agent, &working_new, &unnamed), Ordering::Less);
+
+        // Identical fields fall back to tree order in every mode.
+        let twin_a = sort_fields(2, 50, "same", "claude", "working", 0);
+        let twin_b = sort_fields(2, 50, "same", "claude", "working", 1);
+        for mode in [Priority, Recency, Name, Agent, State] {
+            assert_eq!(compare_agent_rows(mode, &twin_a, &twin_b), Ordering::Less);
+        }
+    }
+
+    #[test]
+    fn sort_cycle_visits_every_mode_and_wraps() {
+        use crate::config::AgentSortMode::*;
+        let mut mode = Priority;
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            mode = mode.cycle_next();
+            seen.push(mode);
+        }
+        assert_eq!(seen, vec![Recency, Name, Agent, State, Priority]);
+    }
+
+    #[test]
+    fn agent_row_filter_ands_its_criteria() {
+        let filter = crate::config::AgentRowFilter {
+            agents: vec!["claude".into()],
+            states: vec!["blocked".into(), "working".into()],
+            seen: None,
+        };
+        assert!(agent_row_passes_filter(&filter, Some("claude"), "blocked", false));
+        // Wrong adapter fails even in a kept state.
+        assert!(!agent_row_passes_filter(&filter, Some("codex"), "blocked", false));
+        // Kept adapter in a filtered-out state fails.
+        assert!(!agent_row_passes_filter(&filter, Some("claude"), "idle", false));
+        // An adapter-less row cannot pass an agent criterion.
+        assert!(!agent_row_passes_filter(&filter, None, "blocked", false));
+
+        // The seen criterion is its own AND leg.
+        let unseen_only = crate::config::AgentRowFilter {
+            agents: Vec::new(),
+            states: Vec::new(),
+            seen: Some(false),
+        };
+        assert!(agent_row_passes_filter(&unseen_only, Some("claude"), "idle", false));
+        assert!(!agent_row_passes_filter(&unseen_only, Some("claude"), "idle", true));
+
+        // An empty filter keeps everything and reads inactive.
+        let empty = crate::config::AgentRowFilter::default();
+        assert!(agent_row_passes_filter(&empty, None, "unknown", true));
+        assert!(!empty.is_active());
+    }
+
+    #[test]
+    fn view_filter_hides_rows_and_alternate_sorts_reorder_them() {
+        let tree = tree();
+        let agents = vec![
+            AgentInfo {
+                surface: 5,
+                state: "idle".into(),
+                source: "hook".into(),
+                session: None,
+                agent: Some("claude".into()),
+                updated_at_ms: 50,
+            },
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "detected".into(),
+                session: None,
+                agent: Some("codex".into()),
+                updated_at_ms: 100,
+            },
+        ];
+
+        // Priority: unseen idle (3) outranks working (2).
+        let mut agents_spec = spec(vec![SidebarResourceKind::Agents]);
+        let rows_priority = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        // Recency reorders the same rows without touching the spec.
+        let rows_recency = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Recency,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert_eq!(rows_priority.len(), 2);
+        assert_eq!(rows_recency.len(), 2);
+        assert_eq!(rows_priority[0].agent_label.as_deref(), Some("claude"));
+        assert_eq!(rows_recency[0].agent_label.as_deref(), Some("codex"));
+        assert_eq!(
+            rows_priority[0].agent_state.as_deref(),
+            Some("idle"),
+            "priority ranks unseen idle first"
+        );
+
+        // A state filter hides the idle row entirely.
+        agents_spec.filter = crate::config::AgentRowFilter {
+            agents: Vec::new(),
+            states: vec!["blocked".into(), "working".into()],
+            seen: None,
+        };
+        let filtered = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].agent_label.as_deref(), Some("codex"));
+        assert!(agents_spec.filter.is_active());
     }
 
     #[test]
@@ -516,8 +780,10 @@ mod tests {
         }];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &agents,
+            &HashSet::new(),
             0,
             &HashSet::new(),
         );
@@ -541,8 +807,10 @@ mod tests {
         collapsed.insert(ProjectionBranch::Workspace(1));
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &[],
+            &HashSet::new(),
             0,
             &collapsed,
         );
@@ -560,8 +828,10 @@ mod tests {
                 SidebarResourceKind::Panes,
                 SidebarResourceKind::Tabs,
             ]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &[],
+            &HashSet::new(),
             0,
             &HashSet::new(),
         );
@@ -582,60 +852,220 @@ mod tests {
     }
 
     #[test]
-    fn screen_detect_agents_view_sorts_by_attention_then_recency() {
-        let mut tree = tree();
-        tree.workspaces_mut()[0].screens[0].panes[0].tabs = vec![
-            tab(4, "idle-late"),
-            tab(5, "working-old"),
-            tab(6, "blocked-old"),
-            tab(7, "working-new"),
-            tab(8, "shell"),
-        ];
-        let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
-            surface,
-            state: state.into(),
-            source: "detected".into(),
-            session: None,
-            agent: Some("codex".into()),
-            updated_at_ms,
-        };
-        // The most recent update is an idle agent: attention still outranks
-        // recency, so blocked > working > idle, newest first inside buckets.
-        let agents = vec![
-            agent(4, "idle", 90),
-            agent(5, "working", 30),
-            agent(6, "blocked", 10),
-            agent(7, "working", 40),
-        ];
-        let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
-
-        let order: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
-        assert_eq!(order, vec!["blocked-old", "working-new", "working-old", "idle-late"]);
-
-        // Tab views keep tree order even when agents are present.
-        let tabs = rows_tab_order(&tree, &agents);
-        assert_eq!(tabs, vec!["idle-late", "working-old", "blocked-old", "working-new", "shell"]);
-    }
-
-    fn rows_tab_order(tree: &TreeView, agents: &[AgentInfo]) -> Vec<String> {
-        rows(&spec(vec![SidebarResourceKind::Tabs]), tree, agents, 0, &HashSet::new())
-            .into_iter()
-            .map(|row| row.name)
-            .collect()
-    }
-
-    #[test]
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
-        let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
+            &tree(),
+            &[],
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         assert!(rows.is_empty());
     }
 
     #[test]
-    fn agent_order_cache_reuses_order_until_roster_or_tree_changes() {
-        let mut tree = tree();
-        tree.workspaces_mut()[0].screens[0].panes[0].tabs =
-            vec![tab(4, "working"), tab(5, "blocked")];
+    fn agent_projection_hides_unknown_records_at_its_boundary() {
+        let agents = vec![AgentInfo {
+            surface: 5,
+            state: "unknown".into(),
+            source: "hook".into(),
+            session: None,
+            agent: None,
+            updated_at_ms: 1,
+        }];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
+            &tree(),
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert!(rows.is_empty());
+    }
+
+    fn workspace(
+        id: WorkspaceId,
+        name: &str,
+        pane: PaneId,
+        surfaces: [SurfaceId; 2],
+    ) -> WorkspaceView {
+        WorkspaceView {
+            id,
+            resource_id: None,
+            key: format!("workspace-{id}"),
+            short_id: format!("w{id}"),
+            name: name.into(),
+            screens: vec![ScreenView {
+                id: id + 100,
+                resource_id: None,
+                short_id: format!("s{id}"),
+                name: None,
+                layout: Node::Leaf(pane),
+                active_pane: pane,
+                zoomed_pane: None,
+                viewport_base_width: None,
+                viewport_splits: Default::default(),
+                panes: vec![PaneView {
+                    id: pane,
+                    resource_id: None,
+                    short_id: format!("p{pane}"),
+                    name: None,
+                    tabs: vec![tab(surfaces[0], "claude"), tab(surfaces[1], "codex")],
+                    active_tab: 0,
+                    focused_at: 0,
+                }],
+            }],
+            active_screen: 0,
+        }
+    }
+
+    fn tree_from_workspaces(workspaces: Vec<WorkspaceView>) -> TreeView {
+        TreeView::from_parts(workspaces, 1, Some(1), 0)
+    }
+
+    #[test]
+    fn all_scope_agents_sweep_workspaces_by_priority() {
+        let tree = tree_from_workspaces(vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ]);
+        let agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "idle".into(),
+                source: "hook".into(),
+                session: Some("older task".into()),
+                agent: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 900,
+            },
+            AgentInfo {
+                surface: 12,
+                state: "done".into(),
+                source: "hook".into(),
+                session: Some("finished task".into()),
+                agent: None,
+                updated_at_ms: 500,
+            },
+        ];
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        // The selected workspace must not scope the sweep.
+        let rows =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
+
+        assert_eq!(rows.len(), 3, "agents from every workspace appear");
+        let order: Vec<u64> = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(order, vec![11, 22, 12], "unseen idle > working > everything else");
+        assert_eq!(rows[0].agent_state.as_deref(), Some("idle"));
+        assert_eq!(rows[1].agent_state.as_deref(), Some("working"));
+        assert_eq!(
+            rows[1].subtitle, "beta",
+            "a session-less agent names its workspace in an all sweep"
+        );
+        assert_eq!(rows[2].agent_state.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn workspace_scope_keeps_the_selected_workspace_filter() {
+        let tree = tree_from_workspaces(vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ]);
+        let agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            1,
+            &HashSet::new(),
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
+    }
+
+    #[test]
+    fn workspace_scoped_agents_keep_tree_order() {
+        let tree = tree();
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 900,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 100,
+            },
+        ];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        let surfaces = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(surfaces, vec![4, 5]);
+    }
+
+    #[test]
+    fn agents_view_priority_ranks_blocked_unseen_working_seen_with_recency_ties() {
+        let tree = tree_from_workspaces(vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ]);
         let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
             surface,
             state: state.into(),
@@ -644,90 +1074,143 @@ mod tests {
             agent: Some("codex".into()),
             updated_at_ms,
         };
-        let mut agents = vec![agent(4, "working", 10), agent(5, "blocked", 1)];
-        let mut cache = AgentOrderCache::default();
-        let first = rows_cached(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-            &mut cache,
-        );
-        assert_eq!(
-            first.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
-            ["blocked", "working"]
-        );
-        let cached_order = cache.order.clone();
-        let _ = rows_cached(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-            &mut cache,
-        );
-        assert_eq!(cache.order, cached_order);
+        // The blocked agent is the OLDEST update and still ranks first;
+        // the idle agents split on the client-local seen bit around the
+        // newest (working) agent.
+        let agents = vec![
+            agent(11, "idle", 500),
+            agent(12, "blocked", 100),
+            agent(21, "working", 900),
+            agent(22, "idle", 700),
+        ];
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let seen: SeenIdleSurfaces = [22].into_iter().collect();
+        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
 
-        agents[0].updated_at_ms = 20;
-        let _ = rows_cached(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-            &mut cache,
-        );
-        assert_eq!(cache.order, vec![5, 4]);
+        let order: Vec<u64> = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(order, vec![12, 11, 21, 22], "blocked > idle-unseen > working > idle-seen");
 
-        agents[0].updated_at_ms = 1;
-        agents[1].state = "working".into();
-        let _ = rows_cached(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-            &mut cache,
-        );
-        assert_eq!(cache.order, vec![4, 5]);
-        tree.workspaces_mut()[0].screens[0].panes[0].tabs.reverse();
-        let rows = rows_cached(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-            &mut cache,
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
-            ["blocked", "working"]
-        );
+        // Marking the remaining idle agent seen drops it below working.
+        let seen: SeenIdleSurfaces = [11, 22].into_iter().collect();
+        let reranked =
+            super::rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
+        let order: Vec<u64> = reranked
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(order, vec![12, 21, 22, 11], "seen idle sorts by recency after working");
     }
 
     #[test]
-    fn tabs_view_does_not_build_agent_order_cache() {
-        let tree = tree();
-        let agents = vec![AgentInfo {
-            surface: 4,
-            state: "working".into(),
-            source: "detected".into(),
-            session: None,
-            agent: Some("codex".into()),
-            updated_at_ms: 1,
-        }];
-        let mut cache = AgentOrderCache::default();
-
-        let _ = rows_cached(
-            &spec(vec![SidebarResourceKind::Tabs]),
+    fn selection_reconciles_by_surface_when_agent_recency_reorders_rows() {
+        let tree = tree_from_workspaces(vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ]);
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let initial_agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let initial = rows(
+            &all_spec,
+            all_spec.sort,
             &tree,
-            &agents,
+            &initial_agents,
+            &HashSet::new(),
             0,
             &HashSet::new(),
-            &mut cache,
         );
+        let selected_target = initial[1].target;
+        let mut state = ProjectionRailState {
+            selected: 1,
+            selected_target: Some(selected_target),
+            ..ProjectionRailState::default()
+        };
 
-        assert!(cache.key.is_none());
+        let updated_agents = vec![
+            AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
+            initial_agents[1].clone(),
+        ];
+        let reordered = rows(
+            &all_spec,
+            all_spec.sort,
+            &tree,
+            &updated_agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert_ne!(reordered[1].target, selected_target);
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected_target, Some(selected_target));
+        assert_eq!(reordered[state.selected].target, selected_target);
+    }
+
+    /// Manual performance fixture for the intentional all-scope agent sort.
+    /// Run with `--ignored --nocapture` when a hosted or local timing sample is
+    /// needed. This test records no threshold and makes no timing claim.
+    #[test]
+    #[ignore = "manual projection performance measurement"]
+    fn benchmark_all_scope_agents_at_thousand_workspaces() {
+        let tree = tree_from_workspaces(
+            (0..1_000)
+                .map(|index| {
+                    workspace(
+                        index as WorkspaceId + 1,
+                        "workspace",
+                        index as PaneId + 10,
+                        [index as SurfaceId + 100, index as SurfaceId + 10_100],
+                    )
+                })
+                .collect(),
+        );
+        let agents = (0..1_000)
+            .map(|index| AgentInfo {
+                surface: index as SurfaceId + 100,
+                state: "working".into(),
+                source: "fixture".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: index as u64,
+            })
+            .collect::<Vec<_>>();
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+
+        let started = Instant::now();
+        let projected =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
+        eprintln!(
+            "all-scope agent projection: {} rows in {:?}",
+            projected.len(),
+            started.elapsed()
+        );
+        assert_eq!(projected.len(), 1_000);
     }
 }
