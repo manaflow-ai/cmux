@@ -55,6 +55,17 @@ final class MobileHostIrxRuntime {
     private var authObservationTask: Task<Void, Never>?
     private var activeAccountID: String?
     private var activationTask: Task<Void, Never>?
+
+    /// Consecutive failed activation attempts for the current account.
+    private var activationFailureCount = 0
+
+    /// Activation retries start at 5 s and grow to 10 minutes. Each attempt
+    /// costs the broker two challenge+register rounds and a relay mint, so a
+    /// host that cannot activate must not keep paying that every few seconds.
+    private static let activationRetrySchedule = CmxIrohRetrySchedule(
+        initialDelay: 5,
+        maximumDelay: 600
+    )
     /// Changes on every (de)activation; per-connection supervisors compare it.
     private var generationToken = UUID()
 
@@ -149,12 +160,31 @@ final class MobileHostIrxRuntime {
         Self.journal.record("host-runtime", "activating", ["account": accountID])
         setSettingsPhase(.activating)
         activationTask = Task { @MainActor [weak self] in
-            await self?.activate(accountID: accountID)
+            await self?.runActivationLoop(accountID: accountID)
         }
     }
 
-    private func activate(accountID: String) async {
-        guard let auth else { return }
+    /// Drives activation attempts until one succeeds or the account changes.
+    ///
+    /// Iteration, not recursion: a Mac that cannot activate for hours would
+    /// otherwise accumulate one suspended async frame per attempt.
+    private func runActivationLoop(accountID: String) async {
+        activationFailureCount = 0
+        while !Task.isCancelled {
+            guard let retryDelay = await activate(accountID: accountID) else {
+                return
+            }
+            try? await Task.sleep(for: .seconds(retryDelay))
+            guard !Task.isCancelled, activeAccountID == accountID else { return }
+        }
+    }
+
+    /// One activation attempt. Returns the delay before the next attempt, or
+    /// `nil` when no further attempt should be made (success, cancellation, or
+    /// a superseding activation).
+    @discardableResult
+    private func activate(accountID: String) async -> TimeInterval? {
+        guard let auth else { return nil }
         generationToken = UUID()
         let token = generationToken
         // The control-plane client now starts EARLY in activation (before the
@@ -172,7 +202,7 @@ final class MobileHostIrxRuntime {
         else {
             Self.journal.record("host-runtime", "activation-failed", ["reason": "environment"])
             setSettingsPhase(.failed)
-            return
+            return nil
         }
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
@@ -269,7 +299,7 @@ final class MobileHostIrxRuntime {
             if let persisted = await listStore.loadPersisted() {
                 listBox.replace(persisted)
             }
-            guard generationToken == token else { return }
+            guard generationToken == token else { return nil }
 
             // Control-plane socket: hint announcements out (instant phone
             // propagation, the signed HTTPS registration stays authoritative),
@@ -349,7 +379,7 @@ final class MobileHostIrxRuntime {
             _ = try await broker.discover()
             noteLiveDiscoverySucceeded()
 
-            guard generationToken == token else { return }
+            guard generationToken == token else { return nil }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
             // Advertise the relay the endpoint ACTUALLY homes on, then
             // refresh the binding so registry consumers see it too.
@@ -389,6 +419,8 @@ final class MobileHostIrxRuntime {
                 ]
             )
             setSettingsPhase(.active)
+            activationFailureCount = 0
+            return nil
         } catch {
             Self.journal.record(
                 "host-runtime", "activation-failed",
@@ -399,12 +431,31 @@ final class MobileHostIrxRuntime {
                 // flicker in Settings); success or an account change clears it.
                 setSettingsPhase(.failed)
             }
-            // One bounded retry ladder, reset by the auth observation loop on
-            // account change: retry activation after 5s while still desired.
-            try? await Task.sleep(for: .seconds(5))
-            if generationToken == token, activeAccountID == accountID {
-                await activate(accountID: accountID)
+            // A failed activation costs two challenge+register rounds and a
+            // relay mint against the broker. A flat 5s ladder therefore turned
+            // one wedged Mac into ~0.4 broker writes per second forever, and
+            // enough of them exhausted the auth provider's project-wide rate
+            // limit for every other client. Back off exponentially, honor a
+            // server-supplied Retry-After as a floor, and iterate rather than
+            // recurse so a long outage cannot grow the async frame chain.
+            guard generationToken == token, activeAccountID == accountID else {
+                return nil
             }
+            activationFailureCount += 1
+            let delay = Self.activationRetrySchedule.delay(
+                failureCount: activationFailureCount - 1,
+                retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
+                    .retryAfterSeconds,
+                jitterUnitInterval: Double.random(in: 0...1)
+            )
+            Self.journal.record(
+                "host-runtime", "activation-retry",
+                [
+                    "failures": String(activationFailureCount),
+                    "delay_s": String(Int(delay)),
+                ]
+            )
+            return delay
         }
     }
 

@@ -85,18 +85,112 @@ struct IrxRelayCredentialPolicyTests {
         #expect(eagerRefresh == eager.refreshAfter)
     }
 
-    @Test("mint-failure retry accelerates toward expiry, floor 1s")
-    func retryDelay() {
+    @Test("mint-failure retry accelerates toward expiry while credentials live")
+    func retryDelayWithLiveCredentials() {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let far = IrxRelayCredentialPolicy.retryDelay(
-            expiresAt: now.addingTimeInterval(200), now: now)
+            expiresAt: now.addingTimeInterval(200),
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
         #expect(far == .seconds(100))
-        let near = IrxRelayCredentialPolicy.retryDelay(
-            expiresAt: now.addingTimeInterval(1), now: now)
-        #expect(near == .seconds(1))
-        let past = IrxRelayCredentialPolicy.retryDelay(
-            expiresAt: now.addingTimeInterval(-5), now: now)
-        #expect(past == .seconds(1))
+        // Halving continues regardless of how many attempts already failed:
+        // the deadline, not the failure count, sets the pace here.
+        let repeated = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: now.addingTimeInterval(200),
+            now: now,
+            consecutiveFailures: 6,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        #expect(repeated == .seconds(100))
+    }
+
+    @Test("with nothing cached the retry backs off instead of looping once a second")
+    func retryDelayWithoutCredentials() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        // The regression: passing `now` as the expiry (what an empty credential
+        // list produced) used to pin every retry at one second forever.
+        let first = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        #expect(first == .seconds(5))
+        let fourth = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 4,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        #expect(fourth == .seconds(40))
+        let saturated = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 99,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        #expect(saturated == .seconds(300))
+        // An already-expired credential set is the same "no deadline" case.
+        let expired = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: now.addingTimeInterval(-5),
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        #expect(expired == .seconds(5))
+    }
+
+    @Test("jitter only lengthens the cold retry, never shortens it")
+    func retryDelayJitter() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let jittered = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 1
+        )
+        #expect(jittered == .seconds(6.25))
+        #expect(jittered > .seconds(5))
+    }
+
+    @Test("a server Retry-After is a floor in both regimes")
+    func retryDelayHonorsRetryAfter() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        // Live credentials would have retried in 10s; the broker said 60.
+        let live = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: now.addingTimeInterval(20),
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: 60,
+            jitterUnitInterval: 0
+        )
+        #expect(live == .seconds(60))
+        let cold = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 1,
+            retryAfterSeconds: 45,
+            jitterUnitInterval: 0
+        )
+        #expect(cold == .seconds(45))
+        // A shorter Retry-After never overrides a longer computed backoff.
+        let ignored = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: nil,
+            now: now,
+            consecutiveFailures: 6,
+            retryAfterSeconds: 2,
+            jitterUnitInterval: 0
+        )
+        #expect(ignored == .seconds(160))
     }
 
     @Test("usability requires margin over expiry")

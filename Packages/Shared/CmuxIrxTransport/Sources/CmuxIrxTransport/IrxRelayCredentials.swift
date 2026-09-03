@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// One endpoint-bound relay credential (EdDSA JWT, ~300s TTL). The relay
@@ -38,15 +39,55 @@ public enum IrxRelayCredentialPolicy {
         return base.addingTimeInterval(-max(0, min(jitter, 10)))
     }
 
-    /// On mint failure, retry at half the remaining validity (floor 1s), so
-    /// retries accelerate as expiry approaches instead of backing off past it.
+    /// The first retry delay when there is no credential deadline to race.
+    static let coldRetryFloor: TimeInterval = 5
+    /// The largest retry delay this policy will ever produce.
+    static let coldRetryCeiling: TimeInterval = 300
+
+    /// How long to wait before minting again after a failure.
+    ///
+    /// Two regimes, because they answer different questions:
+    ///
+    /// - Credentials are live and expiring. There is a real deadline, so
+    ///   retry at half the remaining validity: attempts accelerate toward
+    ///   expiry rather than backing off past it.
+    /// - Nothing usable is cached (first mint, or after a purge). There is no
+    ///   deadline, so back off exponentially from ``coldRetryFloor``. The old
+    ///   policy passed `now` as the expiry here, which made `remaining` zero
+    ///   and pinned the retry at one second forever: a single wedged device
+    ///   minted once a second indefinitely, and enough of them exhausted the
+    ///   auth provider's project-wide rate limit for every other client.
+    ///
+    /// A server-supplied `Retry-After` is a floor in both regimes. Asking
+    /// again before it elapses cannot succeed and only deepens the throttle.
     public static func retryDelay(
-        expiresAt: Date,
-        now: Date
+        expiresAt: Date?,
+        now: Date,
+        consecutiveFailures: Int,
+        retryAfterSeconds: Int?,
+        jitterUnitInterval: Double = Double.random(in: 0...1)
     ) -> Duration {
-        let remaining = expiresAt.timeIntervalSince(now)
-        guard remaining > 2 else { return .seconds(1) }
-        return .seconds(remaining / 2)
+        let serverFloor = retryAfterSeconds.map { TimeInterval(max(0, $0)) } ?? 0
+        let remaining = expiresAt.map { $0.timeIntervalSince(now) } ?? 0
+        let base: TimeInterval
+        if remaining > 2 {
+            base = remaining / 2
+        } else {
+            // Zero-based: the first failure waits the floor, not double it.
+            let steps = Double(min(max(0, consecutiveFailures - 1), 10))
+            let exponential = coldRetryFloor * pow(2, steps)
+            let bounded = min(coldRetryCeiling, exponential)
+            let jitter = min(1, max(0, jitterUnitInterval))
+            // Jitter above the floor only, so a fleet that failed together
+            // does not retry together.
+            base = bounded + bounded * 0.25 * jitter
+        }
+        return .seconds(max(base, serverFloor))
+    }
+
+    /// The retry floor the broker asked for, when the failure carried one.
+    public static func retryAfterSeconds(for error: any Error) -> Int? {
+        (error as? any CmxRetryAfterProviding)?.retryAfterSeconds
     }
 }
 
