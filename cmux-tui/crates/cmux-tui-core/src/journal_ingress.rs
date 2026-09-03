@@ -2788,6 +2788,30 @@ mod tests {
     }
 
     #[test]
+    fn failed_admission_fence_blocks_enqueue_after_shutdown_drain() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let _admission = receivers.state.enqueue_admission.lock().unwrap();
+        let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
+        let enqueue = std::thread::spawn(move || {
+            sender.try_send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("shutdown-fence"),
+                occurred_at_ms: 1,
+                bytes: b"must not enqueue".to_vec(),
+            })
+        });
+
+        let failure = receivers.state.fail("session journal stopped".into());
+        complete_queued_error(&receivers, &failure);
+        drop(_admission);
+        let result = enqueue.join().expect("admission sender must not panic");
+        assert!(matches!(result, Err(JournalIngressTrySendError::Failed { .. })));
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
+    }
+
+    #[test]
     fn saturated_durable_ingress_does_not_block_terminal_output() {
         let (sender, receivers) = JournalIngressSender::new(true);
         let receivers = receivers.unwrap();
