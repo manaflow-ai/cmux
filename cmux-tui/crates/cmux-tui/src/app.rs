@@ -10328,7 +10328,7 @@ impl App {
         };
         let tree = &self.tree;
         let selected_workspace = self.sidebar_workspace_selection;
-        self.projection_rows_cache.get_or_build(&spec.id, revision, || {
+        self.projection_rows_cache.get_or_build(&spec.id, &revision, || {
             crate::sidebar_projection::rows(spec, tree, agents, selected_workspace, &collapsed)
         })
     }
