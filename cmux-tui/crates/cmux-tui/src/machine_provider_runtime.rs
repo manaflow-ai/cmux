@@ -148,6 +148,28 @@ struct ProviderMachineConnectionLease {
     close_permit: Option<ProviderClosePermit>,
 }
 
+struct ProviderCloseCleanup {
+    registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing: Arc<Mutex<HashSet<MachineKey>>>,
+    key: MachineKey,
+    connection_id: protocol::OpaqueId,
+}
+
+impl Drop for ProviderCloseCleanup {
+    fn drop(&mut self) {
+        if let Ok(mut registry) = self.registry.lock()
+            && registry
+                .get(&self.key)
+                .is_some_and(|open| open.connection_id == self.connection_id)
+        {
+            registry.remove(&self.key);
+        }
+        if let Ok(mut closing_keys) = self.closing.lock() {
+            closing_keys.remove(&self.key);
+        }
+    }
+}
+
 impl Drop for ProviderMachineConnectionLease {
     fn drop(&mut self) {
         // Provider close is an RPC and may block on a remote provider. Keep
@@ -155,32 +177,28 @@ impl Drop for ProviderMachineConnectionLease {
         // threads through the runtime-owned close worker.
         let client = Arc::clone(&self.open.client);
         let connection_id = self.open.connection_id.clone();
-        let registry_connection_id = connection_id.clone();
         let key = self.key;
         let registry = Arc::clone(&self.registry);
         let closing = Arc::clone(&self.closing);
         if let Ok(mut closing_keys) = closing.lock() {
             closing_keys.insert(key);
         }
+        let cleanup = ProviderCloseCleanup {
+            registry: Arc::clone(&registry),
+            closing: Arc::clone(&closing),
+            key,
+            connection_id: connection_id.clone(),
+        };
         let permit = self.close_permit.take().expect("provider connection owns a close permit");
         if let Err(error) = self.close_worker.schedule_reserved(
             permit,
             Box::new(move || {
+                let _cleanup = cleanup;
                 if let Err(error) = client.close_machine(connection_id) {
                     crate::client_log::stderr_log!(
                         "provider",
                         "cmux-tui: failed to close provider machine connection: {error}"
                     );
-                }
-                if let Ok(mut registry) = registry.lock()
-                    && registry
-                        .get(&key)
-                        .is_some_and(|open| open.connection_id == registry_connection_id)
-                {
-                    registry.remove(&key);
-                }
-                if let Ok(mut closing_keys) = closing.lock() {
-                    closing_keys.remove(&key);
                 }
             }),
         ) {
