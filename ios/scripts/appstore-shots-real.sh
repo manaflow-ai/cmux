@@ -113,6 +113,31 @@ for root in tree:
 '
 }
 
+reply_value() {
+  axe describe-ui --udid "$UDID" 2>/dev/null | python3 -c '
+import json, sys
+tree = json.load(sys.stdin)
+def walk(n):
+    yield n
+    for c in n.get("children") or []:
+        yield from walk(c)
+for root in tree:
+    for n in walk(root):
+        value = n.get("AXValue")
+        if value:
+            print(value)
+'
+}
+
+clear_focused_text() {
+  # SpringBoard's inline field does not consistently honor Cmd+A. Repeated
+  # backspaces are slower but deterministic for this short, newly focused
+  # reply field and prevent a fallback from appending to a partial injection.
+  for _ in $(seq 1 80); do
+    axe key 42 --udid "$UDID" >/dev/null 2>&1 || true
+  done
+}
+
 # Use the simulator pasteboard for the prompt. HID text injection can lose or
 # reorder characters in SwiftUI TextEditor, which is unacceptable in a store
 # screenshot. The simulator's Cmd+A/Cmd+V path is stable across phone and iPad
@@ -289,21 +314,47 @@ if [ "$CLASS" = "iphone" ] && [ "$SKIP_LOCK" = "0" ]; then
   wait_label "Claude finished" 15 contains || true
   XY="$(ax_find "Claude finished" contains || ax_find "cmux agent" contains || echo "220 680")"
   cx="${XY%% *}"; cy="${XY##* }"
-  # A pair of down/up events is not a real SpringBoard long press. IDB's
-  # duration flag keeps the contact continuous so the notification expands;
-  # the expanded card exposes View, which opens the exact inline-reply editor.
+  # Try a real HID long press first. Some simulator runtimes expose the
+  # notification's View action only after the notification is swiped left, so
+  # use that documented SpringBoard path as a deterministic fallback.
   idb ui tap --udid "$UDID" --duration 1.5 "$cx" "$cy" >/dev/null 2>&1 || true
   sleep 2
-  if wait_label "View" 5 exact; then
+  if ! ax_find "View" exact >/dev/null 2>&1 && ! ax_find "Reply" exact >/dev/null 2>&1; then
+    axe swipe --start-x 350 --start-y "$cy" --end-x 120 --end-y "$cy" \
+      --duration 0.4 --udid "$UDID" >/dev/null
+    sleep 1.5
+  fi
+  if wait_label "View" 8 exact; then
     tap_label "View"
-  elif wait_label "Reply" 5 exact; then
+  elif wait_label "Reply" 8 exact; then
     tap_label "Reply"
+  else
+    echo "lock-screen notification did not expose View or Reply" >&2
+    exit 1
   fi
   sleep 1.5
-  # idb's text injection is less lossy than the per-character HID path for a
-  # long reply. The field is newly empty, so no destructive clearing is needed.
+  # The field is newly empty. Prefer IDB, then fall back to axe, and verify the
+  # resulting AXValue before saving the screenshot so a dropped character can
+  # never reach the listing. Clear between attempts so a partial injection is
+  # never accidentally appended to.
   idb ui text --udid "$UDID" "$REPLY_TEXT" >/dev/null 2>&1 || axe type "$REPLY_TEXT" --udid "$UDID"
   sleep 1
+  if ! reply_value | grep -Fqx "$REPLY_TEXT"; then
+    clear_focused_text
+    axe type "$REPLY_TEXT" --udid "$UDID"
+    sleep 1
+  fi
+  if ! reply_value | grep -Fqx "$REPLY_TEXT"; then
+    clear_focused_text
+    printf '%s' "$REPLY_TEXT" | xcrun simctl pbcopy "$UDID"
+    axe key-combo --modifiers 227 --key 4 --udid "$UDID" >/dev/null
+    axe key-combo --modifiers 227 --key 25 --udid "$UDID" >/dev/null
+    sleep 1
+  fi
+  reply_value | grep -Fqx "$REPLY_TEXT" || {
+    echo "inline reply text mismatch before capture" >&2
+    exit 1
+  }
   shot 05-LockReply
   # `post` consumes lock shots from the dedicated lockshot directory. Keep the
   # live capture there as well as in the raw capture directory so
