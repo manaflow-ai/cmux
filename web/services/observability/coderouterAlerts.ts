@@ -59,6 +59,15 @@ type RouteEventRow = {
   readonly c: number;
 };
 
+type RouteEventCounts = {
+  readonly total: number;
+  readonly operatorFailures: number;
+  readonly upstreamFailures: number;
+  readonly noUsableAccount: number;
+  readonly authRejected: number;
+  readonly noUsableAccountTeams: ReadonlySet<string>;
+};
+
 export type CoderouterAlertDependencies = {
   readonly env?: Record<string, string | undefined>;
   readonly fetch?: AlertFetch;
@@ -162,13 +171,7 @@ export async function runCoderouterAlertChecks(
     }
   } else {
     const rows = events.rows;
-    const total = sum(rows);
-    const operatorRows = rows.filter((row) => isOperatorFailure(row));
-    const upstreamRows = rows.filter((row) => isUpstreamFailure(row));
-    const noAccountRows = rows.filter((row) =>
-      row.outcome === "no_usable_account" &&
-      (row.failure_stage === "account_selection" || row.failure_stage === "provider_config"));
-    const authRows = rows.filter((row) => row.outcome === "unauthorized");
+    const counts = aggregateRouteEvents(rows);
     const evaluate = async (
       key: string,
       count: number,
@@ -180,26 +183,26 @@ export async function runCoderouterAlertChecks(
       if (triggered) await send({ key, ...alert() });
     };
 
-    const operatorCount = sum(operatorRows);
+    const operatorCount = counts.operatorFailures;
     await evaluate("coderouter-operator-failures", operatorCount, thresholds.operatorFailures, () => ({
       title: "coderouter failed requests on our side",
       body: [
-        `${operatorCount} of ${total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider.`,
+        `${operatorCount} of ${counts.total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider.`,
         "Check RDS, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter_provider_unavailable.",
       ].join(" "),
       severity: "critical",
     }));
 
-    const upstreamCount = sum(upstreamRows);
+    const upstreamCount = counts.upstreamFailures;
     await evaluate("coderouter-upstream-failures", upstreamCount, thresholds.upstreamFailures, () => ({
       title: "coderouter upstream providers are failing",
-      body: `${upstreamCount} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Check provider health and routing configuration.`,
+      body: `${upstreamCount} of ${counts.total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Check provider health and routing configuration.`,
       severity: "warning",
     }));
 
-    const noAccountCount = sum(noAccountRows);
+    const noAccountCount = counts.noUsableAccount;
     await evaluate("coderouter-no-usable-account", noAccountCount, thresholds.noUsableAccount, () => {
-      const teamCount = boundedUniqueTeamCount(noAccountRows, 10);
+      const teamCount = counts.noUsableAccountTeams.size;
       const teamLabel = teamCount === 10 ? "at least 10" : String(teamCount);
       return {
         title: "coderouter teams have no usable account",
@@ -208,7 +211,7 @@ export async function runCoderouterAlertChecks(
       };
     });
 
-    const authCount = sum(authRows);
+    const authCount = counts.authRejected;
     await evaluate("coderouter-auth-rejected", authCount, thresholds.authRejected, () => ({
       title: "coderouter route tokens are being rejected",
       body: `${authCount} unauthorized requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes. A revoked edge token, a broken \`cr login\`, or a scan.`,
@@ -247,19 +250,29 @@ function isUpstreamFailure(row: RouteEventRow): boolean {
     (row.failure_stage === "credential_refresh" || row.failure_stage === "upstream_transport");
 }
 
-function sum(rows: readonly RouteEventRow[]): number {
-  return rows.reduce((acc, row) => acc + (Number.isFinite(row.c) ? row.c : 0), 0);
-}
-
-function boundedUniqueTeamCount(rows: readonly RouteEventRow[], limit: number): number {
-  const teamIds = new Set<string>();
+function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts {
+  let total = 0;
+  let operatorFailures = 0;
+  let upstreamFailures = 0;
+  let noUsableAccount = 0;
+  let authRejected = 0;
+  const noUsableAccountTeams = new Set<string>();
   for (const row of rows) {
-    const teamId = row.team_id.trim();
-    if (!teamId) continue;
-    teamIds.add(teamId);
-    if (teamIds.size >= limit) return limit;
+    const count = Number.isFinite(row.c) ? row.c : 0;
+    total += count;
+    if (isOperatorFailure(row)) operatorFailures += count;
+    if (isUpstreamFailure(row)) upstreamFailures += count;
+    if (row.outcome === "no_usable_account" &&
+      (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
+      noUsableAccount += count;
+      if (noUsableAccountTeams.size < 10) {
+        const teamId = row.team_id.trim();
+        if (teamId) noUsableAccountTeams.add(teamId);
+      }
+    }
+    if (row.outcome === "unauthorized") authRejected += count;
   }
-  return teamIds.size;
+  return { total, operatorFailures, upstreamFailures, noUsableAccount, authRejected, noUsableAccountTeams };
 }
 
 /**
