@@ -32,6 +32,15 @@ extension TerminalController: ControlCommandContext {
             return body(self)
         }
     }
+
+    /// The refresh-free twin used by the dispatch preflight: the same
+    /// `v2MainSync` hop, without the topology sweep the preflight does not
+    /// need (see the protocol requirement's doc).
+    nonisolated func controlMainSyncWithoutRefreshingRefs<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        v2MainSync { body(self) }
+    }
 }
 
 /// The window-domain witnesses are the byte-faithful bodies of the former

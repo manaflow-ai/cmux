@@ -68,6 +68,13 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
+        // An explicit target the registry cannot resolve is a stale or
+        // malformed ref, not "no target": fail before any command can fall
+        // back to the focused/selected object and act on it (issue #9410).
+        // Runs after the caller's known-ref refresh, so every live object
+        // already has a ref.
+        if let unresolved = unresolvedTargetError(request) { return unresolved }
+
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
@@ -120,6 +127,12 @@ public final class ControlCommandCoordinator {
         _ request: ControlRequest,
         context: (any ControlCommandContext)?
     ) -> ControlCallResult? {
+        // The worker lane's twin of the main-lane preflight: an explicit
+        // target that cannot be resolved must not degrade into the focused
+        // fallback here either (issue #9410).
+        if let unresolved = unresolvedTargetErrorOnWorkerLane(request, context: context) {
+            return unresolved
+        }
         switch request.method {
         case "surface.list":
             return surfaceList(request.params, context: context)
@@ -267,7 +280,7 @@ public final class ControlCommandCoordinator {
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).
-    func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
+    nonisolated func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
         guard let value = params[key] else { return false }
         if case .null = value { return false }
         return true
