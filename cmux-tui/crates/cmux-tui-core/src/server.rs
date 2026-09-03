@@ -18914,6 +18914,30 @@ mod tests {
     }
 
     #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+    }
+
+    #[test]
     fn guarded_browser_pointer_commands_require_a_numeric_frame_guard() {
         for cmd in ["browser-mouse-guarded", "browser-wheel-guarded"] {
             let mut request = json!({
