@@ -4,10 +4,13 @@ public import Observation
 /// Owns the phone's cloud tunnel and machine list for as long as the Cloud
 /// section is on screen and the app is in the foreground.
 ///
-/// Lifecycle (decision 5A): the tunnel comes up when the section appears,
-/// goes down when it disappears or the app backgrounds, and comes back on
-/// foreground while the section is still showing. Every transition is a
-/// method call from a view or scene-phase callback; nothing here uses timers.
+/// Lifecycle (decision 5A): the tunnel comes up when the Cloud surface
+/// appears, goes down when it disappears or the app backgrounds, and comes
+/// back on foreground while it is still showing. "Showing" is a lease count:
+/// every Cloud screen (section, catalog, terminal) holds one while on screen,
+/// so pushing the catalog over the section does not drop the tunnel when the
+/// section's own `onDisappear` fires. Every transition is a method call from
+/// a view or scene-phase callback; nothing here uses timers.
 @MainActor
 @Observable
 public final class CloudSessionController {
@@ -15,8 +18,10 @@ public final class CloudSessionController {
     public private(set) var tunnel: CloudTunnelPhase = .idle
     /// The account's machines.
     public private(set) var machines: CloudListPhase<CloudMachine> = .idle
-    /// Whether the section currently wants a tunnel.
-    public private(set) var sectionIsVisible = false
+    /// How many Cloud screens are on screen; the tunnel is wanted while > 0.
+    public private(set) var visibleScreenCount = 0
+    /// Whether any Cloud screen is on screen.
+    public var sectionIsVisible: Bool { visibleScreenCount > 0 }
     /// Whether the scene is in the foreground.
     public private(set) var isForeground = true
 
@@ -65,15 +70,16 @@ public final class CloudSessionController {
 
     // MARK: - Lifecycle
 
-    /// The Cloud section came on screen.
+    /// A Cloud screen (section, catalog, or terminal) came on screen.
     public func sectionDidAppear() {
-        sectionIsVisible = true
+        visibleScreenCount += 1
         reconcile()
     }
 
-    /// The Cloud section left the screen.
+    /// A Cloud screen left the screen. The tunnel drops only when the last
+    /// one is gone.
     public func sectionDidDisappear() {
-        sectionIsVisible = false
+        visibleScreenCount = max(0, visibleScreenCount - 1)
         reconcile()
     }
 

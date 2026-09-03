@@ -13,6 +13,7 @@ struct CloudTerminalScreen: View {
     let connection: CloudMachineConnection
     let terminal: CloudTerminalSummary
     @State private var model = CloudTerminalScreenModel()
+    @Environment(\.cloudSessionController) private var controller
 
     var body: some View {
         CloudTerminalSurface(model: model)
@@ -23,6 +24,8 @@ struct CloudTerminalScreen: View {
             .task(id: terminal.id) {
                 await model.attach(connection: connection, terminalID: terminal.id)
             }
+            .onAppear { controller?.sectionDidAppear() }
+            .onDisappear { controller?.sectionDidDisappear() }
     }
 
     @ViewBuilder
