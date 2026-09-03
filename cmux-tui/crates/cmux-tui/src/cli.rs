@@ -229,7 +229,10 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
+                if matches!(
+                    *action,
+                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                ) =>
             {
                 Some(format!("server {action}"))
             }
@@ -783,6 +786,17 @@ mod tests {
         assert!(
             scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
         );
+    }
+
+    #[test]
+    fn server_stats_help_routes_to_the_stats_topic() {
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["server", "stats", "--help"])).unwrap()
+        else {
+            panic!("server stats help must produce a scoped help topic");
+        };
+        assert_eq!(topic, "server stats");
+        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
     }
 
     #[test]
