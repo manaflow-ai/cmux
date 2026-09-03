@@ -298,10 +298,6 @@ try {
   // stock Ubuntu scripts stay but go silent, Freestyle's static /etc/motd is
   // emptied, and the versions the banner prints are written once here (the
   // agent line straight from the Dockerfile pins) so login never runs a tool.
-  // The model-plane env is the same bytes for every machine (an alias host the
-  // edge routes per deployment), so it is baked and create writes nothing.
-  await vm.fs.writeFile(VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), { mode: 0o644 });
-  await step("model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && env -i HOME=/tmp/mp-check bash -c '. /etc/cmux/agent-config.sh; echo $OPENAI_BASE_URL' | grep -q '^https://' && rm -rf /tmp/mp-check && echo model-plane-env-baked`);
   await put("cmux-motd", "/etc/update-motd.d/00-cmux", 0o755);
   await step(
     "motd",
@@ -458,6 +454,12 @@ try {
     `mkdir -p /usr/local/share/blesh/state.d && chmod a+rwxt /usr/local/share/blesh/state.d && for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
   );
 
+  // The model-plane env is the same bytes for every machine (an alias host the
+  // edge routes per deployment), so it is baked and create writes nothing. It
+  // goes in after every layer that opens a login shell: once it exists, any
+  // shell materializes the harness configs, and the image must carry none.
+  await vm.fs.writeFile(VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), { mode: 0o644 });
+  await step("model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && env -i HOME=/tmp/mp-check bash -c '. /etc/cmux/agent-config.sh; echo $OPENAI_BASE_URL' | grep -q '^https://' && rm -rf /tmp/mp-check && echo model-plane-env-baked`);
   // Stamp last: its presence tells the driver and the verifier every layer
   // above baked successfully, and which layers the image carries.
   await step(
