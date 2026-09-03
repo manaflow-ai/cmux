@@ -16654,12 +16654,13 @@ impl App {
             let destination = self.input_destination(&input);
             // Input aimed at a placeholder depends on that placeholder's own
             // create, not merely on the latest one.
-            let placeholder_intent = destination.filter(|id| is_placeholder_id(*id)).and_then(|id| {
-                self.create_placeholders
-                    .iter()
-                    .find(|placeholder| placeholder.surface() == id)
-                    .map(|placeholder| placeholder.intent)
-            });
+            let placeholder_intent =
+                destination.filter(|id| is_placeholder_id(*id)).and_then(|id| {
+                    self.create_placeholders
+                        .iter()
+                        .find(|placeholder| placeholder.surface() == id)
+                        .map(|placeholder| placeholder.intent)
+                });
             let semantic_dependency = if client_owned {
                 None
             } else {
@@ -17004,9 +17005,8 @@ impl App {
         let placeholder =
             self.create_placeholders.iter().find(|placeholder| placeholder.pane() == pane)?;
         match placeholder.kind {
-            CreatePlaceholderKind::Pane { anchor } | CreatePlaceholderKind::Split { anchor, .. } => {
-                Some(anchor)
-            }
+            CreatePlaceholderKind::Pane { anchor }
+            | CreatePlaceholderKind::Split { anchor, .. } => Some(anchor),
             CreatePlaceholderKind::Tab { pane } => Some(pane),
             CreatePlaceholderKind::Workspace => None,
         }
@@ -31039,29 +31039,32 @@ mod tests {
 
     /// A remote session whose creates block until `release` receives a token
     /// per create, then are refused with the PTY-exhausted cause.
-    fn blocked_create_session(
-    ) -> (Session, StdReceiver<Value>, std::sync::mpsc::Sender<()>) {
+    fn blocked_create_session() -> (Session, StdReceiver<Value>, std::sync::mpsc::Sender<()>) {
         let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let release_rx = Mutex::new(release_rx);
         let tree_json = two_pane_tree_json();
-        let (session, requests) = crate::session::test_remote_session_answering(Arc::new(
-            move |request: &Value| match request.get("cmd").and_then(Value::as_str) {
-                Some("list-workspaces") => tree_json.clone(),
-                Some("list-agents") => serde_json::json!({"agents": []}),
-                Some(
-                    "new-pane" | "new-tab" | "split" | "new-workspace"
-                    | "create-surface-with-receipt",
-                ) => {
-                    let _ = release_rx.lock().unwrap().recv();
-                    serde_json::json!({
-                        "__reject": PTY_EXHAUSTED_REJECTION
-                            .strip_prefix("remote command rejected: ")
-                            .unwrap()
-                    })
+        let (session, requests) =
+            crate::session::test_remote_session_answering(Arc::new(move |request: &Value| {
+                match request.get("cmd").and_then(Value::as_str) {
+                    Some("list-workspaces") => tree_json.clone(),
+                    Some("list-agents") => serde_json::json!({"agents": []}),
+                    Some(
+                        "new-pane"
+                        | "new-tab"
+                        | "split"
+                        | "new-workspace"
+                        | "create-surface-with-receipt",
+                    ) => {
+                        let _ = release_rx.lock().unwrap().recv();
+                        serde_json::json!({
+                            "__reject": PTY_EXHAUSTED_REJECTION
+                                .strip_prefix("remote command rejected: ")
+                                .unwrap()
+                        })
+                    }
+                    _ => serde_json::json!({}),
                 }
-                _ => serde_json::json!({}),
-            },
-        ));
+            }));
         session.refresh_tree().unwrap();
         (session, requests, release_tx)
     }
@@ -31109,10 +31112,12 @@ mod tests {
             release.send(()).unwrap();
         }
         drain_until_settled(&mut app, &events);
-        assert!(app.create_placeholders.iter().all(|placeholder| matches!(
-            placeholder.state,
-            CreatePlaceholderState::Failed { .. }
-        )));
+        assert!(
+            app.create_placeholders.iter().all(|placeholder| matches!(
+                placeholder.state,
+                CreatePlaceholderState::Failed { .. }
+            ))
+        );
     }
 
     #[test]
