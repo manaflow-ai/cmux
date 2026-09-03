@@ -96,7 +96,8 @@ if [[ -n "$GO_BIN" && -x "$GO_BIN" ]]; then
     flags="-isysroot ${SDK} -arch ${arch} -mmacosx-version-min=${MIN_MACOS}"
     archive="${WORK_DIR}/libwg-go-${arch}.a"
     # GOTOOLCHAIN=local: never auto-download a different Go; the installed one
-    # must satisfy go.mod. -mod=mod resolves against the vendored go.sum.
+    # must satisfy go.mod. -mod=readonly: the vendored go.mod/go.sum are the
+    # pinned module set; a build must fail rather than rewrite them.
     (
       cd "$GO_SRC_DIR"
       env \
@@ -104,7 +105,7 @@ if [[ -n "$GO_BIN" && -x "$GO_BIN" ]]; then
         GOOS=darwin \
         GOARCH="$goarch" \
         GOTOOLCHAIN=local \
-        GOFLAGS=-mod=mod \
+        GOFLAGS=-mod=readonly \
         CC="$CLANG" \
         CGO_CFLAGS="$flags" \
         CGO_LDFLAGS="$flags" \
