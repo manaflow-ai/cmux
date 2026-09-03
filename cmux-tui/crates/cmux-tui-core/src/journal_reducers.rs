@@ -1491,4 +1491,25 @@ mod tests {
         assert!(roster.apply(&foreign).is_empty());
         assert!(!roster.entries.is_empty());
     }
+
+    #[test]
+    fn restore_rejects_unknown_entry_semantics() {
+        let snapshot = json!({
+            "entries": {
+                "term_a": {
+                    "state": "working",
+                    "source": "stronger-than-hook",
+                    "producer": null,
+                    "producer_generation": null,
+                    "session": null,
+                    "agent": null,
+                    "updated_at_ms": 1
+                }
+            },
+            "plugin_exit_fences": {}
+        })
+        .to_string();
+
+        assert!(AgentRoster::restore(&snapshot).is_none());
+    }
 }

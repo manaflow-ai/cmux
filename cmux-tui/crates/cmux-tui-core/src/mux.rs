@@ -23969,6 +23969,84 @@ mod tests {
     }
 
     #[test]
+    fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-snapshot";
+        let (terminal_id, cursor) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "invalid-snapshot-1").unwrap();
+            let cursor = mux.agent_roster.lock().unwrap().cursor;
+            assert_eq!(
+                mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state,
+                "working"
+            );
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, cursor)
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("invalid snapshots must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
