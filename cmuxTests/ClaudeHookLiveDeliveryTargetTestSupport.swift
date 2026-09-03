@@ -16,6 +16,7 @@ enum ClaudeHookLiveDeliveryHarness {
         let storeURL: URL
 
         func cleanup() {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -304,55 +305,22 @@ enum ClaudeHookLiveDeliveryHarness {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            while true {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
                 }
-                guard clientFD >= 0 else {
-                    if errno == EINTR { continue }
-                    return
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                    state.append(line)
+                    return handler(line)
                 }
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer {
-                        Darwin.close(clientFD)
-                        handled.signal()
-                    }
-
-                    func writeResponse(_ response: String) {
-                        let line = response + "\n"
-                        _ = line.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
-
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            state.append(line)
-                            writeResponse(handler(line))
-                        }
-                    }
-                }
+            },
+            onListenerClosed: {
+                handled.signal()
             }
-        }
+        )
         return handled
     }
 
