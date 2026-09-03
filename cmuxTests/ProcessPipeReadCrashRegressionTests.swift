@@ -275,4 +275,36 @@ struct ProcessPipeReadCrashRegressionTests {
         #expect(result?.stdout.contains("stdout") == true)
         #expect(result?.output.contains("stderr") == true)
     }
+
+    @Test
+    func testProcessOutputCollectorReentrantFinishDrainsTailFromOtherPipe() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let callbackEntered = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        let callbackLock = NSLock()
+        var callbackCount = 0
+        var collector: ProcessOutputCollector!
+        collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { _ in
+            callbackLock.lock()
+            callbackCount += 1
+            let isFirst = callbackCount == 1
+            callbackLock.unlock()
+            guard isFirst else { return }
+            _ = collector.finishResult()
+            callbackEntered.signal()
+            releaseCallback.wait()
+        }
+        collector.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data("OK machine=calm-petrel\n".utf8))
+        #expect(callbackEntered.wait(timeout: .now() + 1) == .success)
+        try? stderr.fileHandleForWriting.write(contentsOf: Data("tail from stderr\n".utf8))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+        releaseCallback.signal()
+
+        let result = collector.finishResult()
+        #expect(result.machineId == "calm-petrel")
+        #expect(result.output.contains("tail from stderr"))
+    }
 }
