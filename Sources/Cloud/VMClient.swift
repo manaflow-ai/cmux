@@ -483,17 +483,17 @@ struct VMPublicationDomainPublication: Equatable, Sendable {
     }
 }
 
-/// Stable native view of `/api/vm/domains`: the custom zones one account owns,
-/// listed apart from the publications routed through them. Only zone-level DNS
-/// work is carried here; per-hostname routing records stay on publications.
+/// Stable native view of `/api/vm/domains`: the custom domains one account
+/// owns, listed apart from the publications routed through them. The DNS
+/// checklist is ordered as it should be added: ownership TXT, apex routing,
+/// `*` routing, and the `_acme-challenge` delegation.
 struct VMPublicationDomain: Equatable, Sendable {
     let id: String
     let hostname: String
     let verificationState: String
     let certificateState: String
     let createdAt: String?
-    let verificationInstruction: VMPublicationDNSInstruction?
-    let certificateInstruction: VMPublicationDNSInstruction?
+    let dnsInstructions: [VMPublicationDNSInstruction]
     let publications: [VMPublicationDomainPublication]
 
     var foundationObject: [String: Any] {
@@ -503,16 +503,10 @@ struct VMPublicationDomain: Equatable, Sendable {
             "verificationState": verificationState,
             "certificateState": certificateState,
             "createdAt": createdAt.map { $0 as Any } ?? NSNull(),
-            "dnsInstructions": dnsInstructionsObject.map { $0 as Any } ?? NSNull(),
+            "dnsInstructions": dnsInstructions.isEmpty
+                ? NSNull()
+                : dnsInstructions.map(\.foundationObject),
             "publications": publications.map(\.foundationObject),
-        ]
-    }
-
-    private var dnsInstructionsObject: [String: Any]? {
-        guard let verificationInstruction, let certificateInstruction else { return nil }
-        return [
-            "verification": verificationInstruction.foundationObject,
-            "certificate": certificateInstruction.foundationObject,
         ]
     }
 }
@@ -969,22 +963,11 @@ actor VMClient {
               let hostname = publicationString(object, keys: ["hostname"]) else {
             throw VMClientError.malformedResponse(missingFields)
         }
-        var verificationInstruction: VMPublicationDNSInstruction?
-        var certificateInstruction: VMPublicationDNSInstruction?
-        if let dns = (object["dnsInstructions"] as? [String: Any])
-            ?? (object["dns_instructions"] as? [String: Any]) {
-            if let raw = dns["verification"] as? [String: Any] {
-                verificationInstruction = try decodePublicationDNSInstruction(
-                    raw,
-                    fallbackPurpose: "verification"
-                )
-            }
-            if let raw = dns["certificate"] as? [String: Any] {
-                certificateInstruction = try decodePublicationDNSInstruction(
-                    raw,
-                    fallbackPurpose: "certificate"
-                )
-            }
+        let rawInstructions = (object["dnsInstructions"] as? [[String: Any]])
+            ?? (object["dns_instructions"] as? [[String: Any]])
+            ?? []
+        let dnsInstructions = try rawInstructions.map { raw in
+            try decodePublicationDNSInstruction(raw, fallbackPurpose: "routing")
         }
         let rawPublications = (object["publications"] as? [[String: Any]]) ?? []
         let publications = try rawPublications.map { raw -> VMPublicationDomainPublication in
@@ -1010,8 +993,7 @@ actor VMClient {
                 keys: ["certificateState", "certificate_state"]
             ) ?? "unknown",
             createdAt: publicationString(object, keys: ["createdAt", "created_at"]),
-            verificationInstruction: verificationInstruction,
-            certificateInstruction: certificateInstruction,
+            dnsInstructions: dnsInstructions,
             publications: publications
         )
     }

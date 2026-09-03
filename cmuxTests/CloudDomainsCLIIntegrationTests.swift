@@ -42,15 +42,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.contains("https://preview.example.com"))
         #expect(result.stdout.contains("verification: pending"))
-        #expect(result.stdout.contains("TXT _cmux.preview.example.com cmux-token"))
+        let listed = collapsedWhitespace(result.stdout)
+        #expect(listed.contains("Add these DNS records for preview.example.com:"))
+        #expect(listed.contains("ownership TXT _cmux.preview.example.com cmux-token"))
         #expect(
-            result.stdout.contains(
-                "CNAME/ALIAS/ANAME/CNAME_FLATTENING preview.example.com beta-web.freestyle.sh"
+            listed.contains(
+                "routing CNAME/ALIAS/ANAME/CNAME_FLATTENING preview.example.com beta-web.freestyle.sh"
             )
         )
         #expect(
-            result.stdout.contains(
-                "NS _acme-challenge.preview.example.com beta-dns.freestyle.sh"
+            listed.contains(
+                "certificate NS _acme-challenge.preview.example.com beta-dns.freestyle.sh"
             )
         )
         #expect(result.stdout.contains("verification: provider_setup_failed"))
@@ -217,8 +219,13 @@ extension CMUXCLIErrorOutputRegressionTests {
                     + "publications: preview.example.com (provisioning)"
             )
         )
-        #expect(result.stdout.contains("TXT _cmux.example.com cmux-token"))
-        #expect(result.stdout.contains("NS _acme-challenge.example.com beta-dns.freestyle.sh"))
+        let zones = collapsedWhitespace(result.stdout)
+        #expect(zones.contains("Add these DNS records for example.com:"))
+        #expect(zones.contains("ownership TXT _cmux.example.com cmux-token"))
+        #expect(zones.contains("routing ALIAS/ANAME/CNAME_FLATTENING example.com beta-web.freestyle.sh"))
+        #expect(zones.contains("routing CNAME *.example.com beta-web.freestyle.sh"))
+        #expect(zones.contains("certificate NS _acme-challenge.example.com beta-dns.freestyle.sh"))
+        #expect(zones.contains("the * record serves every subdomain"))
         #expect(result.stdout.contains("cmux cloud domains verify example.com"))
         #expect(!result.stdout.contains("cmux cloud domains verify verified.example.net"))
         #expect(
@@ -240,13 +247,25 @@ extension CMUXCLIErrorOutputRegressionTests {
             "certificateState": "missing",
             "createdAt": "2026-09-02T12:00:00.000Z",
             "dnsInstructions": [
-                "verification": [
+                [
                     "purpose": "verification",
                     "recordTypes": ["TXT"],
                     "name": "_cmux.example.com",
                     "value": "cmux-token",
                 ],
-                "certificate": [
+                [
+                    "purpose": "routing",
+                    "recordTypes": ["ALIAS", "ANAME", "CNAME_FLATTENING"],
+                    "name": "example.com",
+                    "value": "beta-web.freestyle.sh",
+                ],
+                [
+                    "purpose": "routing",
+                    "recordTypes": ["CNAME"],
+                    "name": "*.example.com",
+                    "value": "beta-web.freestyle.sh",
+                ],
+                [
                     "purpose": "certificate",
                     "recordTypes": ["NS"],
                     "name": "_acme-challenge.example.com",
@@ -257,6 +276,10 @@ extension CMUXCLIErrorOutputRegressionTests {
                 ["id": "pub-1", "hostname": "preview.example.com", "state": "provisioning"],
             ],
         ]
+    }
+
+    private func collapsedWhitespace(_ text: String) -> String {
+        text.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
     }
 
     private func cloudDomainsEnvironment(socketPath: String) -> [String: String] {

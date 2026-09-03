@@ -289,11 +289,9 @@ extension CMUXCLI {
         print(String(format: verificationFormat, verificationState))
         // The app always emits all three instructions (`VMPublication.foundationObject`).
         if let instructions = verification["dnsInstructions"] as? [String: Any] {
-            for purpose in ["verification", "routing", "certificate"] {
-                if let instruction = instructions[purpose] as? [String: Any] {
-                    Self.printDNSInstruction(instruction)
-                }
-            }
+            let ordered = ["verification", "routing", "certificate"]
+                .compactMap { instructions[$0] as? [String: Any] }
+            Self.printDNSInstructions(ordered, target: hostname)
         }
         // Verification is a zone-level step: re-running it also re-checks the
         // zone's certificate and finishes provisioning publications on it.
@@ -341,13 +339,16 @@ extension CMUXCLI {
         }
 
         guard verificationState != "verified",
-              let instructions = domain["dnsInstructions"] as? [String: Any] else {
+              let instructions = domain["dnsInstructions"] as? [[String: Any]] else {
             return
         }
-        for purpose in ["verification", "certificate"] {
-            if let instruction = instructions[purpose] as? [String: Any] {
-                Self.printDNSInstruction(instruction)
-            }
+        Self.printDNSInstructions(instructions, target: hostname)
+        if instructions.contains(where: { ($0["purpose"] as? String) == "routing" }) {
+            let noteFormat = String(
+                localized: "cli.cloud.domains.dns.routingNote",
+                defaultValue: "Routing: the apex record serves %@ itself; the * record serves every subdomain."
+            )
+            print(String(format: noteFormat, hostname))
         }
         printPublicationVerifyHint(name: hostname)
     }
@@ -360,11 +361,44 @@ extension CMUXCLI {
         print(String(format: verifyFormat, name))
     }
 
-    private static func printDNSInstruction(_ instruction: [String: Any]) {
-        let recordTypes = (instruction["recordTypes"] as? [String]) ?? ["?"]
-        let name = (instruction["name"] as? String) ?? "?"
-        let value = (instruction["value"] as? String) ?? "?"
-        print("\(recordTypes.joined(separator: "/")) \(name) \(value)")
+    /// One aligned table per record set, each row labelled by what the record
+    /// is for, so the reader never has to guess why an NS record is needed.
+    private static func printDNSInstructions(_ records: [[String: Any]], target: String) {
+        guard !records.isEmpty else { return }
+        let headerFormat = String(
+            localized: "cli.cloud.domains.dns.header",
+            defaultValue: "Add these DNS records for %@:"
+        )
+        print(String(format: headerFormat, target))
+        let rows: [[String]] = records.map { record in
+            let recordTypes = (record["recordTypes"] as? [String]) ?? ["?"]
+            return [
+                Self.dnsPurposeLabel((record["purpose"] as? String) ?? ""),
+                recordTypes.joined(separator: "/"),
+                (record["name"] as? String) ?? "?",
+                (record["value"] as? String) ?? "?",
+            ]
+        }
+        let widths = (0..<3).map { column in rows.map { $0[column].count }.max() ?? 0 }
+        for row in rows {
+            let padded = (0..<3).map {
+                row[$0].padding(toLength: widths[$0], withPad: " ", startingAt: 0)
+            }
+            print("  " + (padded + [row[3]]).joined(separator: "  "))
+        }
+    }
+
+    private static func dnsPurposeLabel(_ purpose: String) -> String {
+        switch purpose {
+        case "verification":
+            return String(localized: "cli.cloud.domains.dns.ownership", defaultValue: "ownership")
+        case "routing":
+            return String(localized: "cli.cloud.domains.dns.routing", defaultValue: "routing")
+        case "certificate":
+            return String(localized: "cli.cloud.domains.dns.certificate", defaultValue: "certificate")
+        default:
+            return purpose
+        }
     }
 
     private static func intValue(_ raw: Any?) -> Int? {

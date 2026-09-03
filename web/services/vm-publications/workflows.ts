@@ -21,6 +21,7 @@ import {
   VmPublicationProviderLive,
   isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
+  publicationWildcardRoutingDnsInstruction,
   type PublicationDnsInstruction,
   type PublicationDomainVerification,
   type VmPublicationProviderShape,
@@ -71,11 +72,13 @@ export type CustomDomainDto = {
   readonly verificationState: CloudVmDomainRow["verificationState"];
   readonly certificateState: CloudVmDomainRow["certificateState"];
   readonly createdAt: string;
-  /** Zone-level proof and certificate delegation; per-hostname routing records live on publications. */
-  readonly dnsInstructions: {
-    readonly verification: CloudVmDomainVerificationRecord;
-    readonly certificate: CloudVmDomainVerificationRecord;
-  } | null;
+  /**
+   * The complete DNS checklist for the zone, in the order to add it: the
+   * ownership TXT proof, the apex routing record (for publishing the domain
+   * itself), the `*` routing record (for every subdomain), and the
+   * `_acme-challenge` delegation. Null until a challenge exists.
+   */
+  readonly dnsInstructions: readonly CloudVmDomainVerificationRecord[] | null;
   readonly publications: readonly {
     readonly id: string;
     readonly hostname: string;
@@ -384,7 +387,12 @@ function customDomainDto(
     certificateState: domain.certificateState,
     createdAt: domain.createdAt.toISOString(),
     dnsInstructions: verification && certificate
-      ? { verification, certificate }
+      ? [
+        verification,
+        persistedDnsInstruction(publicationRoutingDnsInstruction(domain.hostname, domain.hostname)),
+        persistedDnsInstruction(publicationWildcardRoutingDnsInstruction(domain.hostname)),
+        certificate,
+      ]
       : null,
     publications: targets
       .filter((target) =>

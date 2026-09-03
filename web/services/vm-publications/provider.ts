@@ -505,6 +505,18 @@ export function publicationRoutingDnsInstruction(
  * verification, no DNS, and the platform wildcard certificate. A CMUX-owned
  * generated zone such as `cmux.sh` is ordinary verified account inventory.
  */
+/** One `*` CNAME at the zone serves every one-label child a customer later publishes. */
+export function publicationWildcardRoutingDnsInstruction(
+  verifiedDomain: string,
+): PublicationDnsInstruction {
+  return {
+    purpose: "routing",
+    recordTypes: ["CNAME"],
+    name: `*.${normalizedExactHostname(verifiedDomain)}`,
+    value: FREESTYLE_WEB_EDGE_HOST,
+  };
+}
+
 export function isFreestylePlatformHostname(value: string): boolean {
   const hostname = normalizedExactHostname(value);
   const labels = hostname.split(".");

@@ -421,10 +421,12 @@ describe("Cloud VM publication workflows", () => {
         verificationState: "pending",
         certificateState: "missing",
         createdAt: NOW.toISOString(),
-        dnsInstructions: {
-          verification: pendingZone.verificationRecords[0],
-          certificate: pendingZone.verificationRecords[2],
-        },
+        dnsInstructions: [
+          pendingZone.verificationRecords[0],
+          { purpose: "routing", recordTypes: ["ALIAS", "ANAME", "CNAME_FLATTENING"], name: "example.com", value: "beta-web.freestyle.sh" },
+          { purpose: "routing", recordTypes: ["CNAME"], name: "*.example.com", value: "beta-web.freestyle.sh" },
+          pendingZone.verificationRecords[2],
+        ],
         publications: [
           { id: "10000000-0000-4000-8000-000000000004", hostname: "app.example.com", state: "provisioning" },
         ],
@@ -1430,10 +1432,12 @@ describe("Cloud VM publication workflows", () => {
       verificationState: "pending",
       certificateState: "missing",
       createdAt: NOW.toISOString(),
-      dnsInstructions: {
-        verification: zoneVerification.dnsInstructions.verification,
-        certificate: zoneVerification.dnsInstructions.certificate,
-      },
+      dnsInstructions: [
+        zoneVerification.dnsInstructions.verification,
+        zoneVerification.dnsInstructions.routing,
+        { purpose: "routing", recordTypes: ["CNAME"], name: "*.example.com", value: "beta-web.freestyle.sh" },
+        zoneVerification.dnsInstructions.certificate,
+      ],
       publications: [],
     });
 
@@ -1607,7 +1611,12 @@ describe("Cloud VM publication workflows", () => {
 
     expect(calls).toEqual(["ownership.complete"]);
     expect(result.verificationState).toBe("pending");
-    expect(result.dnsInstructions?.verification.name).toBe("_freestyle-verification.example.com");
+    expect(result.dnsInstructions?.map((record) => record.name)).toEqual([
+      "_freestyle-verification.example.com",
+      "example.com",
+      "*.example.com",
+      "_acme-challenge.example.com",
+    ]);
   });
 
   test("verify always resolves to a zone: by zone name, publication hostname, or either id", async () => {

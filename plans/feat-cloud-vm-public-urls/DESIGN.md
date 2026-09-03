@@ -222,7 +222,7 @@ cmux cloud domains access <hostname> <personal|team|public>
 cmux cloud domains rm <hostname>
 ```
 
-Every command works on domains. `verify <domain>` runs steps 2 through 6 above for a zone on its own: the first call mints the Freestyle challenge and prints the TXT proof and `_acme-challenge` delegation, later calls try to complete it, and once verified it keeps the wildcard certificate moving and provisions every publication that was reserved on that zone earlier. `verify` only ever verifies a zone: a publication hostname or id resolves to the zone it belongs to, and a generated name is rejected because there is nothing to verify. `access` and `rm` accept the publication's hostname (a bare generated label is completed with the generated zone) as well as its id.
+Every command works on domains. `verify <domain>` runs steps 2 through 6 above for a zone on its own: the first call mints the Freestyle challenge and prints the zone's whole DNS checklist as a labelled table (ownership TXT proof, apex routing record, `*` routing record for every subdomain, and the `_acme-challenge` delegation), later calls try to complete it, and once verified it keeps the wildcard certificate moving and provisions every publication that was reserved on that zone earlier. `verify` only ever verifies a zone: a publication hostname or id resolves to the zone it belongs to, and a generated name is rejected because there is nothing to verify. `access` and `rm` accept the publication's hostname (a bare generated label is completed with the generated zone) as well as its id.
 
 ## Safe state transitions
 
