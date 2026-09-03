@@ -1300,30 +1300,30 @@ async fn relay_session(
         )
         .await
         {
-            eprintln!(
-                "PTY transport cleanup exceeded its safety deadline; cleanup continues in the background."
-            );
+            eprintln!("PTY transport cleanup exceeded its safety deadline and was cancelled.");
         }
     }
     result
 }
 
-/// Run teardown in an owned task. A timeout only limits how long connection
-/// shutdown waits. Dropping a Tokio JoinHandle does not cancel its task, so a
-/// publication gate or control operation that finishes later can still
-/// release its attachment and capacity slot.
+/// Run teardown in an owned task. On timeout, abort and collect the task so
+/// connection shutdown does not leave untracked cleanup work behind.
 async fn run_owned_cleanup<F>(cleanup: F, deadline: Duration) -> bool
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let task = tokio::spawn(cleanup);
-    match timeout(deadline, task).await {
+    let mut task = tokio::spawn(cleanup);
+    match timeout(deadline, &mut task).await {
         Ok(Ok(())) => true,
         Ok(Err(error)) => {
             eprintln!("Owned PTY cleanup task failed: {error}");
             false
         }
-        Err(_) => false,
+        Err(_) => {
+            task.abort();
+            let _ = task.await;
+            false
+        }
     }
 }
 

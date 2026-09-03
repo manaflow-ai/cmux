@@ -30,6 +30,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 use tokio::sync::{Notify, Semaphore, oneshot};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
@@ -62,6 +63,7 @@ const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const MAX_OUTPUT_CHUNK_BYTES: usize = 256 * 1024;
 const CONTROL_OPERATION_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+const PUBLICATION_GATE_TIMEOUT: Duration = Duration::from_millis(250);
 const PTY_START_TIMEOUT: Duration = Duration::from_secs(5);
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
@@ -977,16 +979,20 @@ impl PtyManager {
         let mut ids: Vec<(String, Option<String>, u64)> =
             opening_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())).collect();
         ids.extend(attachment_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())));
+        let mut cleanups = JoinSet::new();
         for (id, owner, generation) in ids {
-            // Keep retirement owned by Tokio even if the connection teardown
-            // timeout drops this waiter. Dropping a JoinHandle detaches the
-            // cleanup task, so a close_pending marker cannot strand the slot.
+            // Retire all attachments concurrently, but retain every task until
+            // it finishes so this cleanup does not create detached work.
             let manager = Arc::clone(&self.inner);
             let owner = owner.clone();
-            let cleanup = tokio::spawn(async move {
+            cleanups.spawn(async move {
                 manager.close_if_transport_async(&id, owner.as_deref(), Some(generation)).await;
             });
-            let _ = cleanup.await;
+        }
+        while let Some(result) = cleanups.join_next().await {
+            if let Err(error) = result {
+                eprintln!("PTY transport cleanup task failed: {error}");
+            }
         }
     }
 }
@@ -1723,7 +1729,15 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock_async().await;
+        let _publication =
+            match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, gate.lock_async()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    send_pty_error(context, pty_id, code, message);
+                    self.force_retire(pty_id, Some(generation), Some(publication_gate));
+                    return;
+                }
+            };
         let attachment = {
             let mut attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -2142,7 +2156,16 @@ impl Inner {
             && attachment.transport_id.as_deref() == transport_id
         {
             let publication_gate = Arc::clone(&attachment.publication_gate);
-            let _publication = publication_gate.lock_async().await;
+            let _publication =
+                match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, publication_gate.lock_async())
+                    .await
+                {
+                    Ok(guard) => guard,
+                    Err(_) => {
+                        self.force_retire(pty_id, generation, Some(&publication_gate));
+                        return;
+                    }
+                };
             let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
             else {
                 return;
@@ -2164,7 +2187,16 @@ impl Inner {
                 self.force_retire(pty_id, generation, Some(&publication_gate));
                 return;
             }
-            let _publication = publication_gate.lock_async().await;
+            let _publication =
+                match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, publication_gate.lock_async())
+                    .await
+                {
+                    Ok(guard) => guard,
+                    Err(_) => {
+                        self.force_retire(pty_id, generation, Some(&publication_gate));
+                        return;
+                    }
+                };
             let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
             else {
                 return;
@@ -2272,7 +2304,14 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock_async().await;
+        let _publication =
+            match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, gate.lock_async()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    self.force_retire(pty_id, Some(attachment.generation), Some(&gate));
+                    return;
+                }
+            };
         let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
             return;
@@ -2294,7 +2333,14 @@ impl Inner {
             self.force_retire(pty_id, Some(attachment.generation), Some(&gate));
             return;
         }
-        let _publication = gate.lock_async().await;
+        let _publication =
+            match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, gate.lock_async()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    self.force_retire(pty_id, Some(attachment.generation), Some(&gate));
+                    return;
+                }
+            };
         let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
             return;
@@ -5807,7 +5853,7 @@ mod tests {
         if completed.is_err() {
             detach.await.expect("transport detach after gate release");
         }
-        assert!(completed.is_ok(), "transport detach has a bounded publication wait");
+        assert!(matches!(completed, Ok(Ok(()))), "transport detach has a bounded publication wait");
         assert!(!h.manager.has_attachment("p1"));
     }
 

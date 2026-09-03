@@ -368,6 +368,8 @@ mod unix {
             // the reader asleep after the wakeup.
             loop {
                 let resumed = shared.resume_notify.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
                 let closed = shared.closed_notify.notified();
                 tokio::pin!(closed);
                 closed.as_mut().enable();
