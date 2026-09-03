@@ -106,3 +106,23 @@ def test_tui_status_names_remain_stable() -> None:
         workflow["jobs"]["hosted-verification"]["name"]
         == "${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}"
     )
+
+
+def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    lint = workflow["jobs"]["lint"]
+    test = workflow["jobs"]["test"]
+    gate = workflow["jobs"]["hosted-verification"]
+
+    lint_commands = "\n".join(str(step.get("run", "")) for step in lint["steps"])
+    test_commands = "\n".join(str(step.get("run", "")) for step in test["steps"])
+    gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
+
+    assert lint["needs"] == "validate-inputs"
+    assert "cargo fmt --check" in lint_commands
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
+    assert "cargo fmt --check" not in test_commands
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
+    assert "lint" in gate["needs"]
+    assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
+    assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
