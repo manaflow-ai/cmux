@@ -565,6 +565,7 @@ mod tests {
             (r"\\server\share\a.html", "file://server/share/a.html"),
             (r"\\?\C:\long\a.html", "file:///C:/long/a.html"),
             (r"\\?\UNC\server\share\a.html", "file://server/share/a.html"),
+            (r"\\?\unc\server\share\a.html", "file://server/share/a.html"),
         ];
         for (path, expected) in cases {
             assert_eq!(file_url(Path::new(path)).unwrap(), expected);
@@ -576,6 +577,10 @@ mod tests {
     fn rejects_windows_device_paths() {
         assert_eq!(
             file_url(Path::new(r"\\.\PIPE\cmux")),
+            Err(FileUrlError::UnsupportedWindowsNamespace)
+        );
+        assert_eq!(
+            file_url(Path::new(r"\\?\Volume{1234}\page.html")),
             Err(FileUrlError::UnsupportedWindowsNamespace)
         );
     }
