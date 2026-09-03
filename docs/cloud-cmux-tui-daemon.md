@@ -237,9 +237,9 @@ of their own. The sidebar's Cloud tab renders the same order as four groups:
 the machine's Workspaces group first (always its own row, with a ＋ that is
 `cmux vm workspace new`; an empty machine shows "No workspaces yet" under it;
 a workspace folder is exactly its layout — a terminal whose tab closed is gone
-from it), then Terminals (every terminal resource the machine owns, always
-present, zero-view ones greyed as "detached"), Ports, and VNC Displays (one
-row per screen).
+from it), then Ports, VNC Displays (one row per screen), and last, its own
+section, Terminals (every terminal resource the machine owns, always present,
+zero-view ones greyed as "detached").
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the

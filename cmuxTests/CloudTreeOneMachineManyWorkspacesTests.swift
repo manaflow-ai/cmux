@@ -12,9 +12,9 @@ import Testing
 /// "one VM = one workspace". These pin what the outline builds for such a
 /// machine — its four groups, in this order: **Workspaces** (the machine's
 /// face, always its own row with its own "+", one row per workspace with the
-/// terminals in its layout), **Terminals** (every terminal the machine owns,
-/// one row per identity, always present so its "+" is New Terminal), **Ports**,
-/// and **VNC Displays** (one row per screen).
+/// terminals in its layout), **Ports**, **VNC Displays** (one row per screen),
+/// and last, its own section, **Terminals** (every terminal the machine owns,
+/// one row per identity, always present so its "+" is New Terminal).
 ///
 /// Regression (https://github.com/manaflow-ai/cmux/issues/11762): a machine
 /// with a single workspace used to fold the group into the workspace row
@@ -98,8 +98,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(!row.isMachineRow, "a workspace is a row under its machine, never a machine of its own")
     }
 
-    @Test("Under a connected machine: Workspaces, then Terminals (every terminal), Ports, VNC Displays")
-    func workspacesThenTerminalsPortsDisplays() throws {
+    @Test("Under a connected machine: Workspaces, Ports, VNC Displays, then Terminals (every terminal) as the last section")
+    func workspacesPortsDisplaysThenTerminals() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
         let side = workspace("ws_side", "side", index: 1)
         let shared = terminal("term_shared", title: "tail -f", in: [main, side])
@@ -130,16 +130,16 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1",
+            "machine:brave-otter/ports",
+            "resource:brave-otter/browser/port:3000",
+            "machine:brave-otter/displays",
+            "resource:brave-otter/display/display:1",
             "machine:brave-otter/terminals",
             "resource:brave-otter/terminal/term_1",
             "resource:brave-otter/terminal/term_2",
             "resource:brave-otter/terminal/term_3",
             "resource:brave-otter/terminal/term_shared",
-            "machine:brave-otter/ports",
-            "resource:brave-otter/browser/port:3000",
-            "machine:brave-otter/displays",
-            "resource:brave-otter/display/display:1",
-        ], "the machine's four groups in order; a daemon browser in no workspace gets no group of its own")
+        ], "the machine's four groups in order, Terminals last; a daemon browser in no workspace gets no group of its own")
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // Terminals lists every terminal the machine owns, one row per identity — the
         // workspace rows are pointers into it — badged with its daemon-tab count.
@@ -169,6 +169,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ])
         // VNC Displays is one row per screen; the group is searchable under that name.
         #expect(byID["machine:brave-otter/displays"]?.searchableTitle == "VNC Displays")
+        #expect(tree.last?.id == "resource:brave-otter/terminal/term_shared", "Terminals is the machine's last section")
     }
 
     @Test("An empty machine still offers its Workspaces and Terminals groups: their + make the first ones")
@@ -275,11 +276,13 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         )
         let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [main], hasDesktop: true)], resources: [first, second], projections: [])
         let tree = rows(snapshot)
-        #expect(tree.map(\.id).suffix(3) == [
+        #expect(tree.map(\.id).suffix(5) == [
             "machine:brave-otter/displays",
             "resource:brave-otter/display/display:1",
             "resource:brave-otter/display/display:2",
-        ], "the last group under the machine")
+            "machine:brave-otter/terminals",
+            "machine:brave-otter/terminals/placeholder",
+        ], "the screens sit above the Terminals section")
         guard case .displaysPool(_, let count) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
             Issue.record("expected the VNC Displays group"); return
         }
