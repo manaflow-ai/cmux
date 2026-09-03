@@ -7594,6 +7594,54 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_palette_replacement_resets_only_removed_entries() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": null,
+            "palette": {"2": "#0a0b0c"},
+        }));
+        let _ = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": null,
+            "palette": {"3": "#0d0e0f"},
+        }));
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("palette replacement did not forward output");
+        };
+
+        assert!(bytes.windows(b"\x1b]104;2\x1b\\".len()).any(|window| {
+            window == b"\x1b]104;2\x1b\\"
+        }));
+        assert!(!bytes.windows(b"\x1b]104\x1b\\".len()).any(|window| {
+            window == b"\x1b]104\x1b\\"
+        }));
+        assert!(bytes.windows(b"\x1b]4;3;rgb:0d/0e/0f\x1b\\".len()).any(|window| {
+            window == b"\x1b]4;3;rgb:0d/0e/0f\x1b\\"
+        }));
+    }
+
+    #[test]
     fn pipe_io_resized_replay_restores_the_coupled_color_state() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
