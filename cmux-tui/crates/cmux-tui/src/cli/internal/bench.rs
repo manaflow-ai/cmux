@@ -723,6 +723,9 @@ fn list_terminal_ids(conn: &mut Conn) -> Result<Vec<(String, String)>, String> {
 /// Close every terminal this run created, including the baseline typing
 /// target and creates that were only `close-surface`d (a view-only close keeps
 /// the terminal, and `server stop` keeps its host alive by design).
+/// For a caller-provided shared socket, only terminal IDs observed in successful
+/// create responses are closed. This preserves unrelated terminals when a
+/// response is lost, at the cost of a bounded diagnostic leak in that case.
 fn close_created_terminals(
     conn: &mut Conn,
     initial: &HashSet<String>,
@@ -1588,6 +1591,20 @@ mod tests {
         conn.reader.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         assert_eq!(conn.read_value().unwrap(), json!({"id":1,"ok":true}));
         server.join().unwrap();
+        let _ = std::fs::remove_file(&socket);
+    }
+
+    #[test]
+    fn send_until_rejects_expired_deadline_before_writing() {
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-bench-send-deadline-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let _listener = transport::listen(&socket).unwrap();
+        let mut conn = Conn::open(&socket).unwrap();
+        let error = conn
+            .send_until(json!({"cmd":"identify"}), Instant::now() - Duration::from_millis(1))
+            .unwrap_err();
+        assert!(error.contains("benchmark deadline exceeded"));
         let _ = std::fs::remove_file(&socket);
     }
 }
