@@ -703,6 +703,10 @@ final class MobileHostIrxRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
+            // The bounded Iroh peer pool stays alive via transport keepalives.
+            // Control-idle timeout is for unowned legacy TCP connections and
+            // must not tear down a healthy multi-lane QUIC session.
+            idleTimeoutNanoseconds: 0,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.generationToken == token }
