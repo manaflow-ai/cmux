@@ -143,7 +143,9 @@ describe("traceEvents", () => {
     context.outcome = { outcome: "unauthorized", failureStage: "auth", status: 401, provider: "codex" };
     const events = traceEvents(context, { status: 401, durationMs: 5 });
     expect(events.map((entry) => entry.event)).toEqual(["$ai_trace"]);
-    expect(events[0]!.properties.$ai_is_error).toBe(false);
+    // Caller faults do not create PostHog Error Tracking issues, but the trace
+    // still represents an HTTP error and must be filterable as one.
+    expect(events[0]!.properties.$ai_is_error).toBe(true);
     expect(events[0]!.properties.coderouter_fault).toBe("caller");
   });
 

@@ -5,7 +5,10 @@ import {
   captureCoderouterEvent,
   captureCoderouterRawBatch,
 } from "../services/coderouter/analytics";
-import { __test as usageTest } from "../services/coderouter/responseUsage";
+import {
+  __test as usageTest,
+  isStreamingResponse,
+} from "../services/coderouter/responseUsage";
 
 const config = () => ({
   ingestHost: "https://posthog.test",
@@ -278,6 +281,18 @@ describe("coderouter analytics", () => {
 });
 
 describe("streaming model usage extraction", () => {
+  test("classifies streaming from the response media type, not body presence", () => {
+    expect(isStreamingResponse(new Response("{}", {
+      headers: { "content-type": "application/json" },
+    }))).toBe(false);
+    expect(isStreamingResponse(new Response("data: {}\n\n", {
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    }))).toBe(true);
+    expect(isStreamingResponse(new Response("{}", {
+      headers: { "content-type": "application/x-ndjson" },
+    }))).toBe(true);
+  });
+
   test("extracts token counts without retaining prompt or output properties", () => {
     const usage = usageTest.usageFromTail(
       [
