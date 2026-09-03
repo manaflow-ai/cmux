@@ -763,6 +763,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                         let _ = child.kill();
                     } else {
                         wait_lifecycle.mark_reap_pending();
+                        continue;
                     }
                     break;
                 }
