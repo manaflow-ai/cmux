@@ -3818,7 +3818,7 @@ impl Drop for DirectoryStream {
 #[cfg(unix)]
 fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
     use std::ffi::CString;
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd};
 
     let uid = unsafe { libc::geteuid() };
     let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
@@ -3863,15 +3863,23 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
         {
             continue;
         }
-        let Ok(name) = name.to_str() else { continue };
-        let Some((_, suffix)) = name.rsplit_once(".tmp-") else { continue };
-        let Some(pid) = suffix.split('-').next().and_then(|pid| pid.parse().ok()) else {
-            continue;
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
         };
-        let process_alive = unsafe { libc::kill(pid, 0) == 0 }
-            || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if process_alive {
+        if descriptor < 0 {
             continue;
+        }
+        let candidate = unsafe { fs::File::from_raw_fd(descriptor) };
+        if unsafe { libc::flock(candidate.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                continue;
+            }
+            return Err(error);
         }
         let name = CString::new(name_bytes).map_err(|_| io::ErrorKind::InvalidInput)?;
         let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
@@ -3997,6 +4005,9 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
     // Exclusive creation means an existing hard link or symlink is never
     // opened, and no previously existing file is truncated.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
     Ok(file)
 }
 
@@ -4936,6 +4947,25 @@ mod tests {
         let _directory = private_dump_directory(&dump_path).unwrap();
 
         assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_preserves_locked_temporary_dumps() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let name = ".mirror-1.txt.tmp-99999999-1";
+        let active = private_dump_file(&directory.temporary, name).unwrap();
+        let temp_path = dump_path.join(".cmux-dump-tmp").join(name);
+
+        let next_directory = private_dump_directory(&dump_path).unwrap();
+        assert!(temp_path.exists());
+        drop(active);
+        drop(next_directory);
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+        assert!(!temp_path.exists());
     }
 
     #[cfg(unix)]
