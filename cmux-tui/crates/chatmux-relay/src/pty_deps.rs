@@ -758,8 +758,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     wait_lifecycle.mark_reap_pending();
                 }
                 Ok(PtyChildCommand::ObserveUnavailable) => {
-                    if wait_lifecycle.begin_termination() || wait_lifecycle.termination_requested()
-                    {
+                    if wait_lifecycle.termination_requested() {
                         force_kill_process_group(pid, process_group);
                         let _ = child.kill();
                     } else {
