@@ -46686,6 +46686,7 @@ mod tests {
             projection_agents: None,
             projection_agents_generation: 0,
             projection_agents_builds: 0,
+            projection_collapsed_clones: 0,
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
