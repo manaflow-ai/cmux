@@ -92,6 +92,33 @@ pub(crate) fn rows(
     let mut rows = Vec::with_capacity(tree.workspaces().len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
+    let agent_order = if spec.includes(SidebarResourceKind::Agents) {
+        let mut order = agents
+            .iter()
+            .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
+            .collect::<HashMap<_, _>>();
+        let mut indexed = tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                order
+                    .remove(&tab.surface)
+                    .map(|(attention, updated_at_ms)| {
+                        (u8::MAX - attention, u64::MAX - updated_at_ms, index, tab.surface)
+                    })
+            })
+            .collect::<Vec<_>>();
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| {
+            (attention, recency, index)
+        });
+        indexed.into_iter().map(|(_, _, _, surface)| surface).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     append_level(
         &mut rows,
         &spec.levels,
@@ -99,10 +126,22 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
+        &agent_order,
         selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
     rows
+}
+
+/// Return the herdr-style attention rank used by agent rows. Higher values
+/// sort first, while the original tree order breaks ties.
+fn agent_attention(state: &str) -> u8 {
+    match state {
+        "blocked" => 4,
+        "idle" => 3,
+        "working" => 2,
+        _ => 0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -113,6 +152,7 @@ fn append_level(
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
+    agent_order: &[SurfaceId],
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -150,6 +190,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
+                        agent_order,
                         selected_workspace,
                         collapsed,
                     );
@@ -201,6 +242,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
+                            agent_order,
                             selected_workspace,
                             collapsed,
                         );
@@ -210,6 +252,7 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
+            let mut agent_entries = HashMap::<SurfaceId, ProjectionRow>::new();
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
             let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -246,7 +289,7 @@ fn append_level(
                         } else {
                             pane.short_id.clone()
                         };
-                        output.push(ProjectionRow {
+                        let row = ProjectionRow {
                             resource,
                             depth: depth as u16,
                             name,
@@ -268,8 +311,18 @@ fn append_level(
                                 surface: tab.surface,
                                 agent: agent_only,
                             },
-                        });
+                        };
+                        if agent_only {
+                            agent_entries.insert(tab.surface, row);
+                        } else {
+                            output.push(row);
+                        }
                     }
+                }
+            }
+            for surface in agent_order {
+                if let Some(row) = agent_entries.remove(surface) {
+                    output.push(row);
                 }
             }
         }
