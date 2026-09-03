@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxSettings
+import CmuxTestSupport
 import Foundation
 import WebKit
 
@@ -21,11 +22,27 @@ struct BrowserExternalNavigationHandler {
 
     init(
         defaults: UserDefaults = .standard,
-        openURL: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        openURL: @escaping @MainActor @Sendable (URL) -> Bool = Self.openInSystemBrowser
     ) {
         self.defaults = defaults
         self.openURL = openURL
         self.policyCache = BrowserExternalURLPolicyCache(defaults: defaults)
+    }
+
+    /// The default opener. UI tests observe external-open routing through the
+    /// capture sink; a configured sink intercepts the open so CI never
+    /// launches a real browser.
+    @MainActor
+    private static func openInSystemBrowser(_ url: URL) -> Bool {
+#if DEBUG
+        if UITestCaptureSink().appendLineIfConfigured(
+            envKey: "CMUX_UI_TEST_CAPTURE_EXTERNAL_OPEN_PATH",
+            line: "externalOpen \(url.absoluteString)"
+        ) {
+            return true
+        }
+#endif
+        return NSWorkspace.shared.open(url)
     }
 
     /// Returns whether a URL matches a configured external rule.
