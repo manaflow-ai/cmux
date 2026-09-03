@@ -1755,6 +1755,7 @@ impl Inner {
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1792,6 +1793,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1823,6 +1825,7 @@ impl Inner {
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1835,6 +1838,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
