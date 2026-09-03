@@ -28759,9 +28759,9 @@ mod tests {
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.config.sidebar.columns.clear();
-        app.config.sidebar.profiles = vec![tabs_profile.clone(), agents_profile];
-        app.config.sidebar.active_profile = tabs_profile.id.clone();
-        app.config.sidebar.views = tabs_profile.views.clone();
+        app.config.sidebar.profiles = vec![tabs_profile, agents_profile];
+        app.config.sidebar.active_profile = app.config.sidebar.profiles[0].id.clone();
+        app.config.sidebar.views = app.config.sidebar.profiles[0].views.clone();
         app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -28845,7 +28845,7 @@ mod tests {
             views: first.sidebar.views.clone(),
             layout: second_layout,
         };
-        first.sidebar.profiles = vec![first_profile.clone(), second_profile];
+        first.sidebar.profiles = vec![first_profile, second_profile];
         first.sidebar.active_profile = "first".into();
 
         let mut app = test_app(Session::Local(mux));
