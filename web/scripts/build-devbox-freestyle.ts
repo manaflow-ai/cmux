@@ -70,6 +70,7 @@
  */
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
+import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import {
   CMUX_TUI_SESSION,
   cmuxTuiInstallCommand,
@@ -297,6 +298,10 @@ try {
   // stock Ubuntu scripts stay but go silent, Freestyle's static /etc/motd is
   // emptied, and the versions the banner prints are written once here (the
   // agent line straight from the Dockerfile pins) so login never runs a tool.
+  // The model-plane env is the same bytes for every machine (an alias host the
+  // edge routes per deployment), so it is baked and create writes nothing.
+  await vm.fs.writeFile(VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), { mode: 0o644 });
+  await step("model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && env -i HOME=/tmp/mp-check bash -c '. /etc/cmux/agent-config.sh; echo $OPENAI_BASE_URL' | grep -q '^https://' && rm -rf /tmp/mp-check && echo model-plane-env-baked`);
   await put("cmux-motd", "/etc/update-motd.d/00-cmux", 0o755);
   await step(
     "motd",
