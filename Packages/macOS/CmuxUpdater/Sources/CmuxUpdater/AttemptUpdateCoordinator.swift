@@ -87,7 +87,14 @@ struct AttemptUpdateCoordinator {
             case .error:
                 phase = .inactive
                 return .none
-            case .idle, .checking, .updateAvailable, .notFound,
+            case .notFound:
+                // A check session that was already in flight when the user asked to install
+                // resolved "no update". Being up to date is a truthful, visible outcome, not an
+                // install failure (issue #9262); end the attempt quietly and let the `.notFound`
+                // state render as the normal up-to-date result.
+                phase = .inactive
+                return .none
+            case .idle, .checking, .updateAvailable,
                     .startingDownload, .downloading, .extracting, .installing:
                 // No model emission can prove that a new Sparkle check started. If the explicit
                 // controller signal never arrived, this accepted attempt ended unexpectedly.
