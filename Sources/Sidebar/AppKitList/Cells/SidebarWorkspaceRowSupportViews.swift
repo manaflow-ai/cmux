@@ -4,6 +4,24 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
+/// Physical right-click and Control-click both need the workspace/group cell
+/// to be the hit-tested view. Title/status subviews return `nil` from
+/// `hitTest` (or swallow `menu(for:)`), so AppKit never asks the cell and
+/// no menu appears — while empty-area clicks still reach the table.
+enum SidebarSecondaryClick {
+    static func isActive(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        switch event.type {
+        case .rightMouseDown, .rightMouseUp:
+            return true
+        case .leftMouseDown, .leftMouseUp:
+            return event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
+    }
+}
+
 /// Row-owned color helpers that preserve native semantic variants while
 /// deriving selected colors from the row model (parity with SwiftUI).
 @MainActor
