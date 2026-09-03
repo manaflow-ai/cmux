@@ -20,6 +20,9 @@ extension TerminalSurface {
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
         }
+        if isViewInWindow {
+            onManualWindowAttached?()
+        }
         rendererPresentationReadinessDidChange()
     }
 
@@ -441,6 +444,9 @@ extension TerminalSurface {
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
             flushPendingManualSizeReportIfAttached()
+            if isViewInWindow {
+                onManualWindowAttached?()
+            }
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif
@@ -466,6 +472,10 @@ extension TerminalSurface {
 
         attachedView = view
         releaseHeadlessStartupWindowIfNeeded(for: view)
+
+        if isViewInWindow {
+            onManualWindowAttached?()
+        }
 
         // Ordinary portal attachment can arrive before AppKit has put the view in
         // a window. Defer those. Startup and cold-input paths install the owned

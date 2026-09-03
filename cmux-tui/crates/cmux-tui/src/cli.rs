@@ -82,7 +82,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
-                index += 1
+                index += 1;
             }
             value if value.starts_with('-') => return false,
             value => return REMOTE_COMMANDS.contains(&value),

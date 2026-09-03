@@ -11,14 +11,14 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider e2b|freestyle|daytona|default] [--url https://preview.example]";
+const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider freestyle|default] [--url https://preview.example]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const count = positiveInteger(optionValue(rest, "--count") ?? "8", "--count");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "4", "--concurrency"), count);
 const provider = optionValue(rest, "--provider") ?? "default";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
-if (!["default", "e2b", "freestyle", "daytona"].includes(provider)) {
-  console.error("--provider must be default, e2b, freestyle, or daytona");
+if (!["default", "freestyle"].includes(provider)) {
+  console.error("--provider must be default or freestyle");
   process.exit(2);
 }
 
@@ -154,9 +154,8 @@ async function runCase(index) {
     vmId = created.id;
     throwIfInterrupted();
 
-    // Blaxel machines run only the cmux-tui remote daemon (no cmuxd RPC to probe);
-    // every other provider still serves the legacy cmuxd-remote websocket PTY.
-    const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
+    // cmux Cloud machines run only the cmux-tui remote daemon (no cmuxd RPC to probe).
+    const expectedTransport = "cmux-remote";
     const attachStartedAt = performance.now();
     const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
@@ -174,7 +173,8 @@ async function runCase(index) {
 
     let rpcCapabilities = null;
     if (expectedTransport === "cmux-remote") {
-      if (!/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+      // Direct public IPv6 ws to the Freestyle machine.
+      if (!/^wss?:\/\/.+\/v1\/link(\?|$)/.test(attached.route ?? "")) {
         throw new Error("cmux-remote attach response missing the daemon route");
       }
     } else {

@@ -74,6 +74,48 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         }
     }
 
+    @Test("Dropped-file SCP overrides an interactive TTY request")
+    func droppedFileUploadDisablesTTY() async throws {
+        let localFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-drop-tty-regression-" + UUID().uuidString)
+        try Data("payload".utf8).write(to: localFile)
+        defer { try? FileManager.default.removeItem(at: localFile) }
+
+        let runner = RecordingProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            sshOptions: ["RequestTTY=force"]
+        )
+        defer { coordinator.stop() }
+
+        let operation = RemoteProcessCancellationOperation()
+        let succeeded = await withCheckedContinuation { continuation in
+            coordinator.uploadDroppedFiles(
+                [localFile],
+                operation: operation
+            ) { result in
+                switch result {
+                case .success:
+                    continuation.resume(returning: true)
+                case .failure:
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+        #expect(succeeded)
+
+        let scpRequest = try #require(
+            runner.requests.first { $0.executable == "/usr/bin/scp" }
+        )
+        let noTTYIndex = try #require(
+            Self.pairIndex(scpRequest.arguments, "-o", "RequestTTY=no")
+        )
+        let forcedTTYIndex = try #require(
+            Self.pairIndex(scpRequest.arguments, "-o", "RequestTTY=force")
+        )
+        #expect(noTTYIndex < forcedTTYIndex)
+    }
+
     @Test("Reverse relay standalone fallback disables ControlMaster transport")
     func reverseRelayStandaloneFallbackDisablesControlMasterTransport() {
         let coordinator = Self.makeCoordinator(
@@ -174,7 +216,10 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
             buildInfo: SSHOverrideStubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",

@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
@@ -104,23 +104,32 @@ impl TextInput {
         }
     }
 
-    pub fn visible_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+    pub fn visible_text_and_cursor(&self, width: usize) -> (String, usize) {
         if width == 0 {
             return (String::new(), 0);
         }
-        self.ensure_cursor_visible(width);
-        let cursor_col = self.display_width(self.scroll, self.cursor);
+        let (scroll, _, cursor_col) = self.viewport_for_width(width);
         let mut used = 0;
-        let mut end = self.scroll;
-        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
-            let grapheme_width = UnicodeWidthStr::width(grapheme);
+        let mut end = scroll;
+        for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
+            let grapheme_width = grapheme.cell_width() as usize;
             if used + grapheme_width > width {
                 break;
             }
             used += grapheme_width;
-            end = self.scroll + offset + grapheme.len();
+            end = scroll + offset + grapheme.len();
         }
-        (self.buffer[self.scroll..end].to_string(), cursor_col.min(width - 1))
+        (self.buffer[scroll..end].to_string(), cursor_col.min(width - 1))
+    }
+
+    /// Reconcile the persistent horizontal viewport at a layout or input boundary.
+    pub(crate) fn sync_viewport(&mut self, width: usize) {
+        if width == 0 {
+            return;
+        }
+        let (scroll, cursor, _) = self.viewport_for_width(width);
+        self.scroll = scroll;
+        self.cursor = cursor;
     }
 
     pub fn set_cursor_from_visible_column(&mut self, column: usize, width: usize) {
@@ -134,7 +143,7 @@ impl TextInput {
         for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
             let start = self.scroll + offset;
             let end = start + grapheme.len();
-            let grapheme_width = UnicodeWidthStr::width(grapheme);
+            let grapheme_width = grapheme.cell_width() as usize;
             if used + grapheme_width > width {
                 break;
             }
@@ -322,19 +331,7 @@ impl TextInput {
         if width == 0 {
             return;
         }
-        self.cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
-        self.scroll = self.grapheme_boundary_at_or_after(self.scroll.min(self.cursor));
-        if self.cursor < self.scroll {
-            self.scroll = self.cursor;
-        }
-        while self.display_width(self.scroll, self.cursor) >= width {
-            let next = self.next_boundary(self.scroll);
-            if next <= self.scroll || next > self.cursor {
-                self.scroll = self.cursor;
-                break;
-            }
-            self.scroll = next;
-        }
+        self.sync_viewport(width);
     }
 
     fn grapheme_boundary_at_or_after(&self, byte: usize) -> usize {
@@ -345,8 +342,35 @@ impl TextInput {
             .unwrap_or(self.buffer.len())
     }
 
-    fn display_width(&self, start: usize, end: usize) -> usize {
-        UnicodeWidthStr::width(&self.buffer[start..end])
+    fn viewport_for_width(&self, width: usize) -> (usize, usize, usize) {
+        debug_assert!(width > 0);
+        let cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
+        let mut scroll = self.grapheme_boundary_at_or_after(self.scroll.min(cursor));
+        if cursor < scroll {
+            scroll = cursor;
+        }
+
+        // Measure the cursor suffix once, then discard leading graphemes until it fits.
+        // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
+        let mut cursor_col = 0;
+        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
+            cursor_col += grapheme.cell_width() as usize;
+        }
+        if cursor_col >= width {
+            let viewport_start = scroll;
+            for (offset, grapheme) in self.buffer[viewport_start..cursor].grapheme_indices(true) {
+                let next = viewport_start + offset + grapheme.len();
+                if next > cursor {
+                    break;
+                }
+                cursor_col = cursor_col.saturating_sub(grapheme.cell_width() as usize);
+                scroll = next;
+                if cursor_col < width {
+                    break;
+                }
+            }
+        }
+        (scroll, cursor, cursor_col)
     }
 
     fn is_word_grapheme(grapheme: &str) -> bool {
@@ -529,5 +553,25 @@ mod tests {
         let (shown, cursor) = input.visible_text_and_cursor(3);
         assert_eq!(shown, "abc");
         assert_eq!(cursor, 0);
+    }
+
+    #[test]
+    fn viewport_scan_keeps_wide_graphemes_in_order() {
+        let input = text_input("界界界界");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "界");
+        assert_eq!(cursor, 2);
+    }
+
+    #[test]
+    fn visible_cursor_counts_halfwidth_sound_marks_as_terminal_cells() {
+        let mut input = text_input("ｶﾞa");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "ｶﾞa");
+        assert_eq!(cursor, 3);
     }
 }

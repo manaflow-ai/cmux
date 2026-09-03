@@ -1131,7 +1131,7 @@
       "id": "terminal-rendering",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "render attach is implemented; terminal-host-v1 resize replay is incompatible until its decoder is repaired; typed SDK parity is incomplete"
+      "route": "render attach to newly launched hosts is unsupported. The daemon-side terminal-host-v4 decoder accepts v1-v4, but the current remote renderer defaults to terminal-host-v3 and decodes only negotiated v1-v3 resize replay. Newly launched hosts pass PROTOCOL_VERSION..=PROTOCOL_VERSION to CapabilityStore::accept (currently v4); the minted one-use capability token is versionless and no mutually supported-version downgrade is exposed. Legacy adopted hosts can use their negotiated older version when the renderer supports it. Typed SDK parity is incomplete"
     },
     {
       "id": "terminal-selection-search-history",
@@ -1376,17 +1376,17 @@
   },
   "protocol_domains": [
     {
-      "id": "mux-control-v10",
+      "id": "mux-control-v12",
       "status": "implemented",
       "spec": "commands.md"
     },
     {
-      "id": "mux-events-v10",
+      "id": "mux-events-v12",
       "status": "implemented",
       "spec": "events.md"
     },
     {
-      "id": "terminal-host-v1",
+      "id": "terminal-host-v4",
       "status": "partial",
       "spec": "terminal-host.md"
     },

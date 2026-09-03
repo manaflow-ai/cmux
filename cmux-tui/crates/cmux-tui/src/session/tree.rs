@@ -2,6 +2,7 @@
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 use cmux_tui_core::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,
@@ -16,11 +17,106 @@ use serde_json::Value;
 
 #[derive(Clone, Default)]
 pub struct TreeView {
-    pub workspaces: Vec<WorkspaceView>,
+    workspaces: Vec<WorkspaceView>,
     #[allow(dead_code)]
     pub workspace_revision: u64,
     pub pane_revision: Option<u64>,
     pub active_workspace: usize,
+    #[doc(hidden)]
+    pub(crate) location_index: OnceLock<TreeLocationIndex>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct TreeLocationIndex {
+    panes: HashMap<PaneId, PaneLocation>,
+    surfaces: HashMap<SurfaceId, SurfaceLocation>,
+}
+
+#[derive(Clone, Copy)]
+struct PaneLocation {
+    workspace_index: usize,
+    screen_index: usize,
+    pane_index: usize,
+    workspace_id: WorkspaceId,
+    previous_workspace: Option<WorkspaceId>,
+    screen_id: ScreenId,
+    previous_screen: Option<ScreenId>,
+    previous_pane: Option<PaneId>,
+}
+
+#[derive(Clone, Copy)]
+struct SurfaceLocation {
+    workspace_index: usize,
+    screen_index: usize,
+    pane_index: usize,
+    tab_index: usize,
+    workspace_id: WorkspaceId,
+    previous_workspace: Option<WorkspaceId>,
+    screen_id: ScreenId,
+    previous_screen: Option<ScreenId>,
+    pane_id: PaneId,
+    previous_pane: Option<PaneId>,
+    previous_tab: Option<SurfaceId>,
+}
+
+impl TreeLocationIndex {
+    fn build(tree: &TreeView) -> Self {
+        let mut index = Self::default();
+        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                for (pane_index, pane) in screen.panes.iter().enumerate() {
+                    index.panes.entry(pane.id).or_insert(PaneLocation {
+                        workspace_index,
+                        screen_index,
+                        pane_index,
+                        workspace_id: workspace.id,
+                        previous_workspace: workspace_index
+                            .checked_sub(1)
+                            .and_then(|index| tree.workspaces.get(index))
+                            .map(|workspace| workspace.id),
+                        screen_id: screen.id,
+                        previous_screen: screen_index
+                            .checked_sub(1)
+                            .and_then(|index| workspace.screens.get(index))
+                            .map(|screen| screen.id),
+                        previous_pane: pane_index
+                            .checked_sub(1)
+                            .and_then(|index| screen.panes.get(index))
+                            .map(|pane| pane.id),
+                    });
+                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                        // The previous scans selected the first duplicate in tree order.
+                        index.surfaces.entry(tab.surface).or_insert(SurfaceLocation {
+                            workspace_index,
+                            screen_index,
+                            pane_index,
+                            tab_index,
+                            workspace_id: workspace.id,
+                            previous_workspace: workspace_index
+                                .checked_sub(1)
+                                .and_then(|index| tree.workspaces.get(index))
+                                .map(|workspace| workspace.id),
+                            screen_id: screen.id,
+                            previous_screen: screen_index
+                                .checked_sub(1)
+                                .and_then(|index| workspace.screens.get(index))
+                                .map(|screen| screen.id),
+                            pane_id: pane.id,
+                            previous_pane: pane_index
+                                .checked_sub(1)
+                                .and_then(|index| screen.panes.get(index))
+                                .map(|pane| pane.id),
+                            previous_tab: tab_index
+                                .checked_sub(1)
+                                .and_then(|index| pane.tabs.get(index))
+                                .map(|tab| tab.surface),
+                        });
+                    }
+                }
+            }
+        }
+        index
+    }
 }
 
 #[derive(Clone)]
@@ -87,10 +183,26 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    pub(crate) fn from_parts(
+        workspaces: Vec<WorkspaceView>,
+        workspace_revision: u64,
+        pane_revision: Option<u64>,
+        active_workspace: usize,
+    ) -> Self {
+        Self {
+            workspaces,
+            workspace_revision,
+            pane_revision,
+            active_workspace,
+            location_index: OnceLock::new(),
+        }
+    }
+
     /// Retain the server's authoritative tab topology, removing only tabs
     /// with explicit detach/retire evidence. The local surface mirror is a
     /// lazy cache and can be empty during startup or reconnect.
     pub fn retain_not_retired(&mut self, retired: &HashSet<SurfaceId>) {
+        self.invalidate_location_index();
         for workspace in &mut self.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -159,11 +271,91 @@ impl TreeView {
         self.workspaces.get(self.active_workspace)
     }
 
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_screen(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+    ) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(workspace_index) else { return false };
+        if screen_index >= workspace.screens.len() {
+            return false;
+        }
+        workspace.active_screen = screen_index;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_pane(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+        pane_id: PaneId,
+    ) -> bool {
+        let Some(screen) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+        else {
+            return false;
+        };
+        if !screen.panes.iter().any(|pane| pane.id == pane_id) {
+            return false;
+        }
+        screen.active_pane = pane_id;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_active_tab(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+        pane_id: PaneId,
+        tab_index: usize,
+    ) -> bool {
+        let Some(pane) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.iter_mut().find(|pane| pane.id == pane_id))
+        else {
+            return false;
+        };
+        if tab_index >= pane.tabs.len() {
+            return false;
+        }
+        pane.active_tab = tab_index;
+        true
+    }
+
+    /// Update focus state without invalidating topology locations.
+    pub(crate) fn set_pane_active_tab(&mut self, pane_id: PaneId, tab_index: usize) -> bool {
+        let Some((workspace_index, screen_index, pane_index)) = self.pane_location(pane_id) else {
+            return false;
+        };
+        let Some(pane) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.get_mut(pane_index))
+        else {
+            return false;
+        };
+        if pane.id != pane_id || tab_index >= pane.tabs.len() {
+            return false;
+        }
+        pane.active_tab = tab_index;
+        true
+    }
+
     pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
+        self.invalidate_location_index();
         self.workspaces.get_mut(self.active_workspace)
     }
 
     pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
+        self.invalidate_location_index();
         let workspace = self.workspaces.get_mut(self.active_workspace)?;
         workspace.screens.get_mut(workspace.active_screen)
     }
@@ -174,14 +366,18 @@ impl TreeView {
     }
 
     pub fn pane(&self, id: PaneId) -> Option<&PaneView> {
+        let (workspace_index, screen_index, pane_index) = self.pane_location(id)?;
         self.workspaces
-            .iter()
-            .flat_map(|ws| ws.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .find(|p| p.id == id)
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .panes
+            .get(pane_index)
+            .filter(|pane| pane.id == id)
     }
 
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
+        self.invalidate_location_index();
         self.workspaces
             .iter_mut()
             .flat_map(|workspace| workspace.screens.iter_mut())
@@ -190,12 +386,55 @@ impl TreeView {
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
+        let (workspace_index, screen_index, pane_index, tab_index) = self.surface_location(id)?;
         self.workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .find(|tab| tab.surface == id)
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .panes
+            .get(pane_index)?
+            .tabs
+            .get(tab_index)
+            .filter(|tab| tab.surface == id)
+    }
+
+    pub(crate) fn update_surface_title(&mut self, id: SurfaceId, title: &str) -> bool {
+        let (workspace_index, screen_index, pane_index, tab_index) = match self.surface_location(id)
+        {
+            Some(location) => location,
+            None => return false,
+        };
+        self.update_surface_title_at(
+            id,
+            [workspace_index, screen_index, pane_index, tab_index],
+            title,
+        )
+        .is_some()
+    }
+
+    pub(crate) fn update_surface_title_at(
+        &mut self,
+        id: SurfaceId,
+        [workspace_index, screen_index, pane_index, tab_index]: [usize; 4],
+        title: &str,
+    ) -> Option<bool> {
+        let Some(tab) = self
+            .workspaces
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.get_mut(pane_index))
+            .and_then(|pane| pane.tabs.get_mut(tab_index))
+        else {
+            return None;
+        };
+        if tab.surface != id {
+            return None;
+        }
+        let changed = tab.title != title;
+        if changed {
+            tab.title = title.to_owned();
+        }
+        Some(changed)
     }
 
     /// Resolve the stable public terminal identity to the current internal
@@ -214,18 +453,9 @@ impl TreeView {
     /// Single-surface clients reapply this to every remote tree snapshot so
     /// unrelated focus changes cannot move them to another terminal.
     pub fn select_surface(&mut self, id: SurfaceId) -> bool {
-        let location =
-            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
-                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
-                    screen.panes.iter().enumerate().find_map(|(pane_index, pane)| {
-                        pane.tabs
-                            .iter()
-                            .position(|tab| tab.surface == id)
-                            .map(|tab_index| (workspace_index, screen_index, pane_index, tab_index))
-                    })
-                })
-            });
-        let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
+        let Some((workspace_index, screen_index, pane_index, tab_index)) =
+            self.surface_location(id)
+        else {
             return false;
         };
         self.active_workspace = workspace_index;
@@ -244,14 +474,95 @@ impl TreeView {
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
-        self.workspaces
-            .iter()
-            .flat_map(|ws| ws.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .find(|tab| tab.surface == id)
-            .map(|tab| tab.kind)
-            .unwrap_or(SurfaceKind::Pty)
+        self.surface(id).map(|tab| tab.kind).unwrap_or(SurfaceKind::Pty)
+    }
+
+    fn location_index(&self) -> &TreeLocationIndex {
+        self.location_index.get_or_init(|| TreeLocationIndex::build(self))
+    }
+
+    /// Mutably access the workspace topology and invalidate cached locations.
+    /// Callers must use this guard before changing workspaces, screens, panes,
+    /// or tabs so indexed lookups rebuild against the new topology.
+    pub(crate) fn workspaces_mut(&mut self) -> &mut Vec<WorkspaceView> {
+        self.invalidate_location_index();
+        &mut self.workspaces
+    }
+
+    pub(crate) fn workspaces(&self) -> &[WorkspaceView] {
+        &self.workspaces
+    }
+
+    fn pane_location(&self, id: PaneId) -> Option<(usize, usize, usize)> {
+        let location = self.location_index().panes.get(&id)?;
+        let workspace_index = location.workspace_index;
+        let screen_index = location.screen_index;
+        let pane_index = location.pane_index;
+        let workspace = self.workspaces.get(workspace_index)?;
+        if workspace.id != location.workspace_id
+            || (workspace_index > 0
+                && self.workspaces.get(workspace_index - 1).map(|workspace| workspace.id)
+                    != location.previous_workspace)
+        {
+            return None;
+        }
+        let screen = workspace.screens.get(screen_index)?;
+        if screen.id != location.screen_id
+            || (screen_index > 0
+                && workspace.screens.get(screen_index - 1).map(|screen| screen.id)
+                    != location.previous_screen)
+        {
+            return None;
+        }
+        screen.panes.get(pane_index).filter(|pane| pane.id == id)?;
+        if pane_index > 0
+            && screen.panes.get(pane_index - 1).map(|pane| pane.id) != location.previous_pane
+        {
+            return None;
+        }
+        Some((workspace_index, screen_index, pane_index))
+    }
+
+    fn surface_location(&self, id: SurfaceId) -> Option<(usize, usize, usize, usize)> {
+        let location = self.location_index().surfaces.get(&id)?;
+        let workspace_index = location.workspace_index;
+        let screen_index = location.screen_index;
+        let pane_index = location.pane_index;
+        let tab_index = location.tab_index;
+        let workspace = self.workspaces.get(workspace_index)?;
+        if workspace.id != location.workspace_id
+            || (workspace_index > 0
+                && self.workspaces.get(workspace_index - 1).map(|workspace| workspace.id)
+                    != location.previous_workspace)
+        {
+            return None;
+        }
+        let screen = workspace.screens.get(screen_index)?;
+        if screen.id != location.screen_id
+            || (screen_index > 0
+                && workspace.screens.get(screen_index - 1).map(|screen| screen.id)
+                    != location.previous_screen)
+        {
+            return None;
+        }
+        let pane = screen.panes.get(pane_index)?;
+        if pane.id != location.pane_id
+            || (pane_index > 0
+                && screen.panes.get(pane_index - 1).map(|pane| pane.id) != location.previous_pane)
+        {
+            return None;
+        }
+        pane.tabs.get(tab_index).filter(|tab| tab.surface == id)?;
+        if tab_index > 0
+            && pane.tabs.get(tab_index - 1).map(|tab| tab.surface) != location.previous_tab
+        {
+            return None;
+        }
+        Some((workspace_index, screen_index, pane_index, tab_index))
+    }
+
+    pub(crate) fn invalidate_location_index(&mut self) {
+        self.location_index = OnceLock::new();
     }
 }
 
@@ -369,6 +680,7 @@ pub fn tree_from_state_with_notifications(
         workspace_revision: state.workspace_revision,
         pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,
+        location_index: OnceLock::new(),
         workspaces: state
             .workspaces
             .iter()
@@ -436,6 +748,12 @@ fn parse_layout(value: &Value) -> Option<Node> {
 }
 
 fn parse_pane(value: &Value) -> Option<PaneView> {
+    let raw_active_tab = value
+        .get("active_tab")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok());
+    let active_tab_is_declared = value.get("active_tab").is_some();
+    let mut active_tab = None;
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
         resource_id: value
@@ -444,15 +762,16 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
             .and_then(|value| PanePublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
         focused_at: value.get("focused_at").and_then(|v| v.as_u64()).unwrap_or(0),
         tabs: value
             .get("tabs")
             .and_then(|v| v.as_array())
             .map(|tabs| {
+                let mut compact_index = 0;
                 tabs.iter()
-                    .filter_map(|tab| {
-                        Some(TabView {
+                    .enumerate()
+                    .filter_map(|(raw_index, tab)| {
+                        let parsed = Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
                             public_id: tab
                                 .get("tab_resource_id")
@@ -504,11 +823,18 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
-                        })
+                        })?;
+                        if raw_active_tab == Some(raw_index) {
+                            active_tab = Some(compact_index);
+                        }
+                        compact_index += 1;
+                        Some(parsed)
                     })
                     .collect()
             })
             .unwrap_or_default(),
+        active_tab: active_tab
+            .unwrap_or_else(|| if active_tab_is_declared { usize::MAX } else { 0 }),
     })
 }
 
@@ -621,14 +947,28 @@ pub(super) fn parse_tree_with_capabilities(
             active_screen: 0,
         };
         if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
-            for (s, screen) in screens.iter().enumerate() {
-                if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
-                    view.active_screen = s;
-                }
-                if let Some(parsed) = parse_screen(screen, capabilities) {
-                    view.screens.push(parsed);
+            let mut active_screen = None;
+            let mut active_screen_is_invalid = false;
+            for screen in screens {
+                let is_active = screen.get("active").and_then(|v| v.as_bool()) == Some(true);
+                match parse_screen(screen, capabilities) {
+                    Some(parsed) => {
+                        if is_active {
+                            active_screen = Some(view.screens.len());
+                            active_screen_is_invalid = false;
+                        }
+                        view.screens.push(parsed);
+                    }
+                    None => {
+                        if is_active {
+                            active_screen = None;
+                            active_screen_is_invalid = true;
+                        }
+                    }
                 }
             }
+            view.active_screen = active_screen
+                .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
         }
         tree.workspaces.push(view);
     }
@@ -682,6 +1022,53 @@ mod tests {
         let pane = &tree.workspaces[0].screens[0].panes[0];
         assert_eq!(pane.tabs.len(), 2);
         assert_eq!(pane.active_tab, 1);
+    }
+
+    #[test]
+    fn parser_reindexes_active_screen_after_dropping_malformed_screens() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {"active": false},
+                    {
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    }
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert_eq!(tree.workspaces[0].active_screen, 0);
+        assert_eq!(tree.active_screen().map(|screen| screen.id), Some(2));
+    }
+
+    #[test]
+    fn parser_fails_closed_when_active_screen_is_malformed() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {
+                        "id": 2,
+                        "active": false,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    },
+                    {"active": true}
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert!(tree.active_screen().is_none());
     }
 
     fn tree_with_tabs(active_tab: usize, surfaces: &[SurfaceId]) -> TreeView {
@@ -913,6 +1300,195 @@ mod tests {
     }
 
     #[test]
+    fn surface_and_pane_lookup_keep_first_match_after_tree_mutation() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 7, "title": "first"},
+                            {"surface": 8, "title": "retained"}
+                        ]
+                    }]
+                }]
+            }, {
+                "id": 4,
+                "screens": [{
+                    "id": 5,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 7, "title": "duplicate"}]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("first"));
+        assert_eq!(tree.pane(3).map(|pane| pane.tabs[0].title.as_str()), Some("first"));
+        tree.active_workspace = 1;
+        assert!(tree.select_surface(7));
+        assert_eq!(tree.active_workspace, 0);
+        assert_eq!(tree.active_surface(), Some(7));
+
+        tree.retain_not_retired(&HashSet::from([7]));
+        assert!(tree.surface(7).is_none());
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        assert!(tree.pane(3).is_some());
+    }
+
+    #[test]
+    fn indexed_lookup_fails_closed_after_internal_topology_mutation() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "active_tab": 0,
+                            "tabs": [
+                                {"surface": 7, "title": "first"},
+                                {"surface": 8, "title": "retained"}
+                            ]
+                        }]
+                    }]
+                }]
+            }))
+        };
+
+        let mut appended = tree();
+        assert!(appended.surface(7).is_some());
+        let tab = appended.workspaces[0].screens[0].panes[0].tabs[0].clone();
+        appended.workspaces[0].screens[0].panes[0].tabs.push(tab);
+        assert!(appended.surface(7).is_some());
+
+        let mut inserted = tree();
+        assert!(inserted.surface(8).is_some());
+        let tab = inserted.workspaces[0].screens[0].panes[0].tabs[0].clone();
+        inserted.workspaces[0].screens[0].panes[0].tabs.insert(0, tab);
+        assert!(inserted.surface(8).is_none());
+        assert!(!inserted.select_surface(8));
+
+        let mut removed = tree();
+        assert!(removed.surface(8).is_some());
+        removed.workspaces[0].screens[0].panes[0].tabs.remove(0);
+        assert!(removed.surface(8).is_none());
+        assert!(!removed.select_surface(8));
+
+        let mut replaced = tree();
+        assert!(replaced.surface(8).is_some());
+        replaced.workspaces[0].screens[0].panes[0].tabs[0].surface = 8;
+        assert!(replaced.surface(8).is_none());
+        assert!(!replaced.select_surface(8));
+    }
+
+    #[test]
+    fn topology_mutation_guard_invalidates_index_before_nested_mutation() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 7, "title": "first"},
+                            {"surface": 8, "title": "retained"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        let mut inserted = tree.workspaces_mut()[0].screens[0].panes[0].tabs[0].clone();
+        inserted.title = "inserted".to_string();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.insert(0, inserted);
+
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("inserted"));
+        assert!(tree.select_surface(8));
+    }
+
+    #[test]
+    fn title_updates_reuse_the_existing_location_index() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 7, "title": "first"}]
+                    }]
+                }]
+            }]
+        }));
+
+        let index_before = tree.location_index() as *const TreeLocationIndex;
+        assert!(tree.update_surface_title(7, "renamed"));
+        let index_after = tree.location_index() as *const TreeLocationIndex;
+
+        assert!(std::ptr::eq(index_before, index_after));
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("renamed"));
+    }
+
+    #[test]
+    fn focus_updates_reuse_the_existing_location_index() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 7, "title": "first"}]
+                    }]
+                }]
+            }]
+        }));
+
+        let index_before = tree.location_index() as *const TreeLocationIndex;
+        assert!(tree.set_active_screen(0, 0));
+        assert!(tree.set_active_pane(0, 0, 3));
+        assert!(tree.set_active_tab(0, 0, 3, 0));
+        assert!(tree.set_pane_active_tab(3, 0));
+        let index_after = tree.location_index() as *const TreeLocationIndex;
+
+        assert!(std::ptr::eq(index_before, index_after));
+        assert_eq!(tree.active_surface(), Some(7));
+    }
+
+    #[test]
     fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
         let tree = parse_tree(&json!({
             "workspaces": [{
@@ -951,6 +1527,67 @@ mod tests {
         .unwrap();
 
         assert_eq!(pane.focused_at, 42);
+    }
+
+    #[test]
+    fn pane_parser_reindexes_active_tab_after_dropping_malformed_tabs() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 1,
+            "tabs": [
+                {"title": "malformed"},
+                {"surface": 5, "title": "active"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active_surface(), Some(5));
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_is_out_of_range() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 9,
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_value_is_malformed() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": "invalid",
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_is_malformed() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 1,
+            "tabs": [
+                {"surface": 5, "title": "first"},
+                {"title": "malformed"},
+                {"surface": 6, "title": "third"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
     }
 
     #[test]

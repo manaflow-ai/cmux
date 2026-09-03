@@ -38,6 +38,22 @@ actor CloudMachineLinkManager {
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
     private let retryBackoff: TimeInterval = 15
+    /// How long a link may take to report its socket when this Mac is already
+    /// enrolled: the daemon accepts the session immediately, so anything slower
+    /// than this is a broken route rather than a slow one.
+    private let connectTimeout: Duration = .seconds(60)
+    /// The budget for a *first* link to a machine, which must also cover
+    /// enrollment. Enrollment cannot be done up front — the control plane can
+    /// only approve an invitation the client has already claimed (it looks for
+    /// it in `remote enroll pending`), so claiming and approving necessarily
+    /// race inside this one window. Each approval poll is a control-plane round
+    /// trip that shells into the machine twice (`enroll pending`, then
+    /// `enroll approve`), and on a machine that just booted those execs are
+    /// slow enough to blow a 60s budget: enrollment completed, but only after
+    /// the link had been timed out and its client killed, so every freshly
+    /// created machine hung at "connecting" for a minute and then needed a
+    /// manual retry that succeeded instantly.
+    private let enrollingConnectTimeout: Duration = .seconds(240)
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -99,7 +115,13 @@ actor CloudMachineLinkManager {
             }
             defer { approval?.cancel() }
             do {
-                return try await link.connect(route: endpoint.route, session: endpoint.session, invitationURI: endpoint.invitation?.uri)
+                return try await link.connect(
+                    route: endpoint.route,
+                    session: endpoint.session,
+                    invitationURI: endpoint.invitation?.uri,
+                    // Enrollment rides this same window (see enrollingConnectTimeout).
+                    timeout: endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout
+                )
             } catch {
                 await link.disconnect()
                 throw error
@@ -231,13 +253,27 @@ actor CloudMachineLinkManager {
     /// for the signed-in user, so approving the claim encodes "already authenticated".
     private func approveEnrollment(machineID: String, invitationID: String, client: VMClient) async {
         let deadline = Date().addingTimeInterval(5 * 60)
+        // The client claims its invitation as soon as it is spawned, so the
+        // first approval attempt is worth making almost immediately; a full
+        // poll interval spent asleep here is dead time inside the connect
+        // budget. Later attempts back off to the steady interval.
+        var delay: Duration = .milliseconds(250)
         while Date() < deadline, !Task.isCancelled {
             do {
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: delay)
             } catch {
                 return
             }
-            guard let approval = try? await client.approveCmuxRemoteEnrollment(id: machineID, invitationId: invitationID) else {
+            delay = .seconds(2)
+            let approval: VMCmuxRemoteApproval
+            do {
+                approval = try await client.approveCmuxRemoteEnrollment(id: machineID, invitationId: invitationID)
+            } catch VMClientError.httpStatus(404, _) {
+                // The machine was destroyed while this loop was waiting; it
+                // cannot come back under this id, so retrying only floods the
+                // control plane until the deadline.
+                return
+            } catch {
                 continue
             }
             if approval.state == "approved" {
