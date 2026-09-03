@@ -715,20 +715,16 @@ fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -
 /// `(terminal_id, lifecycle)` for every terminal the daemon knows about.
 fn list_terminal_ids(conn: &mut Conn, deadline: Instant) -> Result<Vec<(String, String)>, String> {
     let data = conn.request_until(json!({"cmd":"list-terminals"}), deadline)?;
-    Ok(data["terminals"]
-        .as_array()
-        .map(|terminals| {
-            terminals
-                .iter()
-                .filter_map(|terminal| {
-                    Some((
-                        terminal["terminal_id"].as_str()?.to_string(),
-                        terminal["lifecycle"].as_str().unwrap_or("").to_string(),
-                    ))
-                })
-                .collect()
+    let terminals = data["terminals"].as_array().ok_or("terminal catalog missing")?;
+    Ok(terminals
+        .iter()
+        .filter_map(|terminal| {
+            Some((
+                terminal["terminal_id"].as_str()?.to_string(),
+                terminal["lifecycle"].as_str().unwrap_or("").to_string(),
+            ))
         })
-        .unwrap_or_default())
+        .collect())
 }
 
 /// Close every terminal this run created, including the baseline typing
