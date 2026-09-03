@@ -1,8 +1,8 @@
 {
-  "01-Workspaces": "All your agents, one tap away",
-  "02-Notifications": "Know the moment an agent needs you",
-  "03-Claude": "Run Claude Code from your phone",
-  "04-Codex": "Codex, wherever you are",
-  "05-Opencode": "OpenCode, pi, any agent",
+  "01-Claude": "Run Claude Code from your phone",
+  "02-Codex": "Codex, wherever you are",
+  "03-Opencode": "OpenCode, pi, any agent",
+  "04-Notifications": "Know the moment an agent needs you",
+  "05-Workspaces": "All your agents, one tap away",
   "06-Pi": "Run pi from your phone"
 }

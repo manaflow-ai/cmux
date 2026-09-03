@@ -21,20 +21,24 @@ final class SnapshotUITests: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         setupSnapshot(app)
 
-        // 1) Workspace list.
-        shoot("01-Workspaces", [
+        // 05) Workspace list. (Store order leads with the agent terminals; see
+        // the numbering note above the agent loop.)
+        shoot("05-Workspaces", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
         ])
 
-        // 2) A REAL agent push notification over the workspace list: the app
+        // 04) A REAL agent push notification over the workspace list: the app
         // requests authorization and schedules a genuine local notification, so
         // the system renders the actual banner (real icon, "cmux" display name).
-        shoot("02-Notifications", [
+        shoot("04-Notifications", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_NOTIFICATION_BANNER": "1",
         ], waitForRealNotification: true)
 
-        // 3-6) Each agent, full terminal showing its real recorded session.
+        // 01-03 + 06) Each agent, full terminal showing its real recorded
+        // session. The NN prefix sets the App Store listing order: Claude (01),
+        // Codex (02), OpenCode (03), then Notifications (04), Workspaces (05),
+        // and pi (06).
         // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
         // edge-to-edge on both iPhone and iPad.
         // Believable workspace/session name per agent, shown in the nav bar
@@ -46,8 +50,8 @@ final class SnapshotUITests: XCTestCase {
         // TerminalPreviewTranscripts.dominantBackgroundHex) — no hardcoded
         // per-agent color. OpenCode (near-black card) and the others (terminal
         // default) both render seamlessly.
-        for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
-            shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
+        for (agent, number) in [("claude", 1), ("codex", 2), ("opencode", 3), ("pi", 6)] {
+            shoot(String(format: "%02d-%@", number, agent.capitalized), [
                 "CMUX_UITEST_TERMINAL_PREVIEW": "1",
                 "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
                 "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
