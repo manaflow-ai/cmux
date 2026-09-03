@@ -15,7 +15,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
-import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import { isStreamingResponse, observeModelUsage, type ModelUsage } from "./responseUsage";
 import {
   currentCoderouterRequestId,
   recordCoderouterOutcome,
@@ -324,6 +324,7 @@ async function proxyCodexRequestWith(
   }
   responseHeaders.set("cache-control", "no-store");
   const status = upstream.status;
+  const streamed = isStreamingResponse(upstream);
   captureRouteHealth({
     requestId,
     identity,
@@ -333,10 +334,9 @@ async function proxyCodexRequestWith(
     attempted: attempted.length,
     refreshRetries,
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
-    responseStreamed: upstream.body !== null,
+    responseStreamed: streamed,
   });
   const agent = agentFromUserAgent(request.headers.get("user-agent"));
-  const streamed = upstream.body !== null;
   const observedBody = observeModelUsage(upstream.body, (usage) => {
     captureModelUsage(identity, usage, {
       requestId,

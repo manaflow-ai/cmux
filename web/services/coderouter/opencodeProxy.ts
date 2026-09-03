@@ -6,7 +6,7 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
-import { observeModelUsage } from "./responseUsage";
+import { isStreamingResponse, observeModelUsage } from "./responseUsage";
 import {
   recordRouteEvent,
   recordUsageEvent,
@@ -267,6 +267,7 @@ export async function proxyOpenCodeRequest(
     status: upstream.status,
     duration_ms: Math.round(performance.now() - startedAt),
   });
+  const streamed = isStreamingResponse(upstream);
   // Emit terminal health before the response body is consumed; token parsing
   // remains an independent aggregate-usage concern.
   captureOpenCodeHealth({
@@ -277,9 +278,8 @@ export async function proxyOpenCodeRequest(
     outcome: upstream.ok ? "success" : "upstream_error",
     failureStage: upstream.ok ? "none" : "upstream_response",
     attempts: resolved.attempts,
-    responseStreamed: upstream.body !== null,
+    responseStreamed: streamed,
   });
-  const streamed = upstream.body !== null;
   const body = observeModelUsage(upstream.body, (usage) => {
     if (!usage || usage.totalTokens === 0) return;
     captureCoderouterEvent({

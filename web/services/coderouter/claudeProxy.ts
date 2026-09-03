@@ -37,6 +37,7 @@ import {
   recordCoderouterSpan,
 } from "./requestTelemetry";
 import { fetchWithHeadersTimeout } from "./upstreamFetch";
+import { isStreamingResponse } from "./responseUsage";
 import { signAwsRequest } from "./awsSigV4";
 import {
   anthropicErrorFromBedrock,
@@ -203,7 +204,7 @@ export function createClaudeMessagesProxy(
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
-    const streamed = response.body !== null;
+    const streamed = isStreamingResponse(response);
     const observed = observeClaudeUsage(response.body, (usage) => {
       captureModelUsage(dependencies, identity, upstream, usage, {
         requestId: health.requestId,

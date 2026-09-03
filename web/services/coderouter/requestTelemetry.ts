@@ -282,7 +282,9 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
 /**
  * The PostHog batch for one finished request: the `$ai_trace` root, its
  * `$ai_span` children, and an `$exception` when the outcome was a failure the
- * caller did not cause. Exported for tests; `withCoderouterRoute` sends it.
+ * caller did not cause. Caller errors still mark the trace as an error so
+ * HTTP failures remain filterable without creating Error Tracking issues.
+ * Exported for tests; `withCoderouterRoute` sends it.
  */
 export function traceEvents(
   context: CoderouterRequestContext,
@@ -292,7 +294,8 @@ export function traceEvents(
     ? derivedOutcome(context, input)
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
-  const isError = fault !== "none" && fault !== "caller";
+  const traceIsError = input.status >= 400 || outcome.outcome !== "success";
+  const shouldEmitException = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
   const userId = context.identity?.stackUserId ?? context.userId;
   const common = {
@@ -320,8 +323,8 @@ export function traceEvents(
         $ai_span_name: `coderouter ${context.method} ${context.route}`,
         $ai_latency: input.durationMs / 1_000,
         $ai_http_status: input.status,
-        $ai_is_error: isError,
-        ...(isError ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
+        $ai_is_error: traceIsError,
+        ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
         coderouter_attempts: outcome.attempts ?? 0,
         coderouter_refresh_retries: outcome.refreshRetries ?? 0,
         coderouter_response_streamed: outcome.responseStreamed === true,
@@ -349,7 +352,7 @@ export function traceEvents(
       },
     });
   }
-  if (isError) {
+  if (shouldEmitException) {
     const summary = input.error !== undefined
       ? errorSummary(input.error)
       : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
