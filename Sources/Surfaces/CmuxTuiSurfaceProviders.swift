@@ -662,7 +662,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         statsWatcher = Task { [weak self] in
             let stream = await link.stats
             for await sample in stream {
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
+                guard self.statsWatcherGeneration == generation, self.statsWatcherLink === link else { return }
                 self.applyStats(sample)
             }
             guard let self else { return }

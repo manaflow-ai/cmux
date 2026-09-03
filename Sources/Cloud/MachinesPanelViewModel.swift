@@ -433,7 +433,14 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
-    @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
+    @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty {
+        didSet {
+            catalogMachineIndexes = Dictionary(
+                uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
+            )
+        }
+    }
+    private var catalogMachineIndexes: [SurfaceMachineID: Int] = [:]
     /// Local workspaces in sidebar order, so this Mac's terminals group under
     /// the workspace that shows them (titles resolved here, above the outline).
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
@@ -555,10 +562,14 @@ final class MachinesPanelViewModel: ObservableObject {
     /// one sample to one row update instead of O(N) work for every sample.
     private func applyCatalogMachineUpdate(_ machine: SurfaceMachineID) {
         guard let info = SurfaceCatalog.shared.machineInfo(for: machine) else { return }
-        if let index = catalog.machines.firstIndex(where: { $0.id == machine }) {
+        if let index = catalogMachineIndexes[machine] {
             catalog.machines[index] = info
         } else {
-            catalog.machines.append(info)
+            let insertion = catalog.machines.firstIndex { candidate in
+                if candidate.id == .local { return false }
+                return candidate.name.localizedStandardCompare(info.name) == .orderedDescending
+            } ?? catalog.machines.endIndex
+            catalog.machines.insert(info, at: insertion)
         }
         guard let index = machineRowIndexes[machine.cloudMachineID] else { return }
         var snapshot = machines[index]
