@@ -78,6 +78,19 @@ def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
         assert required_paths <= set(paths)
 
 
+def test_spec_inventory_checks_are_not_duplicated_in_sdk_contract() -> None:
+    spec = workflow("cmux-tui-spec.yml")
+    sdk_contract = workflow_job(workflow("cmux-tui-sdks.yml"), "contract")
+
+    inventory_checks = (
+        "python3 cmux-tui/scripts/test_check_spec_inventory.py",
+        "python3 cmux-tui/scripts/check-spec-inventory.py",
+    )
+    for command in inventory_checks:
+        assert command in spec
+        assert command not in sdk_contract
+
+
 def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
     tui = workflow("cmux-tui.yml")
     test_job = workflow_job(tui, "test")
