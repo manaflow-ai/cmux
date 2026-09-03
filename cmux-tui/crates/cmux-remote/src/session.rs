@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,7 +10,9 @@ use cmux_remote_protocol::{
     FrameDecodeError, FrameFlags, Lane, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES, SessionId,
     WireFrame,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::link::{FrameLink, LinkError};
 
@@ -147,12 +150,13 @@ impl ReliableSession {
         let scheduler = ScheduledSender::spawn(link.clone(), shared.limits);
         let ack_senders = Lane::ALL.map(|lane| {
             let (sender, receiver) = mpsc::channel(1);
-            tokio::spawn(run_ack_sender(
+            scheduler.spawn_tracked(run_ack_sender(
                 shared.clone(),
                 scheduler.clone(),
                 generation,
                 lane,
                 receiver,
+                scheduler.cancel_token(),
             ));
             sender
         });
@@ -520,7 +524,12 @@ impl ReliableSession {
         for progress in &self.shared.outbound_progress {
             progress.notify_waiters();
         }
-        self.link.close().await.map_err(SessionError::Link)
+        // Stop ACK production first. Lane writers keep an already admitted
+        // frame in flight, then observe cancellation after the link closes.
+        self.scheduler.request_shutdown();
+        let link_result = self.link.close().await.map_err(SessionError::Link);
+        self.scheduler.wait_for_shutdown().await;
+        link_result
     }
 }
 
@@ -549,8 +558,16 @@ async fn run_ack_sender(
     generation: u64,
     lane: Lane,
     mut requested: mpsc::Receiver<()>,
+    cancel: CancellationToken,
 ) {
-    while requested.recv().await.is_some() {
+    loop {
+        let request = tokio::select! {
+            _ = cancel.cancelled() => return,
+            requested = requested.recv() => requested,
+        };
+        if request.is_none() {
+            return;
+        }
         while requested.try_recv().is_ok() {}
         let Ok(encoded) = encode_ack(&shared, generation, lane) else { return };
         if scheduler.send(lane, encoded).await.is_err() {
@@ -732,9 +749,19 @@ struct DeliveryEntry {
 
 #[derive(Clone)]
 struct ScheduledSender {
+    inner: Arc<ScheduledSenderInner>,
+}
+
+struct ScheduledSenderInner {
     queues: Arc<QueueSenders>,
     budgets: Arc<[AtomicUsize; 4]>,
     limits: SessionLimits,
+    cancel: CancellationToken,
+    tasks: Mutex<Option<Vec<JoinHandle<()>>>>,
+    join_started: AtomicBool,
+    finished: AtomicBool,
+    done: Notify,
+    active_tasks: AtomicUsize,
 }
 
 impl ScheduledSender {
@@ -751,6 +778,18 @@ impl ScheduledSender {
         });
         let budgets = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
         let (failed_tx, failed_rx) = tokio::sync::watch::channel(false);
+        let inner = Arc::new(ScheduledSenderInner {
+            queues,
+            budgets,
+            limits,
+            cancel: CancellationToken::new(),
+            tasks: Mutex::new(Some(Vec::with_capacity(8))),
+            join_started: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
+            done: Notify::new(),
+            active_tasks: AtomicUsize::new(0),
+        });
+        let scheduler = Self { inner };
         // Each lane owns an independent physical send loop. LaneMuxLink can
         // therefore progress dedicated carriers concurrently; a FrameLink
         // backed by one writer may still serialize inside its implementation.
@@ -760,30 +799,87 @@ impl ScheduledSender {
             (Lane::Bulk, bulk_rx),
             (Lane::Tunnel, tunnel_rx),
         ] {
-            tokio::spawn(run_lane_sender(
+            scheduler.spawn_tracked(run_lane_sender(
                 link.clone(),
                 lane,
                 receiver,
-                budgets.clone(),
+                scheduler.inner.budgets.clone(),
                 failed_tx.clone(),
                 failed_rx.clone(),
+                scheduler.cancel_token(),
             ));
         }
-        Self { queues, budgets, limits }
+        scheduler
+    }
+
+    fn spawn_tracked<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.inner.active_tasks.fetch_add(1, Ordering::AcqRel);
+        let inner = self.inner.clone();
+        let task = tokio::spawn(async move {
+            future.await;
+            inner.active_tasks.fetch_sub(1, Ordering::AcqRel);
+        });
+        let mut tasks = self.inner.tasks.lock().unwrap();
+        if let Some(tasks) = tasks.as_mut() {
+            tasks.push(task);
+        } else {
+            task.abort();
+        }
+    }
+
+    fn cancel_token(&self) -> CancellationToken {
+        self.inner.cancel.clone()
+    }
+
+    fn request_shutdown(&self) {
+        self.inner.cancel.cancel();
+    }
+
+    async fn wait_for_shutdown(&self) {
+        self.request_shutdown();
+        let notified = self.inner.done.notified();
+        if self
+            .inner
+            .join_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
+            for task in tasks {
+                let _ = task.await;
+            }
+            self.inner.finished.store(true, Ordering::Release);
+            self.inner.done.notify_waiters();
+        } else if !self.inner.finished.load(Ordering::Acquire) {
+            notified.await;
+        }
     }
 
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
-        let budget = &self.budgets[lane_index(lane)];
+        if self.inner.cancel.is_cancelled() {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        let budget = &self.inner.budgets[lane_index(lane)];
         budget
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
                     .checked_add(frame.len())
-                    .filter(|next| *next <= self.limits.queued_bytes_per_lane)
+                    .filter(|next| *next <= self.inner.limits.queued_bytes_per_lane)
             })
             .map_err(|_| ScheduleError::Unscheduled(SessionError::QueueFull(lane)))?;
         let bytes = frame.len();
         let (completion, result) = oneshot::channel();
-        if self.queues.get(lane).send(ScheduledFrame { lane, frame, completion }).await.is_err() {
+        if self
+            .inner
+            .queues
+            .get(lane)
+            .send(ScheduledFrame { lane, frame, completion })
+            .await
+            .is_err()
+        {
             budget.fetch_sub(bytes, Ordering::AcqRel);
             return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
         }
@@ -802,10 +898,15 @@ async fn run_lane_sender(
     budgets: Arc<[AtomicUsize; 4]>,
     failed_tx: tokio::sync::watch::Sender<bool>,
     mut failed_rx: tokio::sync::watch::Receiver<bool>,
+    cancel: CancellationToken,
 ) {
     loop {
         let scheduled = tokio::select! {
             biased;
+            _ = cancel.cancelled() => {
+                fail_pending(&mut receiver, &budgets, "scheduler closed");
+                return;
+            }
             changed = failed_rx.changed() => {
                 if changed.is_ok() && *failed_rx.borrow() {
                     fail_pending(&mut receiver, &budgets, "physical link failed");
@@ -1122,6 +1223,29 @@ mod tests {
         first.await.unwrap().unwrap();
         let sent = link.sent.lock().await.clone();
         assert_eq!(sent, [Lane::Interactive, Lane::Bulk]);
+    }
+
+    #[tokio::test]
+    async fn close_waits_for_lane_and_ack_tasks_without_dropping_in_flight_frame() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([14; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.entered.acquire().await.unwrap().forget();
+
+        session.close().await.unwrap();
+        assert_eq!(send.await.unwrap().unwrap(), 1);
+        drop(session);
+        drop(link);
+        assert!(weak_link.upgrade().is_none(), "session tasks retained the link after close");
     }
 
     #[tokio::test]
