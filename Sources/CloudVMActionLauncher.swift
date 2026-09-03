@@ -514,6 +514,16 @@ final class ProcessOutputCollector: @unchecked Sendable {
                 finishCondition.unlock()
                 return result
             case .finishing:
+                if callbackDepthOnCurrentThread() > 0 {
+                    // The owner may be inside this callback's drain. Waiting
+                    // here would deadlock that owner. Return a committed
+                    // snapshot; the owner still publishes the final result.
+                    finishCondition.unlock()
+                    lock.lock()
+                    let snapshot = formattedResultLocked()
+                    lock.unlock()
+                    return snapshot
+                }
                 finishCondition.wait()
             case .finished(let result):
                 finishCondition.unlock()
@@ -539,6 +549,10 @@ final class ProcessOutputCollector: @unchecked Sendable {
                 finishCondition.unlock()
                 return
             case .finishing:
+                if callbackDepthOnCurrentThread() > 0 {
+                    finishCondition.unlock()
+                    return
+                }
                 finishCondition.wait()
             case .finished:
                 finishCondition.unlock()
