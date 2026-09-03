@@ -44,6 +44,7 @@ type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
 
 struct ProviderCloseWorker {
     sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
+    reaper_sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
     shutdown_sender: Option<crossbeam_channel::Sender<()>>,
     threads: Vec<std::thread::JoinHandle<()>>,
     pending: Arc<Mutex<HashMap<MachineKey, ProviderCloseTask>>>,
@@ -58,7 +59,28 @@ impl ProviderCloseWorker {
         let (sender, receiver) = crossbeam_channel::bounded::<ProviderCloseTask>(queue_capacity);
         let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(queue_capacity.max(1));
         let (shutdown_sender, shutdown_receiver) =
-            crossbeam_channel::bounded::<()>(worker_count.max(1));
+            crossbeam_channel::bounded::<()>(worker_count + 1);
+        let (reaper_sender, reaper_receiver) =
+            crossbeam_channel::bounded::<ProviderCloseTask>(PROVIDER_CONNECTION_ADMISSION_CAP);
+        let reaper_shutdown = shutdown_receiver.clone();
+        let reaper_thread = std::thread::Builder::new()
+            .name("provider-close-reaper".into())
+            .spawn(move || loop {
+                crossbeam_channel::select! {
+                    recv(reaper_shutdown) -> _ => {
+                        while let Ok(task) = reaper_receiver.try_recv() {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                        }
+                        break;
+                    }
+                    recv(reaper_receiver) -> task => match task {
+                        Ok(task) => {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })?;
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let mut threads = Vec::with_capacity(worker_count);
         for index in 0..worker_count {
@@ -137,7 +159,14 @@ impl ProviderCloseWorker {
             threads.push(thread);
         }
         drop(receiver);
-        Ok(Self { sender: Some(sender), shutdown_sender: Some(shutdown_sender), threads, pending })
+        threads.push(reaper_thread);
+        Ok(Self {
+            sender: Some(sender),
+            reaper_sender: Some(reaper_sender),
+            shutdown_sender: Some(shutdown_sender),
+            threads,
+            pending,
+        })
     }
 
     fn schedule(
@@ -161,6 +190,16 @@ impl ProviderCloseWorker {
             Err(error) => Err(error),
         }
     }
+
+    fn schedule_reaper(&self, task: ProviderCloseTask) -> Result<(), ProviderCloseTask> {
+        let Some(sender) = self.reaper_sender.as_ref() else {
+            return Err(task);
+        };
+        sender.try_send(task).map_err(|error| match error {
+            crossbeam_channel::TrySendError::Full(task)
+            | crossbeam_channel::TrySendError::Disconnected(task) => task,
+        })
+    }
 }
 
 impl Drop for ProviderCloseWorker {
@@ -171,6 +210,7 @@ impl Drop for ProviderCloseWorker {
             }
         }
         self.sender.take();
+        self.reaper_sender.take();
         for thread in self.threads.drain(..) {
             // A close RPC has its own request deadline, but dropping the
             // runtime must not wait for that remote deadline. Reap a worker
@@ -296,18 +336,11 @@ impl Drop for ProviderMachineConnectionLease {
                     ("close worker disconnected", task)
                 }
             };
-            // Admission is capped, so this fallback can create at most the
-            // documented number of close reapers. It preserves the remote
-            // close obligation when the owned worker cannot accept the task.
-            if std::thread::Builder::new()
-                .name("provider-close-reaper".into())
-                .spawn(task)
-                .is_err()
-            {
-                    crate::client_log::stderr_log!(
-                        "provider",
-                        "cmux-tui: failed to start provider machine close reaper after {reason}"
-                    );
+            if self.close_worker.schedule_reaper(task).is_err() {
+                crate::client_log::stderr_log!(
+                    "provider",
+                    "cmux-tui: failed to preserve provider machine close after {reason}"
+                );
             }
         }
     }
