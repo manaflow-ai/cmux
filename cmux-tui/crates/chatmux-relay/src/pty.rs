@@ -781,12 +781,14 @@ impl PtyManager {
         });
         std::thread::spawn(move || {
             while let Ok(request) = retire_rx.recv() {
+                eprintln!("retire worker request {}", request.pty_id);
                 let retired = request.inner.retire_after_gate(
                     &request.pty_id,
                     request.generation,
                     request.publication_gate.as_ref(),
                 );
                 if retired {
+                    eprintln!("retire worker retired {}", request.pty_id);
                     if let Some(completion) = request.completion {
                         completion();
                     }
@@ -823,12 +825,14 @@ impl PtyManager {
         });
         std::thread::spawn(move || {
             while let Ok(request) = retire_rx.recv() {
+                eprintln!("retire worker request {}", request.pty_id);
                 let retired = request.inner.retire_after_gate(
                     &request.pty_id,
                     request.generation,
                     request.publication_gate.as_ref(),
                 );
                 if retired {
+                    eprintln!("retire worker retired {}", request.pty_id);
                     if let Some(completion) = request.completion {
                         completion();
                     }
@@ -2247,6 +2251,7 @@ impl Inner {
             publication_gate: Some(gate),
             completion,
         };
+        eprintln!("queue retire {pty_id}");
         if let Err(std::sync::mpsc::TrySendError::Full(request)) = self.retire_tx.try_send(request)
         {
             std::thread::spawn(move || {
