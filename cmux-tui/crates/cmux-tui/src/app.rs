@@ -13514,6 +13514,8 @@ impl App {
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        self.projection_rows_cache.invalidate();
+        self.bump_sidebar_generation();
         self.invalidate_projection_agents();
         self.tree.invalidate_location_index();
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
