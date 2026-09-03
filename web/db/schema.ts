@@ -279,6 +279,415 @@ export const cloudVmTunnels = pgTable(
   ],
 );
 
+export type CloudVmDomainVerificationRecord = {
+  readonly purpose: "verification" | "routing" | "certificate";
+  /** Equivalent DNS record types a provider may accept for this instruction. */
+  readonly recordTypes: readonly (
+    "TXT" | "CNAME" | "ALIAS" | "ANAME" | "CNAME_FLATTENING" | "NS"
+  )[];
+  readonly name: string;
+  readonly value: string;
+};
+
+/**
+ * Per-VM fence for publication provider mutations and VM teardown.
+ *
+ * Both publication reservation and teardown lock the referenced VM row before
+ * reading this guard. A durable operation lease lets deletion wait for a TLS
+ * create already in flight; once teardown starts the row remains as a
+ * permanent fence until the VM row itself is removed.
+ */
+export const cloudVmPublicationVmGuards = pgTable(
+  "cloud_vm_publication_vm_guards",
+  {
+    vmId: uuid("vm_id")
+      .primaryKey()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    teardownStartedAt: timestamp("teardown_started_at", { withTimezone: true }),
+    operationLeaseId: uuid("operation_lease_id"),
+    operationLeaseExpiresAt: timestamp("operation_lease_expires_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "cloud_vm_pub_vm_guard_lease_check",
+      sql`(${table.operationLeaseId} is null) = (${table.operationLeaseExpiresAt} is null)`,
+    ),
+  ],
+);
+
+/**
+ * A DNS zone CMUX has reserved for one user. Freestyle domain ownership is
+ * account-wide, so this row is the CMUX-side ownership boundary that prevents
+ * one CMUX account from reusing a base domain verified by another. A verified
+ * custom zone may back its apex and any one-label child covered by its wildcard
+ * certificate; exact routing hostnames live on publication rows.
+ *
+ * Freestyle does not expose a domain object id. Custom domains therefore keep
+ * the id of the exact verification challenge CMUX created; certificates are
+ * observed by hostname.
+ */
+export const cloudVmDomains = pgTable(
+  "cloud_vm_domains",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    hostname: text("hostname").notNull(),
+    kind: text("kind").$type<"generated" | "custom">().notNull(),
+    provider: vmProvider("provider").notNull(),
+    providerVerificationId: text("provider_verification_id"),
+    verificationState: text("verification_state")
+      .$type<"not_required" | "pending" | "verified" | "failed">()
+      .notNull(),
+    certificateState: text("certificate_state")
+      .$type<"missing" | "pending" | "active" | "failed">()
+      .notNull(),
+    verificationRecords: jsonb("verification_records")
+      .$type<CloudVmDomainVerificationRecord[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_domains_owner_pending_hostname_unique")
+      .on(table.ownerUserId, table.hostname)
+      .where(
+        sql`${table.kind} = 'custom' and ${table.verificationState} = 'pending'`,
+      ),
+    uniqueIndex("cloud_vm_domains_claimed_hostname_unique")
+      .on(table.hostname)
+      .where(
+        sql`${table.kind} = 'generated' or (${table.kind} = 'custom' and ${table.verificationState} = 'verified')`,
+      ),
+    uniqueIndex("cloud_vm_domains_provider_verification_unique")
+      .on(table.provider, table.providerVerificationId)
+      .where(sql`${table.providerVerificationId} is not null`),
+    index("cloud_vm_domains_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+    check(
+      "cloud_vm_domains_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_domains_kind_check",
+      sql`${table.kind} in ('generated', 'custom')`,
+    ),
+    check(
+      "cloud_vm_domains_verification_state_check",
+      sql`${table.verificationState} in ('not_required', 'pending', 'verified', 'failed')`,
+    ),
+    check(
+      "cloud_vm_domains_certificate_state_check",
+      sql`${table.certificateState} in ('missing', 'pending', 'active', 'failed')`,
+    ),
+    check(
+      "cloud_vm_domains_generated_verification_check",
+      sql`${table.kind} <> 'generated' or (${table.verificationState} = 'not_required' and ${table.providerVerificationId} is null)`,
+    ),
+    check(
+      "cloud_vm_domains_verified_provider_check",
+      sql`${table.kind} <> 'custom' or ${table.verificationState} <> 'verified' or ${table.providerVerificationId} is not null`,
+    ),
+    check(
+      "cloud_vm_domains_certificate_verification_check",
+      sql`${table.certificateState} <> 'active' or ${table.verificationState} in ('not_required', 'verified')`,
+    ),
+    check(
+      "cloud_vm_domains_records_check",
+      sql`jsonb_typeof(${table.verificationRecords}) = 'array' and jsonb_array_length(${table.verificationRecords}) <= 16`,
+    ),
+  ],
+);
+
+/**
+ * The one reusable forward-auth resource for each provider account.
+ *
+ * Bootstrap uses a durable, expiring claim rather than holding a database
+ * transaction open across provider I/O. A crashed creator can therefore be
+ * retried without creating one forward-auth resource per publication.
+ */
+export const cloudVmPublicationProviderConfigs = pgTable(
+  "cloud_vm_publication_provider_configs",
+  {
+    provider: vmProvider("provider").primaryKey(),
+    providerForwardAuthId: text("provider_forward_auth_id"),
+    provisioningLeaseId: uuid("provisioning_lease_id"),
+    provisioningLeaseExpiresAt: timestamp("provisioning_lease_expires_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "cloud_vm_pub_provider_config_lease_check",
+      sql`(${table.provisioningLeaseId} is null) = (${table.provisioningLeaseExpiresAt} is null)`,
+    ),
+    check(
+      "cloud_vm_pub_provider_config_ready_check",
+      sql`${table.providerForwardAuthId} is null or ${table.provisioningLeaseId} is null`,
+    ),
+  ],
+);
+
+/** One canonical hostname mapping to one Cloud VM HTTP port. */
+export const cloudVmPublications = pgTable(
+  "cloud_vm_publications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "restrict" }),
+    domainId: uuid("domain_id")
+      .notNull()
+      .references(() => cloudVmDomains.id, { onDelete: "restrict" }),
+    /** Exact public hostname. The related domain row is its reusable verified zone. */
+    hostname: text("hostname").notNull(),
+    /** Null while a custom zone is awaiting proof; set atomically when its zone wins. */
+    hostnameClaimedAt: timestamp("hostname_claimed_at", { withTimezone: true }),
+    port: integer("port").notNull(),
+    accessMode: text("access_mode")
+      .$type<"personal" | "team" | "public">()
+      .notNull(),
+    teamId: text("team_id"),
+    providerTlsRuleId: text("provider_tls_rule_id"),
+    /** The account-shared forward-auth id currently applied to this rule. */
+    providerForwardAuthId: text("provider_forward_auth_id"),
+    routingRevision: bigint("routing_revision", { mode: "number" })
+      .notNull()
+      .default(1),
+    state: text("state")
+      .$type<
+        "provisioning" | "active" | "unavailable" | "disabling" | "disabled"
+      >()
+      .notNull()
+      .default("provisioning"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_publications_owner_hostname_unique")
+      .on(table.ownerUserId, table.hostname)
+      .where(sql`${table.disabledAt} is null`),
+    uniqueIndex("cloud_vm_publications_claimed_hostname_unique")
+      .on(table.hostname)
+      .where(
+        sql`${table.hostnameClaimedAt} is not null and ${table.disabledAt} is null`,
+      ),
+    uniqueIndex("cloud_vm_publications_provider_rule_unique")
+      .on(table.providerTlsRuleId)
+      .where(sql`${table.providerTlsRuleId} is not null`),
+    index("cloud_vm_publications_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+    index("cloud_vm_publications_vm_state_idx").on(table.vmId, table.state),
+    index("cloud_vm_publications_state_updated_idx").on(
+      table.state,
+      table.updatedAt,
+    ),
+    check(
+      "cloud_vm_publications_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_publications_port_check",
+      sql`${table.port} between 1 and 65535`,
+    ),
+    check(
+      "cloud_vm_publications_access_mode_check",
+      sql`${table.accessMode} in ('personal', 'team', 'public')`,
+    ),
+    check(
+      "cloud_vm_publications_team_check",
+      sql`(${table.accessMode} = 'team') = (${table.teamId} is not null)`,
+    ),
+    check(
+      "cloud_vm_publications_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_publications_state_check",
+      sql`${table.state} in ('provisioning', 'active', 'unavailable', 'disabling', 'disabled')`,
+    ),
+    check(
+      "cloud_vm_publications_active_rule_check",
+      sql`${table.state} <> 'active' or (${table.providerTlsRuleId} is not null and ${table.hostnameClaimedAt} is not null)`,
+    ),
+    check(
+      "cloud_vm_publications_disabled_check",
+      sql`(${table.state} = 'disabled') = (${table.disabledAt} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * Cross-origin browser transaction created on the publication hostname before
+ * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
+ * OAuth state values are persisted; the host-only cookie holds the verifier.
+ */
+export const cloudVmPublicationAuthTransactions = pgTable(
+  "cloud_vm_publication_auth_transactions",
+  {
+    transactionHash: text("transaction_hash").primaryKey(),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    pkceChallenge: text("pkce_challenge").notNull(),
+    stateHash: text("state_hash").notNull(),
+    hostname: text("hostname").notNull(),
+    returnPath: text("return_path").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_pub_auth_tx_publication_idx").on(
+      table.publicationId,
+      table.createdAt,
+    ),
+    index("cloud_vm_pub_auth_tx_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_auth_tx_hash_check",
+      sql`${table.transactionHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_state_hash_check",
+      sql`${table.stateHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_pkce_check",
+      sql`${table.pkceChallenge} ~ '^[A-Za-z0-9_-]{43}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_return_path_check",
+      sql`left(${table.returnPath}, 1) = '/' and left(${table.returnPath}, 2) <> '//' and ${table.returnPath} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** A short-lived, one-use code issued from exactly one auth transaction. */
+export const cloudVmPublicationAuthCodes = pgTable(
+  "cloud_vm_publication_auth_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    transactionHash: text("transaction_hash")
+      .notNull()
+      .references(() => cloudVmPublicationAuthTransactions.transactionHash, {
+        onDelete: "cascade",
+      }),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_pub_auth_codes_transaction_unique").on(
+      table.transactionHash,
+    ),
+    index("cloud_vm_pub_auth_codes_publication_idx").on(
+      table.publicationId,
+      table.createdAt,
+    ),
+    index("cloud_vm_pub_auth_codes_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_auth_codes_hash_check",
+      sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_codes_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_auth_codes_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** Opaque, host-only browser sessions. The plaintext token is never stored. */
+export const cloudVmPublicationSessions = pgTable(
+  "cloud_vm_publication_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_pub_sessions_publication_idx").on(
+      table.publicationId,
+      table.expiresAt,
+    ),
+    index("cloud_vm_pub_sessions_user_idx").on(table.userId, table.expiresAt),
+    index("cloud_vm_pub_sessions_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_sessions_hash_check",
+      sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_sessions_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_sessions_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

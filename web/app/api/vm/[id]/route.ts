@@ -7,6 +7,9 @@ import {
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
 import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
+import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
+import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 
 
@@ -127,6 +130,19 @@ export async function DELETE(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      try {
+        await deleteVmPublicationsForVmDeletion({
+          requesterUserId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
+          providerVmId: id,
+        });
+      } catch (err) {
+        if (err instanceof PublicationNotFoundError && err.resource === "vm") {
+          return notFoundVm(id);
+        }
+        return publicationErrorResponse(err);
+      }
       try {
         await runVmWorkflow(destroyVm({
           userId: user.id,
