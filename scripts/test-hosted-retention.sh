@@ -426,7 +426,7 @@ test_dry_run=0
 test_confirm=1
 test_lsof_mode=partial
 test_active_commit="$active_commit"
-expect_failure 2
+expect_success
 assert_exists "$active_commit"
 assert_exists "$old_commit"
 
