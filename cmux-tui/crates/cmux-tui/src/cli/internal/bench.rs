@@ -716,7 +716,7 @@ fn close_created_terminals(
     initial: &HashSet<String>,
     report: &Arc<Mutex<Report>>,
     deadline: Instant,
-    owned_session: bool,
+    _owned_session: bool,
 ) {
     let current = match list_terminal_ids(conn) {
         Ok(current) => current,
@@ -729,7 +729,7 @@ fn close_created_terminals(
     let plan = current
         .iter()
         .filter(|(id, life)| {
-            (created.contains(id) || (owned_session && !initial.contains(id)))
+            (created.contains(id) || !initial.contains(id))
                 && !matches!(life.as_str(), "tombstoned" | "exited")
         })
         .map(|(id, _)| id.to_string())

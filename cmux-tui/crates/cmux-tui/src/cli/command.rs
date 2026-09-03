@@ -1664,7 +1664,10 @@ fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             if creates == 0 {
                 return Err(UsageError::new("--creates must be at least 1"));
             }
-            let clients = parse_count(flags, "clients", 1)?.max(1);
+            let clients = parse_count(flags, "clients", 1)?;
+            if clients == 0 {
+                return Err(UsageError::new("--clients must be at least 1"));
+            }
             let typing_probes = parse_count(flags, "typing-probes", 0)?;
             const MAX_BENCH_CLIENTS: usize = 256;
             const MAX_BENCH_REQUESTS: usize = 100_000;
