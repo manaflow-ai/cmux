@@ -1376,12 +1376,12 @@
   },
   "protocol_domains": [
     {
-      "id": "mux-control-v10",
+      "id": "mux-control-v12",
       "status": "implemented",
       "spec": "commands.md"
     },
     {
-      "id": "mux-events-v10",
+      "id": "mux-events-v12",
       "status": "implemented",
       "spec": "events.md"
     },
