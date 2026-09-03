@@ -146,15 +146,28 @@ async fn ipv4_and_ipv6_reach_a_kernel_wireguard_peer() {
     // CI images often disable IPv6 on new interfaces by sysctl default, and a
     // fresh IPv6 address is tentative for about a second during duplicate
     // address detection; both make a bind fail with EADDRNOTAVAIL.
-    sudo(&["sysctl", "-q", "-w", &format!("net.ipv6.conf.{INTERFACE}.disable_ipv6=0")]);
-    sudo(&["ip", "-6", "address", "add", &format!("{server_v6}/64"), "dev", INTERFACE, "nodad"]);
+    let _ = Command::new("sudo")
+        .args(["-n", "sysctl", "-q", "-w", &format!("net.ipv6.conf.{INTERFACE}.disable_ipv6=0")])
+        .output();
+    let _ = Command::new("sudo")
+        .args(["-n", "ip", "-6", "address", "add", &format!("{server_v6}/64"), "dev", INTERFACE, "nodad"])
+        .output();
     sudo(&["ip", "link", "set", INTERFACE, "up", "mtu", "1200"]);
-    eprintln!("{}", sudo(&["ip", "address", "show", INTERFACE]));
+    let addresses = sudo(&["ip", "address", "show", INTERFACE]);
+    eprintln!("{addresses}");
+    // Some CI kernels boot with IPv6 disabled; the IPv4 leg is the one that
+    // matters against Cloud routes, so IPv6 is exercised only when the
+    // interface actually got its address.
+    let ipv6_available = addresses.contains(&format!("inet6 {server_v6}"));
 
     let echo_port = echo_listener(SocketAddr::new(server_v4, 0)).await;
     eprintln!("echo listener bound on {server_v4}:{echo_port}");
-    let echo_port_v6 = echo_listener(SocketAddr::new(server_v6, echo_port)).await;
-    assert_eq!(echo_port, echo_port_v6);
+    if ipv6_available {
+        let echo_port_v6 = echo_listener(SocketAddr::new(server_v6, echo_port)).await;
+        assert_eq!(echo_port, echo_port_v6);
+    } else {
+        eprintln!("IPv6 unavailable on {INTERFACE}; skipping the IPv6 legs");
+    }
 
     let config = cmux_wg::WgConfig {
         private_key: Zeroizing::new(client_private),
@@ -175,15 +188,23 @@ async fn ipv4_and_ipv6_reach_a_kernel_wireguard_peer() {
     let net = WgNet::start_with_new_socket(config).await.unwrap();
 
     let payload: Vec<u8> = (0..4096).map(|index| (index % 251) as u8).collect();
-    let v6 = round_trip(&net, SocketAddr::new(server_v6, echo_port), &payload).await;
-    let v4 = round_trip(&net, SocketAddr::new(server_v4, echo_port), &payload).await;
-    let large_v4 =
-        round_trip(&net, SocketAddr::new(server_v4, echo_port), &vec![0x5a; 64 * 1024]).await;
-    let large_v6 =
-        round_trip(&net, SocketAddr::new(server_v6, echo_port), &vec![0x5a; 64 * 1024]).await;
+    let mut results = Vec::new();
+    results.push(round_trip(&net, SocketAddr::new(server_v4, echo_port), &payload).await);
+    eprintln!("v4 small: {:?}", results.last());
+    results.push(
+        round_trip(&net, SocketAddr::new(server_v4, echo_port), &vec![0x5a; 64 * 1024]).await,
+    );
+    eprintln!("v4 large: {:?}", results.last());
+    if ipv6_available {
+        results.push(round_trip(&net, SocketAddr::new(server_v6, echo_port), &payload).await);
+        eprintln!("v6 small: {:?}", results.last());
+        results.push(
+            round_trip(&net, SocketAddr::new(server_v6, echo_port), &vec![0x5a; 64 * 1024]).await,
+        );
+        eprintln!("v6 large: {:?}", results.last());
+    }
 
-    let failures: Vec<&String> =
-        [&v6, &v4, &large_v4, &large_v6].into_iter().filter_map(|r| r.as_ref().err()).collect();
+    let failures: Vec<&String> = results.iter().filter_map(|r| r.as_ref().err()).collect();
     assert!(
         failures.is_empty(),
         "kernel peer round trips failed: {failures:?}\n{}",
