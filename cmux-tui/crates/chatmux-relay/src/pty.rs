@@ -5978,4 +5978,57 @@ mod tests {
                 && from_b64(frame["dataB64"].as_str().unwrap_or_default()) == "during-start"
         }));
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shell_start_publishes_readiness_after_backlog_replay() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let shell = h.spawned()[0].clone();
+        shell.emit("replay");
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let entered_tx = Arc::new(StdMutex::new(Some(entered_tx)));
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let sent = Arc::clone(&h.sent);
+        let mut context = h.context("supervised", h.owner.clone());
+        context.send = Arc::new(move |frame| {
+            if matches!(
+                frame.get("type").and_then(Value::as_str),
+                Some("pty_output" | "pty_exit" | "pty_error")
+            ) {
+                if let Some(entered_tx) =
+                    entered_tx.lock().expect("replay entry signal lock").take()
+                {
+                    let _ = entered_tx.send(());
+                }
+                if let Some(release_rx) = release_rx.lock().expect("replay release lock").take() {
+                    let _ = release_rx.blocking_recv();
+                }
+            }
+            sent.lock().expect("sent lock").push(frame);
+        });
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        let manager = h.manager.clone();
+        let open = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
+        tokio::time::timeout(Duration::from_secs(1), entered_rx)
+            .await
+            .expect("replay callback entered")
+            .expect("replay entry signal");
+        assert!(!open.is_finished(), "shell OPEN must wait for replay before publishing readiness");
+
+        release_tx.send(()).expect("release replay callback");
+        open.await.expect("shell replacement open");
+        assert!(h.sent().iter().any(|frame| frame["type"] == "pty_output"));
+    }
 }
