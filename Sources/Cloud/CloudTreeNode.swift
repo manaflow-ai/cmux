@@ -270,8 +270,11 @@ enum CloudTreeNodeBuilder {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
         }
         // Creates the person just started go first: they are what the person is
-        // waiting on, and a failed one must not hide below a long fleet.
-        for operation in pendingCreates {
+        // waiting on, and a failed one must not hide below a long fleet. A
+        // create whose machine the fleet list or the catalog already returned
+        // has a real row now and drops its stand-in (never the same machine
+        // twice while the CLI is still opening it).
+        for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

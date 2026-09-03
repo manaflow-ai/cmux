@@ -401,6 +401,60 @@ struct MachinesPanelPendingCreateTests {
         #expect(viewModel.pendingCreates.isEmpty)
     }
 
+    /// Regression: while `cmux vm new --name troll` was still opening its
+    /// terminal, the fleet list (and, before it, the catalog) already showed
+    /// "troll", so the panel listed "troll · Creating…" above "troll". The
+    /// stand-in row exists only until the machine has a row of its own.
+    @Test func pendingRowStepsAsideOnceItsMachineHasARow() {
+        let started = Date(timeIntervalSince1970: 1_787_400_000)
+        let named = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"),
+            startedAt: started
+        )
+        let unnamed = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateCoordinatorTests.newMachineRequest(name: nil),
+            startedAt: started
+        )
+        func machine(_ id: String, label: String?, createdAt: Date?) -> MachineSnapshot {
+            MachineSnapshot(
+                id: id, provider: "freestyle", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
+                isDesktop: false, activity: .ready, createdAt: createdAt, label: label
+            )
+        }
+        func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
+            CloudTreeNodeBuilder.nodes(
+                machines: machines,
+                pendingCreates: pending,
+                snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
+                localWorkspaces: []
+            ).map(\.id)
+        }
+        let older = machine("old-hare", label: "troll", createdAt: started.addingTimeInterval(-3_600))
+        let created = machine("vm-e0382b", label: "troll", createdAt: started.addingTimeInterval(20))
+        let anonymous = machine("calm-petrel", label: nil, createdAt: started.addingTimeInterval(20))
+
+        // The fleet list returned the named machine: its stand-in is gone; an
+        // older machine that happens to share the label is not it.
+        #expect(rows(machines: [older], pending: [named]) == ["pending-machine:\(named.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", "machine:vm-e0382b"])
+        // The catalog registered it (the CLI is opening it) before the fleet
+        // list caught up: the catalog row is the machine's row.
+        let catalogTroll = SurfaceMachineInfo(
+            id: .cloud("vm-e0382b"), name: "troll", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["machine:vm-e0382b"])
+        // An unnamed create is the machine that appeared after it started.
+        #expect(rows(machines: [older], pending: [unnamed]) == ["pending-machine:\(unnamed.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [anonymous], pending: [unnamed]) == ["machine:calm-petrel"])
+        // A failed create keeps its row so it can be retried or dismissed.
+        var failed = named
+        failed.phase = .failed(output: "Error: quota")
+        #expect(rows(machines: [created], pending: [failed]) == ["pending-machine:\(failed.id.uuidString)", "machine:vm-e0382b"])
+    }
+
     @Test func treeShowsPendingRowsFirstAndIsNotEmptyWhileOneRuns() {
         let running = MachineCreateOperation(
             id: UUID(),

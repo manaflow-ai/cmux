@@ -44,6 +44,36 @@ struct MachineCreateOperation: Identifiable, Equatable {
         return parts.joined(separator: " · ")
     }
 
+    /// Whether the machine this create asked for is already a row of its own —
+    /// the fleet list returned it, or the catalog registered it while the CLI
+    /// is still opening it — so the stand-in must step aside instead of showing
+    /// the same machine twice ("troll · Creating…" above "troll"). A named
+    /// create is matched by its label on a machine that appeared after it
+    /// started (a machine with no known creation time matches by label alone);
+    /// an unnamed create is matched by any machine that appeared after it
+    /// started. Base setup reopens an existing slot and a failed create stays
+    /// red until retried or dismissed, so neither is ever superseded.
+    func isSuperseded(by machines: [MachineSnapshot], catalogMachines: [SurfaceMachineInfo]) -> Bool {
+        guard isRunning, !request.isBaseSetup else { return false }
+        // Creation timestamps come from the control plane, `startedAt` from this
+        // Mac; a minute of skew must not hide a match.
+        let earliest = startedAt.addingTimeInterval(-60)
+        let requestedName = request.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = requestedName.map { !$0.isEmpty } ?? false
+        for machine in machines {
+            let appearedAfterStart = machine.createdAt.map { $0 >= earliest }
+            if named {
+                if machine.label == requestedName, appearedAfterStart != false { return true }
+            } else if appearedAfterStart == true {
+                return true
+            }
+        }
+        if named {
+            return catalogMachines.contains { !$0.id.isLocal && $0.name == requestedName }
+        }
+        return false
+    }
+
     /// The first line of CLI output that explains a failure: blank lines and
     /// the CLI's own "Created Cloud VM <id>" progress line are skipped (a
     /// create that failed *after* minting the machine prints that first), an
