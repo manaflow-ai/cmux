@@ -463,6 +463,71 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("surface.create honors the TextBox focus preference only when focused")
+    func surfaceCreateHonorsTextBoxFocusPreference() throws {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(true, forKey: focusKey)
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = try v2SocketResponse(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "terminal",
+                "focus": true,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        let createdSurfaceIdString = try #require(result["surface_id"] as? String)
+        let createdPanelId = try #require(UUID(uuidString: createdSurfaceIdString))
+        let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
+        #expect(createdPanel.isTextBoxActive)
+        #expect(createdPanel.preferredFocusIntentForActivation() == .terminal(.textBoxInput))
+
+        let backgroundResponse = try v2SocketResponse(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "terminal",
+                "focus": false,
+            ]
+        )
+
+        #expect(backgroundResponse["ok"] as? Bool == true)
+        let backgroundResult = try #require(backgroundResponse["result"] as? [String: Any])
+        let backgroundSurfaceIdString = try #require(backgroundResult["surface_id"] as? String)
+        let backgroundPanelId = try #require(UUID(uuidString: backgroundSurfaceIdString))
+        let backgroundPanel = try #require(workspace.terminalPanel(for: backgroundPanelId))
+        #expect(backgroundPanel.isTextBoxActive)
+        #expect(backgroundPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+    }
+
+    @MainActor
     private func v2SocketResponse(
         method: String,
         params: [String: Any],

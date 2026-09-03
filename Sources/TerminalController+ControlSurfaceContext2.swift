@@ -408,7 +408,7 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: focus
             ) {
             case .created(let panel):
                 newPanelId = panel.id
