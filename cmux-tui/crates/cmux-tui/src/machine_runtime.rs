@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::time::Duration;
 
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
@@ -436,6 +437,9 @@ pub(crate) struct MachineConnectionHub {
 /// the bound, so switching between the last N machines is instant while
 /// memory and remote relays stay bounded.
 const DEFAULT_WARM_CONNECTION_LIMIT: usize = 5;
+/// A connector can perform network I/O outside this process' control. Do not
+/// let a machine action worker wait for an unbounded provider timeout.
+const CONNECT_ATTEMPT_DEADLINE: Duration = Duration::from_secs(30);
 
 fn warm_connection_limit_from_env() -> usize {
     std::env::var("CMUX_TUI_WARM_MACHINES")
@@ -677,7 +681,25 @@ impl MachineConnectionHub {
                     let connector = Arc::clone(&slot.connector);
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
-                    let result = connector();
+                    // Connectors are synchronous by contract, but provider
+                    // network calls can block for minutes. Run the attempt on
+                    // a disposable worker and bound the action worker's wait.
+                    // The worker owns no hub state, so a late result is safely
+                    // discarded after timeout or cancellation.
+                    let (result_tx, result_rx) = mpsc::sync_channel(1);
+                    std::thread::spawn(move || {
+                        let _ = result_tx.send(connector());
+                    });
+                    let result = match result_rx.recv_timeout(CONNECT_ATTEMPT_DEADLINE) {
+                        Ok(result) => result,
+                        Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                            "machine connection timed out after {} seconds",
+                            CONNECT_ATTEMPT_DEADLINE.as_secs()
+                        )),
+                        Err(mpsc::RecvTimeoutError::Disconnected) => Err(anyhow::anyhow!(
+                            "machine connection worker stopped"
+                        )),
+                    };
                     let mut slots = self.inner.slots.lock().map_err(|_| {
                         anyhow::anyhow!(
                             crate::localization::catalog().sidebar.machine_catalog_updates_failed
