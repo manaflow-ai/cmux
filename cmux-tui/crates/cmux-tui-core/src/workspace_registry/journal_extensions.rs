@@ -3211,6 +3211,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_built_in_agent_manifest_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-manifest").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let mut legacy = current.clone();
+        legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+        for event in &mut legacy.events {
+            event.payload_schema["properties"]["adapter"]["properties"]["id"]["pattern"] =
+                Value::String("^[a-z0-9_-]+$".into());
+        }
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .connection
+            .query_row(
+                "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+                [crate::AGENT_HOOK_PRODUCER_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
+    }
+
+    #[test]
     fn checkpoint_digest_is_verified_when_read() {
         let mut registry = WorkspaceRegistry::in_memory("checkpoint-integrity").unwrap();
         let commit = registry
