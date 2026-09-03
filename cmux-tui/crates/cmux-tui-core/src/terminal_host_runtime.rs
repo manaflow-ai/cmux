@@ -8983,6 +8983,11 @@ mod unix {
                 .recv_timeout(Duration::from_secs(1))
                 .expect("parser shutdown must release a saturated waiter");
             waiter.join().unwrap();
+            assert_eq!(
+                *budget.queued_bytes.lock().unwrap(),
+                0,
+                "parser shutdown must discard reservations owned by the failed worker"
+            );
         }
 
         #[test]
