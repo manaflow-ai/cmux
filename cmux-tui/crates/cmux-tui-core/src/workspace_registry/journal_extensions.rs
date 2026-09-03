@@ -486,16 +486,96 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
-    let installed = transaction.query_row(
-        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+    let (installed_namespace, installed_version, installed_json) = transaction.query_row(
+        "SELECT namespace, manifest_version, manifest_json
+         FROM journal_producers
+         WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| row.get::<_, String>(0),
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
     )?;
+    let installed = serde_json::from_str::<JournalProducerManifest>(&installed_json)?;
+    let installed_version = u32::try_from(installed_version)
+        .context("reserved cmux agent producer manifest version is invalid")?;
     anyhow::ensure!(
-        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        installed.namespace == installed_namespace
+            && installed.manifest_version == installed_version,
+        "reserved cmux agent producer manifest metadata does not match its row"
+    );
+    if installed == manifest {
+        return Ok(());
+    }
+
+    // The reserved producer stayed at manifest version 1 while these two
+    // additive changes shipped. Rewrite only those exact historical shapes.
+    // Unknown changes still fail closed, so a damaged or incompatible session
+    // cannot silently acquire the current producer contract.
+    let known_legacy = legacy_built_in_agent_producer_manifests(&manifest);
+    anyhow::ensure!(
+        known_legacy.iter().any(|legacy| legacy == &installed),
         "reserved cmux agent producer manifest does not match this binary"
     );
+    transaction.execute(
+        "UPDATE journal_producers
+         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
+         WHERE producer_id = ?4",
+        params![
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            manifest.producer_id,
+        ],
+    )?;
     Ok(())
+}
+
+fn legacy_built_in_agent_producer_manifests(
+    current: &JournalProducerManifest,
+) -> Vec<JournalProducerManifest> {
+    // Keep this allowlist tied to the shipped manifest shape. If the current
+    // contract changes again, an explicit migration must be added instead of
+    // deriving acceptance for an unshipped historical shape.
+    const CURRENT_EVENT_KINDS: [&str; 13] = [
+        "agent.session.started",
+        "agent.turn.started",
+        "agent.turn.completed",
+        "agent.child.spawned",
+        "agent.child.completed",
+        "agent.child.failed",
+        "agent.approval.requested",
+        "agent.question.requested",
+        "agent.plan_review.requested",
+        "agent.error.reported",
+        "agent.state.changed",
+        "agent.session.ended",
+        "agent.plugin.exited",
+    ];
+    if current.events.iter().map(|event| event.kind.as_str()).ne(CURRENT_EVENT_KINDS) {
+        return Vec::new();
+    }
+
+    let mut legacy = current.clone();
+    for event in &mut legacy.events {
+        let Some(pattern) = event
+            .payload_schema
+            .get_mut("properties")
+            .and_then(|value| value.get_mut("adapter"))
+            .and_then(|value| value.get_mut("properties"))
+            .and_then(|value| value.get_mut("id"))
+            .and_then(|value| value.get_mut("pattern"))
+        else {
+            return Vec::new();
+        };
+        *pattern = Value::String("^[a-z0-9_-]+$".into());
+    }
+    let with_legacy_pattern = legacy.clone();
+    legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+    vec![legacy, with_legacy_pattern]
 }
 
 fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -3241,7 +3321,59 @@ mod tests {
                 |row| row.get::<_, String>(0),
             )
             .unwrap();
-        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
+        assert_eq!(
+            serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(),
+            current
+        );
+    }
+
+    #[test]
+    fn legacy_agent_manifest_with_plugin_exit_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-plugin-exit").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let legacy = legacy_built_in_agent_producer_manifests(&current)
+            .into_iter()
+            .nth(1)
+            .unwrap();
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .journal_producer_manifests()
+            .unwrap()
+            .into_iter()
+            .find(|manifest| manifest.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+            .unwrap();
+        assert_eq!(installed, current);
+    }
+
+    #[test]
+    fn unknown_built_in_agent_manifest_still_fails_closed() {
+        let mut registry = WorkspaceRegistry::in_memory("unknown-agent-manifest").unwrap();
+        let mut tampered = crate::agent_hooks::built_in_agent_producer_manifest();
+        tampered.events[0].kind = "agent.untrusted".into();
+        let tampered_json = canonical_json(&serde_json::to_value(&tampered).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![tampered_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        let error = ensure_built_in_agent_producer(&transaction).unwrap_err();
+        assert!(error.to_string().contains("does not match this binary"));
     }
 
     #[test]
