@@ -1547,6 +1547,7 @@ struct InteractiveWaitUntilWrittenGate {
 struct InteractiveWriter {
     shared: Arc<InteractiveWriterShared>,
     abort: Arc<dyn RemoteTransportAbort>,
+    transport_abort_lock: Mutex<()>,
     transport_aborted: AtomicBool,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
@@ -1580,6 +1581,7 @@ impl InteractiveWriter {
         Ok(Self {
             shared,
             abort,
+            transport_abort_lock: Mutex::new(()),
             transport_aborted: AtomicBool::new(false),
             worker: Mutex::new(Some(worker)),
         })
@@ -1722,6 +1724,8 @@ impl InteractiveWriter {
     }
 
     fn abort_transport(&self) -> io::Result<()> {
+        let _abort_guard =
+            self.transport_abort_lock.lock().unwrap_or_else(|poison| poison.into_inner());
         if self.transport_aborted.load(Ordering::Acquire) {
             return Ok(());
         }
