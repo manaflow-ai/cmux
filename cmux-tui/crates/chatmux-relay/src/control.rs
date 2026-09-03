@@ -371,17 +371,18 @@ mod unix {
                 let closed = shared.closed_notify.notified();
                 tokio::pin!(closed);
                 closed.as_mut().enable();
-                #[cfg(test)]
-                if let Some(waiting) =
-                    shared.read_waiting.lock().expect("control read waiter lock").take()
-                {
-                    let _ = waiting.send(());
-                }
                 if shared.closed.load(Ordering::SeqCst) {
                     break 'read_loop;
                 }
                 if !shared.paused.load(Ordering::SeqCst) {
                     break;
+                }
+                #[cfg(test)]
+                if let Some(waiting) =
+                    shared.read_waiting.lock().expect("control read waiter lock").take()
+                {
+                    let _ = waiting.send(());
+                    tokio::task::yield_now().await;
                 }
                 tokio::select! {
                     _ = resumed => {}
@@ -622,6 +623,53 @@ mod tests {
             .await
             .expect("server observes client close")
             .expect("join control close test server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resume_wakes_reader_when_it_races_the_wait() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-resume-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control resume test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) =
+                listener.accept().await.expect("accept control resume test socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for paused reader");
+            stream.write_all(b"{\"event\":\"resumed\"}\n").await.expect("write event");
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).await.expect("read client close");
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect control resume test socket");
+        accepted_rx.await.expect("wait for control resume test server");
+        let (event_tx, event_rx) = oneshot::channel();
+        let event_tx = Arc::new(Mutex::new(Some(event_tx)));
+        control.on_event(Box::new(move |_| {
+            if let Some(event_tx) = event_tx.lock().expect("event signal lock").take() {
+                let _ = event_tx.send(());
+            }
+        }));
+        control.pause();
+        let read_waiting = control.arm_reader_waiting();
+        start_tx.send(()).expect("send event to paused reader");
+        read_waiting.await.expect("paused reader reached wait");
+        control.resume();
+
+        tokio::time::timeout(Duration::from_secs(1), event_rx)
+            .await
+            .expect("resumed reader handles event")
+            .expect("event callback signal");
+        control.end();
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes client close")
+            .expect("join control resume test server");
         let _ = std::fs::remove_file(socket_path);
     }
 
