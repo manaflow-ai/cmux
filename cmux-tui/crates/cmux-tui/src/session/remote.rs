@@ -4807,7 +4807,7 @@ fn append_pipe_io_colors(
                     )
                     .as_bytes(),
                 ),
-                None if previous.is_some_and(Option::is_some) => {
+                None if previous.is_some_and(|color| color.is_some()) => {
                     bytes.extend_from_slice(format!("\x1b]104;{index}\x1b\\").as_bytes());
                 }
                 None => {}
