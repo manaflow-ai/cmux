@@ -1,21 +1,31 @@
 ---
 name: cmux-cloud-vm
-description: Drive cmux Cloud machines (persistent cloud VMs) from the plain `cmux vm` CLI (alias `cmux cloud`) — the complete verb set. `vm route`/`run`/`agent` pick a machine for you (no ids); `vm exec`/`push`/`pull`/`wait` do headless work; `vm terminal send|read|wait` drive an interactive program on a machine without a pane; `vm tree`/`surface ls` catalog every surface (This Mac and each machine's workspaces, terminals, VNC screen, browsers) and `vm open`/`surface open` put any of them in a pane; plus create, Base, rename, checkpoints, forks, ports, SSH, auth, plan limits. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine instead of the local Mac, or when the user says "cloud machine", "cloud VM", "run it in the cloud", "cmux vm", or "cmux cloud".
+description: "Teach and drive cmux Cloud from the plain `cmux vm` CLI (alias `cmux cloud`): route work, run commands and agents, transfer files, control detached terminals, inspect/open surfaces, and publish protected or public VM ports on generated or custom domains. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine, or when the user says \"cloud machine\", \"cloud VM\", \"run it in the cloud\", \"cmux vm\", or \"cmux cloud\"."
 ---
 
 # cmux Cloud Machines
 
-Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or any open-source-model harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. Requires the cmux app running, a signed-in account (`cmux auth status`, `cmux auth login`), and — since machines live on a private per-user network with no public ports — the WireGuard tunnel up once per boot (`cmux vpn up`; `cmux vpn status` to check). `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
+Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or another harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. The app must be running and signed in (`cmux auth status`, `cmux auth login`). Bring up WireGuard (`cmux vpn up`) before private VM attach, exec, desktop, or port operations; a published domain is reached through its HTTPS edge and does not require the viewer's tunnel. `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
 
 **The mission is delegation.** A local agent (you, on the user's Mac) sends work to machines that outlive the laptop: every terminal and agent session lives in the machine's own cmux-tui daemon, so work keeps running with every pane closed and the lid shut, and any signed-in Mac reattaches later through the same addresses. Compose machine workspaces headlessly (as many as the task needs), watch them with `vm tree --json` and `vm terminal read` without opening anything, and surface panes or a `cmux notify` only when the user should look.
+
+**The shortest reliable loop is:** authenticate → inspect limits and routing → run or stage work headlessly → observe with `tree`/`terminal read` → open a pane or share a URL only when there is something useful to show. Ask for confirmation before creating, forking, resetting, or destroying a machine, because those operations consume plan capacity or delete data.
+
+**Treat the installed CLI as the contract.** Read `cmux vm --help` and the
+specific `cmux vm <verb> --help` before using a newly added flag, and check the
+`In flight` section of the reference only for planning. A tagged app, an older
+machine image, and the app's bundled CLI can be on different rollout versions;
+if help and this document disagree, follow help and report the discrepancy.
 
 ## What a machine is
 
 | Term | Meaning |
 |------|---------|
-| **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (`brave-otter`) is its id everywhere, a `vm rename` label is cosmetic. Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is the persistent volume; the rest of the filesystem is disposable compute. |
-| **Kind** | `base` (shell-only, what a bare `vm new` asks for today) or `desktop` (`vm new --desktop`) — a machine with a screen: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty), and noVNC on 6901, shown by the sidebar's **Desktop** row / `vm open <m>:desktop`. Shells on a desktop machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool`, and `cua-driver mcp` act on that screen. One Ubuntu 24.04 devbox image serves both kinds: node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`; **Claude Code, Codex, OpenCode, and Pi preinstalled** under `/root/.npm-global/bin`. Provisioning runs in the background on first boot (`cat /tmp/cmux/provision.log` if a tool is missing). |
-| **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces (`ws_…`) → terminals (`term_…`), visible in `cmux vm tree`. A terminal started there keeps running when the Mac disconnects or a pane closes. |
+| **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (for example `brave-otter`) is its id everywhere, while `vm rename` changes only a display label. `/root` is persistent; the compute filesystem is disposable. A machine may sleep when idle and wakes on connect or exec. |
+| **Kind** | `base` is shell-only; `desktop` adds TigerVNC on `:1`, openbox, the devbox dock, and noVNC on 6901. `vm base open` chooses desktop by default on first creation; the current `vm new` path requests shell-only unless `--desktop` is explicitly supplied and the deployment has a desktop image. Shells on a desktop machine get `DISPLAY=:1`, so `agent-browser`, `xdotool`, and `cua-driver` can drive its screen. |
+| **Contents** | The Ubuntu 24.04 devbox supplies node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, and `cua-driver`; Claude Code, Codex, OpenCode, and Pi are provisioned under `/root/.npm-global/bin`. If a fresh machine is still bootstrapping, inspect `/tmp/cmux/provision.log`. |
+| **Session** | Every machine runs a **cmux-tui remote daemon** with workspaces (`ws_…`) and terminals (`term_…`). A terminal keeps running when the Mac disconnects or its pane closes. |
+| **Publication** | `cmux cloud domains publish` maps one VM port to one HTTPS hostname. `personal` allows the owner, `team` allows current members of a selected team, and `public` allows anyone with the URL. |
 | **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
 | **Surface** | A terminal, VNC screen, or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one or lands it at a pane edge; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine per user (`cmux vm base open`; `base reset` mints a new generation and keeps the old VM) — the user's ongoing work. |
@@ -44,6 +54,7 @@ cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a de
 cmux vm tree                                             # the surface catalog: This Mac, then every machine → workspaces → terminals, desktop, ports
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
+cmux cloud domains publish vivid-newt 3000                # public HTTPS hostname, personal access by default
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one; `--size 20g` sizes a machine the run creates (20g, the plan machine, is the only preset; raw MB also parses).
@@ -55,6 +66,31 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
 4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` (shell-only; `--desktop` for a machine with a screen); add `--name <label>` (`--size` accepts `20g` — the plan machine, the only preset — or raw MB). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
 5. Never draft the user's own machines without `--machine`, and respect the plan meter.
+
+## Publish a VM port safely
+
+Use the domains namespace when a user needs a stable HTTPS URL. It is separate from `vm open <id> <port>`: the latter is a private, tunnel-only preview, while a publication creates a public edge with an explicit viewer policy.
+
+```bash
+# Generated cmux hostname; no customer DNS setup is needed.
+cmux cloud domains publish <machine> <port> --json
+
+# See the URL, policy, lifecycle state, and any verification instructions.
+cmux cloud domains list
+
+# Custom zone: print the complete DNS checklist, add the records, then retry.
+cmux cloud domains verify example.com
+cmux cloud domains publish <machine> <port> --domain app.example.com --access team --team <team-id>
+cmux cloud domains zones
+
+# Change or remove an existing publication (hostname or id is accepted).
+cmux cloud domains access app.example.com public
+cmux cloud domains rm app.example.com
+```
+
+The custom-domain flow is intentionally two-phase. The first `verify` call creates a pending ownership challenge and prints labelled records: an ownership TXT record, apex and wildcard routing records, and `_acme-challenge` NS delegation. Add those records at the DNS provider, run `verify` again, and wait for the certificate/routing state to become active. A verified zone can serve the apex or one-label children (`example.com` or `app.example.com`); deeper names need a covering zone. Generated cmux names are already reserved and certificate-covered, so they skip verification.
+
+Choose the narrowest access mode: `personal` (the default) for the owner, `team` with a required `--team <id>` for current members of that team, or `public` for anyone holding the URL. `access` changes the policy immediately; it does not create viewer grants. Treat a `public` URL as a credential and do not put it in logs or prompts. Use `--json` when another tool will consume the result; it returns stable publication/domain objects rather than the human DNS table.
 
 ## Running work
 
@@ -120,6 +156,9 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 | Command works in `vm shell` but not `vm exec` | Exec has no TTY/stdin; use non-interactive flags, or `surface new-terminal` + `terminal send|read|wait` for interactive programs. |
 | `vm snapshot`/`vm fork` refused | Provider capability (`vm ls --json` → `capabilities`); providers without it hide the sidebar verbs too. |
 | `vm ssh` errors | The default provider attaches through the cmux-tui daemon and mints no SSH endpoint; use `exec`, `agent`, or `open`. |
+| `cloud domains verify` still says pending | DNS is eventually consistent. Compare the printed record name/type/value exactly, wait for propagation, and rerun `cmux cloud domains verify <domain>`; do not create a second zone for the same name. |
+| A publication is not active | `cmux cloud domains list --json` shows `state` and `verification`; custom domains must be verified and certificate-ready before routing activates. Generated domains do not need DNS proof. |
+| A viewer is denied | Check the publication's `accessMode`: `personal` requires the owner, `team` requires current membership in the selected team, and `public` is the only unauthenticated mode. Change it deliberately with `cmux cloud domains access`. |
 
 ## Deep-dive references
 

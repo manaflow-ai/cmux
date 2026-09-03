@@ -123,6 +123,38 @@ cmux notify --title "Cloud workspace staged: pr-4123" --body "Open: click the pr
 - `vm agent` cannot target a workspace; when the agent's terminal should live in the staged workspace, start it with `surface new-terminal --remote-workspace` and a login shell (`sh -lc '…'`) as above. A plain `vm agent --machine <id> --no-open` works too — its terminal just lands outside the staged group.
 - Watch progress without opening anything: `cmux vm terminal read <id> <term>`, or block on a result with `terminal wait --pattern`.
 
+## 6c. Publish a service for a person to open
+
+Use a domain publication when the result must be reachable over HTTPS outside the
+owner's private tunnel. Keep `vm open <id>:port/<n>` for private previews; it is
+not a shareable public URL.
+
+```bash
+# 1. Confirm the VM and port, then create a generated cmux hostname.
+cmux vm status <id>
+cmux vm ports <id>
+publication=$(cmux cloud domains publish <id> 3000 --access personal --json)
+echo "$publication" | jq -r '.publication.url'
+
+# 2. For a custom zone, start/continue verification and follow every record shown.
+cmux cloud domains verify example.com
+# Add the ownership TXT, apex/wildcard routing, and _acme-challenge NS records,
+# wait for DNS propagation, then run the same verify command again.
+cmux cloud domains publish <id> 3000 --domain app.example.com --access team --team <team-id>
+
+# 3. Check activation and hand off only the URL and intended policy.
+cmux cloud domains list --json | jq '.publications[] | {url,hostname,accessMode,state,verification}'
+cmux notify --title "Cloud preview ready" --body "Open the URL from cmux cloud domains list"
+```
+
+`personal` is the default and requires the publication owner to sign in; `team`
+requires a current member of the selected team and a `--team` id; `public` permits
+anyone with the URL. `cmux cloud domains access` changes that policy and `rm`
+unpublishes it. A custom zone is verified once and can then serve its apex or a
+single-label child; a generated cmux hostname needs no customer DNS records. Do
+not paste a public URL into logs or agent prompts unless the user intentionally
+chose `public`.
+
 ## 7. Showing the human
 
 ```bash
@@ -138,6 +170,6 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 
 ## 8. Cleanup etiquette
 
-- Machines sleep on their own — idle machines cost nothing while asleep, so leaving one for the user to inspect is fine (say so in your handoff).
+- New cmux-created machines normally remain available until explicitly paused or stopped; older/provider-managed machines may sleep. Opening or running a command wakes a sleeper, so leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served; close the workspaces and terminals you opened on a shared machine (`vm terminal close`, `vm workspace rm`).
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.

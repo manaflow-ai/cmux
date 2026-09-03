@@ -6,10 +6,23 @@ Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cm
 
 - **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
-- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, and `base` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
+- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
 - **Exit codes:** `0` success; `1` any error (socket missing, backend error, usage error, unknown `vm` verb); `2` missing or unknown top-level command. `cmux vm run` exits with the **remote command's exit code**; `cmux vm exec` prints `exit <n>` to stderr and exits `1` when the remote command fails; `cmux vm wait` and `cmux vm terminal wait` exit `1` on timeout (or a failed machine).
 - **Ids:** a machine's generated name (`brave-otter`) is its id everywhere; the display label from `vm rename` is cosmetic. Workspace ids are `ws_…`, terminal ids `term_…` (both from `cmux vm tree`). `--window <id|ref|index>` on the opening verbs picks the local window; `--workspace <id|ref|index>` the local workspace.
 - **Env:** `CMUX_VM_API_BASE_URL` overrides the backend origin (dev stacks). `HOME` is honored for the router's state files (`~/.cmuxterm/vm-run-pool.json`, `~/.cmuxterm/vm-run-bindings.json`).
+
+For a first run, use this read-only preflight before provisioning anything:
+
+```bash
+cmux auth status
+cmux vm ls --json
+cmux vm route --json
+cmux vm tree --json
+```
+
+Only then choose `vm run`/`vm agent` (router-managed work), `vm base open`
+(the persistent personal machine), or an explicit `vm new`. Use `--json` for
+automation and the human output when teaching a person what to click or copy.
 
 ## Machines
 
@@ -98,6 +111,59 @@ cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-
 
 Base is the one pinned persistent machine per user. `open` (`vm.base_open`) reuses the same VM every time, creating it on first use with the chosen kind (desktop by default — unlike a bare `vm new`, which is shell-only; `--base` asks Base for shell-only); an existing Base keeps its image. `reset` (`vm.base_reset`) mints a new Base generation and retains the previous VM so an accidental reset is recoverable. Both open a plain terminal unless `--detach`; text `OK <id>`, `--json` the payload. Sidebar: Open Base / Set Up Base sheet.
 
+## Public HTTPS domains
+
+`cmux cloud` is an alias for `cmux vm`, so every command below also works with
+`cmux vm domains`. A domain publication is the public-URL path; it is distinct
+from `cmux vm open <id> <port>`, whose URL is private to the owner's WireGuard
+tunnel.
+
+### `cmux cloud domains`
+
+```bash
+cmux cloud domains --help
+cmux cloud domains [list] [--json]
+cmux cloud domains zones [--json]
+cmux cloud domains verify <domain> [--json]
+cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--json]
+cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--json]
+cmux cloud domains rm <hostname> [--json]
+```
+
+All domain commands require the cmux app and a signed-in account. `list` (the
+default) calls `vm.publication_list` and prints each publication's HTTPS URL,
+VM/port, access mode, lifecycle state, routing revision, and verification state.
+`--json` returns a stable `{publications: [...]}` object. `zones` calls
+`vm.domain_list` and lists the custom zones owned by the account separately from
+their publications; `--json` returns `{domains: [...]}`.
+
+`publish` maps one VM port to one hostname. Omitting `--domain` asks cmux to
+reserve a generated cmux hostname; it needs no customer DNS proof. Supplying a
+custom hostname requires that its base zone has been verified first (the zone
+itself or one immediate child is accepted). `port` must be 1–65535. Access
+defaults to `personal`; `team` requires `--team <id>` and checks current team
+membership; `public` allows anyone who has the URL. The command returns the
+publication object, including `verification.dnsInstructions` when setup is not
+complete.
+
+`verify` is a zone-level operation, not a publication activation switch. The
+first call creates or retrieves the pending ownership challenge and prints a
+labelled DNS checklist. Add every record exactly as printed, wait for DNS and
+certificate propagation, then run the same command again. The checklist normally
+contains: an ownership TXT record, an apex routing alias/CNAME-flattening record,
+the wildcard routing CNAME, and `_acme-challenge` NS delegation. A publication
+hostname or publication id resolves to its owning zone; a generated cmux name
+has nothing to verify and is rejected. A verified zone can serve the apex or one
+label (`example.com` or `app.example.com`); deeper names need another covering
+zone.
+
+`access` changes an existing publication's policy in place. Its first argument
+is the publication hostname (or id), not a VM id; pass `--team` only with
+`team`. `rm` permanently unpublishes the hostname and removes its provider
+route. Treat `public` URLs as bearer credentials: do not put them in logs,
+commits, or unattended prompts. Policy changes take effect on subsequent
+requests; they do not create per-viewer grants.
+
 ## Files
 
 ### `cmux vm push`
@@ -166,7 +232,7 @@ Every machine runs the cmux-tui remote daemon: its own workspaces (`ws_…`) →
 cmux vm tree [<machine>|local] [--refresh] [--json]
 ```
 
-Socket `surface.catalog {machine?, refresh?}` (plus `workspace.list` to name local workspaces). The Finder-style view of every surface: **This Mac** first (terminals grouped by workspace, then browsers), then each cloud machine — its workspaces, each workspace's terminals (title, cwd, lifecycle, agent state, and the pane that already shows it), `desktop`, and forwarded `ports/`. Every line carries an address `cmux vm open` or `cmux surface open` accepts. `--refresh` re-syncs every provider first. `--json`: `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal|screen|browser, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `cmux surface ls`. Sidebar: the Cloud tree itself; machine row › Refresh.
+Socket `surface.catalog {machine?, refresh?}` (plus `workspace.list` to name local workspaces). The Finder-style view of every surface: **This Mac** first (terminals grouped by workspace, then browsers), then each cloud machine — its workspaces, each workspace's terminals (title, cwd, lifecycle, agent state, and the pane that already shows it), `desktop`, and forwarded `ports/`. Every line carries an address `cmux vm open` or `cmux surface open` accepts. `--refresh` re-syncs every provider first. `--json`: `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal|display|browser, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `cmux surface ls`. Sidebar: the Cloud tree itself; machine row › Refresh.
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
@@ -484,7 +550,14 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.terminal_close` | `vm terminal close` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
+| `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
+| `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
 | `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
+
+The authenticated public-domain workflow is **shipped on this branch**: use
+`cmux cloud domains` for generated or custom HTTPS publications. `cmux vm open
+<id> <port>` remains the private WireGuard preview path; it is not a substitute
+for a domain publication.
 
 ## In flight
 
@@ -492,16 +565,13 @@ Verbs that exist only in an open PR. They are **not** on this branch; do not run
 
 - **#11609** (`freestyle-vm-primitives`) is the big one — everything below is on that branch and none of it is runnable here yet:
   - `cmux vm link <src> <dst>`: grant machine `<src>` a cmux-remote link to `<dst>` so the in-VM `cmux` on `<src>` drives `<dst>` directly (exec, tree, terminals) over the same transport the Mac uses. Grants are brokered by the Mac (route + single-use enrollment invitation it approves); no control-plane credential ever enters a VM, and a machine reaches only peers you linked. In-VM counterpart: `cmux vm connect <dst>`; the `vm` usage line gains `|link|`.
-  - **Public shareable port previews**: today's port opens answer the machine's private VPC address (vpn-only); that branch adds a public TLS edge on tokened random subdomains, advertised as `capabilities.ports` in `vm ls --json` and revoked on sign-out, so a minted URL works without the owner's tunnel.
   - `vm ls --json` machines advertise `capabilities.attach_transports`; a machine without an `ssh` transport gets an up-front error from the ssh verbs instead of a late one.
-  - `vm tree --json` gains a top-level `workspaces` array (this Mac's `{id, title, ref, selected}`) and `machines[].remote_workspaces`; the tree stops calling `workspace.list` separately.
+  - `vm tree --json` gains a top-level `workspaces` array (this Mac's `{id, title, ref, selected}`) and stops calling `workspace.list` separately; machine-level `remote_workspaces` and the Ports/Displays/detached-terminal rendering are already shipped here.
   - Placement hardening: `--tabs`/`--tab` combined with a pane side becomes an error, and an explicit `--workspace`/`--pane`/`--surface` that resolves to nothing answers `invalid_params` instead of silently falling back to the selected workspace.
   - The `vm handoff` attach line switches from the ssh verb to the shell verb.
-  - Machine sizing moves to the plan-machine preset: `--size <20g|<mb>>`, where 20g is the plan machine every plan sells and the backend resolves any other size to it (the `16g`-style preset list above goes away).
   - A guest `cmux` shim is installed at `/usr/local/bin/cmux` inside every machine (a POSIX wrapper over the machine's cmux-tui): its `vm` namespace lists the peer verbs (`cmux vm help` there) and the links granted to that machine, and in-VM `cmux notify` reaches the user's Mac as data — shown on the pane displaying that terminal (128 B title / 1 KiB body caps, burst-limited; Mac selectors and `--reply` are ignored there).
-  - The Mac dispatcher gains a `vm help` sub-verb, and the surface catalog renames kind `screen` → `display` (`vm tree --json` resources and `surface open <m>/display/display:1` addresses; the `screen` form above is what runs today).
+  - The Mac dispatcher gains a `vm help` sub-verb (the shipped `vm domains --help` is separate), and the guest shim exposes the same help inside a machine.
   - A bare `vm new` flips to **desktop-by-default** (matching `vm base open`, which already is) — `--base`/`--no-desktop` become the way to ask for shell-only. docs/cli-contract.md already describes the flipped default; this branch's `vm new` still defaults to shell-only until that lands.
   - **Headless staging lands as first-class flags**: `vm workspace new <m> --no-open` (socket `open: false`) stages a machine workspace without opening a local one, and `vm agent --remote-workspace <ws>` lands the agent's terminal in a staged workspace instead of the detached pool — replacing the close-the-local-workspace and `surface new-terminal … sh -lc` workarounds in [agent-workflows.md §6b](agent-workflows.md).
-  - `vm tree --refresh` becomes the sidebar's Refresh: it re-reads the fleet list first (a machine created since the last poll appears immediately, and naming an unknown machine re-reads once instead of answering "No cloud machines"), and the tree renders a detached-terminal pool line plus `ports/` rows.
 - **#11324** adds a top-level `cmux fork [--surface <id|ref>] <kind> <checkpoint-id>` that forks a persisted local **agent session** (the `cmux restore` family). It is not a cloud verb: the machine clone, `vm fork <id>`, is already in the reference above.
-- **#11347** tracks the live sidebar ↔ CLI parity loop (remaining gaps such as port rows in the tree and a socket method behind `vm route`). Check its state before assuming anything beyond this file. #11300 and #11301 were superseded by #11345, which is merged and reflected above (`vm terminal send|read|wait`, the single sidebar Close Workspace…).
+- **#11347** tracks the live sidebar ↔ CLI parity loop. Its port-row/tree work is shipped here; check the issue for any newer route/socket follow-ups before assuming a future flag is available. #11300 and #11301 were superseded by #11345, which is merged and reflected above (`vm terminal send|read|wait`, the single sidebar Close Workspace…).
