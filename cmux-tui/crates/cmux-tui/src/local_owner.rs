@@ -163,12 +163,17 @@ pub(crate) fn ensure_owner_for_bench(
     };
     let deadline = Instant::now() + ENSURE_DEADLINE;
     match ensure_owner(&spec, Some(session), deadline) {
-        Ok(Ensured::Running(ready)) => Ok(EnsuredOwnerHandle {
-            pid: ready.pid,
-            generation: ready.generation,
-            // The owner predates this bench; do not remove its state root.
-            state_root: None,
-        }),
+        Ok(Ensured::Running(ready)) => {
+            // This call created the temporary root before probing, but an
+            // adopted owner already has its own state. Remove our unused
+            // directory so repeated benches do not leave empty roots behind.
+            let _ = std::fs::remove_dir(&state_root);
+            Ok(EnsuredOwnerHandle {
+                pid: ready.pid,
+                generation: ready.generation,
+                state_root: None,
+            })
+        }
         Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
             pid: ready.pid,
             generation: ready.generation,
