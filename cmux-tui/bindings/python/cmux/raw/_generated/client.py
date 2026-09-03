@@ -267,6 +267,9 @@ class GeneratedClientMixin:
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
 
+    def server_stats(self) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest())
+
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
@@ -410,6 +413,7 @@ GeneratedClientMixin.select_tab.__cmux_command__ = COMMANDS['select-tab']
 GeneratedClientMixin.select_workspace.__cmux_command__ = COMMANDS['select-workspace']
 GeneratedClientMixin.send.__cmux_command__ = COMMANDS['send']
 GeneratedClientMixin.send_key.__cmux_command__ = COMMANDS['send-key']
+GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']

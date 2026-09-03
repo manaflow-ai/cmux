@@ -373,8 +373,14 @@ export type CloudVmPublicationRepositoryShape = {
     readonly CloudVmPublicationAccountDeletionTarget[],
     PublicationDatabaseError
   >;
+  /**
+   * Resolve the publication behind a Freestyle forward-auth call from the TLS
+   * rule id alone. The rule id is the one edge-controlled identifier that
+   * survives the hop into Vercel: the platform overwrites `x-forwarded-host`
+   * with the function's own host before the route runs, so the hostname is
+   * read back from the row instead of the request.
+   */
   readonly findActivePublicationForRequest: (input: {
-    readonly hostname: string;
     readonly providerTlsRuleId: string;
   }) => Effect.Effect<
     CloudVmPublicationTarget | null,
@@ -1873,10 +1879,6 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
           .where(
             and(
-              eq(
-                cloudVmPublications.hostname,
-                normalizedHostname(input.hostname),
-              ),
               eq(
                 cloudVmPublications.providerTlsRuleId,
                 input.providerTlsRuleId,

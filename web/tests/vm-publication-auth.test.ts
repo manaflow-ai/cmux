@@ -48,7 +48,6 @@ describe("Cloud VM publication auth exchange", () => {
 
     const authorize = (method: string) => run(
       authorizePublicationRequest({
-        hostname: publication.hostname,
         providerTlsRuleId: "tls-rule-1",
         method,
         returnPath: "/editor?file=one",
@@ -99,7 +98,6 @@ describe("Cloud VM publication auth exchange", () => {
     });
     const evaluation = await run(
       evaluatePublicationRequest({
-        hostname: publication.hostname,
         providerTlsRuleId: "tls-rule-1",
         method: "GET",
         sessionToken: null,
@@ -127,7 +125,6 @@ describe("Cloud VM publication auth exchange", () => {
     });
     const allowed = await run(
       authorizePublicationRequest({
-        hostname: publication.hostname,
         providerTlsRuleId: "tls-rule-1",
         method: "GET",
         returnPath: "/",
@@ -160,7 +157,6 @@ describe("Cloud VM publication auth exchange", () => {
     });
     const revoked = await run(
       authorizePublicationRequest({
-        hostname: publication.hostname,
         providerTlsRuleId: "tls-rule-1",
         method: "GET",
         returnPath: "/",

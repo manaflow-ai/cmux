@@ -61,11 +61,10 @@
     "backToSignIn": "Zur Anmeldung"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux cloud",
     "title": "Du hast keinen Zugriff",
-    "signedOutBody": "Melde dich bei cmux an, um diese Website anzusehen.",
     "signIn": "Bei cmux anmelden",
     "signedInAs": "Angemeldet als {identity}",
+    "switchAccount": "Konto wechseln",
     "invalidTitle": "Dieser Zugriffslink ist ungültig",
     "invalidBody": "Kehre zur Website zurück und versuche es erneut.",
     "footer": "Der Zugriff wird von cmux verwaltet."
@@ -1875,8 +1874,6 @@
     "metaDescription": "Laden Sie cmux NIGHTLY herunter, eine separate App, die automatisch aus dem neuesten main-Commit erstellt wird. Läuft neben der stabilen Version mit eigenen Auto-Updates.",
     "description": "cmux NIGHTLY wird automatisch aus dem neuesten Commit auf main erstellt. Es hat eine eigene Bundle-ID und läuft daher ohne Konflikte neben der stabilen Version. Damit können Sie neue Funktionen testen, bevor sie veröffentlicht werden.",
     "download": "NIGHTLY für Mac herunterladen",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Nightly Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
   },
   "languageSwitcher": {
