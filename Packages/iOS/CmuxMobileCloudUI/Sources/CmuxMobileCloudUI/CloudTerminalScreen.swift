@@ -30,8 +30,6 @@ struct CloudTerminalScreen: View {
                 }
                 await model.attach(connection: connection, terminalID: terminal.id)
             }
-            .onAppear { controller.sectionDidAppear() }
-            .onDisappear { controller.sectionDidDisappear() }
     }
 
     @ViewBuilder

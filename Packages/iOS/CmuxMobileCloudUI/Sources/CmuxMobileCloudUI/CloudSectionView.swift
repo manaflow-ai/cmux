@@ -11,10 +11,9 @@ import SwiftUI
 /// pushing catalog then terminal). See the PR description for the pages read.
 ///
 /// The tunnel's lifecycle is owned by ``CloudSessionController`` and driven by
-/// this view's appearance and the scene phase, per decision 5A.
+/// the enclosing ``CloudFlowView``'s appearance and the scene phase (5A).
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
-    @Environment(\.scenePhase) private var scenePhase
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -30,15 +29,6 @@ public struct CloudSectionView: View {
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { controller.refreshMachines() }
-        .onAppear { controller.sectionDidAppear() }
-        .onDisappear { controller.sectionDidDisappear() }
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .active: controller.sceneWillEnterForeground()
-            case .background: controller.sceneDidEnterBackground()
-            default: break
-            }
-        }
     }
 
     @ViewBuilder

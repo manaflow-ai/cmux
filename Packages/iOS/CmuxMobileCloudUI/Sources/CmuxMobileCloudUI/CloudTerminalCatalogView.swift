@@ -31,9 +31,6 @@ struct CloudTerminalCatalogView: View {
         .task(id: controller.tunnel) {
             if connection == nil { connection = controller.connection(for: machine) }
         }
-        // Hold the tunnel while pushed over the section (whose onDisappear fires).
-        .onAppear { controller.sectionDidAppear() }
-        .onDisappear { controller.sectionDidDisappear() }
     }
 }
 
