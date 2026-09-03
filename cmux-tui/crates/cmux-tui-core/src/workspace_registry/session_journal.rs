@@ -4,7 +4,7 @@ use flate2::read::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::Read;
+use std::io::{BufReader, Read, Result as IoResult};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1541,23 +1541,34 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
     let decoder = GzDecoder::new(compressed.as_slice());
-    // The segment header already carries a validated byte count. Reserve it
-    // once, so decompression does not repeatedly grow and copy the buffer.
-    let mut uncompressed = Vec::with_capacity(expected_bytes);
-    decoder
-        .take(u64::try_from(expected_bytes)?.saturating_add(1))
-        .read_to_end(&mut uncompressed)
-        .with_context(|| format!("decompress journal segment {segment_id}"))?;
+    // Decode directly from the bounded gzip stream. This avoids allocating a
+    // second buffer the size of the complete segment before JSON parsing.
+    let mut reader = BufReader::new(DigestReader::new(
+        decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
+    ));
+    let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
+        .with_context(|| format!("decode journal segment {segment_id}"))?;
+    // Force the bounded gzip reader to reach EOF. This validates the gzip
+    // trailer even when the JSON decoder stops after the top-level value.
+    let mut trailing = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut trailing)?;
+        if count == 0 {
+            break;
+        }
+        anyhow::ensure!(
+            trailing[..count].iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
+            "journal segment {segment_id} contains trailing data"
+        );
+    }
     anyhow::ensure!(
-        expected_bytes == uncompressed.len(),
+        reader.get_ref().bytes_read == expected_bytes,
         "journal segment {segment_id} length is invalid"
     );
     anyhow::ensure!(
-        Sha256::digest(&uncompressed).as_slice() == expected_digest.as_slice(),
+        reader.into_inner().digest().as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
-    let mut records: Vec<SessionJournalRecord> = serde_json::from_slice(&uncompressed)
-        .with_context(|| format!("decode journal segment {segment_id}"))?;
     for record in &mut records {
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;
@@ -1578,6 +1589,28 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         );
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
+}
+
+struct DigestReader<R> {
+    inner: R,
+    hasher: Sha256,
+    bytes_read: usize,
+}
+impl<R: Read> DigestReader<R> {
+    fn new(inner: R) -> Self {
+        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
+    }
+    fn digest(self) -> sha2::digest::Output<Sha256> {
+        self.hasher.finalize()
+    }
+}
+impl<R: Read> Read for DigestReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        let n = self.inner.read(buf)?;
+        self.bytes_read = self.bytes_read.saturating_add(n);
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
 }
 
 fn archived_records_after(
