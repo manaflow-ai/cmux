@@ -70,6 +70,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
+    @State private var browserAvailabilityRevision = 0
     @StateObject var focusHistoryMenuInvalidator: FocusHistoryMenuInvalidator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
@@ -459,6 +460,12 @@ struct cmuxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
                 }
+                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
+                    browserAvailabilityRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                    browserAvailabilityRevision &+= 1
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -798,17 +805,16 @@ struct cmuxApp: App {
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewBrowserWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newBrowserWorkspace"
-                        )
-                    } else if BrowserAvailabilitySettings.isEnabled() {
-                        // Last-resort fallback for a missing AppDelegate; keep
-                        // the browser-availability gate identical to the
-                        // shared action path.
-                        activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                if browserAvailabilityEnabled {
+                    splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                        if let appDelegate = AppDelegate.shared {
+                            appDelegate.performNewBrowserWorkspaceAction(
+                                tabManager: activeTabManager,
+                                debugSource: "menu.newBrowserWorkspace"
+                            )
+                        } else {
+                            activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                        }
                     }
                 }
 
@@ -1007,49 +1013,63 @@ struct cmuxApp: App {
             }
             Divider()
             surfaceNavigationCommandButtons()
-            splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
-                _ = performFocusedBrowserAction(.back)
+            if browserAvailabilityEnabled {
+                splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
+                    _ = performFocusedBrowserAction(.back)
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
+                    _ = performFocusedBrowserAction(.forward)
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
+                    _ = performFocusedBrowserAction(.reload)
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
+                    if !performFocusedBrowserAction(.toggleDeveloperTools) {
+                        NSSound.beep()
+                    }
+                }
+                splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
+                    if !performFocusedBrowserAction(.showJavaScriptConsole) {
+                        NSSound.beep()
+                    }
+                }
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
+                    if !performFocusedBrowserAction(.toggleReactGrab) {
+                        NSSound.beep()
+                    }
+                }
+                splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
+                    if !performFocusedBrowserAction(
+                        .toggleDesignMode(reason: "viewMenu")
+                    ) {
+                        NSSound.beep()
+                    }
+                }
+                let browserFocusModeMenu = browserFocusModeMenuSnapshot
+                Button(browserFocusModeMenu.title) {
+                    if !performFocusedBrowserAction(
+                        .toggleFocusMode(reason: "viewMenu")
+                    ) {
+                        NSSound.beep()
+                    }
+                }
+                .disabled(!browserFocusModeMenu.canToggle)
+
+                Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
+                    BrowserHistoryStore.shared.clearHistory()
+                }
+
+                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
+                    // Defer modal presentation until after AppKit finishes menu tracking.
+                    DispatchQueue.main.async {
+                        BrowserDataImportCoordinator.shared.presentImportDialog()
+                    }
+                }
             }
 
-            splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
-                _ = performFocusedBrowserAction(.forward)
-            }
-
-            splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
-                _ = performFocusedBrowserAction(.reload)
-            }
-
-            splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
-                if !performFocusedBrowserAction(.toggleDeveloperTools) {
-                    NSSound.beep()
-                }
-            }
-            splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
-                if !performFocusedBrowserAction(.showJavaScriptConsole) {
-                    NSSound.beep()
-                }
-            }
-            splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
-                if !performFocusedBrowserAction(.toggleReactGrab) {
-                    NSSound.beep()
-                }
-            }
-            splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
-                if !performFocusedBrowserAction(
-                    .toggleDesignMode(reason: "viewMenu")
-                ) {
-                    NSSound.beep()
-                }
-            }
-            let browserFocusModeMenu = browserFocusModeMenuSnapshot
-            Button(browserFocusModeMenu.title) {
-                if !performFocusedBrowserAction(
-                    .toggleFocusMode(reason: "viewMenu")
-                ) {
-                    NSSound.beep()
-                }
-            }
-            .disabled(!browserFocusModeMenu.canToggle)
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 if activeBrowserActionTarget != nil {
                     _ = performFocusedBrowserAction(.zoomIn)
@@ -1071,17 +1091,6 @@ struct cmuxApp: App {
                     _ = performFocusedBrowserAction(.resetZoom)
                 } else {
                     _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
-                }
-            }
-
-            Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
-                BrowserHistoryStore.shared.clearHistory()
-            }
-
-            Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
-                // Defer modal presentation until after AppKit finishes menu tracking.
-                DispatchQueue.main.async {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
                 }
             }
 
@@ -1121,12 +1130,14 @@ struct cmuxApp: App {
                 performSplitFromMenu(direction: .down)
             }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
-                performBrowserSplitFromMenu(direction: .right)
-            }
+            if browserAvailabilityEnabled {
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
-                performBrowserSplitFromMenu(direction: .down)
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
+                    performBrowserSplitFromMenu(direction: .down)
+                }
             }
 
             equalizeSplitsCommandButton()
@@ -1237,6 +1248,11 @@ struct cmuxApp: App {
                 : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode"),
             canToggle: panel?.canToggleBrowserFocusMode == true
         )
+    }
+
+    private var browserAvailabilityEnabled: Bool {
+        let _ = browserAvailabilityRevision
+        return BrowserAvailabilitySettings.isEnabled()
     }
 
     private var activeBrowserActionTarget: BrowserActionTarget? {

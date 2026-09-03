@@ -12,6 +12,12 @@ struct DockSplitContentView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let rightSidebarOwnsInputFocus: Bool
     let unreadPanelIDs: Set<UUID>
+    @State private var browserAvailabilityRevision = 0
+
+    private var browserAvailable: Bool {
+        let _ = browserAvailabilityRevision
+        return BrowserAvailabilitySettings.isEnabled()
+    }
 
     var body: some View {
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
@@ -19,9 +25,16 @@ struct DockSplitContentView: View {
         } emptyPane: { paneId in
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
+                browserAvailable: browserAvailable
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
+            browserAvailabilityRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            browserAvailabilityRevision &+= 1
         }
     }
 
@@ -49,7 +62,8 @@ struct DockSplitContentView: View {
         } else {
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
+                browserAvailable: browserAvailable
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
