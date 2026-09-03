@@ -1042,6 +1042,12 @@ mod tests {
     }
 
     #[test]
+    fn benchmark_session_identity_reports_entropy_failure() {
+        let error = fastrand_u32_with(|_| Err(getrandom::Error::UNEXPECTED)).unwrap_err();
+        assert!(error.contains("cannot allocate benchmark session identity"));
+    }
+
+    #[test]
     fn visibility_matches_earliest_referencing_event() {
         let base = Instant::now();
         let events = vec![
