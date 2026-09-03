@@ -660,7 +660,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let cmux_pty::SpawnedPty { master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
-    let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
+    let pid = child_cleanup
+        .child()
+        .process_id()
+        .filter(|pid| *pid > 0)
+        .map(|pid| pid as libc::pid_t)
+        .ok_or_else(|| anyhow::anyhow!("PTY child did not provide a valid process ID"))?;
     let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
