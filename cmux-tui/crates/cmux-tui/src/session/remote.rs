@@ -1251,11 +1251,18 @@ struct InteractiveWriterShared {
 struct WorkerCompletion {
     done: Mutex<bool>,
     changed: Condvar,
+    #[cfg(test)]
+    joined: AtomicBool,
 }
 
 impl WorkerCompletion {
     fn new() -> Self {
-        Self { done: Mutex::new(false), changed: Condvar::new() }
+        Self {
+            done: Mutex::new(false),
+            changed: Condvar::new(),
+            #[cfg(test)]
+            joined: AtomicBool::new(false),
+        }
     }
 
     fn mark_done(&self) {
@@ -1292,6 +1299,11 @@ impl WorkerCompletion {
         while !*done {
             done = self.changed.wait(done).unwrap_or_else(|poison| poison.into_inner());
         }
+    }
+
+    #[cfg(test)]
+    fn was_joined(&self) -> bool {
+        self.joined.load(Ordering::Acquire)
     }
 }
 
@@ -6720,6 +6732,77 @@ mod tests {
             .expect("reader worker did not exit before session drop returned");
     }
 
+    fn wait_for_worker_join(completion: &WorkerCompletion) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !completion.was_joined() {
+            assert!(Instant::now() < deadline, "worker reaper did not join the worker");
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn reader_self_disconnect_keeps_its_join_handle_owned() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release: release.clone() }),
+        ))
+        .unwrap();
+
+        let completion = session.reader_completion.clone();
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        reader_exited_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not self-disconnect");
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn reaper_does_not_block_completed_workers_behind_a_stalled_worker() {
+        let first_release = Arc::new((Mutex::new(false), Condvar::new()));
+        let first_completion = Arc::new(WorkerCompletion::new());
+        let second_completion = Arc::new(WorkerCompletion::new());
+        let first_release_thread = first_release.clone();
+        let first_completion_thread = first_completion.clone();
+        let first = std::thread::spawn(move || {
+            let (released, changed) = &*first_release_thread;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            first_completion_thread.mark_done();
+        });
+        let second_completion_thread = second_completion.clone();
+        let second = std::thread::spawn(move || {
+            second_completion_thread.mark_done();
+        });
+        enqueue_worker_reap(first, first_completion.clone()).unwrap();
+        enqueue_worker_reap(second, second_completion.clone()).unwrap();
+
+        wait_for_worker_join(&second_completion);
+        assert!(!first_completion.was_joined());
+
+        let (released, changed) = &*first_release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        wait_for_worker_join(&first_completion);
+    }
+
     #[test]
     fn worker_reaper_returns_ownership_when_queue_is_saturated() {
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
@@ -7627,6 +7710,25 @@ mod tests {
             state.failure,
             Some(ref failure) if failure.kind == io::ErrorKind::TimedOut
         ));
+    }
+
+    #[test]
+    fn disconnect_uses_one_total_shutdown_deadline() {
+        let (writer, control) = BlockingWriteStream::new();
+        let session = test_session_with_provider_context(Box::new(writer), HashSet::new(), None);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let started = Instant::now();
+        session.disconnect_transport();
+        assert!(
+            started.elapsed() < remote_write_timeout() * 2,
+            "shutdown exceeded its total deadline: {:?}",
+            started.elapsed()
+        );
+
+        control.release();
+        drop(session);
     }
 
     #[test]
