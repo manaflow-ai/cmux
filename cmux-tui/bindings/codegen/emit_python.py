@@ -956,7 +956,10 @@ __all__ = [
             "from __future__ import annotations",
             "",
             "import base64",
-            "from typing import Any, Dict, List, Literal, Union",
+            "from typing import TYPE_CHECKING, Any, Dict, List, Literal, Union",
+            "",
+            "if TYPE_CHECKING:",
+            "    from ..client import EventStream",
             "",
             "from .metadata import COMMANDS",
             "from .models import *",
@@ -1038,6 +1041,22 @@ __all__ = [
             else:
                 lines.append(
                     f"        return self._invoke_command({_quote(wire_name)}, {constructed})"
+                )
+            if command.get("stream") is not None and command["stream"].get("mode_field") == "follow":
+                follow_arguments = []
+                for name, _field in required + positional_optional + optional:
+                    python_name = _snake(name)
+                    follow_arguments.append(
+                        f"{python_name}={'True' if name == command['stream']['mode_field'] else python_name}"
+                    )
+                follow_constructed = f"{request_name}({', '.join(follow_arguments)})"
+                lines.extend(
+                    [
+                        "",
+                        f"    def {method_name}_follow({', '.join(parameters)}) -> EventStream:",
+                        f"        \"\"\"Open the {wire_name} follow stream with typed events.\"\"\"",
+                        f"        return self._open_command_stream({_quote(wire_name)}, {follow_constructed})",
+                    ]
                 )
 
         lines.extend(["", ""])

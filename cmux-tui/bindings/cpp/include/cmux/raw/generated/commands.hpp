@@ -85,6 +85,7 @@ public:
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineStatsResult> machine_stats(const MachineStatsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EventStream> machine_stats_follow(const MachineStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});

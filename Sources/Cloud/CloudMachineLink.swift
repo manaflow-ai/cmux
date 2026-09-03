@@ -67,6 +67,7 @@ actor CloudMachineLink {
     private var process: Process?
     private var eventsProcess: Process?
     private var statsProcess: Process?
+    private var statsGeneration = 0
     private var statsReaderTask: Task<Void, Never>?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
@@ -79,8 +80,8 @@ actor CloudMachineLink {
     /// The machine's own host samples (`machine-stats` follow feed), newest wins; `nil`
     /// when the daemon reports no sampler. Ends with the link. A daemon too old for the
     /// command ends the feed at once and the machine simply shows no reading.
-    let stats: AsyncStream<VMStats?>
-    private let statsContinuation: AsyncStream<VMStats?>.Continuation
+    private(set) var stats: AsyncStream<VMStats?>
+    private var statsContinuation: AsyncStream<VMStats?>.Continuation
 
     init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
         self.machineID = machineID
@@ -169,6 +170,12 @@ actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
+        // A prior link lifecycle may have finished the continuation during a
+        // route drop. The stream belongs to the lifecycle, not the actor, so a
+        // reconnect gets a new continuation for its watcher.
+        if statsProcess == nil {
+            makeStatsStream()
+        }
         startEventsSubscription(socketPath: socketPath)
         startStatsFollow(socketPath: socketPath)
         changesContinuation.yield()
@@ -183,6 +190,7 @@ actor CloudMachineLink {
         statsReaderTask?.cancel()
         statsReaderTask = nil
         statsContinuation.finish()
+        statsProcess = nil
         process?.terminate()
         process = nil
         connected = nil
@@ -277,9 +285,11 @@ actor CloudMachineLink {
             return
         }
         statsProcess = process
+        statsGeneration += 1
+        let generation = statsGeneration
         let continuation = statsContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        statsReaderTask = Task.detached {
+        statsReaderTask = Task.detached { [weak self] in
             for await line in lines where !line.isEmpty {
                 switch CmuxTuiSnapshotParser.machineStats(fromLine: line) {
                 case .sample(let sample): continuation.yield(sample)
@@ -291,7 +301,18 @@ actor CloudMachineLink {
             // alive (for example when it predates machine-stats). Clear the
             // last sample so the UI fails closed instead of showing stale data.
             continuation.yield(nil)
+            await self?.statsFollowDidEnd(generation: generation)
         }
+    }
+
+    private func makeStatsStream() {
+        (stats, statsContinuation) = AsyncStream<VMStats?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
+
+    private func statsFollowDidEnd(generation: Int) {
+        guard statsProcess != nil, statsGeneration == generation else { return }
+        statsProcess = nil
+        statsContinuation.finish()
     }
 
     private func drainStderr(_ handle: FileHandle) {
@@ -316,6 +337,7 @@ actor CloudMachineLink {
         statsReaderTask?.cancel()
         statsReaderTask = nil
         statsContinuation.finish()
+        statsProcess = nil
         process = nil
         connected = nil
         removeInviteFile()

@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, List, Literal, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Union
+
+if TYPE_CHECKING:
+    from ..client import EventStream
 
 from .metadata import COMMANDS
 from .models import *
@@ -143,6 +146,10 @@ class GeneratedClientMixin:
 
     def machine_stats(self, *, follow: Union[bool, MissingType] = MISSING) -> MachineStatsResult:
         return self._invoke_command('machine-stats', MachineStatsRequest(follow=follow))
+
+    def machine_stats_follow(self, *, follow: Union[bool, MissingType] = MISSING) -> EventStream:
+        """Open the machine-stats follow stream with typed events."""
+        return self._open_command_stream('machine-stats', MachineStatsRequest(follow=True))
 
     def machine_usage(self) -> MachineUsageResult:
         return self._invoke_command('machine-usage', MachineUsageRequest())

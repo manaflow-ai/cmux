@@ -505,9 +505,19 @@ final class MachinesPanelViewModel: ObservableObject {
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             // Delivered on the main queue (`queue: .main`), which is the main actor.
-            MainActor.assumeIsolated { self?.scheduleCatalogRead() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let machineIDs = notification.userInfo?["machineIDs"] as? [String]
+                if let machineIDs, !machineIDs.isEmpty {
+                    for machineID in machineIDs {
+                        self.applyCatalogMachineUpdate(.cloud(machineID))
+                    }
+                } else {
+                    self.scheduleCatalogRead()
+                }
+            }
         }
     }
 
@@ -531,6 +541,22 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             self.readCatalog()
         }
+    }
+
+    /// Applies a machine-info change without rebuilding the full catalog or local
+    /// workspace list. Stats arrive independently for each machine, so this keeps
+    /// one sample to one row update instead of O(N) work for every sample.
+    private func applyCatalogMachineUpdate(_ machine: SurfaceMachineID) {
+        guard let info = SurfaceCatalog.shared.machineInfo(for: machine) else { return }
+        if let index = catalog.machines.firstIndex(where: { $0.id == machine }) {
+            catalog.machines[index] = info
+        } else {
+            catalog.machines.append(info)
+        }
+        guard let index = machines.firstIndex(where: { $0.id == machine.cloudMachineID }) else { return }
+        var snapshot = machines[index]
+        snapshot.stats = MachineSnapshotBuilder.linkStats(from: info)
+        machines[index] = snapshot
     }
 
     func setTreeDragging(_ dragging: Bool) {

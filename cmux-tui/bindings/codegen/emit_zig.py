@@ -499,6 +499,34 @@ class ZigEmitter:
                     )
                 )
                 lines.extend(["        request,", "    );", "}", ""])
+                if stream is not None and stream.get("mode_field") == "follow":
+                    terminal_event = stream.get("terminal_event")
+                    terminal = "null" if terminal_event is None else _quote(str(terminal_event))
+                    lines.extend(
+                        [
+                            f"pub fn {function}Follow(client: anytype, request: {request_name}) "
+                            "!client_runtime.Stream {",
+                            "    var follow_request = request;",
+                            "    follow_request.follow = true;",
+                            "    return client.openStream(",
+                        ]
+                    )
+                    lines.extend(
+                        self.render_command_requirements(
+                            wire_name,
+                            command,
+                            indent="        ",
+                        )
+                    )
+                    lines.extend(
+                        [
+                            "        follow_request,",
+                            f"        {terminal},",
+                            "    );",
+                            "}",
+                            "",
+                        ]
+                    )
             else:
                 terminal_event = stream.get("terminal_event")
                 terminal = (

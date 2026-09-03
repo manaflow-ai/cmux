@@ -19026,6 +19026,17 @@ Result<MachineStatsResult> Client::machine_stats(
     return decode_value<MachineStatsResult>(response.value());
 }
 
+Result<EventStream> Client::machine_stats_follow(
+    const MachineStatsRequest& request, RequestOptions options) {
+    auto follow_request = request;
+    follow_request.follow = true;
+    auto encoded = encode_value(follow_request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    return open_event_stream("machine-stats", *parameters.value(), "", options);
+}
+
 Result<MachineUsageResult> Client::machine_usage(
     const MachineUsageRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);

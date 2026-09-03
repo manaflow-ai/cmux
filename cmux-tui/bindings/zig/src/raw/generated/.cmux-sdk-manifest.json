@@ -7,8 +7,8 @@
     },
     {
       "path": "protocol.zig",
-      "sha256": "61e1b6bd350991bee10ba9b296b6f60dab87a9779d538aaff408972d266120ac",
-      "size": 165205
+      "sha256": "c4ab85ad68626d0c8530d8719deb79e7ab85bd3d74c0dc0e5461cc2fcf84b6b8",
+      "size": 165615
     }
   ],
   "format": 1,

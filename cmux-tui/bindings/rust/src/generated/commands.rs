@@ -1539,6 +1539,11 @@ impl CmuxClient {
         self.execute(&MACHINE_STATS_METADATA, &request)
     }
 
+    pub fn machine_stats_follow(&mut self, mut request: MachineStatsRequest) -> Result<CmuxStream> {
+        request.follow = Some(true);
+        self.execute_stream(&MACHINE_STATS_METADATA, &request)
+    }
+
     pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {
         self.execute(&MACHINE_USAGE_METADATA, &request)
     }

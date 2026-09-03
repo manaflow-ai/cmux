@@ -2906,6 +2906,21 @@ pub fn machineStats(client: anytype, request: MachineStatsRequest) !wire.Decoded
     );
 }
 
+pub fn machineStatsFollow(client: anytype, request: MachineStatsRequest) !client_runtime.Stream {
+    var follow_request = request;
+    follow_request.follow = true;
+    return client.openStream(
+        .{
+            .name = "machine-stats",
+            .authority = "control",
+            .since = 12,
+            .capability = "machine-stats-v1",
+        },
+        follow_request,
+        null,
+    );
+}
+
 pub const MachineUsageRequest = struct {};
 
 pub fn machineUsage(client: anytype, request: MachineUsageRequest) !wire.Decoded(MachineUsageResult) {

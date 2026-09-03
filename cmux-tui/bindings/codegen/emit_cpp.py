@@ -668,6 +668,11 @@ class CppEmitter:
                     f"    [[nodiscard]] Result<{result}> {method}("
                     f"const {request}& request{default_request}, RequestOptions options = {{}});"
                 )
+                if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                    lines.append(
+                        f"    [[nodiscard]] Result<EventStream> {method}_follow("
+                        f"const {request}& request{default_request}, RequestOptions options = {{}});"
+                    )
             else:
                 lines.append(
                     f"    [[nodiscard]] Result<EventStream> {method}("
@@ -1116,7 +1121,7 @@ class CppEmitter:
         method = _cpp_field(wire_name)
         streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
         if not streaming:
-            return [
+            lines = [
                 f"Result<{result}> Client::{method}(",
                 f"    const {request}& request, RequestOptions options) {{",
                 "    auto encoded = encode_value(request);",
@@ -1129,6 +1134,27 @@ class CppEmitter:
                 "}",
                 "",
             ]
+            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                stream = command["stream"]
+                terminal = stream["terminal_event"]
+                terminal_text = "" if terminal is None else str(terminal)
+                lines.extend(
+                    [
+                        f"Result<EventStream> Client::{method}_follow(",
+                        f"    const {request}& request, RequestOptions options) {{",
+                        f"    auto follow_request = request;",
+                        "    follow_request.follow = true;",
+                        "    auto encoded = encode_value(follow_request);",
+                        "    if (!encoded) return std::move(encoded).error();",
+                        "    auto parameters = encoded.value().as_object();",
+                        "    if (!parameters) return std::move(parameters).error();",
+                        f'    return open_event_stream("{wire_name}", *parameters.value(), '
+                        f'"{terminal_text}", options);',
+                        "}",
+                        "",
+                    ]
+                )
+            return lines
         stream = command["stream"]
         assert isinstance(stream, Mapping)
         terminal = stream["terminal_event"]

@@ -218,7 +218,7 @@ final class SurfaceCatalog {
 
     func updateMachine(_ info: SurfaceMachineInfo) {
         machines[info.id] = info
-        notifyChange()
+        notifyChange(machine: info.id)
     }
 
     // MARK: Projections
@@ -762,14 +762,29 @@ final class SurfaceCatalog {
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     private var changeNotificationPending = false
+    private var pendingMachineChanges: Set<SurfaceMachineID> = []
+    private var pendingBroadChange = false
 
     private func notifyChange() {
+        pendingBroadChange = true
+        notifyChange(machine: nil)
+    }
+
+    private func notifyChange(machine: SurfaceMachineID?) {
+        if let machine { pendingMachineChanges.insert(machine) }
         guard !changeNotificationPending else { return }
         changeNotificationPending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.changeNotificationPending = false
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+            let machineChanges = self.pendingMachineChanges
+            self.pendingMachineChanges.removeAll()
+            let broadChange = self.pendingBroadChange
+            self.pendingBroadChange = false
+            let userInfo: [AnyHashable: Any]? = !broadChange && !machineChanges.isEmpty
+                ? ["machineIDs": machineChanges.map(\.rawValue)]
+                : nil
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
         }
     }
 }
