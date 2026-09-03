@@ -1482,7 +1482,15 @@ def _render_event_type(
     name = _event_name(wire_name)
     lines = [
         f"// {name} is emitted by protocol v{event['since']}.",
-        *_render_object(name, payload, event_discriminator=wire_name),
+        # Event payloads with nullable fields already use the map-based
+        # encoder to preserve presence. Add the discriminator there without
+        # imposing a map round-trip on the hot-path events that use direct
+        # struct encoding.
+        *_render_object(
+            name,
+            payload,
+            event_discriminator=wire_name if _nullable_fields(payload) else None,
+        ),
         "",
         f"func ({name}) EventName() string {{ return {_go_string(wire_name)} }}",
     ]
