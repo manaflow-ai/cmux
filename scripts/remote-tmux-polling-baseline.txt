@@ -1,0 +1,5 @@
+Sources/RemoteTmuxControlConnection+Sizing.swift:sendPerWindowRedrawKick:try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
+Sources/RemoteTmuxControlConnection+Sizing.swift:sendSessionRedrawKick:try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
+Sources/RemoteTmuxControlConnection+Sizing.swift:setClientSize:try await ContinuousClock().sleep(for: .milliseconds(Self.clientSizeDebounceMs))
+Sources/RemoteTmuxControlConnection+Sizing.swift:setWindowSize:try await ContinuousClock().sleep(for: .milliseconds(Self.clientSizeDebounceMs))
+Sources/RemoteTmuxSSHTransport.swift:killSessions:group.addTask { try? await ContinuousClock().sleep(for: timeout) }
