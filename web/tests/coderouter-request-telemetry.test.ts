@@ -17,6 +17,7 @@ import {
   withCoderouterRoute,
 } from "../services/coderouter/requestTelemetry";
 import { exceptionEvent, stackFrames } from "../services/coderouter/exceptionEvent";
+import { reportCoderouterFailure } from "../services/coderouter/observability";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
 import { TRACE_ID_RESPONSE_HEADER } from "../services/telemetry";
 
@@ -271,6 +272,32 @@ describe("withCoderouterRoute", () => {
     const trace = captured().find((entry) => entry.event === "$ai_trace")!;
     expect(trace.properties.coderouter_outcome).toBe("route_crash");
     expect(trace.properties.$ai_is_error).toBe(true);
+  });
+
+  test("emits one PostHog exception for a failed route", async () => {
+    const route = withCoderouterRoute(
+      {
+        surface: "responses",
+        route: "/v1/responses",
+        unavailable: () => new Response(null, { status: 503 }),
+      },
+      async () => {
+        reportCoderouterFailure("upstream_transport", new Error("provider failed"), {
+          provider: "codex",
+        });
+        recordCoderouterOutcome({
+          outcome: "provider_unavailable",
+          failureStage: "upstream_transport",
+          status: 503,
+          provider: "codex",
+        });
+        return new Response(null, { status: 503 });
+      },
+    );
+    await route(new Request("https://coderouter.dev/v1/responses", { method: "POST" }), undefined);
+    const exceptions = captured().filter((entry) => entry.event === "$exception");
+    expect(exceptions).toHaveLength(1);
+    expect(exceptions[0]!.properties.coderouter_outcome).toBe("provider_unavailable");
   });
 
   test("treats a caller cancellation as a client close without filing an exception", async () => {
