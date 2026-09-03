@@ -34,6 +34,9 @@ struct CLIError: Error, CustomStringConvertible {
     /// v2 error's data payload, so callers can make idempotency decisions
     /// structurally instead of parsing display text.
     let vmBackendCode: String?
+    /// HTTP status from the Cloud VM backend, when the app forwarded an HTTP
+    /// failure through the local v2 socket.
+    let vmBackendHTTPStatus: Int?
     let socketFailureKind: SocketFailureKind?
 
     init(
@@ -42,6 +45,7 @@ struct CLIError: Error, CustomStringConvertible {
         v2Code: String? = nil,
         isStructuredProtocolResponse: Bool = false,
         vmBackendCode: String? = nil,
+        vmBackendHTTPStatus: Int? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
@@ -49,6 +53,7 @@ struct CLIError: Error, CustomStringConvertible {
         self.v2Code = v2Code
         self.isStructuredProtocolResponse = isStructuredProtocolResponse
         self.vmBackendCode = vmBackendCode
+        self.vmBackendHTTPStatus = vmBackendHTTPStatus
         self.socketFailureKind = socketFailureKind
     }
 
@@ -4087,7 +4092,8 @@ final class SocketClient {
                 ),
                 v2Code: error["code"] as? String,
                 isStructuredProtocolResponse: true,
-                vmBackendCode: data?["backend_code"] as? String
+                vmBackendCode: data?["backend_code"] as? String,
+                vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
             )
         }
 
@@ -13734,20 +13740,16 @@ struct CMUXCLI {
     /// route is explicitly unsupported or absent. Provider-level Freestyle SSH
     /// is not a substitute for the cmux-remote graph session.
     private static func shouldFallbackFromForcedSSH(_ error: CLIError) -> Bool {
-        if isVMNotFoundError(error) { return false }
+        if error.vmBackendCode == "vm_not_found" || isVMNotFoundError(error) {
+            return false
+        }
         if error.vmBackendCode == Self.vmAttachTransportUnsupportedCode {
             return true
         }
-        let text = error.message.lowercased()
-        if text.contains("http 401") || text.contains("auth_required") || text.contains("sign-in") {
-            return false
+        if error.isStructuredProtocolResponse, error.v2Code == "method_not_found" {
+            return true
         }
-        return text.contains("http 404")
-            || text.contains("method not found")
-            || text.contains("ssh gateway")
-            || text.contains("no ssh")
-            || text.contains("not supported")
-            || text.contains("cmux-remote")
+        return error.vmBackendHTTPStatus == 404
     }
 
     private func defaultFreestyleSSHInfoWithRetryIfNeeded(
