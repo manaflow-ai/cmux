@@ -336,11 +336,11 @@ object{
   registry_lock:object{
     wait_us:histogram, hold_us:histogram,
     contended_acquisitions:uint64, stalls:uint64,
-    holder?:object{site:string,held_for_us:uint64}|null,
-    last_stall?:object{waiter:string,blocker?:string|null,waited_us:uint64}|null,
+    holder:object{site:string,held_for_us:uint64}|null,
+    last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
     top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
   },
-  journal_writer?:object{
+  journal_writer:object{
     batches:uint64, terminal_events:uint64, durable_events:uint64,
     batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
     receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,

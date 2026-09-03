@@ -158,14 +158,20 @@ impl<T> SignaledMutex<T> {
         loop {
             match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::Poisoned(_)) => {
+                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
+                    anyhow::bail!("mutex is poisoned")
+                }
                 Err(TryLockError::WouldBlock) => {}
             }
 
             let observed = *self.release_epoch.lock().unwrap();
             match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::Poisoned(_)) => {
+                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
+                    anyhow::bail!("mutex is poisoned")
+                }
                 Err(TryLockError::WouldBlock) => {}
             }
 
@@ -175,11 +181,13 @@ impl<T> SignaledMutex<T> {
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
+                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 anyhow::bail!("mutex deadline expired");
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
+                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 anyhow::bail!("mutex deadline expired");
             }
         }
@@ -5352,6 +5360,7 @@ impl Mux {
         let mut registry = match lock_result {
             Ok(registry) => registry,
             Err(error) => {
+                stats.commit_finished(lock_wait, Duration::ZERO);
                 stats.set_phase(crate::diagnostics::WriterPhase::Idle);
                 return Err(error);
             }
@@ -17698,6 +17707,32 @@ mod tests {
         let stall = snapshot.last_stall.expect("stall recorded");
         assert!(stall.blocker.as_deref().is_some_and(|site| site.contains("mux.rs:")), "{stall:?}");
         assert!(stall.waited_us >= 100_000);
+    }
+
+    #[test]
+    fn signaled_mutex_records_failed_wait_telemetry() {
+        let mutex = Arc::new(SignaledMutex::new(0u32));
+        let held = mutex.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv().unwrap();
+
+        let deadline =
+            Instant::now() + crate::diagnostics::LOCK_STALL_THRESHOLD + Duration::from_millis(20);
+        assert!(mutex.lock_until(deadline).is_err());
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        let snapshot = mutex.stats().snapshot();
+        assert_eq!(snapshot.wait_us.count, 2, "failed wait must enter wait histogram");
+        assert_eq!(snapshot.hold_us.count, 1, "failed wait must not report a hold");
+        assert_eq!(snapshot.stalls, 1, "failed stall must be visible");
+        assert!(snapshot.last_stall.is_some());
     }
 
     fn test_mux() -> Arc<Mux> {

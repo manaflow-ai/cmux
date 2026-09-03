@@ -58,7 +58,7 @@ owner from an owner still starting.
 ```text
 cmux server start [START OPTIONS]
 cmux server status [--session <name>] [--socket <path>]
-cmux server stats [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
 cmux server stop [--session <name>] [--socket <path>] [--force]
 cmux server reload-config [--session <name>] [--socket <path>]
 ```

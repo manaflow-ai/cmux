@@ -1032,6 +1032,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     // in a retry wait. Drain both ingress lanes so receipts
                     // for events that never entered the active batch cannot
                     // remain unresolved forever.
+                    let _admission = receivers.state.enqueue_admission.lock().unwrap();
                     complete_queued_error(&receivers, &error);
                     return;
                 };
@@ -1102,6 +1103,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch[0].completion.is_none() {
+                            let _admission = receivers.state.enqueue_admission.lock().unwrap();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
@@ -1177,6 +1179,7 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
+    let _admission = receivers.state.enqueue_admission.lock().unwrap();
     receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",

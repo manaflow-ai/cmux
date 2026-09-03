@@ -198,6 +198,19 @@ impl LockStats {
             Some(Holder { site, since: Instant::now() });
     }
 
+    /// Record a wait that ended without acquiring the mutex.
+    pub fn wait_failed(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
+        self.wait.record_duration(waited);
+        if waited >= LOCK_CONTENDED_THRESHOLD {
+            self.contended.fetch_add(1, Ordering::Relaxed);
+        }
+        if waited >= LOCK_STALL_THRESHOLD {
+            self.stalls.fetch_add(1, Ordering::Relaxed);
+            *self.last_stall.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(Stall { waiter: site, blocker, waited });
+        }
+    }
+
     pub fn released(&self, site: LockSite, held: Duration) {
         self.hold.record_duration(held);
         *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
