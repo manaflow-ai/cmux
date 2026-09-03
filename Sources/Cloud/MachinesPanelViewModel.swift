@@ -570,12 +570,14 @@ final class MachinesPanelViewModel: ObservableObject {
             } else {
                 // A rename can change the canonical name order. Reinsert only
                 // on this infrequent structural change, never per stats sample.
-                catalog.machines.remove(at: index)
-                let insertion = catalog.machines.firstIndex { candidate in
+                var reordered = catalog.machines
+                reordered.remove(at: index)
+                let insertion = reordered.firstIndex { candidate in
                     if candidate.id == .local { return false }
                     return candidate.name.localizedStandardCompare(info.name) == .orderedDescending
-                } ?? catalog.machines.endIndex
-                catalog.machines.insert(info, at: insertion)
+                } ?? reordered.endIndex
+                reordered.insert(info, at: insertion)
+                catalog.machines = reordered
                 catalogMachineIndexes = Dictionary(
                     uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
                 )
