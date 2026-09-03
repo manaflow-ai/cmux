@@ -136,6 +136,9 @@ jobs:
       - name: Test TUI npm artifact transfer contract
         run: python3 tests/test_tui_npm_package_artifact.py
 
+      - name: Test TUI npm launcher behavior
+        run: python3 tests/test_tui_npm_launcher.py
+
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py --published-only
 

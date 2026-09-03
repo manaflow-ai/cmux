@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import re
 import shutil
@@ -94,6 +96,11 @@ def copy_executable(src: Path, dst: Path) -> None:
     dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def binary_integrity(path: Path) -> str:
+    digest = hashlib.sha512(path.read_bytes()).digest()
+    return "sha512-" + base64.b64encode(digest).decode("ascii")
+
+
 def recreate_dir(path: Path) -> None:
     if path.exists():
         if not path.is_dir():
@@ -136,6 +143,11 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
                 "license": "MIT",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
+                # The launcher uses this authenticated package metadata to
+                # verify a writable cache hit without downloading the tarball
+                # again. The value is also checked against the extracted file
+                # during a fresh download.
+                "cmuxBinaryIntegrity": binary_integrity(src),
                 "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}"],
             },
         )
@@ -187,9 +199,14 @@ def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None
     package_json_path = launcher_dir / "package.json"
     package_json = json.loads(package_json_path.read_text())
     package_json["version"] = version
-    targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
+    # The cmux launcher deliberately has NO optionalDependencies: the shim
+    # downloads the platform package at runtime with registry integrity
+    # verification. Keeping platform binary packages out of the npx cache
+    # tree is what protects `npx cmux` upgrades from npm's ENOTEMPTY reify
+    # bug (https://github.com/npm/cli/issues/4622).
+    if "optionalDependencies" in package_json or "dependencies" in package_json:
+        raise SystemExit("cmux launcher template must not declare dependencies")
     relay_targets = RELAY_TARGETS if include_windows else [t for t in RELAY_TARGETS if t["os"] != "win32"]
-    package_json["optionalDependencies"] = {target["package"]: version for target in targets}
     write_json(package_json_path, package_json)
 
     launcher_bin = launcher_dir / "bin" / "cmux.js"
