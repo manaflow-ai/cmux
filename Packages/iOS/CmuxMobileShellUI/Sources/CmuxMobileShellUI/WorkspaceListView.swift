@@ -43,6 +43,14 @@ struct WorkspaceListView: View {
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
     var canCreateWorkspace = true
+    /// Every known Mac for the "+" hold menu, as value rows so no store
+    /// crosses into the toolbar. Empty in previews.
+    var newTerminalHosts: [MobileNewTerminalMenuValue.Host] = []
+    /// Switch to the host and open a new workspace there.
+    var openTerminalOnHost: ((MobileNewTerminalMenuValue.Host) -> Void)? = nil
+    /// Open the local Linux terminal on this iPhone. `nil` when the runtime is
+    /// not bundled, which renders the menu row disabled.
+    var openLocalLinux: (() -> Void)? = nil
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection

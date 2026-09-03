@@ -75,6 +75,9 @@ struct CMUXMobileRootView: View {
     /// foreground returns. `nil` when unwired (previews), which shows no
     /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+    #if os(iOS)
+    @Environment(\.mobileLocalComputerProvider) private var localComputerProvider
+    #endif
 
     #if os(iOS)
     init(
@@ -250,6 +253,12 @@ struct CMUXMobileRootView: View {
         ) {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
+        }
+        .fullScreenCover(
+            isPresented: localLinuxCoverBinding,
+            onDismiss: rootPresentationDidDismiss
+        ) {
+            localLinuxCover
         }
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
@@ -526,6 +535,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    openLocalLinux: openLocalLinuxAction,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
                     )
@@ -548,6 +558,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    openLocalLinux: openLocalLinuxAction,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -701,6 +712,44 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
+    }
+
+    /// Drives the full-screen local Linux cover from the same modal state.
+    private var localLinuxCoverBinding: Binding<Bool> {
+        Binding(
+            get: { rootPresentation.isLocalLinuxPresented },
+            set: { isPresented in
+                guard !isPresented else { return }
+                handleRootPresentation(.sheetDidRequestDismissal)
+            }
+        )
+    }
+
+    /// The local terminal gets the whole display. The shell hands it the same
+    /// controller the Computers row uses, so both entry points share one shell
+    /// session and its scrollback.
+    @ViewBuilder
+    private var localLinuxCover: some View {
+        if let localComputerProvider {
+            NavigationStack {
+                localComputerProvider.makeDestination()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                                handleRootPresentation(.dismissLocalLinux)
+                            }
+                            .accessibilityIdentifier("MobileLocalLinuxDone")
+                        }
+                    }
+            }
+        }
+    }
+
+    /// The "+" entry point for Linux on this iPhone, or `nil` when the runtime
+    /// is not bundled so the menu row renders disabled.
+    private var openLocalLinuxAction: (() -> Void)? {
+        guard localComputerProvider?.isAvailable == true else { return nil }
+        return { handleRootPresentation(.presentLocalLinux) }
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {

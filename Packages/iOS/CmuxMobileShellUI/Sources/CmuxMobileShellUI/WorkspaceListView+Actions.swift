@@ -3,15 +3,33 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
-    var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
-        WorkspaceListNewWorkspaceMenu(
-            value: WorkspaceListNewWorkspaceMenuValue(
-                canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil
-            ),
-            actions: WorkspaceListNewWorkspaceMenuActions(
-                createWorkspace: createWorkspace,
-                createWorkspaceGroup: createWorkspaceGroup
+    var newTerminalMenuValue: MobileNewTerminalMenuValue {
+        MobileNewTerminalMenuValue(
+            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspaceGroup: createWorkspaceGroup != nil,
+            hosts: newTerminalHosts,
+            isLocalLinuxAvailable: openLocalLinux != nil,
+            canAddComputer: showAddDevice != nil
+        )
+    }
+
+    var newTerminalMenu: MobileNewTerminalMenu {
+        MobileNewTerminalMenu(
+            value: newTerminalMenuValue,
+            actions: MobileNewTerminalMenuActions(
+                createWorkspace: { [createWorkspace, canCreate = canCreateWorkspaceForMacSelection] in
+                    guard canCreate else { return }
+                    createWorkspace()
+                },
+                createWorkspaceGroup: createWorkspaceGroup.map { createWorkspaceGroup in
+                    { [canCreate = canCreateWorkspaceForMacSelection] in
+                        guard canCreate else { return }
+                        createWorkspaceGroup()
+                    }
+                },
+                openTerminal: { [openTerminalOnHost] host in openTerminalOnHost?(host) },
+                openLocalLinux: { [openLocalLinux] in openLocalLinux?() },
+                addComputer: showAddDevice
             )
         )
     }

@@ -38,6 +38,9 @@ struct DisconnectedWorkspaceShellView: View {
     /// Computer stuck on an undialable method (Tailscale Only with no grant)
     /// can ONLY be fixed from there.
     var showComputers: (() -> Void)? = nil
+    /// Open the local Linux terminal on this iPhone. With no Mac connected this
+    /// is the "+" button's one-tap action; `nil` when the runtime is not bundled.
+    var openLocalLinux: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
@@ -88,7 +91,7 @@ struct DisconnectedWorkspaceShellView: View {
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        addDeviceToolbarButton
+                        newTerminalMenu
                     }
                     #else
                     ToolbarItem {
@@ -292,24 +295,85 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
-        if tailscalePairingRequired {
-            showPairingScanner?()
-            return
-        }
-        guard connectingMacID == nil, let store else { return }
-        connectingMacID = computer.id
         Task {
-            let connected = await store.switchToMac(
+            _ = await connectForeground(
+                id: computer.id,
                 macDeviceID: computer.deviceId,
-                instanceTag: computer.instanceTag
+                instanceTag: computer.instanceTag,
+                name: computer.title
             )
-            connectingMacID = nil
-            if !connected,
-               store.connectionState != .connected,
-               !store.isMacSwitchInFlight {
-                connectFailedComputerName = computer.title
+        }
+    }
+
+    /// "+" menu row: reconnect to the host, then open a new workspace there so
+    /// the user lands in a fresh terminal rather than the workspace list.
+    private func openTerminal(on host: MobileNewTerminalMenuValue.Host) {
+        Task {
+            guard await connectForeground(
+                id: host.id,
+                macDeviceID: host.macDeviceID,
+                instanceTag: host.instanceTag,
+                name: host.name
+            ), let store else { return }
+            if store.usesLocalWorkspaceCreationFallback {
+                store.createWorkspace()
+            } else {
+                await store.createWorkspaceRequest()
             }
         }
+    }
+
+    /// Makes one saved computer the foreground connection. The guard and the
+    /// in-flight marker run in the same main-actor segment, so two quick taps
+    /// cannot both dial.
+    @MainActor
+    private func connectForeground(
+        id: String,
+        macDeviceID: String,
+        instanceTag: String?,
+        name: String
+    ) async -> Bool {
+        if tailscalePairingRequired {
+            showPairingScanner?()
+            return false
+        }
+        guard connectingMacID == nil, let store else { return false }
+        connectingMacID = id
+        let connected = await store.switchToMac(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        connectingMacID = nil
+        if !connected,
+           store.connectionState != .connected,
+           !store.isMacSwitchInFlight {
+            connectFailedComputerName = name
+        }
+        return connected
+    }
+
+    private var newTerminalMenuValue: MobileNewTerminalMenuValue {
+        MobileNewTerminalMenuValue(
+            hosts: MobileNewTerminalMenuValue.hosts(from: savedComputers),
+            isLocalLinuxAvailable: openLocalLinux != nil,
+            canAddComputer: showAddDevice != nil
+        )
+    }
+
+    /// The trailing "+" shared with the workspace list. Tap opens Linux on
+    /// this iPhone (or pairing when Linux is unavailable); hold lists hosts.
+    private var newTerminalMenu: some View {
+        MobileNewTerminalMenu(
+            value: newTerminalMenuValue,
+            actions: MobileNewTerminalMenuActions(
+                createWorkspace: {},
+                createWorkspaceGroup: nil,
+                openTerminal: openTerminal(on:),
+                openLocalLinux: { openLocalLinux?() },
+                addComputer: showAddDevice
+            )
+        )
+        .equatable()
     }
 
     private var connectFailedTitle: String {
