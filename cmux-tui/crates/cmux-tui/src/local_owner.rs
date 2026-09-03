@@ -328,11 +328,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         // process-group leader, so failure is a real launch error.
         unsafe {
             command.pre_exec(|| {
-                if libc::setsid() < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
+                if libc::setsid() < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
             });
         }
     }
