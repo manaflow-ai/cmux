@@ -31,8 +31,6 @@ public nonisolated enum LocalLinuxError: Error, Equatable, Sendable {
     case inputFailed(errno: Int32)
     /// The platform does not contain the iSH bridge.
     case kernelUnavailable
-    /// The requested runtime configuration differs from the one already booted.
-    case configurationMismatch
     /// The Ghostty renderer could not host the terminal surface.
     case rendererUnavailable
     /// The scrollback ring could not start consuming session output.
@@ -53,6 +51,21 @@ public nonisolated enum LocalLinuxKernelBridgeError: Error, Equatable, Sendable 
     case sessionOpenFailed(errno: Int32)
     /// This platform does not provide an iSH kernel implementation.
     case unavailable
+}
+
+/// Negative Linux errno values as returned across the iSH C ABI.
+///
+/// The shim reports failures as `-errno`, so every constant here is negative.
+/// Only the values the Swift side produces or interprets are listed.
+nonisolated enum LinuxErrno {
+    /// `EIO`: a generic kernel I/O failure.
+    static let eio: Int32 = -5
+    /// `EAGAIN`: the tty input buffer is full, retry after a readiness edge.
+    static let eagain: Int32 = -11
+    /// `ENOMEM`: a host allocation failed before entering the kernel.
+    static let enomem: Int32 = -12
+    /// `EINVAL`: host-side validation rejected an argument.
+    static let einval: Int32 = -22
 }
 
 /// Synchronous, C-facing operations needed by ``LocalLinuxRuntime``.
@@ -78,54 +91,25 @@ public nonisolated protocol LocalLinuxKernelBridge: Sendable {
     /// - Throws: ``LocalLinuxKernelBridgeError/bootFailed(errno:)`` on failure.
     nonisolated func boot(fakefsDataPath: String, initCommand: String?) throws
 
-    /// Opens a pty-backed process and forwards output to `output`.
-    /// - Parameters:
-    ///   - command: Null-free argv entries, with the executable first.
-    ///   - environment: Null-free `KEY=VALUE` entries.
-    ///   - columns: Initial terminal width.
-    ///   - rows: Initial terminal height.
-    ///   - output: A callback that receives an owned copy of each output chunk.
-    /// - Returns: A handle that owns the callback context until ``LocalLinuxKernelSession/hangup()``.
-    /// - Throws: ``LocalLinuxKernelBridgeError/sessionOpenFailed(errno:)`` on failure.
-    nonisolated func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void
-    ) throws -> any LocalLinuxKernelSession
-
-    /// Opens a pty and reports its terminal end through `onTermination`.
+    /// Opens a pty-backed process and reports its output, terminal end, and
+    /// input-buffer readiness.
     ///
-    /// The overload is additive so older test or platform bridges that only
-    /// implement the output callback remain source-compatible. A production
-    /// bridge should invoke `onTermination` exactly once for both natural
-    /// process exit and explicit hangup, after its final output callback.
+    /// A production bridge invokes `onTermination` exactly once for both
+    /// natural process exit and explicit hangup, after its final output
+    /// callback. `onInputReady` is a coalesced hint that the emulated process
+    /// consumed input bytes or otherwise made room in its tty.
     /// - Parameters:
     ///   - command: Null-free argv entries, with the executable first.
     ///   - environment: Null-free `KEY=VALUE` entries.
     ///   - columns: Initial terminal width.
     ///   - rows: Initial terminal height.
-    ///   - output: A callback that receives an owned copy of each output chunk.
-    ///   - onTermination: A callback invoked once when the pty can produce no more output.
-    ///     It must not call a C bridge operation synchronously; schedule teardown instead.
+    ///   - output: Receives an owned copy of each output chunk.
+    ///   - onTermination: Invoked once when the pty can produce no more output.
+    ///     It must not call a bridge operation synchronously; schedule teardown instead.
+    ///   - onInputReady: Signals a non-blocking host waiter. It must not call
+    ///     a bridge operation synchronously.
     /// - Returns: A thread-safe session handle.
     /// - Throws: ``LocalLinuxKernelBridgeError/sessionOpenFailed(errno:)`` on failure.
-    nonisolated func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void,
-        onTermination: @escaping @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession
-
-    /// Opens a pty and reports both terminal end and input-buffer readiness.
-    ///
-    /// `onInputReady` is a coalesced hint that the emulated process consumed
-    /// input bytes or otherwise made room in its tty. It must only signal a
-    /// non-blocking host waiter and must not call bridge operations
-    /// synchronously. The overload is additive so older bridges keep working.
     nonisolated func openSession(
         command: [String],
         environment: [String],
@@ -137,77 +121,8 @@ public nonisolated protocol LocalLinuxKernelBridge: Sendable {
     ) throws -> any LocalLinuxKernelSession
 }
 
-/// Supplies the legacy fallback for bridges that do not expose termination events.
-public extension LocalLinuxKernelBridge {
-    /// Default output-only implementation for a termination-aware bridge.
-    ///
-    /// A conformer may implement either `openSession` overload. The runtime
-    /// uses the termination-aware form when available. A bridge that implements
-    /// only the newer overload does not have a meaningful legacy operation, so
-    /// this default reports ``LocalLinuxKernelBridgeError/unavailable`` instead
-    /// of recursing through the two defaults.
-    nonisolated func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        throw LocalLinuxKernelBridgeError.unavailable
-    }
-
-    /// Default termination-aware implementation for legacy bridges.
-    ///
-    /// Bridges that do not know when a process exits still satisfy the older
-    /// output-only contract. Their caller must use explicit session hangup to
-    /// finish the stream.
-    nonisolated func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void,
-        onTermination _: @escaping @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        try openSession(
-            command: command,
-            environment: environment,
-            columns: columns,
-            rows: rows,
-            output: output
-        )
-    }
-
-    /// Default readiness-aware implementation for older bridges.
-    ///
-    /// A legacy bridge cannot observe tty consumption, so the readiness
-    /// callback is intentionally ignored. The runtime retains its output and
-    /// explicit-input fallback behavior for that bridge.
-    nonisolated func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void,
-        onTermination: @escaping @Sendable () -> Void,
-        onInputReady _: @escaping @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        try openSession(
-            command: command,
-            environment: environment,
-            columns: columns,
-            rows: rows,
-            output: output,
-            onTermination: onTermination
-        )
-    }
-}
-
-/// A thread-safe handle returned by ``LocalLinuxKernelBridge/openSession(command:environment:columns:rows:output:)``.
+/// A thread-safe handle returned by ``LocalLinuxKernelBridge/openSession(command:environment:columns:rows:output:onTermination:onInputReady:)``.
 public nonisolated protocol LocalLinuxKernelSession: Sendable {
-    /// The emulated process identifier, or `-1` when iSH cannot report one.
-    nonisolated var processID: Int32 { get }
-
     /// Writes bytes to the pty's input side.
     /// - Parameter data: Keyboard or paste bytes.
     /// - Returns: The number of bytes accepted, or a negative Linux errno.
@@ -294,25 +209,10 @@ public nonisolated struct LocalLinuxTestKernelBridge: LocalLinuxKernelBridge, Se
     public typealias ImportRootfsHandler = @Sendable (String, String) throws -> Void
     /// Signature for the boot test hook.
     public typealias BootHandler = @Sendable (String, String?) throws -> Void
-    /// Signature for the session-open test hook.
+    /// Signature for the session-open test hook. The closure receives the
+    /// command, environment, columns, rows, output callback, termination
+    /// callback, and input-readiness callback in that order.
     public typealias OpenSessionHandler = @Sendable (
-        [String],
-        [String],
-        Int32,
-        Int32,
-        @Sendable (Data) -> Void
-    ) throws -> any LocalLinuxKernelSession
-    /// Signature for a session-open hook that observes natural termination.
-    public typealias OpenSessionWithTerminationHandler = @Sendable (
-        [String],
-        [String],
-        Int32,
-        Int32,
-        @Sendable (Data) -> Void,
-        @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession
-    /// Signature for a session-open hook that also observes tty input readiness.
-    public typealias OpenSessionWithTerminationAndInputReadyHandler = @Sendable (
         [String],
         [String],
         Int32,
@@ -325,9 +225,6 @@ public nonisolated struct LocalLinuxTestKernelBridge: LocalLinuxKernelBridge, Se
     private let importRootfsHandler: ImportRootfsHandler
     private let bootHandler: BootHandler
     private let openSessionHandler: OpenSessionHandler
-    private let openSessionWithTerminationHandler: OpenSessionWithTerminationHandler?
-    private let openSessionWithTerminationAndInputReadyHandler:
-        OpenSessionWithTerminationAndInputReadyHandler?
 
     /// Creates a bridge with injectable handlers.
     /// - Parameters:
@@ -337,19 +234,13 @@ public nonisolated struct LocalLinuxTestKernelBridge: LocalLinuxKernelBridge, Se
     public init(
         importRootfs: @escaping ImportRootfsHandler = { _, _ in },
         boot: @escaping BootHandler = { _, _ in },
-        openSession: @escaping OpenSessionHandler = { _, _, _, _, _ in
+        openSession: @escaping OpenSessionHandler = { _, _, _, _, _, _, _ in
             LocalLinuxTestKernelSession()
-        },
-        openSessionWithTermination: OpenSessionWithTerminationHandler? = nil,
-        openSessionWithTerminationAndInputReady:
-            OpenSessionWithTerminationAndInputReadyHandler? = nil
+        }
     ) {
         self.importRootfsHandler = importRootfs
         self.bootHandler = boot
         self.openSessionHandler = openSession
-        self.openSessionWithTerminationHandler = openSessionWithTermination
-        self.openSessionWithTerminationAndInputReadyHandler =
-            openSessionWithTerminationAndInputReady
     }
 
     /// Invokes the injected rootfs import hook.
@@ -362,41 +253,7 @@ public nonisolated struct LocalLinuxTestKernelBridge: LocalLinuxKernelBridge, Se
         try bootHandler(fakefsDataPath, initCommand)
     }
 
-    /// Invokes the output-only session hook.
-    public func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        try openSessionHandler(command, environment, columns, rows, output)
-    }
-
-    /// Invokes the termination-aware hook when supplied, otherwise the legacy hook.
-    public func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void,
-        onTermination: @escaping @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        if let openSessionWithTerminationHandler {
-            return try openSessionWithTerminationHandler(
-                command,
-                environment,
-                columns,
-                rows,
-                output,
-                onTermination
-            )
-        }
-        return try openSessionHandler(command, environment, columns, rows, output)
-    }
-
-    /// Invokes the readiness-aware hook when supplied, then progressively
-    /// falls back to the termination-aware and legacy hooks.
+    /// Invokes the injected session hook.
     public func openSession(
         command: [String],
         environment: [String],
@@ -406,28 +263,7 @@ public nonisolated struct LocalLinuxTestKernelBridge: LocalLinuxKernelBridge, Se
         onTermination: @escaping @Sendable () -> Void,
         onInputReady: @escaping @Sendable () -> Void
     ) throws -> any LocalLinuxKernelSession {
-        if let openSessionWithTerminationAndInputReadyHandler {
-            return try openSessionWithTerminationAndInputReadyHandler(
-                command,
-                environment,
-                columns,
-                rows,
-                output,
-                onTermination,
-                onInputReady
-            )
-        }
-        if let openSessionWithTerminationHandler {
-            return try openSessionWithTerminationHandler(
-                command,
-                environment,
-                columns,
-                rows,
-                output,
-                onTermination
-            )
-        }
-        return try openSessionHandler(command, environment, columns, rows, output)
+        try openSessionHandler(command, environment, columns, rows, output, onTermination, onInputReady)
     }
 }
 
@@ -440,25 +276,20 @@ public nonisolated struct LocalLinuxTestKernelSession: LocalLinuxKernelSession, 
     /// Signature for hangup test hooks.
     public typealias HangupHandler = @Sendable () -> Void
 
-    /// The process identifier exposed by the test handle.
-    public let processID: Int32
     private let sendHandler: SendHandler
     private let resizeHandler: ResizeHandler
     private let hangupHandler: HangupHandler
 
     /// Creates a test session with no-op lifecycle handlers.
     /// - Parameters:
-    ///   - processID: The emulated pid reported to callers.
     ///   - send: Returns accepted input bytes. Defaults to all bytes.
     ///   - resize: Records a resize operation. Defaults to no-op.
     ///   - hangup: Records a hangup operation. Defaults to no-op.
     public init(
-        processID: Int32 = 1,
         send: @escaping SendHandler = { $0.count },
         resize: @escaping ResizeHandler = { _, _ in },
         hangup: @escaping HangupHandler = {}
     ) {
-        self.processID = processID
         self.sendHandler = send
         self.resizeHandler = resize
         self.hangupHandler = hangup
@@ -480,6 +311,39 @@ public nonisolated struct LocalLinuxTestKernelSession: LocalLinuxKernelSession, 
     }
 }
 
+/// Provenance of the bundled root filesystem archive, decoded from
+/// `alpine-rootfs.json`.
+///
+/// The build script writes this manifest beside the archive. The runtime uses
+/// only ``sha256`` to decide whether an installed Linux disk matches the
+/// bundled image; the remaining fields exist for diagnostics and notices.
+public nonisolated struct LocalLinuxRootfsManifest: Decodable, Equatable, Sendable {
+    /// One Alpine package recorded in the archive's package database.
+    public struct Package: Decodable, Equatable, Sendable {
+        /// Alpine package name.
+        public let name: String
+        /// Alpine package version, including the release suffix.
+        public let version: String
+        /// SPDX license expression reported by Alpine.
+        public let license: String
+    }
+
+    /// Human-readable archive format description.
+    public let format: String
+    /// Distribution version, for example `Alpine Linux 3.24.1`.
+    public let version: String
+    /// Emulated CPU architecture of the userland.
+    public let architecture: String
+    /// Where the archive was produced or downloaded from.
+    public let source: String
+    /// File name of the archive resource.
+    public let archive: String
+    /// Lowercase hex SHA-256 of the archive resource.
+    public let sha256: String
+    /// Packages installed in the archive.
+    public let packages: [Package]
+}
+
 /// Owns one process-global iSH kernel and opens local terminal sessions.
 ///
 /// Construct one instance at the app composition root and inject it into the
@@ -498,32 +362,38 @@ public actor LocalLinuxRuntime {
         "HOME=/root",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     ]
-    /// Rootfs metadata schema. Increment when the bundled fakefs format changes.
-    public nonisolated static let rootfsSchemaVersion = "cmux-local-linux-rootfs-v1"
+    /// Layout schema of the on-device install. Increment when the marker or
+    /// directory layout changes in a way an older app build cannot read.
+    nonisolated static let rootfsSchemaVersion = "cmux-local-linux-rootfs-v2"
 
     // The C callback is copied into fixed-size chunks before it reaches the
     // AsyncStream. The stream is intentionally bounded so a detached shell
     // cannot grow memory without limit. If the consumer cannot keep up, the
     // ingress closes the pty and reports EOF rather than dropping bytes while
-    // pretending the session remains healthy.
-    private nonisolated static let outputChunkByteLimit = 64 * 1024
+    // pretending the session remains healthy. This is the only place output
+    // is chunked; bridges hand over each kernel write as one value.
+    nonisolated static let outputChunkByteLimit = 64 * 1024
     private nonisolated static let outputBufferChunkCapacity = 64
 
-    private struct BootConfiguration: Equatable, Sendable {
+    /// The install configuration fixed at construction. Paths are
+    /// standardized so equivalent relative and absolute URLs compare equal.
+    private struct InstallConfiguration: Sendable {
         let rootURL: URL
         let archiveURL: URL?
+        let archiveDigest: String?
         let initCommand: String?
+
+        var marker: Data {
+            LocalLinuxRuntime.rootfsMarker(digest: archiveDigest)
+        }
     }
 
     private let kernel: any LocalLinuxKernelBridge
     private let fileSystem: any LocalLinuxFileSystem
-    private let configuredRootURL: URL
-    private let configuredArchiveURL: URL?
-    private let configuredInitCommand: String?
+    private let configuration: InstallConfiguration
     private var bootTask: Task<Result<Void, LocalLinuxError>, Never>?
     private var booted = false
     private var bootFailure: LocalLinuxError?
-    private var activeConfiguration: BootConfiguration?
 
     /// Creates a runtime with constructor-injected kernel and filesystem seams.
     /// - Parameters:
@@ -531,20 +401,27 @@ public actor LocalLinuxRuntime {
     ///   - fileSystem: Filesystem used for rootfs persistence.
     ///   - rootURL: Persistent fakefs root. It contains `data` and its sibling
     ///     `meta.db`, matching iSH's ``mount_root`` layout.
-    ///   - rootfsArchiveURL: Bundled Alpine archive used on first boot.
+    ///   - rootfsArchiveURL: Bundled Alpine archive imported when no matching
+    ///     install exists.
+    ///   - rootfsArchiveDigest: SHA-256 of that archive, recorded in the install
+    ///     marker. `nil` records the schema version alone.
     ///   - initCommand: Optional init executable passed to the bridge.
     public init(
         kernel: (any LocalLinuxKernelBridge)? = nil,
         fileSystem: any LocalLinuxFileSystem = LocalLinuxFileSystemClient(),
         rootURL: URL = LocalLinuxRuntime.defaultRootURL(),
         rootfsArchiveURL: URL? = LocalLinuxRuntime.bundledRootfsURL(),
+        rootfsArchiveDigest: String? = LocalLinuxRuntime.bundledRootfsManifest()?.sha256,
         initCommand: String? = nil
     ) {
         self.kernel = kernel ?? Self.makeDefaultKernelBridge()
         self.fileSystem = fileSystem
-        self.configuredRootURL = rootURL
-        self.configuredArchiveURL = rootfsArchiveURL
-        self.configuredInitCommand = initCommand
+        self.configuration = InstallConfiguration(
+            rootURL: rootURL.standardizedFileURL,
+            archiveURL: rootfsArchiveURL?.standardizedFileURL,
+            archiveDigest: rootfsArchiveDigest?.lowercased(),
+            initCommand: initCommand
+        )
     }
 
     /// Returns the persistent root directory in the app's Application Support container.
@@ -565,40 +442,42 @@ public actor LocalLinuxRuntime {
         #endif
     }
 
+    /// Decodes the bundled archive manifest, or `nil` when the resource is
+    /// missing or malformed. Unknown manifest keys are ignored.
+    public nonisolated static func bundledRootfsManifest() -> LocalLinuxRootfsManifest? {
+        #if SWIFT_PACKAGE
+        guard let url = Bundle.module.url(forResource: "alpine-rootfs", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(LocalLinuxRootfsManifest.self, from: data)
+        #else
+        return nil
+        #endif
+    }
+
+    /// The `.rootfs-version` marker contents for an install made from an
+    /// archive with `digest`. The schema version and the digest are joined by
+    /// a newline so either change forces a fresh import.
+    nonisolated static func rootfsMarker(digest: String?) -> Data {
+        guard let digest, !digest.isEmpty else {
+            return Data(rootfsSchemaVersion.utf8)
+        }
+        return Data("\(rootfsSchemaVersion)\n\(digest.lowercased())".utf8)
+    }
+
     /// Boots the kernel once and imports the rootfs when needed.
     ///
     /// Concurrent callers share one in-flight boot operation. A failed boot is
     /// retained for this runtime instance, so callers do not repeatedly mutate
     /// a potentially partially initialized process-global kernel.
-    /// - Parameters:
-    ///   - rootURL: Optional override for the configured persistence directory.
-    ///   - rootfsArchiveURL: Optional override for the configured archive.
-    ///   - initCommand: Optional override for the configured init executable.
     /// - Throws: ``LocalLinuxError`` when persistence, import, or kernel boot fails.
-    public func bootIfNeeded(
-        rootURL: URL? = nil,
-        rootfsArchiveURL: URL? = nil,
-        initCommand: String? = nil
-    ) async throws {
+    public func bootIfNeeded() async throws {
         try Task.checkCancellation()
-
-        // Canonicalize paths before storing the configuration. Callers often
-        // pass an equivalent relative and absolute URL from different launch
-        // paths; treating those as different boot configurations would make a
-        // healthy runtime report a spurious mismatch on the second call.
-        let configuration = BootConfiguration(
-            rootURL: (rootURL ?? configuredRootURL).standardizedFileURL,
-            archiveURL: (rootfsArchiveURL ?? configuredArchiveURL)?.standardizedFileURL,
-            initCommand: initCommand ?? configuredInitCommand
-        )
 
         if let initCommand = configuration.initCommand,
            initCommand.isEmpty || initCommand.contains("\0") {
             throw LocalLinuxError.invalidCommand
-        }
-
-        if let activeConfiguration, activeConfiguration != configuration {
-            throw LocalLinuxError.configurationMismatch
         }
         if booted {
             return
@@ -611,7 +490,7 @@ public actor LocalLinuxRuntime {
         if let bootTask {
             task = bootTask
         } else {
-            activeConfiguration = configuration
+            let configuration = self.configuration
             let kernel = self.kernel
             let fileSystem = self.fileSystem
             let newTask = Task.detached(priority: .userInitiated) {
@@ -684,7 +563,7 @@ public actor LocalLinuxRuntime {
         )
         let inputReadiness = LocalLinuxInputReadiness()
         let finish: @Sendable () -> Void = { [ingress, inputReadiness] in
-            ingress.finishNaturally()
+            ingress.finishFromKernel()
             inputReadiness.finish()
         }
         let callback: @Sendable (Data) -> Void = { [ingress] data in
@@ -741,7 +620,7 @@ public actor LocalLinuxRuntime {
                 inputReadiness: inputReadiness,
                 hangupGate: hangupGate
             )
-            ingress.attach(hangup: { _ = hangupGate.beginClose() })
+            ingress.attach(hangup: { _ = hangupGate.begin() })
             // Cancellation can arrive in the tiny window between the first
             // check and actor construction. Close the fully initialized actor
             // as well, so no successful handle escapes a cancelled request.
@@ -761,8 +640,27 @@ public actor LocalLinuxRuntime {
         #endif
     }
 
+    // MARK: Boot stages
+
+    /// Locations derived from one install root.
+    private struct InstallLayout {
+        let rootURL: URL
+        let parentURL: URL
+        let dataURL: URL
+        let metadataURL: URL
+        let markerURL: URL
+
+        init(rootURL: URL) {
+            self.rootURL = rootURL
+            self.parentURL = rootURL.deletingLastPathComponent()
+            self.dataURL = rootURL.appendingPathComponent("data", isDirectory: true)
+            self.metadataURL = rootURL.appendingPathComponent("meta.db", isDirectory: false)
+            self.markerURL = rootURL.appendingPathComponent(".rootfs-version", isDirectory: false)
+        }
+    }
+
     private nonisolated static func performBoot(
-        configuration: BootConfiguration,
+        configuration: InstallConfiguration,
         kernel: any LocalLinuxKernelBridge,
         fileSystem: any LocalLinuxFileSystem
     ) -> Result<Void, LocalLinuxError> {
@@ -780,125 +678,130 @@ public actor LocalLinuxRuntime {
         }
     }
 
+    /// Boots the installed Linux disk, or imports the bundled archive first.
+    ///
+    /// An install is reused only when its marker equals the bundled archive's
+    /// marker. A different schema version or archive digest means the app now
+    /// ships a different image; the runtime then replaces the on-device Linux
+    /// disk with a fresh import of the bundled archive. Files created inside
+    /// the old install are discarded with it after the new kernel boots.
     private nonisolated static func prepareAndBoot(
-        configuration: BootConfiguration,
+        configuration: InstallConfiguration,
         kernel: any LocalLinuxKernelBridge,
         fileSystem: any LocalLinuxFileSystem
     ) throws {
-        let rootURL = configuration.rootURL.standardizedFileURL
-        let dataURL = rootURL.appendingPathComponent("data", isDirectory: true)
-        let metadataURL = rootURL.appendingPathComponent("meta.db", isDirectory: false)
-        let markerURL = rootURL.appendingPathComponent(".rootfs-version", isDirectory: false)
-        let parentURL = rootURL.deletingLastPathComponent()
-
-        do {
-            try fileSystem.createDirectory(at: parentURL)
-        } catch {
-            throw LocalLinuxError.rootfsPersistenceFailed(
-                "create root directory: \(error.localizedDescription)"
-            )
+        let layout = InstallLayout(rootURL: configuration.rootURL)
+        try persist("create root directory") {
+            try fileSystem.createDirectory(at: layout.parentURL)
         }
 
-        if fileSystem.fileExists(at: dataURL),
-           fileSystem.fileExists(at: metadataURL),
-           fileSystem.fileExists(at: markerURL) {
-            let marker: Data
-            do {
-                marker = try fileSystem.readData(at: markerURL)
-            } catch {
-                throw LocalLinuxError.rootfsPersistenceFailed(
-                    "read rootfs metadata: \(error.localizedDescription)"
-                )
-            }
-
-            if marker == Data(rootfsSchemaVersion.utf8) {
-                do {
-                    try kernel.boot(
-                        fakefsDataPath: dataURL.path,
-                        initCommand: configuration.initCommand
-                    )
-                    return
-                } catch let error as LocalLinuxError {
-                    // Preserve a bridge that already translated its own
-                    // failure instead of turning it into a metadata error.
-                    throw error
-                } catch let error as LocalLinuxKernelBridgeError {
-                    throw mapBridgeError(error, operation: "kernel boot")
-                } catch {
-                    throw LocalLinuxError.operationFailed(
-                        "kernel boot: \(error.localizedDescription)"
-                    )
-                }
-            }
+        if try installMatchesBundle(layout: layout, marker: configuration.marker, fileSystem: fileSystem) {
+            try bootKernel(kernel, layout: layout, configuration: configuration)
+            return
         }
 
         guard let archiveURL = configuration.archiveURL,
               fileSystem.fileExists(at: archiveURL) else {
             throw LocalLinuxError.rootfsAssetMissing
         }
+        try importAndActivate(
+            archiveURL: archiveURL,
+            layout: layout,
+            configuration: configuration,
+            kernel: kernel,
+            fileSystem: fileSystem
+        )
+    }
 
+    /// Reads the installed marker and compares it to the bundled marker.
+    private nonisolated static func installMatchesBundle(
+        layout: InstallLayout,
+        marker: Data,
+        fileSystem: any LocalLinuxFileSystem
+    ) throws -> Bool {
+        guard fileSystem.fileExists(at: layout.dataURL),
+              fileSystem.fileExists(at: layout.metadataURL),
+              fileSystem.fileExists(at: layout.markerURL) else {
+            return false
+        }
+        let installed = try persist("read rootfs metadata") {
+            try fileSystem.readData(at: layout.markerURL)
+        }
+        return installed == marker
+    }
+
+    private nonisolated static func bootKernel(
+        _ kernel: any LocalLinuxKernelBridge,
+        layout: InstallLayout,
+        configuration: InstallConfiguration
+    ) throws {
+        try bridge("kernel boot") {
+            try kernel.boot(
+                fakefsDataPath: layout.dataURL.path,
+                initCommand: configuration.initCommand
+            )
+        }
+    }
+
+    /// Imports the archive into a staging directory, swaps it in as the
+    /// active root, boots, and then discards the previous install. Any failure
+    /// restores the previous install and reports the original error.
+    private nonisolated static func importAndActivate(
+        archiveURL: URL,
+        layout: InstallLayout,
+        configuration: InstallConfiguration,
+        kernel: any LocalLinuxKernelBridge,
+        fileSystem: any LocalLinuxFileSystem
+    ) throws {
         // Imports live beside the active root. The active root itself must be
         // replaced as one directory because fakefs_import creates both
         // `<root>/data` and `<root>/meta.db`; moving only `data` loses the DB.
-        let stagingURL = parentURL.appendingPathComponent(
+        let stagingURL = layout.parentURL.appendingPathComponent(
             ".import-\(UUID().uuidString)",
             isDirectory: true
         )
-        let stagingDataURL = stagingURL.appendingPathComponent("data", isDirectory: true)
-        let stagingMarkerURL = stagingURL.appendingPathComponent(".rootfs-version", isDirectory: false)
+        let staging = InstallLayout(rootURL: stagingURL)
         var oldRootBackupURL: URL?
         var activeRootWasReplaced = false
 
+        func restore() {
+            restoreRootfsAfterFailedActivation(
+                fileSystem: fileSystem,
+                rootURL: layout.rootURL,
+                stagingURL: stagingURL,
+                oldRootBackupURL: oldRootBackupURL,
+                activeRootWasReplaced: activeRootWasReplaced
+            )
+        }
+
         do {
-            do {
-                try kernel.importRootfs(
-                    archivePath: archiveURL.path,
-                    // fakefs_import creates `<destination>/data` and its metadata
-                    // database itself. Passing the data child would make its first
-                    // mkdir target a missing parent and fail with ENOENT.
-                    destinationPath: stagingURL.path
-                )
-            } catch let error as LocalLinuxError {
-                throw error
-            } catch let error as LocalLinuxKernelBridgeError {
-                throw error
-            } catch {
-                throw LocalLinuxError.rootfsImportFailed(error.localizedDescription)
+            try bridge("rootfs import", unexpected: LocalLinuxError.rootfsImportFailed) {
+                // fakefs_import creates `<destination>/data` and its metadata
+                // database itself. Passing the data child would make its first
+                // mkdir target a missing parent and fail with ENOENT.
+                try kernel.importRootfs(archivePath: archiveURL.path, destinationPath: stagingURL.path)
             }
-            guard fileSystem.fileExists(at: stagingDataURL) else {
+            guard fileSystem.fileExists(at: staging.dataURL) else {
                 throw LocalLinuxError.rootfsImportFailed("importer produced no data directory")
             }
-            try fileSystem.writeAtomically(Data(rootfsSchemaVersion.utf8), to: stagingMarkerURL)
+            try fileSystem.writeAtomically(configuration.marker, to: staging.markerURL)
 
-            if fileSystem.fileExists(at: rootURL) {
-                let backup = parentURL.appendingPathComponent(
+            if fileSystem.fileExists(at: layout.rootURL) {
+                let backup = layout.parentURL.appendingPathComponent(
                     ".rootfs-backup-\(UUID().uuidString)",
                     isDirectory: true
                 )
-                try fileSystem.moveItem(from: rootURL, to: backup)
+                try fileSystem.moveItem(from: layout.rootURL, to: backup)
                 oldRootBackupURL = backup
             }
 
             // fakefs_import writes both `<root>/data` and `<root>/meta.db`.
             // Activate the whole imported root in one rename so mount_root's
             // `meta.db` lookup remains adjacent to its `data` directory.
-            try fileSystem.moveItem(from: stagingURL, to: rootURL)
+            try fileSystem.moveItem(from: stagingURL, to: layout.rootURL)
             activeRootWasReplaced = true
 
-            do {
-                try kernel.boot(
-                    fakefsDataPath: dataURL.path,
-                    initCommand: configuration.initCommand
-                )
-            } catch let error as LocalLinuxError {
-                throw error
-            } catch let error as LocalLinuxKernelBridgeError {
-                throw mapBridgeError(error, operation: "kernel boot")
-            } catch {
-                throw LocalLinuxError.operationFailed(
-                    "kernel boot: \(error.localizedDescription)"
-                )
-            }
+            try bootKernel(kernel, layout: layout, configuration: configuration)
 
             // Keep backups until the new kernel has accepted the activated
             // rootfs. A boot failure can then restore the previous data.
@@ -907,31 +810,10 @@ public actor LocalLinuxRuntime {
             }
             try? fileSystem.removeItem(at: stagingURL)
         } catch let error as LocalLinuxError {
-            restoreRootfsAfterFailedActivation(
-                fileSystem: fileSystem,
-                rootURL: rootURL,
-                stagingURL: stagingURL,
-                oldRootBackupURL: oldRootBackupURL,
-                activeRootWasReplaced: activeRootWasReplaced
-            )
+            restore()
             throw error
-        } catch let error as LocalLinuxKernelBridgeError {
-            restoreRootfsAfterFailedActivation(
-                fileSystem: fileSystem,
-                rootURL: rootURL,
-                stagingURL: stagingURL,
-                oldRootBackupURL: oldRootBackupURL,
-                activeRootWasReplaced: activeRootWasReplaced
-            )
-            throw mapBridgeError(error, operation: "rootfs import or boot")
         } catch {
-            restoreRootfsAfterFailedActivation(
-                fileSystem: fileSystem,
-                rootURL: rootURL,
-                stagingURL: stagingURL,
-                oldRootBackupURL: oldRootBackupURL,
-                activeRootWasReplaced: activeRootWasReplaced
-            )
+            restore()
             throw LocalLinuxError.rootfsActivationFailed(error.localizedDescription)
         }
     }
@@ -957,6 +839,45 @@ public actor LocalLinuxRuntime {
         try? fileSystem.removeItem(at: stagingURL)
     }
 
+    // MARK: Error mapping
+
+    /// Runs a filesystem step and reports its failure as a persistence error.
+    private nonisolated static func persist<T>(
+        _ step: String,
+        _ body: () throws -> T
+    ) throws -> T {
+        do {
+            return try body()
+        } catch let error as LocalLinuxError {
+            throw error
+        } catch {
+            throw LocalLinuxError.rootfsPersistenceFailed("\(step): \(error.localizedDescription)")
+        }
+    }
+
+    /// Runs a bridge call and maps its error into ``LocalLinuxError``.
+    ///
+    /// A bridge that already produced a ``LocalLinuxError`` is passed through.
+    /// A ``LocalLinuxKernelBridgeError`` is translated case by case. Any other
+    /// error becomes `unexpected(message)`, which defaults to
+    /// ``LocalLinuxError/operationFailed(_:)`` prefixed with `operation`.
+    private nonisolated static func bridge(
+        _ operation: String,
+        unexpected: ((String) -> LocalLinuxError)? = nil,
+        _ body: () throws -> Void
+    ) throws {
+        do {
+            try body()
+        } catch {
+            if let unexpected,
+               !(error is LocalLinuxError),
+               !(error is LocalLinuxKernelBridgeError) {
+                throw unexpected(error.localizedDescription)
+            }
+            throw mapBridgeError(error, operation: operation)
+        }
+    }
+
     private nonisolated static func mapBridgeError(
         _ error: any Error,
         operation: String
@@ -965,25 +886,18 @@ public actor LocalLinuxRuntime {
             return error
         }
         if let error = error as? LocalLinuxKernelBridgeError {
-            return mapBridgeError(error, operation: operation)
+            switch error {
+            case .rootfsImportFailed(let message):
+                return .rootfsImportFailed(message)
+            case .bootFailed(let errno):
+                return .bootFailed(errno: errno)
+            case .sessionOpenFailed(let errno):
+                return .sessionOpenFailed(errno: errno)
+            case .unavailable:
+                return .kernelUnavailable
+            }
         }
         return .operationFailed("\(operation): \(error.localizedDescription)")
-    }
-
-    private nonisolated static func mapBridgeError(
-        _ error: LocalLinuxKernelBridgeError,
-        operation _: String
-    ) -> LocalLinuxError {
-        switch error {
-        case .rootfsImportFailed(let message):
-            return .rootfsImportFailed(message)
-        case .bootFailed(let errno):
-            return .bootFailed(errno: errno)
-        case .sessionOpenFailed(let errno):
-            return .sessionOpenFailed(errno: errno)
-        case .unavailable:
-            return .kernelUnavailable
-        }
     }
 }
 
@@ -1022,7 +936,7 @@ private nonisolated final class LocalLinuxSessionLifecycle: Sendable {
 /// a condition variable or a blocked thread.
 private nonisolated final class LocalLinuxSessionHangupGate: @unchecked Sendable {
     private struct State: Sendable {
-        var closeTask: Task<Void, Never>?
+        var hangupTask: Task<Void, Never>?
     }
 
     private let kernelSession: any LocalLinuxKernelSession
@@ -1032,27 +946,27 @@ private nonisolated final class LocalLinuxSessionHangupGate: @unchecked Sendable
         self.kernelSession = kernelSession
     }
 
-    /// Starts teardown at most once and returns its non-cancellable completion
-    /// token. The C call runs off the caller's executor.
+    /// Starts the kernel hangup at most once and returns its non-cancellable
+    /// completion token. The C call runs off the caller's executor.
     @discardableResult
-    func beginClose() -> Task<Void, Never> {
+    func begin() -> Task<Void, Never> {
         state.withLock { state in
-            if let closeTask = state.closeTask {
-                return closeTask
+            if let hangupTask = state.hangupTask {
+                return hangupTask
             }
 
             let kernelSession = self.kernelSession
-            let closeTask = Task.detached(priority: .utility) {
+            let hangupTask = Task.detached(priority: .utility) {
                 kernelSession.hangup()
             }
-            state.closeTask = closeTask
-            return closeTask
+            state.hangupTask = hangupTask
+            return hangupTask
         }
     }
 
-    /// Awaits the shared teardown operation without blocking an executor.
-    func close() async {
-        await beginClose().value
+    /// Awaits the shared hangup operation without blocking an executor.
+    func complete() async {
+        await begin().value
     }
 }
 
@@ -1102,6 +1016,11 @@ private nonisolated final class LocalLinuxInputReadiness: Sendable {
 /// consumers. The ingress owns the stream continuation from creation, so
 /// overflow and cancellation are handled even if they happen before the
 /// actor session has been initialized.
+///
+/// Vocabulary: `finish*` closes the output stream for one specific reason.
+/// `startPendingHangup*` performs the one-shot kernel hangup that a finish
+/// may have requested, either on the calling thread or on a detached task
+/// when the caller is a kernel callback that must not re-enter the shim.
 private nonisolated final class LocalLinuxOutputIngress: Sendable {
     private enum OfferResult {
         case enqueued
@@ -1163,7 +1082,7 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
                 case .stopped:
                     return
                 case .overflow:
-                    finishOverflow()
+                    finishForOverflow()
                     return
                 }
             }
@@ -1173,7 +1092,7 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
     /// Closes the stream for a natural pty exit. Kernel cleanup is deferred
     /// off the callback thread, because the bridge forbids synchronous
     /// callback re-entry while the terminal event is being delivered.
-    func finishNaturally() {
+    func finishFromKernel() {
         finish(needsHangup: true, deferHangup: true)
     }
 
@@ -1184,9 +1103,10 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         finish(needsHangup: false, deferHangup: false)
     }
 
-    /// Marks explicit teardown and starts the detached hangup operation from a
-    /// safe actor or worker thread. The call itself does not block.
-    func finishExplicitly() {
+    /// Closes the stream for a host-requested hangup from a safe actor or
+    /// worker thread, and starts the detached hangup operation. The call itself
+    /// does not block.
+    func finishForHangup() {
         let result = state.withLock { state -> (shouldFinish: Bool, hangup: (@Sendable () -> Void)?) in
             state.needsHangup = true
             guard !state.didFinish else { return (false, nil) }
@@ -1208,11 +1128,12 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         result.hangup?()
     }
 
-    /// Marks explicit teardown from a deinitializer or callback-adjacent
-    /// context. The iSH shim forbids calling back into C synchronously from an
-    /// output callback, so the one-shot hangup is scheduled after the state
-    /// transition instead of running on the releasing thread.
-    func finishExplicitlyDeferred() {
+    /// Closes the stream for a host-requested hangup from a deinitializer or
+    /// callback-adjacent context. The iSH shim forbids calling back into C
+    /// synchronously from an output callback, so the one-shot hangup is
+    /// scheduled after the state transition instead of running on the
+    /// releasing thread.
+    func finishForHangupDeferred() {
         finish(needsHangup: true, deferHangup: true)
     }
 
@@ -1246,16 +1167,18 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         pendingHangup?()
     }
 
-    /// Performs a one-shot hangup. This method is safe to call repeatedly.
-    func requestHangupNow() {
+    /// Performs the requested one-shot hangup on the calling thread. This
+    /// method is safe to call repeatedly.
+    func startPendingHangup() {
         if let hangup = takeHangup() {
             hangup()
         }
     }
 
-    /// Defers C teardown when called from a stream callback or deinitializer.
-    /// The C shim forbids synchronous callback re-entry.
-    func requestHangupDeferred() {
+    /// Performs the requested one-shot hangup on a detached task. Used from a
+    /// stream callback or deinitializer, where synchronous re-entry into the C
+    /// shim is forbidden.
+    private func startPendingHangupDeferred() {
         guard let hangup = takeHangup() else { return }
         Task.detached(priority: .utility) {
             hangup()
@@ -1305,12 +1228,12 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         }
     }
 
-    private func finishOverflow() {
+    private func finishForOverflow() {
         _ = lifecycle.markEnded()
         continuation.finish()
         // `finish()` may synchronously invoke `onTermination`; both paths use
         // the same one-shot gate, and neither calls C on this callback stack.
-        requestHangupDeferred()
+        startPendingHangupDeferred()
     }
 
     private func finish(needsHangup: Bool, deferHangup: Bool) {
@@ -1334,9 +1257,9 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         }
         guard needsHangup else { return }
         if deferHangup {
-            requestHangupDeferred()
+            startPendingHangupDeferred()
         } else {
-            requestHangupNow()
+            startPendingHangup()
         }
     }
 
@@ -1351,7 +1274,7 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         }
         guard needsDeferredHangup else { return }
         _ = lifecycle.markEnded()
-        requestHangupDeferred()
+        startPendingHangupDeferred()
     }
 }
 
@@ -1362,8 +1285,6 @@ public actor LocalLinuxSession {
     /// Coalesced notifications that the emulated process consumed tty input.
     /// A sender should await the next element before retrying a zero-byte write.
     public nonisolated let inputReady: AsyncStream<Void>
-    /// The emulated process identifier, or `-1` when unavailable.
-    public nonisolated let processID: Int32
 
     /// Whether the pty has reached its terminal end. Natural process exit and
     /// explicit ``hangup()`` share this state, so session owners can
@@ -1391,7 +1312,6 @@ public actor LocalLinuxSession {
         self.kernelSession = kernelSession
         self.output = output
         self.inputReady = inputReady
-        self.processID = kernelSession.processID
         self.lifecycle = lifecycle
         self.ingress = ingress
         self.inputReadiness = inputReadiness
@@ -1402,7 +1322,9 @@ public actor LocalLinuxSession {
     /// Sends keyboard or paste bytes to the local terminal.
     /// - Parameter data: Input bytes to write.
     /// - Returns: Bytes accepted by the pty.
-    /// - Throws: ``LocalLinuxError/closed`` or ``LocalLinuxError/inputFailed(errno:)``.
+    /// - Throws: ``LocalLinuxError/closed``, ``LocalLinuxError/inputFailed(errno:)``,
+    ///   or ``LocalLinuxError/inputByteCountInvalid`` for a bridge that reports
+    ///   more accepted bytes than it received.
     @discardableResult
     public func send(_ data: Data) async throws -> Int {
         try Task.checkCancellation()
@@ -1415,11 +1337,9 @@ public actor LocalLinuxSession {
         }
         guard accepted <= data.count else {
             // A bridge must never report more bytes than it received. Treat a
-            // broken implementation as a terminal operation failure so a
-            // caller cannot advance its input cursor past unsent bytes.
-            throw LocalLinuxError.operationFailed(
-                "local Linux pty accepted \(accepted) bytes for a \(data.count)-byte write"
-            )
+            // broken implementation as a terminal failure so a caller cannot
+            // advance its input cursor past unsent bytes.
+            throw LocalLinuxError.inputByteCountInvalid
         }
         return accepted
     }
@@ -1449,18 +1369,18 @@ public actor LocalLinuxSession {
         guard !closed else {
             // A previous caller may still be completing the C fence on a
             // detached worker. Preserve the completion guarantee for repeated
-            // closes without blocking this actor.
-            ingress.requestHangupNow()
-            await hangupGate.close()
+            // hangups without blocking this actor.
+            ingress.startPendingHangup()
+            await hangupGate.complete()
             return
         }
         closed = true
         inputReadiness.finish()
-        ingress.finishExplicitly()
-        ingress.requestHangupNow()
+        ingress.finishForHangup()
+        ingress.startPendingHangup()
         // Wait even when an earlier overflow path already claimed the
         // deferred teardown closure.
-        await hangupGate.close()
+        await hangupGate.complete()
     }
 
     /// Starts closing the underlying pty without an actor hop.
@@ -1472,22 +1392,11 @@ public actor LocalLinuxSession {
     @discardableResult
     public nonisolated func beginClose() -> Task<Void, Never> {
         inputReadiness.finish()
-        ingress.finishExplicitly()
-        // `finishExplicitly()` may find a deferred overflow hangup already in
+        ingress.finishForHangup()
+        // `finishForHangup()` may find a deferred overflow hangup already in
         // flight. The gate returns its shared task, so callers can safely
         // retain a completion fence without blocking the releasing thread.
-        return hangupGate.beginClose()
-    }
-
-    /// Wakes a legacy input worker that uses the session as its fallback
-    /// readiness source. Production tty callbacks call the stream directly.
-    public nonisolated func signalInputReady() {
-        inputReadiness.signal()
-    }
-
-    /// Alias for ``hangup()`` used by generic session owners.
-    public func close() async {
-        await hangup()
+        return hangupGate.begin()
     }
 
     deinit {
@@ -1496,8 +1405,8 @@ public actor LocalLinuxSession {
         // Both the ingress callback and the gate use detached work, so the C
         // call cannot re-enter an iSH callback's releasing thread.
         inputReadiness.finish()
-        ingress.finishExplicitlyDeferred()
-        _ = hangupGate.beginClose()
+        ingress.finishForHangupDeferred()
+        _ = hangupGate.begin()
     }
 }
 
@@ -1540,7 +1449,7 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
         guard !fakefsDataPath.isEmpty,
               !fakefsDataPath.contains("\0"),
               initCommand.map({ !$0.isEmpty && !$0.contains("\0") }) ?? true else {
-            throw LocalLinuxKernelBridgeError.bootFailed(errno: -22)
+            throw LocalLinuxKernelBridgeError.bootFailed(errno: LinuxErrno.einval)
         }
         let result: Int32 = fakefsDataPath.withCString { fakefsCString in
             guard let initCommand else {
@@ -1553,45 +1462,6 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
         guard result == 0 else {
             throw LocalLinuxKernelBridgeError.bootFailed(errno: result)
         }
-    }
-
-    /// Opens a pty using the legacy output-only callback contract.
-    public func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        try openSession(
-            command: command,
-            environment: environment,
-            columns: columns,
-            rows: rows,
-            output: output,
-            onTermination: {},
-            onInputReady: {}
-        )
-    }
-
-    /// Opens a pty and forwards the C end event to `onTermination`.
-    public func openSession(
-        command: [String],
-        environment: [String],
-        columns: Int32,
-        rows: Int32,
-        output: @escaping @Sendable (Data) -> Void,
-        onTermination: @escaping @Sendable () -> Void
-    ) throws -> any LocalLinuxKernelSession {
-        try openSession(
-            command: command,
-            environment: environment,
-            columns: columns,
-            rows: rows,
-            output: output,
-            onTermination: onTermination,
-            onInputReady: {}
-        )
     }
 
     /// Opens a pty and forwards terminal-end and tty-readiness callbacks.
@@ -1613,8 +1483,8 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
               columns <= Int32(UInt16.max),
               rows <= Int32(UInt16.max) else {
             // Keep direct bridge callers on the same validation path as the
-            // actor runtime. `_EINVAL` is -22 on the emulated Linux ABI.
-            throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: -22)
+            // actor runtime.
+            throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: LinuxErrno.einval)
         }
         let callbackBox = IshCallbackContext(
             output: output,
@@ -1623,7 +1493,8 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
         )
         // The C shim owns this retain until it emits the terminal callback or
         // `cmux_ish_session_hangup` returns. `callbackBox` keeps the object
-        // alive for a later Swift-side hangup race after natural exit.
+        // alive for a later Swift-side hangup race after natural exit. Both C
+        // callbacks share the one retained context.
         let context = Unmanaged.passRetained(callbackBox).toOpaque()
         let handle: Int32
         do {
@@ -1636,6 +1507,8 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
                             columns,
                             rows,
                             Self.outputCallback,
+                            context,
+                            Self.inputReadyCallback,
                             context
                         )
                     )
@@ -1651,25 +1524,8 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
             callbackBox.releaseRetainedContext(context)
             throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: handle)
         }
-        // Register after the C open has published its tty. The vendor hook is
-        // installed before the child starts, so no input-consumption edge can
-        // occur before this callback field is set. Natural exit may race this
-        // registration; in that case the terminal callback has already marked
-        // the box ended and the stale-handle error is treated as success.
-        if !callbackBox.hasTerminated {
-            let registration = cmux_ish_session_set_input_ready_cb(
-                handle,
-                Self.inputReadyCallback,
-                context
-            )
-            if registration < 0, !callbackBox.hasTerminated {
-                cmux_ish_session_hangup(handle)
-                throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: registration)
-            }
-        }
         return IshLocalLinuxKernelSession(
             handle: handle,
-            processID: Int32(cmux_ish_session_pid(handle)),
             callbackContext: context,
             callbackBox: callbackBox
         )
@@ -1720,8 +1576,7 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
         }
         for string in strings {
             guard let pointer = strdup(string) else {
-                // Linux ENOMEM is represented as -12 throughout the C shim.
-                throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: -12)
+                throw LocalLinuxKernelBridgeError.sessionOpenFailed(errno: LinuxErrno.enomem)
             }
             allocations.append(pointer)
         }
@@ -1738,11 +1593,6 @@ public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sen
 
 /// Callback context retained by the C shim for one session lifetime.
 private nonisolated final class IshCallbackContext: Sendable {
-    /// Upper bound for one Swift allocation made by the C callback
-    /// trampoline. The C shim may hand us a much larger write; splitting it
-    /// here keeps temporary memory bounded before it reaches the ingress.
-    private static let maximumOutputChunkByteCount = 64 * 1024
-
     private struct State: Sendable {
         var didTerminate = false
         var didReleaseRetainedContext = false
@@ -1758,7 +1608,7 @@ private nonisolated final class IshCallbackContext: Sendable {
     init(
         output: @escaping @Sendable (Data) -> Void,
         onTermination: @escaping @Sendable () -> Void,
-        onInputReady: @escaping @Sendable () -> Void = {}
+        onInputReady: @escaping @Sendable () -> Void
     ) {
         self.output = output
         self.onTermination = onTermination
@@ -1788,17 +1638,14 @@ private nonisolated final class IshCallbackContext: Sendable {
         guard let bytes, length > 0, !hasTerminated else {
             return
         }
-        var offset = 0
-        while offset < length {
-            guard !hasTerminated else { return }
-            let count = min(Self.maximumOutputChunkByteCount, length - offset)
-            output(Data(bytes: bytes.advanced(by: offset), count: count))
-            offset += count
-        }
+        // One kernel write becomes one owned value. The runtime's ingress
+        // splits it into bounded chunks; splitting here as well would copy
+        // every byte twice.
+        output(Data(bytes: bytes, count: length))
     }
 
     /// Reads the terminal state before forwarding a data callback.
-    fileprivate var hasTerminated: Bool {
+    private var hasTerminated: Bool {
         state.withLock { $0.didTerminate }
     }
 
@@ -1833,9 +1680,9 @@ private nonisolated final class IshSessionLifetime: @unchecked Sendable {
     private let callbackContext: UnsafeMutableRawPointer
     private let callbackBox: IshCallbackContext
     // Several synchronous teardown paths can race, including callback-thread
-    // deinit and an actor's explicit close. This is the sanctioned one-shot
+    // deinit and an actor's explicit hangup. This is the sanctioned one-shot
     // callback lock carve-out, not a general session-state lock.
-    private let didClose = OSAllocatedUnfairLock(initialState: false)
+    private let didHangup = OSAllocatedUnfairLock(initialState: false)
 
     init(
         handle: Int32,
@@ -1851,13 +1698,13 @@ private nonisolated final class IshSessionLifetime: @unchecked Sendable {
     var handleForOperations: Int32 { handle }
 
     /// Hangs up the C session and releases its retained callback context once.
-    func close() {
-        let firstClose = didClose.withLock { value in
+    func hangup() {
+        let firstHangup = didHangup.withLock { value in
             guard !value else { return false }
             value = true
             return true
         }
-        guard firstClose else { return }
+        guard firstHangup else { return }
         cmux_ish_session_hangup(handle)
         // The C shim guarantees no callback is in flight after hangup returns.
         callbackBox.releaseRetainedContext(callbackContext)
@@ -1866,16 +1713,13 @@ private nonisolated final class IshSessionLifetime: @unchecked Sendable {
 
 /// Thread-safe value wrapper for one opaque C session handle.
 private nonisolated final class IshLocalLinuxKernelSession: LocalLinuxKernelSession, @unchecked Sendable {
-    let processID: Int32
     private let lifetime: IshSessionLifetime
 
     init(
         handle: Int32,
-        processID: Int32,
         callbackContext: UnsafeMutableRawPointer,
         callbackBox: IshCallbackContext
     ) {
-        self.processID = processID
         self.lifetime = IshSessionLifetime(
             handle: handle,
             callbackContext: callbackContext,
@@ -1904,7 +1748,7 @@ private nonisolated final class IshLocalLinuxKernelSession: LocalLinuxKernelSess
     }
 
     func hangup() {
-        lifetime.close()
+        lifetime.hangup()
     }
 
     deinit {
@@ -1912,7 +1756,7 @@ private nonisolated final class IshLocalLinuxKernelSession: LocalLinuxKernelSess
         // C teardown so that callback never re-enters the shim synchronously.
         let lifetime = self.lifetime
         Task.detached(priority: .utility) {
-            lifetime.close()
+            lifetime.hangup()
         }
     }
 }
@@ -1940,7 +1784,9 @@ public nonisolated struct UnavailableLocalLinuxKernelBridge: LocalLinuxKernelBri
         environment: [String],
         columns: Int32,
         rows: Int32,
-        output: @escaping @Sendable (Data) -> Void
+        output: @escaping @Sendable (Data) -> Void,
+        onTermination: @escaping @Sendable () -> Void,
+        onInputReady: @escaping @Sendable () -> Void
     ) throws -> any LocalLinuxKernelSession {
         throw LocalLinuxKernelBridgeError.unavailable
     }

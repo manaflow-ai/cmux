@@ -16,11 +16,10 @@ struct LocalLinuxRuntimeTests {
             importCountURL: importCountURL,
             bootCountURL: bootCountURL
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: fixture.archiveURL
+            rootfsArchiveURL: fixture.archiveURL,
+            rootfsArchiveDigest: nil
         )
 
         try await runtime.bootIfNeeded()
@@ -38,11 +37,10 @@ struct LocalLinuxRuntimeTests {
 
         // A new runtime instance can boot the persisted fakefs without a
         // second archive import.
-        let secondRuntime = LocalLinuxRuntime(
+        let secondRuntime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: fixture.archiveURL
+            rootfsArchiveURL: fixture.archiveURL,
+            rootfsArchiveDigest: nil
         )
         try await secondRuntime.bootIfNeeded()
         #expect(Self.count(at: importCountURL) == 1)
@@ -63,10 +61,8 @@ struct LocalLinuxRuntimeTests {
 
         // A new bundled image with the same schema but a different digest is
         // imported over the old install, then remembered by its marker.
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
             rootfsArchiveURL: fixture.archiveURL,
             rootfsArchiveDigest: newDigest
         )
@@ -78,10 +74,8 @@ struct LocalLinuxRuntimeTests {
             == Data("\(LocalLinuxRuntime.rootfsSchemaVersion)\n\(newDigest.lowercased())".utf8))
 
         // The same digest on a later launch boots the install without importing.
-        let secondRuntime = LocalLinuxRuntime(
+        let secondRuntime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
             rootfsArchiveURL: fixture.archiveURL,
             rootfsArchiveDigest: newDigest.lowercased()
         )
@@ -119,11 +113,10 @@ struct LocalLinuxRuntimeTests {
                 throw LocalLinuxKernelBridgeError.bootFailed(errno: -5)
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: fixture.archiveURL
+            rootfsArchiveURL: fixture.archiveURL,
+            rootfsArchiveDigest: nil
         )
 
         await #expect(throws: LocalLinuxError.bootFailed(errno: -5)) {
@@ -192,11 +185,10 @@ struct LocalLinuxRuntimeTests {
                 )
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
         try await runtime.bootIfNeeded()
 
@@ -255,11 +247,10 @@ struct LocalLinuxRuntimeTests {
                 )
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
         try await runtime.bootIfNeeded()
 
@@ -307,11 +298,10 @@ struct LocalLinuxRuntimeTests {
                 return LocalLinuxTestKernelSession()
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
         try await runtime.bootIfNeeded()
 
@@ -345,11 +335,10 @@ struct LocalLinuxRuntimeTests {
                 return LocalLinuxTestKernelSession()
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
         try await runtime.bootIfNeeded()
 
@@ -399,11 +388,10 @@ struct LocalLinuxRuntimeTests {
                 )
             }
         )
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
         try await runtime.bootIfNeeded()
 
@@ -444,11 +432,10 @@ struct LocalLinuxRuntimeTests {
         let fixture = try RuntimeFixture()
         defer { fixture.remove() }
         let bridge = LocalLinuxTestKernelBridge()
-        let runtime = LocalLinuxRuntime(
+        let runtime = fixture.makeRuntime(
             kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
+            rootfsArchiveURL: nil,
+            rootfsArchiveDigest: nil
         )
 
         await #expect(throws: LocalLinuxError.rootfsAssetMissing) {
@@ -509,6 +496,23 @@ struct LocalLinuxRuntimeTests {
             self.rootURL = baseURL.appendingPathComponent("root", isDirectory: true)
             self.archiveURL = baseURL.appendingPathComponent("alpine.tar.gz")
             try Data("test archive".utf8).write(to: archiveURL)
+        }
+
+        /// Builds a runtime against the fixture root. The digest defaults to
+        /// `nil` so the marker written by `seedValidRootfs()` matches; the
+        /// production default reads the bundled manifest instead.
+        func makeRuntime(
+            kernel: any LocalLinuxKernelBridge,
+            rootfsArchiveURL: URL?,
+            rootfsArchiveDigest: String? = nil
+        ) -> LocalLinuxRuntime {
+            LocalLinuxRuntime(
+                kernel: kernel,
+                fileSystem: LocalLinuxFileSystemClient(),
+                rootURL: rootURL,
+                rootfsArchiveURL: rootfsArchiveURL,
+                rootfsArchiveDigest: rootfsArchiveDigest
+            )
         }
 
         func seedValidRootfs(
