@@ -371,11 +371,69 @@ fn spawn_stdin_pump(
         .map_err(|error| std::io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
 
+enum PipeIoControlResult<T> {
+    Completed(T),
+    Gone,
+    Failed(anyhow::Error),
+}
+
 fn run_stdin_pump(
     reader: &mut impl BufRead,
     remote: &Weak<RemoteSession>,
     surface: SurfaceId,
     lifecycle_sender: &Sender<PipeIoEvent>,
+) {
+    let input_remote = remote.clone();
+    let resize_remote = remote.clone();
+    let claim_remote = remote.clone();
+    let mut emit_diag = |line: String| {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{line}");
+        let _ = stderr.flush();
+    };
+    run_stdin_pump_with_handlers(
+        reader,
+        lifecycle_sender,
+        move |bytes| {
+            let Some(remote) = input_remote.upgrade() else {
+                return PipeIoControlResult::Gone;
+            };
+            let handle = PipeIoSurfaceHandle { remote, surface };
+            match handle.write_bytes(bytes) {
+                Ok(()) => PipeIoControlResult::Completed(()),
+                Err(error) => PipeIoControlResult::Failed(error),
+            }
+        },
+        move |cols, rows| {
+            let Some(remote) = resize_remote.upgrade() else {
+                return PipeIoControlResult::Gone;
+            };
+            let handle = PipeIoSurfaceHandle { remote, surface };
+            match handle.resize(cols, rows) {
+                Ok(accepted) => PipeIoControlResult::Completed(accepted),
+                Err(error) => PipeIoControlResult::Failed(error),
+            }
+        },
+        move || {
+            let Some(remote) = claim_remote.upgrade() else {
+                return PipeIoControlResult::Gone;
+            };
+            match remote.notify_claim_terminal_geometry(surface) {
+                Ok(()) => PipeIoControlResult::Completed(()),
+                Err(error) => PipeIoControlResult::Failed(error),
+            }
+        },
+        &mut emit_diag,
+    );
+}
+
+fn run_stdin_pump_with_handlers(
+    reader: &mut impl BufRead,
+    lifecycle_sender: &Sender<PipeIoEvent>,
+    mut write_input: impl FnMut(&[u8]) -> PipeIoControlResult<()>,
+    mut resize: impl FnMut(u16, u16) -> PipeIoControlResult<bool>,
+    mut claim: impl FnMut() -> PipeIoControlResult<()>,
+    mut emit_diag: impl FnMut(String),
 ) {
     let mut line = String::new();
     let mut stop_event = None;
@@ -395,12 +453,7 @@ fn run_stdin_pump(
         }
         match parse_request(&line) {
             Ok(PipeIoRequest::Input(bytes)) => {
-                let Some(remote) = remote.upgrade() else {
-                    stop_event = Some(PipeIoEvent::TransportLost);
-                    break;
-                };
-                let handle = PipeIoSurfaceHandle { remote, surface };
-                if handle.write_bytes(&bytes).is_err() {
+                if !matches!(write_input(&bytes), PipeIoControlResult::Completed(())) {
                     // The transport owns loss reporting; input can only stop
                     // early.
                     stop_event = Some(PipeIoEvent::TransportLost);
@@ -408,30 +461,23 @@ fn run_stdin_pump(
                 }
             }
             Ok(PipeIoRequest::Resize { cols, rows }) => {
-                let Some(remote) = remote.upgrade() else {
+                let result = resize(cols, rows);
+                emit_diag(resize_diag_line(cols, rows, &result));
+                if matches!(result, PipeIoControlResult::Gone) {
                     stop_event = Some(PipeIoEvent::TransportLost);
                     break;
-                };
-                let handle = PipeIoSurfaceHandle { remote, surface };
-                // Diagnostics only; the exit JSON stays the final stderr line
-                // and embedders skip lines without an "exit" key.
-                match handle.resize(cols, rows) {
-                    Ok(_accepted) => {}
-                    Err(_error) => {}
                 }
             }
             Ok(PipeIoRequest::ClaimGeometry) => {
-                let Some(remote) = remote.upgrade() else {
-                    stop_event = Some(PipeIoEvent::TransportLost);
-                    break;
-                };
                 // Claims only establish ownership. Enqueue them on the same
                 // ordered writer as input so a claim cannot overtake the
                 // keystroke that follows it, and avoid a new blocking thread
                 // for every claim.
-                match remote.notify_claim_terminal_geometry(surface) {
-                    Ok(()) => (),
-                    Err(_error) => (),
+                let result = claim();
+                emit_diag(claim_diag_line(&result));
+                if matches!(result, PipeIoControlResult::Gone) {
+                    stop_event = Some(PipeIoEvent::TransportLost);
+                    break;
                 }
             }
             Ok(PipeIoRequest::Unknown) => {}
@@ -447,6 +493,34 @@ fn run_stdin_pump(
     // delay the parent-close or failure signal. Only actual stdin EOF maps to
     // StdinClosed; transport and protocol failures keep their own reason.
     let _ = lifecycle_sender.send(stop_event.unwrap_or(PipeIoEvent::StdinClosed));
+}
+
+fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) -> String {
+    let details = match result {
+        PipeIoControlResult::Completed(accepted) => {
+            serde_json::json!({"cols": cols, "rows": rows, "accepted": accepted})
+        }
+        PipeIoControlResult::Gone => serde_json::json!({
+            "cols": cols,
+            "rows": rows,
+            "error": "remote session unavailable"
+        }),
+        PipeIoControlResult::Failed(error) => {
+            serde_json::json!({"cols": cols, "rows": rows, "error": error.to_string()})
+        }
+    };
+    serde_json::json!({"diag": {"resize": details}}).to_string()
+}
+
+fn claim_diag_line(result: &PipeIoControlResult<()>) -> String {
+    let details = match result {
+        PipeIoControlResult::Completed(()) => serde_json::json!({"accepted": true}),
+        PipeIoControlResult::Gone => {
+            serde_json::json!({"error": "remote session unavailable"})
+        }
+        PipeIoControlResult::Failed(error) => serde_json::json!({"error": error.to_string()}),
+    };
+    serde_json::json!({"diag": {"claim": details}}).to_string()
 }
 
 fn pump_events_to_stdout(
@@ -470,7 +544,7 @@ fn pump_events_to_stdout(
                         // Transport loss has different semantics: queued
                         // bytes are stale and must be discarded.
                         while let Ok(event) = receiver.try_recv() {
-                            byte_budget.release(event.retained_bytes());
+                            byte_budget.release_event(&event);
                             match event {
                                 PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_) => {
                                     if write_pipe_io_data(
@@ -523,7 +597,7 @@ fn pump_events_to_stdout(
                 }
             }
         };
-        byte_budget.release(event.retained_bytes());
+        byte_budget.release_event(&event);
         let write_result = match &event {
             PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_) => {
                 write_pipe_io_data(&event, &mut emitted_output, stdout)
@@ -732,12 +806,14 @@ mod tests {
         let mut input = Cursor::new(
             b"{\"resize\":{\"cols\":100,\"rows\":30}}\n\
               {\"resize\":{\"cols\":80,\"rows\":24}}\n\
+              {\"resize\":{\"cols\":120,\"rows\":40}}\n\
               {\"claim\":{\"geometry\":true}}\n\
               {\"claim\":{\"geometry\":true}}\n"
                 .to_vec(),
         );
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let mut resize_results = vec![
+            PipeIoControlResult::Completed(true),
             PipeIoControlResult::Completed(false),
             PipeIoControlResult::Failed(anyhow::anyhow!("resize rejected")),
         ]
@@ -754,7 +830,7 @@ mod tests {
             &lifecycle_sender,
             |_bytes| PipeIoControlResult::Completed(()),
             |cols, rows| {
-                assert!(matches!((cols, rows), (100, 30) | (80, 24)));
+                assert!(matches!((cols, rows), (100, 30) | (80, 24) | (120, 40)));
                 resize_results.next().unwrap()
             },
             || claim_results.next().unwrap(),
@@ -769,8 +845,9 @@ mod tests {
         assert_eq!(
             diagnostics,
             vec![
-                serde_json::json!({"diag": {"resize": {"cols": 100, "rows": 30, "accepted": false}}}),
-                serde_json::json!({"diag": {"resize": {"cols": 80, "rows": 24, "error": "resize rejected"}}}),
+                serde_json::json!({"diag": {"resize": {"cols": 100, "rows": 30, "accepted": true}}}),
+                serde_json::json!({"diag": {"resize": {"cols": 80, "rows": 24, "accepted": false}}}),
+                serde_json::json!({"diag": {"resize": {"cols": 120, "rows": 40, "error": "resize rejected"}}}),
                 serde_json::json!({"diag": {"claim": {"accepted": true}}}),
                 serde_json::json!({"diag": {"claim": {"error": "claim enqueue failed"}}}),
             ]

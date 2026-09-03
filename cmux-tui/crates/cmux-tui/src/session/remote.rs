@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -53,6 +53,7 @@ const MAX_SURFACE_OVERFLOW_RECOVERIES: usize = 256;
 const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
 const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES;
+const PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES: usize = REMOTE_CONTROL_MESSAGE_MAX_BYTES;
 const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
 const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
@@ -1689,55 +1690,78 @@ impl PipeIoEvent {
 /// Shared byte budget for one pipe-IO relay. A count-only bounded channel can
 /// retain megabytes per event when a replay is large; this budget makes the
 /// memory bound explicit and turns an overrun into the same transport-loss
-/// path as a full channel.
+/// path as a full channel. One replay may use a single additional allowance
+/// bounded by the remote message limit, so a valid replay is not rejected only
+/// because it is larger than the normal live-output budget.
+struct PipeIoBudgetState {
+    retained: usize,
+    oversized_replay: Option<usize>,
+}
+
 pub(crate) struct PipeIoByteBudget {
-    retained: AtomicUsize,
+    state: Mutex<PipeIoBudgetState>,
     limit: usize,
 }
 
 impl PipeIoByteBudget {
     pub(crate) fn new(limit: usize) -> Self {
-        Self { retained: AtomicUsize::new(0), limit: limit.max(1) }
+        Self {
+            state: Mutex::new(PipeIoBudgetState { retained: 0, oversized_replay: None }),
+            limit: limit.max(1),
+        }
     }
 
     pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
         if bytes == 0 {
             return true;
         }
-        let mut current = self.retained.load(Ordering::Acquire);
-        loop {
-            let Some(next) = current.checked_add(bytes) else { return false };
-            if next > self.limit {
-                return false;
-            }
-            match self.retained.compare_exchange_weak(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return true,
-                Err(observed) => current = observed,
-            }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let Some(next) = state.retained.checked_add(bytes) else { return false };
+        if next > self.limit {
+            return false;
+        }
+        state.retained = next;
+        true
+    }
+
+    fn try_reserve_replay(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let Some(next) = state.retained.checked_add(bytes) else { return false };
+        if next <= self.limit {
+            state.retained = next;
+            return true;
+        }
+        let max_total = self.limit.saturating_add(PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES);
+        if bytes > PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES
+            || state.oversized_replay.is_some()
+            || next > max_total
+        {
+            return false;
+        }
+        state.retained = next;
+        state.oversized_replay = Some(bytes);
+        true
+    }
+
+    pub(crate) fn try_reserve_event(&self, event: &PipeIoEvent) -> bool {
+        match event {
+            PipeIoEvent::Replay { bytes } => self.try_reserve_replay(bytes.len()),
+            _ => self.try_reserve(event.retained_bytes()),
         }
     }
 
-    pub(crate) fn release(&self, bytes: usize) {
+    pub(crate) fn release_event(&self, event: &PipeIoEvent) {
+        let bytes = event.retained_bytes();
         if bytes == 0 {
             return;
         }
-        let mut current = self.retained.load(Ordering::Acquire);
-        loop {
-            let next = current.saturating_sub(bytes);
-            match self.retained.compare_exchange_weak(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return,
-                Err(observed) => current = observed,
-            }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.retained = state.retained.saturating_sub(bytes);
+        if matches!(event, PipeIoEvent::Replay { .. }) && state.oversized_replay == Some(bytes) {
+            state.oversized_replay = None;
         }
     }
 }
@@ -3422,14 +3446,13 @@ impl RemoteSession {
                 return false;
             }
             let event = event();
-            let retained_bytes = event.retained_bytes();
-            if !tap.byte_budget.try_reserve(retained_bytes) {
+            if !tap.byte_budget.try_reserve_event(&event) {
                 Some(tap.token.clone())
             } else {
                 match tap.sender.try_send(event) {
                     Ok(()) => None,
-                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                        tap.byte_budget.release(retained_bytes);
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
                         Some(tap.token.clone())
                     }
                 }
@@ -3459,14 +3482,13 @@ impl RemoteSession {
             if tap.surface != surface {
                 return Err(event);
             }
-            let retained_bytes = event.retained_bytes();
-            if !tap.byte_budget.try_reserve(retained_bytes) {
+            if !tap.byte_budget.try_reserve_event(&event) {
                 Some(tap.token.clone())
             } else {
                 match tap.sender.try_send(event) {
                     Ok(()) => None,
-                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                        tap.byte_budget.release(retained_bytes);
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
                         Some(tap.token.clone())
                     }
                 }
@@ -7026,29 +7048,27 @@ mod tests {
         let (sender, receiver) = crossbeam_channel::bounded(4);
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let budget = Arc::new(PipeIoByteBudget::new(8));
-        let _token = session.install_pipe_io_tap(
-            7,
-            sender.clone(),
-            lifecycle_sender,
-            budget.clone(),
-        );
+        let _token =
+            session.install_pipe_io_tap(7, sender.clone(), lifecycle_sender, budget.clone());
 
         let queued = PipeIoEvent::Output(vec![0; 7]);
         assert!(budget.try_reserve_event(&queued));
         sender.send(queued).unwrap();
 
         let replay_bytes = vec![b'R'; 16];
-        assert!(session.pipe_io_forward(7, || PipeIoEvent::Replay {
-            bytes: replay_bytes.clone(),
-        }));
+        assert!(session.pipe_io_forward(7, || PipeIoEvent::Replay { bytes: replay_bytes.clone() }));
         assert!(lifecycle_receiver.try_recv().is_err());
 
         let queued = receiver.try_recv().unwrap();
         let replay = receiver.try_recv().unwrap();
         assert_eq!(queued, PipeIoEvent::Output(vec![0; 7]));
         assert_eq!(replay, PipeIoEvent::Replay { bytes: replay_bytes });
+        let second_replay = PipeIoEvent::Replay { bytes: vec![b'S'; 16] };
+        assert!(!budget.try_reserve_event(&second_replay));
         budget.release_event(&queued);
         budget.release_event(&replay);
+        assert!(budget.try_reserve_event(&second_replay));
+        budget.release_event(&second_replay);
     }
 
     #[test]
