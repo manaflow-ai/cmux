@@ -273,6 +273,12 @@ fi
 # the signed-in foreground session (relaunch through mobile-dev-launch after).
 if [ "$CLASS" = "iphone" ] && [ "$SKIP_LOCK" = "0" ]; then
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+  # Match the current ASC inline-reply reference. This only changes
+  # SpringBoard's system fixture; the live terminal captures stay dark.
+  xcrun simctl ui "$UDID" appearance light
+  xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi \
+    --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 \
+    --batteryState charging --batteryLevel 100
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=1 \
   SIMCTL_CHILD_CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1 \
   SIMCTL_CHILD_CMUX_UITEST_NOTIFICATION_BANNER=reply \
