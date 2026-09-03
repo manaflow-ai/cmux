@@ -3534,6 +3534,26 @@ impl RemoteSession {
         self.join_reader_worker_until(Instant::now() + remote_write_timeout());
     }
 
+    fn reap_reader_worker(&self) {
+        let current = std::thread::current().id();
+        let Some(handle) = self.reader_completion.take_handle() else {
+            // The reader may still be in startup. Its startup path installs
+            // the handle into the completion, which then enqueues it when
+            // teardown has already marked it done.
+            return;
+        };
+        if handle.thread().id() == current {
+            self.reader_completion.install_handle(handle);
+            return;
+        }
+        if self.reader_completion.is_done() {
+            let _ = handle.join();
+            self.reader_completion.release_slot();
+        } else {
+            self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
+        }
+    }
+
     fn join_reader_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let Some(handle) = self.reader_completion.take_handle() else {
@@ -4164,7 +4184,7 @@ impl Drop for RemoteSession {
         if let Err(error) = self.interactive_writer.abort_transport() {
             self.interactive_writer.record_abort_failure(&error);
         }
-        self.join_reader_worker();
+        self.reap_reader_worker();
         self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
