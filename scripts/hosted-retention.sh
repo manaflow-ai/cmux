@@ -544,6 +544,13 @@ cmux_hosted_retention_run_impl() (
   local recheck_error_file
   local recheck_status
 
+  # Validate the complete caller path before resolving it. This protects all
+  # destructive operations even when invoked outside the hosted verifier.
+  if ! cmux_hosted_retention_validate_no_symlink_ancestors "$current_artifact_dir"; then
+    cmux_hosted_retention_error "current artifact path contains traversal or symbolic-link components"
+    exit $?
+  fi
+
   # Retention is opt-in. Keep the existing verification path unchanged when
   # no retention count is supplied.
   if [[ -z "$retention_count" ]]; then
