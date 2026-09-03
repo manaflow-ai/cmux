@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
