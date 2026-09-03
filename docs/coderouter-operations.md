@@ -220,6 +220,15 @@ remove all; `PUT` is an alias of `POST`) and `PATCH/DELETE /api/coderouter/claud
 add, enable/disable, and remove. Rows migrated from the single-upstream table keep their
 `aad_version 1` ciphertext binding and get a masked identifier on first read.
 
+## The flat CLI surface
+
+`cmux coderouter accounts` is the one list (Codex and OpenCode subscriptions, Claude Code OAuth
+tokens, Anthropic API keys, Bedrock credentials, with state and usage), `accounts add [kind]`
+infers the kind from the environment or the pasted secret and asks in a terminal otherwise,
+`accounts remove <account>` takes an id prefix, label, or identifier, and `accounts pause|resume`
+applies to Claude accounts. `machines` is per-machine spend. The deeper spellings below
+(`claude ...`, `subscriptions ...`, `status`) remain as aliases.
+
 ## Subscription accounts on the dashboard and CLI
 
 The Codex leg spreads sessions across the team's `coderouter_accounts` (ChatGPT Codex, OpenCode

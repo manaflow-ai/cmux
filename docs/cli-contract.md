@@ -85,7 +85,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
-| `coderouter`, `cr` | `cmux coderouter <status|machines|claude|subscriptions>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts, the Codex/OpenCode subscription accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
+| `coderouter`, `cr` | `cmux coderouter <accounts|machines>` (older spellings `status`, `claude ...`, `subscriptions ...` still work) manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts, the Codex/OpenCode subscription accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -333,6 +333,10 @@ CodeRouter subcommands (cmux-owned; anything else passes through to the installe
 
 | Command | Contract |
 | --- | --- |
+| `coderouter accounts` | One table of every account the team routes through, both stores: `KIND` (`codex`, `opencode`, `claude`, `anthropic-key`, `bedrock`), account (label, or masked identifier plus label), `STATE` (state, or `cooling down Ns (code)`), `USAGE` (sessions and 5h/weekly windows for subscriptions; region for Bedrock), `ID` (8-char prefix). Alias `list`, `ls`. Supports `--team <id>` and `--json` (`{ teamId, accounts: [{ kind, source, id, label, identifier?, state, details }] }`). |
+| `coderouter accounts add [kind]` | Adds one account. `kind` is `claude`, `codex`, `opencode`, `anthropic-key`, or `bedrock` (aliases `oauth-token`, `api-key`, `claude-code`, `--kind <k>`). Without a kind: inferred from `CLAUDE_CODE_OAUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY`, then a secret read from stdin (`--stdin` or a pipe; `sk-ant-oat01-` = claude, `sk-ant-` = anthropic-key), else a numbered picker on stderr in a terminal. Same secret intake as `claude add`; `codex`/`opencode` hand off to the CodeRouter CLI. `--label`, `--region`, `--model` pass through. |
+| `coderouter accounts remove <account>` | `<account>` is an id prefix of 4+ chars, a label, a masked identifier, or a provider account id matching exactly one account across both stores; routes to `coderouter.claude_upstream.remove` or `coderouter.accounts.remove`. |
+| `coderouter accounts pause <account>`, `coderouter accounts resume <account>` | Claude accounts only (`coderouter.claude_upstream.update`); a subscription selector is refused with a hint to remove instead. Aliases `disable`, `enable`. |
 | `coderouter status` | Sign-in state (`auth.status`), selected team, and the team's Claude upstream accounts. Supports `--team <id>` and `--json`. |
 | `coderouter machines` | 30-day coderouter usage per Cloud machine from `GET /api/coderouter/vm-usage/team`: vmId, display name, total tokens, API-equivalent USD, plus a total line. Alias `machine`. Supports `--team <id>` and `--json` (raw team-usage payload). |
 | `coderouter claude list` | Every Claude upstream account of the team: id, kind, masked identifier, label, health (`active`, `disabled`, `cooling down Ns <failure code>`), last use. Aliases `ls`, `show`, `get`, `status`. Supports `--team <id>` and `--json`. |
@@ -681,7 +685,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
-- `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|subscriptions> [options]`
+- `cmux coderouter --help` -> `Usage: cmux coderouter <accounts|machines> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`

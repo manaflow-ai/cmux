@@ -9,75 +9,49 @@ import Foundation
 // is exec'd into the installed CodeRouter CLI before any socket is opened.
 extension CMUXCLI {
     static let coderouterUsage = """
-        Usage: cmux coderouter <status|machines|claude|subscriptions> [options]
+        Usage: cmux coderouter <accounts|machines> [options]
 
-        Team settings for the cmux coderouter model plane that Cloud machines
-        route codex, claude, pi, and opencode through. Any other verb, and every
-        `cmux cr ...`, runs the installed CodeRouter CLI unchanged.
+        The accounts a team routes its Cloud machines through: ChatGPT Codex and
+        OpenCode Go subscriptions, Claude Code OAuth tokens, Anthropic API keys,
+        Amazon Bedrock credentials. Any other verb, and every `cmux cr ...`, runs
+        the installed CodeRouter CLI unchanged.
 
-          cmux coderouter status [--team <id>] [--json]
-              Sign-in state, selected team, and the team's Claude upstream accounts.
+          cmux coderouter accounts [--team <id>] [--json]
+              Every account with kind, label, masked identifier, state, usage.
+
+          cmux coderouter accounts add [claude|codex|opencode|anthropic-key|bedrock] [--label <s>] [--stdin] [--team <id>] [--json]
+              Add one account. Without a kind, cmux infers it from
+              CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, AWS_ACCESS_KEY_ID, or a
+              pasted secret, and asks in a terminal otherwise. Secrets come from
+              the environment, --stdin, or a hidden prompt, never from argv.
+              claude: run `claude setup-token` first. codex and opencode hand off
+              to the CodeRouter CLI sign-in (`cr add codex`).
+              bedrock: --region <r> (default AWS_REGION) and --model <claude-id>=<bedrock-id>.
+
+          cmux coderouter accounts remove <account> [--team <id>] [--json]
+              <account> is an id prefix, a label, or a masked identifier that
+              matches exactly one account.
+
+          cmux coderouter accounts pause <account> | resume <account>
+              Take a Claude account out of routing, or put it back.
 
           cmux coderouter machines [--team <id>] [--json]
               30-day coderouter usage per Cloud machine (tokens, API-equivalent USD).
 
-          cmux coderouter claude list [--team <id>] [--json]
-              Every Claude upstream account of the team: id, kind, masked
-              identifier, label, health. Secrets are never printed. Alias: show.
-
-          cmux coderouter claude add oauth-token [--label <s>] [--stdin] [--team <id>] [--json]
-              Add a Claude Code OAuth token (sk-ant-oat01-...). Run
-              `claude setup-token` first, then paste the token at the hidden
-              prompt, or provide it in CLAUDE_CODE_OAUTH_TOKEN, or pipe it in
-              with --stdin. Never pass a token as an argument. Alias: set.
-
-          cmux coderouter claude add api-key [--label <s>] [--stdin] [--team <id>] [--json]
-              Add an Anthropic API key (sk-ant-...) from ANTHROPIC_API_KEY,
-              --stdin, or a hidden prompt.
-
-          cmux coderouter claude add bedrock [--label <s>] [--region <r>] [--model <claude-id>=<bedrock-id>]... [--team <id>] [--json]
-              Add Amazon Bedrock credentials from AWS_ACCESS_KEY_ID,
-              AWS_SECRET_ACCESS_KEY, and optional AWS_SESSION_TOKEN in your
-              shell environment. --region defaults to AWS_REGION or
-              AWS_DEFAULT_REGION.
-
-          cmux coderouter claude remove <account> [--team <id>] [--json]
-              Remove one account by id, label, or masked identifier.
-
-          cmux coderouter claude disable <account> | enable <account> [--team <id>] [--json]
-              Take an account out of rotation, or put it back.
-
-          cmux coderouter claude clear [--team <id>] [--json]
-              Remove every Claude upstream account of the team.
-
-          cmux coderouter subscriptions list [--team <id>] [--json]
-              The ChatGPT Codex and OpenCode Go subscription accounts coderouter
-              spreads Codex sessions across: id, provider, label, state, usage
-              windows, bound sessions. Alias: subs.
-
-          cmux coderouter subscriptions add [codex|opencode]
-              Add a subscription through the CodeRouter CLI's sign-in flow
-              (`cr add codex`); prints the npx command when cr is not installed.
-
-          cmux coderouter subscriptions remove <account> [--team <id>] [--json]
-              Remove one subscription account by id, label, or provider account id.
-
-        A team routes each Cloud machine to one of its accounts and moves it to
-        another when that account is rate limited, rejected, or unavailable.
-        Requires `cmux auth login` and a team where you can manage coderouter.
+        Older spellings keep working: status, claude <list|add|remove|enable|disable|clear>,
+        subscriptions <list|add|remove>.
 
         Examples:
-          claude setup-token
-          cmux coderouter claude add oauth-token --label work
-          cmux coderouter claude list
-          cmux coderouter machines --json
+          claude setup-token && cmux coderouter accounts add claude --label work
+          cmux coderouter accounts
+          cmux coderouter accounts remove work
         """
 
     /// The first-argument verbs cmux owns under `cmux coderouter`. Everything
     /// else keeps the pre-existing passthrough into the installed CodeRouter CLI,
     /// so `cmux coderouter accounts`, `cmux coderouter login`, and a bare
     /// `cmux coderouter` behave exactly as before.
-    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "subscriptions", "subs", "help", "--help", "-h"]
+    static let cmuxOwnedCoderouterVerbs: Set<String> = ["accounts", "status", "machines", "claude", "subscriptions", "subs", "help", "--help", "-h"]
 
     static func isCmuxOwnedCoderouterInvocation(_ args: [String]) -> Bool {
         guard let first = args.first?.lowercased() else { return false }
@@ -150,6 +124,9 @@ extension CMUXCLI {
                 return
             }
             printMachineUsage(response)
+
+        case "accounts", "account":
+            try runCoderouterAccountsCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
         case "claude":
             try runCoderouterClaudeCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
@@ -399,6 +376,287 @@ extension CMUXCLI {
             throw CLIError(message: "No input received.")
         }
         return trimmed
+    }
+
+    // MARK: Unified accounts (the flat surface)
+
+    /// Every kind a team can route through, as the user names it on the CLI.
+    private enum CoderouterAccountKind: String, CaseIterable {
+        case claude
+        case codex
+        case opencode
+        case anthropicKey = "anthropic-key"
+        case bedrock
+
+        static func parse(_ raw: String) -> CoderouterAccountKind? {
+            switch raw.lowercased() {
+            case "claude", "claude-code", "oauth-token", "oauth", "anthropic_oauth": return .claude
+            case "codex", "chatgpt": return .codex
+            case "opencode", "opencode-go": return .opencode
+            case "anthropic-key", "api-key", "apikey", "anthropic_api_key": return .anthropicKey
+            case "bedrock", "aws": return .bedrock
+            default: return nil
+            }
+        }
+
+        var pickerLine: String {
+            switch self {
+            case .claude: return "Claude Code OAuth token (run `claude setup-token` first)"
+            case .codex: return "ChatGPT Codex subscription (signs in through the CodeRouter CLI)"
+            case .opencode: return "OpenCode Go subscription (signs in through the CodeRouter CLI)"
+            case .anthropicKey: return "Anthropic API key"
+            case .bedrock: return "Amazon Bedrock credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)"
+            }
+        }
+    }
+
+    /// One row of `cmux coderouter accounts`, whichever store it lives in.
+    private struct UnifiedAccount {
+        enum Source { case claude, subscription }
+        let source: Source
+        let id: String
+        let kind: String
+        let label: String
+        let identifier: String
+        let health: String
+        let usage: String
+        let raw: [String: Any]
+
+        var summary: String {
+            "\(kind) \(identifier.isEmpty ? label : identifier)\(identifier.isEmpty || label.isEmpty ? "" : " (\(label))")"
+        }
+    }
+
+    func runCoderouterAccountsCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let sub = commandArgs.first?.lowercased() ?? "list"
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "help", "--help", "-h":
+            print(Self.coderouterUsage)
+
+        case "list", "ls":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            try rejectUnexpectedCoderouterArguments(remaining, command: "coderouter accounts")
+            let (accounts, payload) = try loadUnifiedAccounts(client: client, teamOpt: teamOpt)
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            printUnifiedAccounts(accounts)
+
+        case "add":
+            try runCoderouterAccountsAdd(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+
+        case "remove", "rm", "delete":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            let selector = try singleCoderouterSelector(remaining, command: "coderouter accounts remove")
+            let account = try resolveUnifiedAccount(selector, client: client, teamOpt: teamOpt)
+            var params = teamParams(teamOpt)
+            params["accountId"] = account.id
+            let method = account.source == .claude ? "coderouter.claude_upstream.remove" : "coderouter.accounts.remove"
+            let response = try client.sendV2(method: method, params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            print((response["removed"] as? Bool) == true ? "OK removed \(account.summary)" : "No account \(account.summary) exists.")
+
+        case "pause", "disable", "resume", "enable":
+            let paused = sub == "pause" || sub == "disable"
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            let selector = try singleCoderouterSelector(remaining, command: "coderouter accounts \(sub)")
+            let account = try resolveUnifiedAccount(selector, client: client, teamOpt: teamOpt)
+            guard account.source == .claude else {
+                throw CLIError(message: "\(account.summary) is a subscription; subscriptions cannot be paused. Remove it with `cmux coderouter accounts remove` instead.")
+            }
+            var params = teamParams(teamOpt)
+            params["accountId"] = account.id
+            params["state"] = paused ? "disabled" : "active"
+            let response = try client.sendV2(method: "coderouter.claude_upstream.update", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            print("OK \(paused ? "paused" : "resumed") \(account.summary)")
+
+        default:
+            // `cmux coderouter accounts <label>` is a common slip; point at the verbs.
+            throw CLIError(message: """
+                Unknown coderouter accounts subcommand: \(sub)
+
+                \(Self.coderouterUsage)
+                """)
+        }
+    }
+
+    private func runCoderouterAccountsAdd(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        var args = commandArgs
+        let (kindFlag, rem0) = parseOption(args, name: "--kind")
+        args = rem0
+        var kindArg: String? = kindFlag
+        if kindArg == nil, let first = args.first, !Self.isCoderouterFlagToken(first) {
+            kindArg = first
+            args.removeFirst()
+        }
+        var kind: CoderouterAccountKind? = nil
+        if let kindArg {
+            guard let parsed = CoderouterAccountKind.parse(kindArg) else {
+                throw CLIError(message: "Unknown account kind '\(Self.sanitizeForTerminal(kindArg))'. Use claude, codex, opencode, anthropic-key, or bedrock.")
+            }
+            kind = parsed
+        }
+        let env = ProcessInfo.processInfo.environment
+        let forceStdin = args.contains("--stdin")
+        // A secret already read from stdin, when the kind had to be inferred from it.
+        var pastedSecret: String? = nil
+        if kind == nil {
+            if Self.nonEmpty(env["CLAUDE_CODE_OAUTH_TOKEN"]) != nil {
+                kind = .claude
+            } else if Self.nonEmpty(env["ANTHROPIC_API_KEY"]) != nil {
+                kind = .anthropicKey
+            } else if Self.nonEmpty(env["AWS_ACCESS_KEY_ID"]) != nil, Self.nonEmpty(env["AWS_SECRET_ACCESS_KEY"]) != nil {
+                kind = .bedrock
+            } else if forceStdin || isatty(STDIN_FILENO) == 0 {
+                let secret = try readCoderouterSecret(label: "credential", envVar: "CMUX_CODEROUTER_UNSET", forceStdin: true, hint: "Paste a Claude Code OAuth token or an Anthropic API key.")
+                guard let inferred = Self.inferKind(fromSecret: secret) else {
+                    throw CLIError(message: "Could not tell what that secret is. Pass the kind: cmux coderouter accounts add <claude|anthropic-key|bedrock|codex|opencode>.")
+                }
+                kind = inferred
+                pastedSecret = secret
+            } else {
+                kind = try pickCoderouterAccountKind()
+            }
+        }
+        let resolved = kind!
+        var forwarded = args.filter { $0 != "--stdin" }
+        if let pastedSecret {
+            // Hand the already-read secret to the kind-specific path through a
+            // process-local variable so it is never re-prompted or logged.
+            setenv(resolved == .claude ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY", pastedSecret, 1)
+        } else if forceStdin {
+            forwarded.append("--stdin")
+        }
+        switch resolved {
+        case .claude:
+            try runCoderouterClaudeAdd(commandArgs: ["oauth-token"] + forwarded, client: client, jsonOutput: jsonOutput)
+        case .anthropicKey:
+            try runCoderouterClaudeAdd(commandArgs: ["api-key"] + forwarded, client: client, jsonOutput: jsonOutput)
+        case .bedrock:
+            try runCoderouterClaudeAdd(commandArgs: ["bedrock"] + forwarded, client: client, jsonOutput: jsonOutput)
+        case .codex, .opencode:
+            try rejectUnexpectedCoderouterArguments(forwarded.filter { !$0.hasPrefix("--team") && !$0.hasPrefix("--label") }, command: "coderouter accounts add \(resolved.rawValue)")
+            try runCoderouterSubscriptionsCommand(commandArgs: ["add", resolved.rawValue], client: client, jsonOutput: jsonOutput)
+        }
+    }
+
+    private static func inferKind(fromSecret secret: String) -> CoderouterAccountKind? {
+        if secret.hasPrefix("sk-ant-oat01-") { return .claude }
+        if secret.hasPrefix("sk-ant-") { return .anthropicKey }
+        if secret.hasPrefix("AKIA") || secret.hasPrefix("ASIA") { return .bedrock }
+        return nil
+    }
+
+    /// Numbered menu on stderr; stdout stays clean for scripts.
+    private func pickCoderouterAccountKind() throws -> CoderouterAccountKind {
+        let kinds = CoderouterAccountKind.allCases
+        var menu = "Add which account?\n"
+        for (index, kind) in kinds.enumerated() {
+            menu += "  \(index + 1)) \(kind.pickerLine)\n"
+        }
+        menu += "Choice [1]: "
+        FileHandle.standardError.write(Data(menu.utf8))
+        guard let line = readLine(strippingNewline: true) else {
+            throw CLIError(message: "No choice received.")
+        }
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return kinds[0] }
+        if let number = Int(trimmed), (1...kinds.count).contains(number) { return kinds[number - 1] }
+        if let named = CoderouterAccountKind.parse(trimmed) { return named }
+        throw CLIError(message: "'\(Self.sanitizeForTerminal(trimmed))' is not a choice. Use 1-\(kinds.count) or a kind name.")
+    }
+
+    private func loadUnifiedAccounts(client: SocketClient, teamOpt: String?) throws -> ([UnifiedAccount], [String: Any]) {
+        let claude = try client.sendV2(method: "coderouter.claude_upstream.get", params: teamParams(teamOpt))
+        let subscriptions = try client.sendV2(method: "coderouter.accounts.list", params: teamParams(teamOpt))
+        var accounts: [UnifiedAccount] = []
+        var unified: [[String: Any]] = []
+        for account in (subscriptions["accounts"] as? [[String: Any]]) ?? [] {
+            let id = (account["id"] as? String) ?? ""
+            let provider = (account["provider"] as? String) ?? "?"
+            let kind = provider == "opencode-go" ? "opencode" : provider
+            var health = (account["state"] as? String) ?? "?"
+            if let cooldown = account["cooldownUntil"] as? String, !cooldown.isEmpty,
+               let until = ISO8601DateFormatter.coderouterFlexible.date(from: cooldown), until > Date() {
+                health = "cooling down \(Int(until.timeIntervalSinceNow.rounded(.up)))s"
+            }
+            if let code = account["lastFailureCode"] as? String, !code.isEmpty { health += " (\(code))" }
+            let sessions = Self.intValue(account["activeSessions"]) ?? 0
+            var usage = sessions == 1 ? "1 session" : "\(sessions) sessions"
+            if let raw = account["usage"] as? [String: Any], let rate = raw["rate_limit"] as? [String: Any] {
+                if let primary = rate["primary_window"] as? [String: Any], let used = Self.doubleValue(primary["used_percent"]) {
+                    usage += ", 5h \(Int(used.rounded()))%"
+                }
+                if let secondary = rate["secondary_window"] as? [String: Any], let used = Self.doubleValue(secondary["used_percent"]) {
+                    usage += ", week \(Int(used.rounded()))%"
+                }
+            }
+            accounts.append(UnifiedAccount(source: .subscription, id: id, kind: kind, label: (account["label"] as? String) ?? "", identifier: "", health: health, usage: usage, raw: account))
+            unified.append(["kind": kind, "source": "subscription", "id": id, "label": account["label"] ?? "", "state": account["state"] ?? "", "details": account])
+        }
+        for account in (claude["accounts"] as? [[String: Any]]) ?? [] {
+            let id = (account["id"] as? String) ?? ""
+            let rawKind = (account["kind"] as? String) ?? "?"
+            let kind = rawKind == "anthropic_oauth" ? "claude" : rawKind == "anthropic_api_key" ? "anthropic-key" : rawKind
+            accounts.append(UnifiedAccount(source: .claude, id: id, kind: kind, label: (account["label"] as? String) ?? "", identifier: (account["identifier"] as? String) ?? "", health: Self.claudeAccountHealth(account), usage: (account["region"] as? String) ?? "", raw: account))
+            unified.append(["kind": kind, "source": "claude", "id": id, "label": account["label"] ?? "", "identifier": account["identifier"] ?? "", "state": account["state"] ?? "", "details": account])
+        }
+        let payload: [String: Any] = [
+            "teamId": (claude["teamId"] as? String) ?? (subscriptions["teamId"] as? String) ?? NSNull(),
+            "accounts": unified,
+        ]
+        return (accounts, payload)
+    }
+
+    private func printUnifiedAccounts(_ accounts: [UnifiedAccount]) {
+        guard !accounts.isEmpty else {
+            print("No accounts. Cloud machines cannot run codex or claude until one is added:")
+            print("  cmux coderouter accounts add")
+            return
+        }
+        let rows = accounts.map { account -> [String] in
+            let name = account.identifier.isEmpty ? account.label : (account.label.isEmpty ? account.identifier : "\(account.identifier) (\(account.label))")
+            return [account.kind, name, account.health, account.usage, String(account.id.prefix(8))].map(Self.sanitizeForTerminal)
+        }
+        let header = ["KIND", "ACCOUNT", "STATE", "USAGE", "ID"]
+        var widths = header.map(\.count)
+        for row in rows { for (index, cell) in row.enumerated() { widths[index] = max(widths[index], cell.count) } }
+        func line(_ cells: [String]) -> String {
+            cells.enumerated().map { index, cell in
+                index == cells.count - 1 ? cell : cell.padding(toLength: widths[index] + 2, withPad: " ", startingAt: 0)
+            }.joined().trimmingCharacters(in: .whitespaces)
+        }
+        print(line(header))
+        for row in rows { print(line(row)) }
+    }
+
+    /// Id prefix (4+ chars), label, or masked identifier; must match exactly one account of either store.
+    private func resolveUnifiedAccount(_ selector: String, client: SocketClient, teamOpt: String?) throws -> UnifiedAccount {
+        let (accounts, _) = try loadUnifiedAccounts(client: client, teamOpt: teamOpt)
+        let needle = selector.lowercased()
+        let matches = accounts.filter { account in
+            account.id.lowercased() == needle
+                || (needle.count >= 4 && account.id.lowercased().hasPrefix(needle))
+                || account.label.lowercased() == needle
+                || (!account.identifier.isEmpty && account.identifier.lowercased() == needle)
+                || ((account.raw["providerAccountId"] as? String)?.lowercased() == needle)
+        }
+        guard matches.count == 1, let match = matches.first else {
+            if matches.isEmpty {
+                throw CLIError(message: "No account matches '\(Self.sanitizeForTerminal(selector))'. Run `cmux coderouter accounts` and use the id, label, or identifier.")
+            }
+            throw CLIError(message: "'\(Self.sanitizeForTerminal(selector))' matches \(matches.count) accounts. Use more of the id from `cmux coderouter accounts`.")
+        }
+        return match
     }
 
     // MARK: Subscription accounts (ChatGPT Codex, OpenCode Go)
