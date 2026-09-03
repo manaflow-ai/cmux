@@ -1265,6 +1265,13 @@ impl WorkerCompletion {
         Self::with_runtime(test_worker_runtime(), None, false)
     }
 
+    #[cfg(test)]
+    fn completed() -> Self {
+        let completion = Self::new();
+        *completion.done.lock().unwrap() = true;
+        completion
+    }
+
     fn with_runtime(
         runtime: Arc<WorkerRuntime>,
         slot: Option<WorkerSlot>,
@@ -4451,7 +4458,7 @@ fn test_session_with_writer(
             worker_runtime,
         )
         .unwrap(),
-        reader_completion: Arc::new(WorkerCompletion::new()),
+        reader_completion: Arc::new(WorkerCompletion::completed()),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -5701,7 +5708,7 @@ mod tests {
         let worker_runtime = test_worker_runtime();
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort, worker_runtime).unwrap(),
-            reader_completion: Arc::new(WorkerCompletion::new()),
+            reader_completion: Arc::new(WorkerCompletion::completed()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
