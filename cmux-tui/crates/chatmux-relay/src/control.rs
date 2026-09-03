@@ -77,6 +77,10 @@ mod unix {
         read_done: Notify,
         #[cfg(test)]
         read_waiting: Mutex<Option<oneshot::Sender<()>>>,
+        #[cfg(test)]
+        close_check_pause: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
+        #[cfg(test)]
+        worker_done_notify: Notify,
         dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
         close_signal_tx: std::sync::mpsc::SyncSender<()>,
         queued_event_bytes: AtomicUsize,
@@ -150,6 +154,8 @@ mod unix {
 
         fn finish_worker(&self) {
             self.worker_done.store(true, Ordering::Release);
+            #[cfg(test)]
+            self.worker_done_notify.notify_waiters();
         }
     }
 
@@ -198,6 +204,10 @@ mod unix {
             read_done: Notify::new(),
             #[cfg(test)]
             read_waiting: Mutex::new(None),
+            #[cfg(test)]
+            close_check_pause: Mutex::new(None),
+            #[cfg(test)]
+            worker_done_notify: Notify::new(),
             dispatch_tx,
             close_signal_tx,
             queued_event_bytes: AtomicUsize::new(0),
@@ -222,6 +232,16 @@ mod unix {
                 let invoke_close = |shared: &Arc<Shared>| {
                     if shared.deliberate.load(Ordering::SeqCst) {
                         return;
+                    }
+                    #[cfg(test)]
+                    if let Some((entered, release)) = shared
+                        .close_check_pause
+                        .lock()
+                        .expect("control close check pause lock")
+                        .take()
+                    {
+                        let _ = entered.send(());
+                        let _ = release.blocking_recv();
                     }
                     let handler = {
                         let mut slot = shared.close_handler.lock().expect("control close lock");
@@ -452,6 +472,27 @@ mod unix {
             let (sender, receiver) = oneshot::channel();
             *self.shared.read_waiting.lock().expect("control read waiter lock") = Some(sender);
             receiver
+        }
+
+        #[cfg(test)]
+        pub(crate) fn pause_after_close_check(
+            &self,
+        ) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+            let (entered_tx, entered_rx) = oneshot::channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            *self.shared.close_check_pause.lock().expect("control close check pause lock") =
+                Some((entered_tx, release_rx));
+            (entered_rx, release_tx)
+        }
+
+        #[cfg(test)]
+        pub(crate) async fn wait_worker_done(&self) {
+            let done = self.shared.worker_done_notify.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
+            if !self.shared.worker_done.load(Ordering::Acquire) {
+                done.await;
+            }
         }
 
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
@@ -1045,6 +1086,55 @@ mod tests {
             .expect("late close callback after callback race");
 
         server.await.expect("join close race server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn deliberate_end_suppresses_close_callback_after_worker_check() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "chatmux-relay-control-deliberate-close-race-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind deliberate close race socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (close_tx, close_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept deliberate close race socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            close_rx.await.expect("start unexpected socket close");
+            drop(stream);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect deliberate close race socket");
+        accepted_rx.await.expect("wait for deliberate close race server");
+        let (callback_tx, callback_rx) = oneshot::channel();
+        let callback_tx = Arc::new(Mutex::new(Some(callback_tx)));
+        control.on_close(Box::new(move || {
+            if let Some(callback_tx) = callback_tx.lock().expect("callback signal lock").take() {
+                let _ = callback_tx.send(());
+            }
+        }));
+        let (checked_rx, release_tx) = control.pause_after_close_check();
+        close_tx.send(()).expect("close server socket");
+        tokio::time::timeout(Duration::from_secs(1), checked_rx)
+            .await
+            .expect("worker passes initial deliberate-close check")
+            .expect("worker close-check signal");
+
+        control.end();
+        release_tx.send(()).expect("release close callback worker");
+        tokio::time::timeout(Duration::from_secs(1), control.wait_worker_done())
+            .await
+            .expect("close callback worker completes");
+        assert!(
+            callback_rx.await.is_err(),
+            "deliberate end must suppress the pending unexpected-close callback"
+        );
+
+        server.await.expect("join deliberate close race server");
         let _ = std::fs::remove_file(socket_path);
     }
 
