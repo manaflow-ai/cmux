@@ -3047,7 +3047,7 @@ mod tests {
             Ok(_) => panic!("unbounded request count must be rejected"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("total benchmark requests"));
+        assert!(error.to_string().contains("total benchmark creates"));
     }
 
     #[test]
