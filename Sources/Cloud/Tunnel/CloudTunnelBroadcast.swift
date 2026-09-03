@@ -1,31 +1,25 @@
 import Foundation
-import os
 
 /// Fan-out of one value sequence to any number of `AsyncStream` subscribers.
 ///
-/// Owned by an actor (``CloudTunnelCoordinator``), which is what makes
-/// `subscribe` and `yield` safe: both run under that actor's isolation. A
-/// subscriber that stops listening is dropped eagerly: the stream's
-/// `onTermination` callback records the id (it runs on whatever task dropped
-/// the iterator, so that one set sits behind a lock — the short synchronous
-/// compare-and-set carve-out, not domain state), and the next `subscribe` or
-/// `yield` removes it. Polling clients that subscribe and leave between yields
-/// therefore never grow the table.
-final class CloudTunnelBroadcast<Value: Sendable>: @unchecked Sendable {
-    // @unchecked: `continuations` is touched only under the owning actor's
-    // isolation; `terminated` is the lock-protected callback inbox.
+/// Owned by an actor (``CloudTunnelCoordinator``), which is what makes every
+/// mutation safe: `subscribe`, `yield`, and `remove` all run under that actor's
+/// isolation. A subscriber that stops listening is reported through
+/// `onTerminated` (called from whatever task dropped the iterator); the owner
+/// hops back onto its isolation and calls ``remove(_:)``, so polling clients
+/// that subscribe and leave between yields never accumulate here.
+struct CloudTunnelBroadcast<Value: Sendable> {
     private var continuations: [UUID: AsyncStream<Value>.Continuation] = [:]
-    private let terminated = OSAllocatedUnfairLock<Set<UUID>>(initialState: [])
 
     /// A new stream that receives `current` first (when given) and then every
-    /// later `yield`.
-    func subscribe(current: Value? = nil) -> AsyncStream<Value> {
-        pruneTerminated()
+    /// later `yield`. `onTerminated` fires once when the subscriber goes away.
+    mutating func subscribe(
+        current: Value? = nil,
+        onTerminated: @escaping @Sendable (UUID) -> Void
+    ) -> AsyncStream<Value> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
-        continuation.onTermination = { [terminated] _ in
-            terminated.withLock { _ = $0.insert(id) }
-        }
+        continuation.onTermination = { _ in onTerminated(id) }
         if let current {
             continuation.yield(current)
         }
@@ -33,8 +27,7 @@ final class CloudTunnelBroadcast<Value: Sendable>: @unchecked Sendable {
         return stream
     }
 
-    func yield(_ value: Value) {
-        pruneTerminated()
+    mutating func yield(_ value: Value) {
         for (id, continuation) in continuations {
             if case .terminated = continuation.yield(value) {
                 continuations.removeValue(forKey: id)
@@ -42,19 +35,10 @@ final class CloudTunnelBroadcast<Value: Sendable>: @unchecked Sendable {
         }
     }
 
-    var subscriberCount: Int {
-        pruneTerminated()
-        return continuations.count
+    /// Drop a subscriber reported through `onTerminated`. Unknown ids are fine.
+    mutating func remove(_ id: UUID) {
+        continuations.removeValue(forKey: id)
     }
 
-    private func pruneTerminated() {
-        let gone = terminated.withLock { set -> Set<UUID> in
-            let copy = set
-            set.removeAll()
-            return copy
-        }
-        for id in gone {
-            continuations.removeValue(forKey: id)
-        }
-    }
+    var subscriberCount: Int { continuations.count }
 }

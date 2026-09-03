@@ -340,6 +340,41 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.controller.calls == callsWithBUp)
     }
 
+    @Test("a Cloud use that arrives mid-stop waits for the stop instead of racing it")
+    func useDuringStopQueuesBehindIt() async throws {
+        let harness = Harness()
+        try await harness.coordinator.requestUp(pin: true)
+        harness.controller.holdStop = true
+        let down = Task { await harness.coordinator.requestDown() }
+        #expect(await harness.awaitState(.stopping) == .stopping)
+
+        // Cloud use while the stop drains: no start may reach the controller yet.
+        let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.starting) == .starting)
+        #expect(harness.controller.calls == ["install", "start", "stop"])
+
+        harness.controller.releaseStop()
+        await down.value
+        await use.value
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == ["install", "start", "stop", "install", "start"])
+        #expect(await harness.coordinator.isInFailureBackoff == false)
+    }
+
+    @Test("adopting a connecting link fails fast when it drops instead of waiting out the connect timeout")
+    func adoptedConnectingLinkFailsFastOnDisconnect() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connecting
+        harness.controller.connectsOnStart = false
+        let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.starting) == .starting)
+        harness.controller.emit(.disconnected)
+        await use.value
+        // No clock advance happened: the failure came from the drop, not the timeout.
+        #expect(await harness.coordinator.state.failureMessage?.isEmpty == false)
+        #expect(harness.controller.calls == ["install", "stop"])
+    }
+
     @Test("sign-out and revoke tear the tunnel down; revoke also deletes the configuration")
     func signOutAndRevoke() async throws {
         let harness = Harness()

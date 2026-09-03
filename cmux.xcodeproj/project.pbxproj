@@ -673,6 +673,7 @@
 		7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */; };
 		7A0CE1000000000000000031 /* CloudTunnelConsumerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000005 /* CloudTunnelConsumerSource.swift */; };
 		7A0CE1000000000000000032 /* CloudTunnelControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000006 /* CloudTunnelControlling.swift */; };
+		7A0CE1000000000000000702 /* CloudTunnelCoordinator+Deadline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000701 /* CloudTunnelCoordinator+Deadline.swift */; };
 		7A0CE1000000000000000034 /* CloudTunnelCoordinator+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000008 /* CloudTunnelCoordinator+Live.swift */; };
 		7A0CE1000000000000000033 /* CloudTunnelCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000007 /* CloudTunnelCoordinator.swift */; };
 		7A0CE1000000000000000104 /* CloudTunnelCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */; };
@@ -687,6 +688,9 @@
 		7A0CE1000000000000000047 /* CloudTunnelProviderConfigurationKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */; };
 		7A0CE1000000000000000314 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
 		7A0CE1000000000000000315 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
+		7A0CE1000000000000000704 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
+		7A0CE1000000000000000705 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
+		7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000706 /* CloudTunnelRuntimeConfigurationRedactorTests.swift */; };
 		7A0CE1000000000000000040 /* CloudTunnelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000014 /* CloudTunnelState.swift */; };
 		7A0CE1000000000000000317 /* CloudTunnelStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000316 /* CloudTunnelStatus.swift */; };
 		7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */; };
@@ -3902,6 +3906,7 @@
 		7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelBroadcastTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000005 /* CloudTunnelConsumerSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelConsumerSource.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000006 /* CloudTunnelControlling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelControlling.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000701 /* CloudTunnelCoordinator+Deadline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudTunnelCoordinator+Deadline.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000008 /* CloudTunnelCoordinator+Live.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudTunnelCoordinator+Live.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000007 /* CloudTunnelCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelCoordinator.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -3914,6 +3919,8 @@
 		7A0CE1000000000000000309 /* CloudTunnelProviderConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderConfiguration.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderConfigurationKeys.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderMessage.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelRuntimeConfigurationRedactor.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000706 /* CloudTunnelRuntimeConfigurationRedactorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelRuntimeConfigurationRedactorTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000014 /* CloudTunnelState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelState.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000316 /* CloudTunnelStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelStatus.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelTestFakes.swift; sourceTree = "<group>"; };
@@ -8892,6 +8899,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */,
 				7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */,
 				7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */,
+				7A0CE1000000000000000706 /* CloudTunnelRuntimeConfigurationRedactorTests.swift */,
 				7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */,
 				7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */,
 				A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */,
@@ -9557,6 +9565,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000012 /* CloudTunnelLinkStatus.swift */,
 				7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */,
 				7A0CE1000000000000000014 /* CloudTunnelState.swift */,
+				7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */,
+				7A0CE1000000000000000701 /* CloudTunnelCoordinator+Deadline.swift */,
 				7A0CE1000000000000000503 /* CloudPrivateNetworkPurpose.swift */,
 				7A0CE1000000000000000501 /* CloudTunnelTiming.swift */,
 				7A0CE1000000000000000301 /* CloudPrivateNetworkNoopGate.swift */,
@@ -10576,6 +10586,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000030 /* CloudTunnelBroadcast.swift in Sources */,
 				7A0CE1000000000000000031 /* CloudTunnelConsumerSource.swift in Sources */,
 				7A0CE1000000000000000032 /* CloudTunnelControlling.swift in Sources */,
+				7A0CE1000000000000000702 /* CloudTunnelCoordinator+Deadline.swift in Sources */,
 				7A0CE1000000000000000034 /* CloudTunnelCoordinator+Live.swift in Sources */,
 				7A0CE1000000000000000033 /* CloudTunnelCoordinator.swift in Sources */,
 				7A0CE1000000000000000035 /* CloudTunnelEnrolling.swift in Sources */,
@@ -10587,6 +10598,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000310 /* CloudTunnelProviderConfiguration.swift in Sources */,
 				7A0CE1000000000000000039 /* CloudTunnelProviderConfigurationKeys.swift in Sources */,
 				7A0CE1000000000000000314 /* CloudTunnelProviderMessage.swift in Sources */,
+				7A0CE1000000000000000704 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */,
 				7A0CE1000000000000000040 /* CloudTunnelState.swift in Sources */,
 				7A0CE1000000000000000317 /* CloudTunnelStatus.swift in Sources */,
 				7A0CE1000000000000000502 /* CloudTunnelTiming.swift in Sources */,
@@ -12598,6 +12610,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000106 /* CloudTunnelBackendSelectorTests.swift in Sources */,
 				7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */,
 				7A0CE1000000000000000104 /* CloudTunnelCoordinatorTests.swift in Sources */,
+				7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */,
 				7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */,
 				C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */,
 				C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */,
@@ -13190,6 +13203,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			files = (
 				7A0CE1000000000000000047 /* CloudTunnelProviderConfigurationKeys.swift in Sources */,
 				7A0CE1000000000000000315 /* CloudTunnelProviderMessage.swift in Sources */,
+				7A0CE1000000000000000705 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */,
 				7A0CE1000000000000000202 /* main.swift in Sources */,
 				7A0CE1000000000000000046 /* PacketTunnelProvider.swift in Sources */,
 			);

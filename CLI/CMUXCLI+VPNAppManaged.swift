@@ -16,17 +16,14 @@ extension CMUXCLI {
     }
 
     /// `cmux vpn up` on the app-managed backend: pin the tunnel up and wait for
-    /// the outcome. The first run on a Mac may block on the user allowing the
-    /// extension in System Settings; the wait rides `vm.tunnel_wait`, which
-    /// returns the moment the app sees the approval.
-    func runAppManagedVPNUp(client: SocketClient, jsonOutput: Bool, config: [String: Any]) throws {
-        let wasUp = (config["interface_up"] as? Bool) ?? false
+    /// the outcome. Enrollment happens inside the app's start (once), so this
+    /// takes the read-only status rather than a `vm.tunnel_config` answer. The
+    /// first run on a Mac may block on the user allowing the extension in
+    /// System Settings; the wait rides `vm.tunnel_wait`, which returns the
+    /// moment the app sees the approval.
+    func runAppManagedVPNUp(client: SocketClient, jsonOutput: Bool, status before: [String: Any]) throws {
+        let wasUp = (before["interface_up"] as? Bool) ?? false
         if !jsonOutput {
-            if (config["created"] as? Bool) == true {
-                print(String(localized: "cli.vpn.enrolled", defaultValue: "Enrolled this Mac on your Cloud VM network."))
-            } else if (config["rotated"] as? Bool) == true {
-                print(String(localized: "cli.vpn.rotated", defaultValue: "Refreshed this Mac's tunnel keys."))
-            }
             if !wasUp {
                 print(String(
                     localized: "cli.vpn.appManaged.bringingUp",
@@ -62,7 +59,7 @@ extension CMUXCLI {
             print(jsonString([
                 "status": "up",
                 "backend": Self.appManagedTunnelBackend,
-                "config_path": (config["config_path"] as? String) ?? "",
+                "config_path": (status["config_path"] as? String) ?? "",
                 "changed": !wasUp,
                 "pinned": (status["pinned"] as? Bool) ?? true,
             ]))
@@ -73,7 +70,7 @@ extension CMUXCLI {
         } else {
             print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up."))
         }
-        printVPNAddresses(config)
+        printVPNAddresses(status)
         print(String(
             localized: "cli.vpn.appManaged.pinned",
             defaultValue: "Pinned up until `cmux vpn down`. Otherwise cmux starts the tunnel when you open a Cloud machine and stops it when no Cloud sessions remain."

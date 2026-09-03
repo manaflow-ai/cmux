@@ -9,30 +9,35 @@ import Testing
 
 /// The coordinator's state/link fan-out must not accumulate subscribers that
 /// left between yields: `cmux vpn status` polls subscribe and go away without
-/// the state ever changing.
+/// the state ever changing. The owner learns of each departure through the
+/// termination callback and removes the id under its own isolation.
 @Suite
 struct CloudTunnelBroadcastTests {
-    @Test("subscribers that stop listening are pruned without a yield")
-    func prunesTerminatedSubscribersEagerly() async {
-        let broadcast = CloudTunnelBroadcast<Int>()
-        for _ in 0..<50 {
-            // Drop the stream without ever iterating it: the continuation
-            // terminates, the id lands in the inbox.
-            _ = broadcast.subscribe(current: 0)
+    @Test("terminated subscribers report their id so the owner can prune them")
+    func reportsTerminationForPruning() async {
+        var broadcast = CloudTunnelBroadcast<Int>()
+        let (idStream, idContinuation) = AsyncStream<UUID>.makeStream()
+        var live: [AsyncStream<Int>] = []
+        for index in 0..<5 {
+            let stream = broadcast.subscribe(current: index) { id in idContinuation.yield(id) }
+            if index.isMultiple(of: 2) { live.append(stream) }
+            // Odd streams are dropped right away; their continuation terminates.
         }
-        // A live subscriber stays counted.
-        let live = broadcast.subscribe()
-        #expect(broadcast.subscriberCount <= 51)
-        // The next subscribe prunes everything that terminated so far.
-        _ = broadcast.subscribe()
-        #expect(broadcast.subscriberCount <= 3)
+        var reported: [UUID] = []
+        for await id in idStream {
+            reported.append(id)
+            if reported.count == 2 { break }
+        }
+        #expect(broadcast.subscriberCount == 5)
+        for id in reported { broadcast.remove(id) }
+        #expect(broadcast.subscriberCount == 3)
         withExtendedLifetime(live) {}
     }
 
     @Test("values reach every live subscriber, first the current one")
     func deliversCurrentThenUpdates() async {
-        let broadcast = CloudTunnelBroadcast<Int>()
-        let stream = broadcast.subscribe(current: 1)
+        var broadcast = CloudTunnelBroadcast<Int>()
+        let stream = broadcast.subscribe(current: 1) { _ in }
         broadcast.yield(2)
         broadcast.yield(3)
         var received: [Int] = []

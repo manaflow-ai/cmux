@@ -113,7 +113,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         adapter.getRuntimeConfiguration { settings in
-            completionHandler(settings?.data(using: .utf8))
+            // Peers, handshakes, transfer counters — never the keys.
+            let redacted = settings.map(CloudTunnelRuntimeConfigurationRedactor.redacted)
+            completionHandler(redacted?.data(using: .utf8))
         }
     }
 

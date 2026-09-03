@@ -24,6 +24,8 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     private var _connectsOnStart = true
     private var _holdInstallForApproval = false
     private var _currentStatusValue: CloudTunnelLinkStatus = .disconnected
+    private var _holdStop = false
+    private var stopContinuations: [CheckedContinuation<Void, Never>] = []
 
     var calls: [String] { lock.withLock { recorded } }
     var installedConfigurations: [CloudTunnelProviderConfiguration] { lock.withLock { configurations } }
@@ -46,6 +48,21 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     var currentStatusValue: CloudTunnelLinkStatus {
         get { lock.withLock { _currentStatusValue } }
         set { lock.withLock { _currentStatusValue = newValue } }
+    }
+    /// `stop()` blocks (link stays `.disconnecting`) until `releaseStop()`.
+    var holdStop: Bool {
+        get { lock.withLock { _holdStop } }
+        set { lock.withLock { _holdStop = newValue } }
+    }
+
+    /// Let a held `stop()` finish: the link reports `.disconnected`.
+    func releaseStop() {
+        let waiting = lock.withLock {
+            let pending = stopContinuations
+            stopContinuations.removeAll()
+            return pending
+        }
+        for continuation in waiting { continuation.resume() }
     }
 
     var statusUpdates: AsyncStream<CloudTunnelLinkStatus> {
@@ -107,6 +124,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     func stop() async throws {
         lock.withLock { recorded.append("stop") }
         emit(.disconnecting)
+        if holdStop {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.withLock { stopContinuations.append(continuation) }
+            }
+        }
         emit(.disconnected)
     }
 

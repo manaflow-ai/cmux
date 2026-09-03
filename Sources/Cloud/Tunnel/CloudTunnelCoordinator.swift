@@ -27,7 +27,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private let controller: any CloudTunnelControlling
     private let enroller: any CloudTunnelEnrolling
     private let consumers: any CloudTunnelConsumerSource
-    private let clock: any Clock<Duration>
+    /// Injected so tests drive virtual time; the deadline helper in
+    /// `CloudTunnelCoordinator+Deadline.swift` reads it.
+    let clock: any Clock<Duration>
     private let timing: CloudTunnelTiming
 
     private(set) var state: CloudTunnelState = .off
@@ -42,8 +44,11 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// True from a failed start until ``CloudTunnelTiming/failureBackoff`` elapses (or an explicit up/down).
     private(set) var isInFailureBackoff = false
     private var linkObservation: Task<Void, Never>?
-    private let stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
-    private let linkBroadcast = CloudTunnelBroadcast<CloudTunnelLinkStatus>()
+    private var stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
+    private var linkBroadcast = CloudTunnelBroadcast<CloudTunnelLinkStatus>()
+    /// The in-flight stop, so a Cloud use that arrives mid-stop queues behind
+    /// it instead of racing NetworkExtension with a start.
+    private var stopTask: Task<Void, Never>?
 
     init(
         backend: CloudTunnelBackend,
@@ -141,7 +146,24 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
 
     /// The current state, then every change.
     func stateUpdates() -> AsyncStream<CloudTunnelState> {
-        stateBroadcast.subscribe(current: state)
+        subscribeToState(current: state)
+    }
+
+    private func subscribeToState(current: CloudTunnelState? = nil) -> AsyncStream<CloudTunnelState> {
+        stateBroadcast.subscribe(current: current) { [weak self] id in
+            Task { await self?.pruneSubscriber(id) }
+        }
+    }
+
+    private func subscribeToLink() -> AsyncStream<CloudTunnelLinkStatus> {
+        linkBroadcast.subscribe { [weak self] id in
+            Task { await self?.pruneSubscriber(id) }
+        }
+    }
+
+    private func pruneSubscriber(_ id: UUID) {
+        stateBroadcast.remove(id)
+        linkBroadcast.remove(id)
     }
 
     /// The first state satisfying `predicate`, or whatever the state is when
@@ -151,7 +173,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         until predicate: @escaping @Sendable (CloudTunnelState) -> Bool
     ) async -> CloudTunnelState {
         if predicate(state) { return state }
-        let updates = stateBroadcast.subscribe()
+        let updates = subscribeToState()
         do {
             return try await withDeadline(timeout) {
                 for await candidate in updates where predicate(candidate) {
@@ -172,7 +194,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private func ensureUp() async throws {
         if state == .up { return }
         _ = startTaskIfNeeded()
-        let updates = stateBroadcast.subscribe(current: state)
+        let updates = subscribeToState(current: state)
         for await candidate in updates {
             switch candidate {
             case .up:
@@ -212,6 +234,13 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             if startGeneration == generation { startTask = nil }
         }
         do {
+            // A stop may still be draining (idle timer, `vpn down`, sign-out);
+            // starting on top of it would race NetworkExtension and fail into
+            // the failure backoff. Let it finish first.
+            if let stopTask {
+                await stopTask.value
+            }
+            try Task.checkCancellation()
             let enrollment = try await enroller.enroll()
             try Task.checkCancellation()
             let configuration = CloudTunnelProviderConfiguration(
@@ -292,6 +321,17 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     // MARK: - Stop
 
     private func tearDown() async {
+        if let stopTask {
+            await stopTask.value
+            return
+        }
+        let task = Task { await self.performTearDown() }
+        stopTask = task
+        await task.value
+    }
+
+    private func performTearDown() async {
+        defer { stopTask = nil }
         cancelIdleTimer()
         clearFailureBackoff()
         if let startTask {
@@ -381,12 +421,13 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
 
     private func waitForLink(_ target: CloudTunnelLinkStatus) async throws {
         if linkStatus == target { return }
-        let updates = linkBroadcast.subscribe()
+        let updates = subscribeToLink()
         // NetworkExtension reports disconnected → connecting → connected (or
         // back to disconnected on failure). Saving the configuration can also
         // post a late `.disconnected` for the reloaded connection, so a drop
-        // only counts as failure once this start has been seen connecting.
-        var sawConnecting = false
+        // only counts as failure once this start has been seen connecting —
+        // including a link that was already connecting when the wait began.
+        var sawConnecting = linkStatus == .connecting || linkStatus == .reasserting
         for await status in updates {
             if status == target { return }
             if target == .connected {
@@ -419,40 +460,5 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private func setState(_ newState: CloudTunnelState, generation: Int) {
         guard startGeneration == generation else { return }
         setState(newState)
-    }
-
-    /// Race `operation` against the clock; the loser is cancelled.
-    private func withDeadline<T: Sendable>(
-        _ duration: Duration,
-        _ operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        let clock = self.clock
-        return try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await clock.sleep(for: duration)
-                throw CloudTunnelError.deadlineExceeded
-            }
-            guard let first = try await group.next() else {
-                throw CloudTunnelError.deadlineExceeded
-            }
-            group.cancelAll()
-            return first
-        }
-    }
-
-    private static func userMessage(for error: any Error) -> String {
-        if let tunnelError = error as? CloudTunnelError {
-            return tunnelError.description
-        }
-        let nsError = error as NSError
-        if nsError.domain == "NEVPNErrorDomain" || nsError.domain == "NEConfigurationErrorDomain" {
-            let format = String(
-                localized: "cloudTunnel.error.vpnConfiguration",
-                defaultValue: "macOS rejected the VPN configuration (code %d)."
-            )
-            return String(format: format, nsError.code)
-        }
-        return nsError.localizedDescription
     }
 }

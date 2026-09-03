@@ -48,13 +48,16 @@ extension CMUXCLI {
         // The app enrolls (idempotently) and writes the completed config; this
         // process never sees the private key except as bytes inside that
         // 0600 file it does not read.
+        // Read-only first: on the app-managed backend the app enrolls as part
+        // of starting the tunnel, so `vm.tunnel_config` here would enroll twice.
+        let status = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
+        if Self.tunnelBackendIsAppManaged(status) {
+            try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, status: status)
+            return
+        }
         let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
         guard let configPath = response["config_path"] as? String, !configPath.isEmpty else {
             throw CLIError(message: "The cmux app did not return a tunnel config. Update cmux and retry.")
-        }
-        if Self.tunnelBackendIsAppManaged(response) {
-            try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, config: response)
-            return
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
         // Up, but with another enrollment's config (a different account on the
@@ -329,8 +332,11 @@ extension CMUXCLI {
     }
 
     func printVPNAddresses(_ response: [String: Any]) {
+        // Enrollment answers carry address_v4/v6; status answers carry the
+        // interface addresses parsed from the config on disk.
         let address = (response["address_v4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? (response["address_v6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (response["addresses"] as? [String])?.first
         if let address {
             let format = String(
                 localized: "cli.vpn.address",
