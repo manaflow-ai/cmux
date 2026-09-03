@@ -17,9 +17,9 @@ extension TerminalController {
         v2MainSync {
             guard tabManager.createWorkspaceGroup(
                 name: name,
-                externalID: identity.value,
                 selectAnchor: false,
-                collapseSidebarSelection: false
+                collapseSidebarSelection: false,
+                externalID: identity.value
             ) != nil else {
                 mutationError = .err(code: "not_created", message: "Group was not created", data: nil)
                 return
@@ -220,24 +220,35 @@ extension TerminalController {
             )
             return (resolution.value, nil)
         } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
-            let messageKey: String
-            let defaultValue: String
             switch error {
             case .nonString:
-                messageKey = "workspaceGroup.error.idempotencyKeyMustBeString"
-                defaultValue = "external_id and idempotency_key must be strings"
+                return (nil, .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                        defaultValue: "external_id and idempotency_key must be strings"
+                    ),
+                    data: nil
+                ))
             case .empty:
-                messageKey = "workspaceGroup.error.idempotencyKeyMustNotBeEmpty"
-                defaultValue = "The group identity must not be empty"
+                return (nil, .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                        defaultValue: "The group identity must not be empty"
+                    ),
+                    data: nil
+                ))
             case .mismatchedAliases:
-                messageKey = "workspaceGroup.error.idempotencyKeysMustMatch"
-                defaultValue = "external_id and idempotency_key must match"
+                return (nil, .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                        defaultValue: "external_id and idempotency_key must match"
+                    ),
+                    data: nil
+                ))
             }
-            return (nil, .err(
-                code: "invalid_params",
-                message: String(localized: messageKey, defaultValue: defaultValue),
-                data: nil
-            ))
         } catch {
             assertionFailure("Unexpected workspace-group identity validation error: \(error)")
             return (nil, .err(
