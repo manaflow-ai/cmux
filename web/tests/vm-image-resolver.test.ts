@@ -22,19 +22,19 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-// The committed manifest default: the `freestyle-cmux-devbox-edge1` ladder,
+// The committed manifest default: the `freestyle-cmux-devbox-edge2` ladder,
 // one snapshot per Freestyle size, listed under both kinds (a desktop image is
 // a superset of a base one, so the same snapshot id serves both; the base
 // listing's version carries a `-base` suffix). The manifest is the only source
 // of truth for images; no env var selects or overrides one, and the plan's
 // memory picks the size.
-const ladderVersion = "freestyle-cmux-devbox-edge1";
+const ladderVersion = "freestyle-cmux-devbox-edge2";
 const ladder = {
-  sm: "sh-1ad297617e5443e7a3a662151e1b5268",
-  md: "sh-6b3d51d2745840429c33960555e238b7",
-  lg: "sh-be104a485d2e460297a80c8dbf39adb8",
-  xl: "sh-81be73ea9ff94ee4b83df69ec3fe296b",
-  "2xl": "sh-d792f6144a3c40a7a7ac11b48081013a",
+  sm: "sh-313a544538c94350940db35fd1d9cb6f",
+  md: "sh-62acf99ab93a4128b79edff5c09130e0",
+  lg: "sh-06751d7f8ddc4414acb9672022c3cd08",
+  xl: "sh-9f48239ec7a547838714ec3cf4b2132b",
+  "2xl": "sh-b8d7b36a263543dfaf9bef3f26e9c2ea",
 } as const;
 // cmux's validated pre-ladder public-platform devbox: still listed (base only,
 // size-less) so stored rows and explicit requests keep resolving, no longer a
