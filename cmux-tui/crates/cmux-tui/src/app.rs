@@ -13190,24 +13190,30 @@ impl App {
         else {
             return;
         };
-        let Some(pane_id) = self
+        let Some((pane_id, tab_count)) = self
             .tree
             .workspaces()
             .get(workspace_index)
             .and_then(|workspace| workspace.screens.get(screen_index))
             .and_then(|screen| screen.panes.get(pane_index))
-            .map(|pane| pane.id)
+            .map(|pane| (pane.id, pane.tabs.len()))
         else {
             return;
         };
+        // Validate the complete target before changing any focus state. The
+        // location map can outlive a topology update, including a stale tab
+        // index, so the fallible setters must not run on a partial target.
+        if tab_index >= tab_count {
+            return;
+        }
         let previous_focus = self.active_focus_state();
-        self.tree.active_workspace = workspace_index;
         if !self.tree.set_active_screen(workspace_index, screen_index)
             || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
             || !self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index)
         {
             return;
         }
+        self.tree.active_workspace = workspace_index;
         if previous_focus != self.active_focus_state() {
             self.bump_sidebar_generation();
         }
