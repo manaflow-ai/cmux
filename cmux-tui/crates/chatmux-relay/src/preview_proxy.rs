@@ -1086,6 +1086,40 @@ mod tests {
         port
     }
 
+    async fn spawn_upgrade_target() -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
+        let port = listener.local_addr().expect("target addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else { break };
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper::service::service_fn(|request| async move {
+                        let on_upgrade = hyper::upgrade::on(request);
+                        let response = hyper::Response::builder()
+                            .status(hyper::StatusCode::SWITCHING_PROTOCOLS)
+                            .header(hyper::header::UPGRADE, "websocket")
+                            .header(hyper::header::CONNECTION, "Upgrade")
+                            .body(full_body(Vec::new()))
+                            .expect("upgrade response");
+                        tokio::spawn(async move {
+                            if let Ok(upgraded) = on_upgrade.await {
+                                let _ = tokio::time::sleep(Duration::from_secs(30)).await;
+                                drop(upgraded);
+                            }
+                        });
+                        Ok::<_, std::convert::Infallible>(response)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        });
+        port
+    }
+
     async fn open_proxy(registry: &PreviewRegistry, target_port: u16) -> u16 {
         match registry.open(i64::from(target_port)).await.expect("preview_open") {
             wire::WorkspaceResultBody::PreviewOpen(result) => {
@@ -1112,6 +1146,32 @@ mod tests {
         let status = response.status();
         let headers = response.headers().clone();
         (status, headers, response.text().await.expect("body"))
+    }
+
+    async fn open_upgrade(port: u16, key: &str) -> tokio::net::TcpStream {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect preview proxy");
+        let request = format!(
+            "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.expect("write upgrade request");
+        let mut response = Vec::new();
+        let mut chunk = [0_u8; 512];
+        loop {
+            let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+                .await
+                .expect("upgrade response timeout")
+                .expect("read upgrade response");
+            assert!(read > 0, "upgrade response ended before headers");
+            response.extend_from_slice(&chunk[..read]);
+            if response.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+            assert!(response.len() < 8192, "upgrade response headers too large");
+        }
+        assert!(response.starts_with(b"HTTP/1.1 101"), "upgrade response: {response:?}");
+        stream
     }
 
     #[tokio::test]
@@ -1187,6 +1247,38 @@ mod tests {
             )),
             Ok(bytes) => panic!("over-cap preview client received {bytes} bytes"),
         }
+        drop(held);
+        registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn rejects_upgrades_after_the_copy_task_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_upgrade_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_UPGRADE_CAP);
+        for index in 0..PREVIEW_PROXY_UPGRADE_CAP {
+            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}" )).await);
+        }
+
+        let mut over_cap = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap upgrade");
+        over_cap
+            .write_all(
+                b"GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSA2NA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .await
+            .expect("write over-cap upgrade");
+        let mut response = [0_u8; 512];
+        let bytes = tokio::time::timeout(Duration::from_secs(2), over_cap.read(&mut response))
+            .await
+            .expect("over-cap response timeout")
+            .expect("read over-cap response");
+        assert!(std::str::from_utf8(&response[..bytes])
+            .expect("response utf8")
+            .starts_with("HTTP/1.1 503"));
+
         drop(held);
         registry.shutdown().await;
     }
