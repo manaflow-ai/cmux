@@ -60,6 +60,16 @@
     "genericBody": "Попробуйте ещё раз. Если проблема не исчезнет, обратитесь в поддержку.",
     "backToSignIn": "Вернуться ко входу"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "облако cmux",
+    "title": "У вас нет доступа",
+    "signedOutBody": "Войдите в cmux, чтобы просмотреть этот сайт.",
+    "signIn": "Войти в cmux",
+    "signedInAs": "Вы вошли как {identity}",
+    "invalidTitle": "Эта ссылка для доступа недействительна",
+    "invalidBody": "Вернитесь на сайт и повторите попытку.",
+    "footer": "Доступом управляет cmux."
+  },
   "common": {
     "downloadForMac": "Скачать для Mac",
     "viewOnGitHub": "Смотреть на GitHub",

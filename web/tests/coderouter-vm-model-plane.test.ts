@@ -10,6 +10,7 @@ import {
   vmModelPlaneEnabled,
   type VmModelPlaneDependencies,
 } from "../services/coderouter/vmModelPlane";
+import { vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import {
   ROUTE_TOKEN_HEADER,
   VM_ID_HEADER,
@@ -37,7 +38,7 @@ function deps(overrides: Partial<VmModelPlaneDependencies> = {}): VmModelPlaneDe
 }
 
 describe("provisionVmModelPlane", () => {
-  test("mints a VM-bound token and returns placeholder env plus one edge rule", async () => {
+  test("mints a VM-bound token and returns one alias edge rule", async () => {
     const issued: unknown[] = [];
     const provision = await provisionVmModelPlane(
       INPUT,
@@ -49,17 +50,11 @@ describe("provisionVmModelPlane", () => {
       }),
     );
     expect(issued).toEqual([["team-1", "user-1", VM_ROUTE_TOKEN_LABEL, { vmId: INPUT.cloudVmId }]]);
-    expect(provision.envs).toEqual({
-      OPENAI_BASE_URL: "https://coderouter.dev/v1",
-      OPENAI_API_KEY: VM_PLACEHOLDER_API_KEY,
-      CMUX_CODEROUTER_URL: "https://coderouter.dev",
-      ANTHROPIC_BASE_URL: "https://coderouter.dev",
-      ANTHROPIC_API_KEY: VM_PLACEHOLDER_API_KEY,
-      CMUX_VM_ID: INPUT.cloudVmId,
-    });
+    // The guest dials the alias; the edge forwards to this deployment's host.
     expect(provision.edgeRules).toEqual([
       {
-        domain: "coderouter.dev",
+        domain: "coderouter.cmux.internal",
+        destinationHost: "coderouter.dev",
         headers: {
           [ROUTE_TOKEN_HEADER]: "crt_test-token",
           [VM_ID_HEADER]: INPUT.cloudVmId,
@@ -68,23 +63,19 @@ describe("provisionVmModelPlane", () => {
     ]);
   });
 
-  test("no env value is ever a route token", async () => {
+  test("nothing the guest sees carries a route token", async () => {
     const provision = await provisionVmModelPlane(INPUT, deps());
-    for (const value of Object.values(provision.envs)) {
-      expect(value).not.toMatch(/crt_/);
-    }
-    expect(JSON.stringify(provision.envs)).not.toContain("crt_");
+    expect(provision.edgeRules[0]?.domain).not.toMatch(/crt_/);
+    expect(JSON.stringify(vmGuestModelPlaneEnv())).not.toContain("crt_");
   });
 
-  test("the origin override points env and the edge rule at a preview deployment", async () => {
+  test("the origin override points the edge rule at a preview deployment", async () => {
     const provision = await provisionVmModelPlane(
       INPUT,
       deps({ edgeOriginEnv: () => "https://cmux-git-feat-manaflow.vercel.app/" }),
     );
-    expect(provision.envs.OPENAI_BASE_URL).toBe("https://cmux-git-feat-manaflow.vercel.app/v1");
-    expect(provision.envs.ANTHROPIC_BASE_URL).toBe("https://cmux-git-feat-manaflow.vercel.app");
-    expect(provision.envs.CMUX_CODEROUTER_URL).toBe("https://cmux-git-feat-manaflow.vercel.app");
-    expect(provision.edgeRules[0]?.domain).toBe("cmux-git-feat-manaflow.vercel.app");
+    expect(provision.edgeRules[0]?.domain).toBe("coderouter.cmux.internal");
+    expect(provision.edgeRules[0]?.destinationHost).toBe("cmux-git-feat-manaflow.vercel.app");
   });
 
   test("an invalid origin override is a typed unavailable failure, not a create with a bad rule", async () => {
@@ -180,8 +171,7 @@ describe("preview deployments serve themselves as the edge origin", () => {
         vercelBypassSecret: () => "bypass-secret",
       }),
     );
-    expect(provision.envs.OPENAI_BASE_URL).toBe("https://cmux-git-feat-manaflow.vercel.app/v1");
-    expect(provision.edgeRules[0]?.domain).toBe("cmux-git-feat-manaflow.vercel.app");
+    expect(provision.edgeRules[0]?.destinationHost).toBe("cmux-git-feat-manaflow.vercel.app");
     expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBe("bypass-secret");
   });
 
@@ -195,7 +185,7 @@ describe("preview deployments serve themselves as the edge origin", () => {
         vercelBypassSecret: () => "bypass-secret",
       }),
     );
-    expect(provision.envs.OPENAI_BASE_URL).toBe("https://coderouter.dev/v1");
+    expect(provision.edgeRules[0]?.destinationHost).toBe("coderouter.dev");
     expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBeUndefined();
   });
 });
