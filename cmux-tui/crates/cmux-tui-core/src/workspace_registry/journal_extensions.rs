@@ -491,13 +491,7 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
          FROM journal_producers
          WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        },
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
     )?;
     let installed = serde_json::from_str::<JournalProducerManifest>(&installed_json)?;
     let installed_version = u32::try_from(installed_version)
@@ -3321,20 +3315,14 @@ mod tests {
                 |row| row.get::<_, String>(0),
             )
             .unwrap();
-        assert_eq!(
-            serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(),
-            current
-        );
+        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
     }
 
     #[test]
     fn legacy_agent_manifest_with_plugin_exit_is_migrated() {
         let mut registry = WorkspaceRegistry::in_memory("legacy-agent-plugin-exit").unwrap();
         let current = crate::agent_hooks::built_in_agent_producer_manifest();
-        let legacy = legacy_built_in_agent_producer_manifests(&current)
-            .into_iter()
-            .nth(1)
-            .unwrap();
+        let legacy = legacy_built_in_agent_producer_manifests(&current).into_iter().nth(1).unwrap();
         let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
         registry
             .connection
