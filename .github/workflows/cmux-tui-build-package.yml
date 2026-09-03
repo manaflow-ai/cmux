@@ -67,6 +67,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_agent_plugin:
+        description: "Build and upload the Unix userland agent screen-detection plugin"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -291,7 +296,34 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
+      - name: Build agent screen-detection plugin
+        if: inputs.build_agent_plugin && runner.os != 'Windows'
+        env:
+          AGENT_PLUGIN_CROSS: ${{ matrix.cross }}
+          AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
+          RUNNER_OS: ${{ runner.os }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_manifest="bindings/examples/rust-agent-screen-detection/Cargo.toml"
+          # The reference plugin is its own Cargo workspace. Use the common
+          # target directory so staging has one predictable path and the
+          # plugin can reuse SDK dependencies from the TUI build.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
+            cargo zigbuild \
+              --manifest-path "$plugin_manifest" \
+              --release --locked --target "$AGENT_PLUGIN_TARGET"
+          else
+            cargo build \
+              --manifest-path "$plugin_manifest" \
+              --release --locked --target "$AGENT_PLUGIN_TARGET"
+          fi
+
       - name: Stage binary
+        env:
+          BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
         shell: bash
         run: |
           mkdir -p dist
@@ -302,6 +334,10 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+          if [[ "$BUILD_AGENT_PLUGIN" == "true" && "${{ runner.os }}" != "Windows" ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection${{ matrix.ext }}" \
+              "dist/cmux-agent-screen-detection-${{ matrix.target }}${{ matrix.ext }}"
+          fi
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
@@ -366,6 +402,14 @@ jobs:
         with:
           name: chatmux-relay-${{ matrix.target }}
           path: dist/chatmux-relay-*${{ matrix.ext }}
+          if-no-files-found: error
+
+      - name: Upload agent screen-detection plugin artifact
+        if: inputs.build_agent_plugin && runner.os != 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-agent-screen-detection-${{ matrix.target }}
+          path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
 
   cloudflare-relay:

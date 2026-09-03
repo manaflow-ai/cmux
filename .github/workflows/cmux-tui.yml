@@ -632,6 +632,9 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
+      # The short hosted handoff launcher needs the reference plugin beside
+      # the exact-head TUI artifact. Release package lanes leave this opt-in.
+      build_agent_plugin: true
       build_cloudflare_relay: false
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       macos_runner: blacksmith-6vcpu-macos-15
