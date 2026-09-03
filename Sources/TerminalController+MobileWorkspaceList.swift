@@ -264,8 +264,9 @@ extension TerminalController {
         }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
-        let unreadCount = store?.unreadCount(forTabId: workspace.id) ?? 0
-        let latestNotification = store?.latestNotification(forTabId: workspace.id)
+        let phoneSummary = store?.phoneWorkspaceNotificationSummary(forTabId: workspace.id)
+        let unreadCount = phoneSummary?.unreadCount ?? 0
+        let latestNotification = phoneSummary?.latest
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
             MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription),

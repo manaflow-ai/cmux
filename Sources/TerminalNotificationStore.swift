@@ -144,6 +144,8 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        var phoneUnreadCountByTabId: [UUID: Int] = [:]
+        var latestPhoneByTabId: [UUID: TerminalNotification] = [:]
     }
 
     static let shared = TerminalNotificationStore(
@@ -194,6 +196,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var phoneUnreadNotificationCount: Int { indexes.phoneUnreadCount }
+
+    func phoneWorkspaceNotificationSummary(forTabId tabId: UUID) -> (unreadCount: Int, latest: TerminalNotification?) {
+        (indexes.phoneUnreadCountByTabId[tabId, default: 0], indexes.latestPhoneByTabId[tabId])
+    }
 
     var phoneNotificationFeedSnapshot: NotificationFeedHistorySnapshot {
         let snapshot = notificationFeedHistory.snapshot
@@ -2037,6 +2043,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Marks only records visible in the paired-phone feed read. Mac-local
+    /// recovery inventory remains unread and actionable on the host.
+    @discardableResult
+    func markAllPhoneFeedRead() -> Int {
+        let ids = Set(phoneNotificationFeedSnapshot.notifications.lazy.filter { !$0.isRead }.map(\.id))
+        return markNotificationFeedRead(ids: ids)
+    }
+
     func remove(id: UUID) {
         var updated = notifications
         let removed = updated.first(where: { $0.id == id })
@@ -2655,10 +2669,15 @@ final class TerminalNotificationStore: ObservableObject {
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }
+            if notification.correlationKey != Self.sessionRestoreRecoveryCorrelationKey,
+               indexes.latestPhoneByTabId[notification.tabId] == nil {
+                indexes.latestPhoneByTabId[notification.tabId] = notification
+            }
             guard !notification.isRead else { continue }
             indexes.unreadCount += 1
             if notification.correlationKey != Self.sessionRestoreRecoveryCorrelationKey {
                 indexes.phoneUnreadCount += 1
+                indexes.phoneUnreadCountByTabId[notification.tabId, default: 0] += 1
             }
             indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
             indexes.unreadByTabSurface.insert(

@@ -157,7 +157,7 @@ extension TerminalController {
     func v2MobileNotificationFeedMarkAllRead(params _: [String: Any]) -> V2CallResult {
         let store = TerminalNotificationStore.shared
         let marked = store.notificationFeedHistory.notifications.lazy.filter { !$0.isRead }.count
-        store.markAllRead()
+        store.markAllPhoneFeedRead()
         return .ok([
             "marked": marked,
             "revision": store.notificationFeedHistory.revision,

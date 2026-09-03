@@ -216,8 +216,9 @@ final class MobileStateSyncHost {
         } else {
             simulators = []
         }
-        let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
-        let unreadCount = notificationStore?.unreadCount(forTabId: workspace.id) ?? 0
+        let phoneSummary = notificationStore?.phoneWorkspaceNotificationSummary(forTabId: workspace.id)
+        let latestNotification = phoneSummary?.latest
+        let unreadCount = phoneSummary?.unreadCount ?? 0
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
             cachedDescriptionProjection(for: workspace),
