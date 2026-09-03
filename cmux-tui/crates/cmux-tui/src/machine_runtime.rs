@@ -914,6 +914,10 @@ fn local_hostname() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
@@ -1085,6 +1089,45 @@ mod tests {
         assert!(options.ssh_args.windows(2).any(|pair| pair == ["-i", "/tmp/cloud key"]));
         assert!(
             managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux tui").is_err()
+        );
+    }
+
+    #[test]
+    fn removing_a_connecting_machine_waits_for_the_connector_to_stop() {
+        let key = MachineKey(99);
+        let entered = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let connector: MachineConnectFn = {
+            let entered = Arc::clone(&entered);
+            let finished = Arc::clone(&finished);
+            let release_rx = Arc::clone(&release_rx);
+            Arc::new(move || {
+                entered.store(true, Ordering::Release);
+                let _ = release_rx.lock().expect("release receiver lock").recv();
+                finished.store(true, Ordering::Release);
+                Err(anyhow::anyhow!("connector released"))
+            })
+        };
+        let hub = MachineConnectionHub::with_warm_limit([(key, connector)], 2);
+        let connecting_hub = hub.clone();
+        let connect_thread = thread::spawn(move || connecting_hub.connect(key));
+
+        let entered_deadline = Instant::now() + Duration::from_secs(1);
+        while !entered.load(Ordering::Acquire) {
+            assert!(Instant::now() < entered_deadline, "connector did not start");
+            thread::yield_now();
+        }
+
+        hub.remove(key);
+        let joined_before_release = finished.load(Ordering::Acquire);
+        let _ = release_tx.send(());
+        let _ = connect_thread.join();
+
+        assert!(
+            joined_before_release,
+            "removing a connecting machine must cancel and join its connector"
         );
     }
 }
