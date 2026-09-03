@@ -192,6 +192,7 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            var didRegisterOptimistically = false
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Register it now and open it — a port pane is an
@@ -209,17 +210,23 @@ extension TerminalController {
                     port: port,
                     url: nil
                 ))
-                Task { @MainActor in
-                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
-                        await provider.refresh(force: true)
-                    }
-                }
+                didRegisterOptimistically = true
             }
             let opened = try await catalog.project(resource, into: destination, focus: focus, reuseExisting: false)
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
             let url = await catalog.resources[resource]?.url ?? ""
             payload["url"] = url
             payload["open_url"] = url
+            // Refresh after projection. A concurrent refresh can replace the
+            // optimistic resource before project() resolves it as a known
+            // resource, producing a spurious unknownResource error.
+            if didRegisterOptimistically {
+                Task { @MainActor in
+                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                        await provider.refresh(force: true)
+                    }
+                }
+            }
             return payload
         }
     }
