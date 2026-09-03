@@ -480,11 +480,62 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
+#[derive(Default)]
+struct ChildLifecycleState {
+    exited: bool,
+    termination_started: bool,
+}
+
+/// Fences control cleanup against the wait thread's final reap. The child PID
+/// remains reserved until `wait` returns, so a late control drop cannot signal
+/// an unrelated process after PID reuse.
+struct ChildLifecycle {
+    state: Mutex<ChildLifecycleState>,
+}
+
+impl ChildLifecycle {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(ChildLifecycleState::default()) })
+    }
+
+    fn mark_exited_before_reap(&self) {
+        self.state.lock().expect("child lifecycle lock").exited = true;
+    }
+
+    fn begin_termination(&self) -> bool {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.exited || state.termination_started {
+            return false;
+        }
+        state.termination_started = true;
+        true
+    }
+}
+
+fn force_kill_process_group(pid: libc::pid_t) {
+    if pid > 0 {
+        // `kill(2)` only queues the signal. It does not touch the blocking
+        // ChildKiller handle or wait for the child to exit.
+        unsafe {
+            let _ = libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
+    lifecycle: Arc<ChildLifecycle>,
+    process_group: libc::pid_t,
+}
+
+impl Drop for MasterControl {
+    fn drop(&mut self) {
+        if self.lifecycle.begin_termination() {
+            force_kill_process_group(self.process_group);
+        }
+    }
 }
 
 impl PtyControl for MasterControl {
@@ -502,8 +553,8 @@ impl PtyControl for MasterControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        if let Ok(mut killer) = self.killer.lock() {
-            let _ = killer.kill();
+        if self.lifecycle.begin_termination() {
+            force_kill_process_group(self.process_group);
         }
     }
 }
@@ -602,11 +653,13 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let cmux_pty::SpawnedPty { master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
-    let killer = child_cleanup.child().clone_killer();
+    let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
+    let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
-        killer: Mutex::new(killer),
+        lifecycle: Arc::clone(&lifecycle),
+        process_group: pid,
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
@@ -621,8 +674,20 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Blocking wait thread -> exit.
     let mut child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
+    let wait_lifecycle = Arc::clone(&lifecycle);
     std::thread::spawn(move || {
+        let observed_exit = child
+            .process_id()
+            .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok());
+        if observed_exit {
+            wait_lifecycle.mark_exited_before_reap();
+        } else if wait_lifecycle.begin_termination() {
+            // The wait thread owns the only blocking child handle. If WNOWAIT
+            // is unavailable, it is also the only thread allowed to kill it.
+            let _ = child.kill();
+        }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        wait_lifecycle.mark_exited_before_reap();
         exit_completion.child_exited(code);
     });
 
@@ -1068,7 +1133,7 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_pty::{ChildKiller, MasterPty};
+    use cmux_pty::MasterPty;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
@@ -1104,19 +1169,6 @@ mod tests {
 
         fn tty_name(&self) -> Option<std::path::PathBuf> {
             None
-        }
-    }
-
-    #[derive(Debug)]
-    struct TestChildKiller;
-
-    impl ChildKiller for TestChildKiller {
-        fn kill(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-
-        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-            Box::new(Self)
         }
     }
 
@@ -1340,15 +1392,24 @@ mod tests {
     }
 
     #[test]
-    fn master_control_kill_does_not_wait_for_killer_mutex() {
+    fn master_control_kill_is_nonblocking_and_eventually_reaps() {
+        let mut child = std::process::Command::new("/bin/sh");
+        child.args(["-c", "sleep 30"]);
+        unsafe {
+            child.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = child.spawn().expect("test child");
         let control = TestArc::new(MasterControl {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
-            killer: TestMutex::new(
-                Box::new(TestChildKiller) as Box<dyn ChildKiller + Send + Sync>
-            ),
+            lifecycle: ChildLifecycle::new(),
+            process_group: child.id() as libc::pid_t,
         });
-        let held = control.killer.lock().expect("test killer lock");
         let (done_tx, done_rx) = mpsc::channel();
         let kill_control = TestArc::clone(&control);
         thread::spawn(move || {
@@ -1358,9 +1419,47 @@ mod tests {
 
         assert!(
             done_rx.recv_timeout(Duration::from_millis(100)).is_ok(),
-            "PTY kill must not wait for a synchronous child-killer lock"
+            "PTY kill must not wait for child cleanup"
         );
-        drop(held);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if child.try_wait().expect("test child status").is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "PTY kill must eventually terminate the child");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn master_control_drop_eventually_reaps_child() {
+        let mut child = std::process::Command::new("/bin/sh");
+        child.args(["-c", "sleep 30"]);
+        unsafe {
+            child.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = child.spawn().expect("test child");
+        let control = MasterControl {
+            master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
+            writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
+            lifecycle: ChildLifecycle::new(),
+            process_group: child.id() as libc::pid_t,
+        };
+        drop(control);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if child.try_wait().expect("test child status").is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "dropping PTY control must terminate the child");
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
