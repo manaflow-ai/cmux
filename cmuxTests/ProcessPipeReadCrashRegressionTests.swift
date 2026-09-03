@@ -64,4 +64,18 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
         XCTAssertEqual(result.machineId, "calm-petrel")
         XCTAssertLessThanOrEqual(result.stdout.utf8.count, 32 * 1024)
     }
+
+    func testProcessOutputCollectorSkipsMalformedBytesAndKeepsFollowingText() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr)
+        collector.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data([0xFF, 0x45, 0x72, 0x72, 0x6F, 0x72]))
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
+        let result = collector.finishResult()
+
+        XCTAssertTrue(result.stdout.contains("Error"))
+    }
 }
