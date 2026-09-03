@@ -395,6 +395,11 @@ jobs:
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
 
+      - name: Lint remote-tmux for time-based waits
+        run: |
+          ./scripts/lint-remote-tmux-no-polling.test.sh
+          ./scripts/lint-remote-tmux-no-polling.sh
+
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
 
