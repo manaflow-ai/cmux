@@ -1253,6 +1253,7 @@ struct WorkerCompletion {
     changed: Condvar,
     admission: Mutex<Option<WorkerSlot>>,
     handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread_id: Mutex<Option<std::thread::ThreadId>>,
     runtime: Arc<WorkerRuntime>,
     wake_reaper: bool,
     #[cfg(test)]
@@ -1282,6 +1283,7 @@ impl WorkerCompletion {
             changed: Condvar::new(),
             admission: Mutex::new(slot),
             handle: Mutex::new(None),
+            thread_id: Mutex::new(None),
             runtime,
             wake_reaper,
             #[cfg(test)]
@@ -1312,6 +1314,18 @@ impl WorkerCompletion {
 
     fn take_handle(&self) -> Option<std::thread::JoinHandle<()>> {
         self.handle.lock().unwrap_or_else(|poison| poison.into_inner()).take()
+    }
+
+    fn set_thread_id(&self) {
+        *self.thread_id.lock().unwrap_or_else(|poison| poison.into_inner()) =
+            Some(std::thread::current().id());
+    }
+
+    fn is_current_thread(&self) -> bool {
+        self.thread_id
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .is_some_and(|id| id == std::thread::current().id())
     }
 
     fn reap_owned_handle(self: &Arc<Self>) {
@@ -1852,6 +1866,9 @@ impl InteractiveWriter {
     fn join_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let Some(handle) = self.shared.worker_completion.take_handle() else {
+            if self.shared.worker_completion.is_current_thread() {
+                return;
+            }
             let _ = self
                 .shared
                 .worker_completion
@@ -1941,6 +1958,7 @@ fn interactive_writer_worker(
     mut writer: Box<dyn RemoteMessageWriter>,
     worker_completion: Arc<WorkerCompletion>,
 ) {
+    worker_completion.set_thread_id();
     let _completion = WorkerCompletionGuard(worker_completion);
     loop {
         let write = {
@@ -2457,6 +2475,7 @@ impl RemoteSession {
         let reader_worker = std::thread::Builder::new()
             .name("remote-reader".into())
             .spawn(move || {
+                reader_completion_for_worker.set_thread_id();
                 let _completion = WorkerCompletionGuard(reader_completion_for_worker);
                 let mut report_progress = |partial: &[u8]| {
                     if let Some(session) = reader_session.upgrade() {
@@ -3514,6 +3533,9 @@ impl RemoteSession {
     fn join_reader_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let Some(handle) = self.reader_completion.take_handle() else {
+            if self.reader_completion.is_current_thread() {
+                return;
+            }
             let _ = self.reader_completion.wait(deadline.saturating_duration_since(Instant::now()));
             return;
         };
