@@ -84,7 +84,12 @@ where
 
         if is_value_flag(argument) {
             let value = match args.get(index + 1).map(String::as_str) {
-                Some(value) if !value.is_empty() && value != "--" && !is_known_option(value) => {
+                Some(value)
+                    if !value.is_empty()
+                        && value != "--"
+                        && !value.starts_with("--")
+                        && !is_known_option(value) =>
+                {
                     value.to_owned()
                 }
                 _ => return Err(missing_value(argument)),
@@ -233,6 +238,7 @@ mod tests {
             &["--backend", "--code"][..],
             &["--backend", "--"][..],
             &["--allow-root", "--status"][..],
+            &["--config", "--confg"][..],
         ] {
             let error = parse(args).expect_err("missing value refused");
             assert!(error.message.contains("requires a value"), "{args:?}: {}", error.message);
