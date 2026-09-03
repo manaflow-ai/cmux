@@ -1092,10 +1092,12 @@ mod tests {
             .expect("first close callback signal");
 
         let closed = Arc::new(Notify::new());
+        let closed_wait = closed.notified();
+        tokio::pin!(closed_wait);
         let closed_for_handler = Arc::clone(&closed);
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
         release_tx.send(()).expect("release first close callback");
-        tokio::time::timeout(Duration::from_secs(1), closed.notified())
+        tokio::time::timeout(Duration::from_secs(1), &mut closed_wait)
             .await
             .expect("late close callback after callback race");
 
