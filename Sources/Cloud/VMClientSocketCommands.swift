@@ -375,6 +375,9 @@ extension TerminalController {
                     // account's enrollment, rotated keys): `vpn up` must replace it.
                     "stale": manager.isStale(),
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                    "tunnel_backend": VMTunnelBackendSelection.current.backend.rawValue,
+                    "network_extension_unavailable_reason":
+                        VMTunnelBackendSelection.current.unavailableReason?.rawValue ?? NSNull(),
                 ]
             }
         case "vm.tunnel_status":
@@ -382,16 +385,38 @@ extension TerminalController {
             // is already on disk. Never enrolls, so it is safe for scripts.
             return v2VmCall(id: id) {
                 let manager = VMTunnelManager()
+                let selection = VMTunnelBackendSelection.current
                 let fingerprint = (try? manager.deviceFingerprint()) ?? ""
                 let hasConfig = FileManager.default.fileExists(atPath: manager.configURL.path)
+                // `interface_up` means "the tunnel THIS build owns is up", so
+                // it has to come from whichever backend owns it: wg-quick's
+                // runtime name file, or NEVPNStatus. The wg-quick probe would
+                // report false forever under the app-managed backend, since the
+                // provider writes no /var/run/wireguard record.
+                var interfaceUp = manager.wgQuickInterfaceUp()
+                var vpnStatus: Any = NSNull()
+                if selection.backend == .networkExtension,
+                   let controller = VMTunnelExtensionController(selection: selection) {
+                    let status = await controller.status()
+                    vpnStatus = status.map(VMTunnelExtensionController.statusName) ?? NSNull()
+                    interfaceUp = status == .connected
+                }
                 return [
                     "config_path": manager.configURL.path,
                     "config_present": hasConfig,
                     "interface_name": manager.interfaceName,
-                    "interface_up": manager.wgQuickInterfaceUp(),
-                    "stale": manager.isStale(),
+                    "interface_up": interfaceUp,
+                    "vpn_status": vpnStatus,
+                    "stale": VMTunnelManager.isStale(
+                        interfaceUp: interfaceUp,
+                        appliedDigest: manager.appliedDigest(),
+                        configDigest: manager.configDigest()
+                    ),
                     "device_fingerprint": fingerprint,
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                    "tunnel_backend": selection.backend.rawValue,
+                    "network_extension_unavailable_reason": selection.unavailableReason?.rawValue ?? NSNull(),
+                    "backend_description": selection.statusDescription,
                 ]
             }
         case "vm.tunnel_applied":
@@ -409,6 +434,27 @@ extension TerminalController {
                     "digest": manager.appliedDigest() ?? NSNull(),
                     "stale": manager.isStale(),
                 ]
+            }
+        case "vm.tunnel_up":
+            // The app-managed bring-up: activate the bundled packet-tunnel
+            // system extension (one-time user approval) and start the VPN from
+            // the config `vm.tunnel_config` already wrote. Errors out with the
+            // concrete reason on a build that has no provider, so `cmux vpn up`
+            // never silently does nothing when it thought the app owned the
+            // tunnel.
+            return v2VmCall(id: id, timeoutSeconds: 120) {
+                let result = try await VMTunnelExtensionController.bringUp()
+                return [
+                    "backend": VMTunnelBackend.networkExtension.rawValue,
+                    "provider_bundle_identifier": result.providerBundleIdentifier,
+                    "activation_state": result.state.rawValue,
+                    "started": result.started,
+                ]
+            }
+        case "vm.tunnel_down":
+            return v2VmCall(id: id, timeoutSeconds: 60) {
+                try await VMTunnelExtensionController.takeDown()
+                return ["backend": VMTunnelBackend.networkExtension.rawValue, "stopped": true]
             }
         case "vm.tunnel_revoke":
             // Unenrolls this Mac server-side and removes the local config so a

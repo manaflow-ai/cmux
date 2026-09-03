@@ -85,6 +85,142 @@
         "ja": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } }
       }
     },
+    "cli.vpn.extensionNeedsApproval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve the cmux VPN extension in System Settings › General › Login Items & Extensions › Network Extensions, then run `cmux vpn up` again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定 › 一般 › ログイン項目と機能拡張 › ネットワーク機能拡張 で cmux の VPN 機能拡張を許可し、`cmux vpn up` を再実行してください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.extensionNeedsReboot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux VPN extension was updated and takes effect after you restart this Mac. Then run `cmux vpn up` again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の VPN 機能拡張が更新されました。この Mac を再起動すると有効になります。その後 `cmux vpn up` を再実行してください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.vpnState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN state: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN の状態: %@"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.backend.networkExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app-managed (NetworkExtension, no sudo)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ管理 (NetworkExtension、sudo 不要)"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.backend.wgQuick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.backend.wgQuickNoProvider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick (this build embeds no packet-tunnel system extension)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick (このビルドにはパケットトンネルのシステム機能拡張が含まれていません)"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.backend.wgQuickUnentitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick (this build carries no packet-tunnel entitlement)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick (このビルドにはパケットトンネルのエンタイトルメントがありません)"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.vpnName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud VMs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux クラウド VM"
+          }
+        }
+      }
+    },
     "socket.surfaceSelection.noFocusedSurface": {
       "extractionState": "manual",
       "localizations": {

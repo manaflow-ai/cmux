@@ -69,6 +69,13 @@ extension CMUXCLI {
             return
         }
 
+        // The app tells this process which backend it actually has; there is no
+        // probing here, and no attempt at wg-quick on a build that owns a VPN.
+        if Self.backend(of: response) == Self.networkExtensionBackend {
+            try runVPNUpAppManaged(client: client, response: response, jsonOutput: jsonOutput)
+            return
+        }
+
         guard let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) else {
             throw CLIError(message: """
                 wg-quick is not installed, and this cmux build cannot manage the tunnel itself.
@@ -137,6 +144,56 @@ extension CMUXCLI {
         try? runVPNHostsSync(client: client, jsonOutput: jsonOutput, quiet: !jsonOutput, scope: response["interface_name"] as? String)
     }
 
+    /// `network-extension`, matching `VMTunnelBackend`'s raw value. Compared as
+    /// a string because the CLI is a separate binary from the app and a stale
+    /// CLI must degrade to wg-quick rather than mis-steer.
+    static let networkExtensionBackend = "network-extension"
+
+    /// The backend the app advertises, or nil when talking to a cmux old enough
+    /// not to advertise one (in which case wg-quick was the only backend).
+    private static func backend(of response: [String: Any]) -> String? {
+        if let backend = response["tunnel_backend"] as? String, !backend.isEmpty { return backend }
+        return nil
+    }
+
+    /// Hand bring-up to the app: it activates the bundled packet-tunnel system
+    /// extension and starts the VPN. No sudo, and the first run asks the user
+    /// once in System Settings.
+    private func runVPNUpAppManaged(client: SocketClient, response: [String: Any], jsonOutput: Bool) throws {
+        let result = try client.sendV2(method: "vm.tunnel_up", responseTimeout: 180)
+        let started = (result["started"] as? Bool) ?? false
+        let state = (result["activation_state"] as? String) ?? ""
+        if jsonOutput {
+            print(jsonString([
+                "status": started ? "up" : "pending-approval",
+                "changed": started,
+                "backend": Self.networkExtensionBackend,
+                "activation_state": state,
+            ]))
+            return
+        }
+        guard started else {
+            // The extension is staged but not loaded, so there is nothing to
+            // connect yet. Name the exact place to click rather than "check
+            // System Settings".
+            if state == "awaiting-reboot" {
+                print(String(
+                    localized: "cli.vpn.extensionNeedsReboot",
+                    defaultValue: "The cmux VPN extension was updated and takes effect after you restart this Mac. Then run `cmux vpn up` again."
+                ))
+            } else {
+                print(String(
+                    localized: "cli.vpn.extensionNeedsApproval",
+                    defaultValue: "Approve the cmux VPN extension in System Settings \u{203A} General \u{203A} Login Items & Extensions \u{203A} Network Extensions, then run `cmux vpn up` again."
+                ))
+            }
+            return
+        }
+        print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up."))
+        printVPNAddresses(response)
+        try? runVPNHostsSync(client: client, jsonOutput: jsonOutput, quiet: true, scope: response["interface_name"] as? String)
+    }
+
     private func runVPNDown(client: SocketClient, jsonOutput: Bool) throws {
         let response = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
         let configPath = (response["config_path"] as? String) ?? ""
@@ -151,6 +208,15 @@ extension CMUXCLI {
         }
         guard !configPath.isEmpty, FileManager.default.fileExists(atPath: configPath) else {
             throw CLIError(message: "No tunnel config found at \(configPath). Run `cmux vpn up` to re-create it.")
+        }
+        if Self.backend(of: response) == Self.networkExtensionBackend {
+            _ = try client.sendV2(method: "vm.tunnel_down", responseTimeout: 60)
+            if jsonOutput {
+                print(jsonString(["status": "down", "changed": true, "backend": Self.networkExtensionBackend]))
+            } else {
+                print(String(localized: "cli.vpn.down", defaultValue: "Tunnel is down."))
+            }
+            return
         }
         guard let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) else {
             throw CLIError(message: "wg-quick is not installed. Install with: brew install wireguard-tools")
@@ -274,8 +340,18 @@ extension CMUXCLI {
             let format = String(localized: "cli.vpn.status.config", defaultValue: "Config: %@")
             print(String(format: format, path))
         }
+        if let vpnStatus = response["vpn_status"] as? String, !vpnStatus.isEmpty {
+            // Only the app-managed backend has one, and it is the difference
+            // between "connecting" and "stuck".
+            let format = String(localized: "cli.vpn.status.vpnState", defaultValue: "VPN state: %@")
+            print(String(format: format, vpnStatus))
+        }
         let backendFormat = String(localized: "cli.vpn.status.backend", defaultValue: "Backend: %@")
-        print(String(format: backendFormat, neAvailable ? "app-managed (NetworkExtension)" : "wg-quick"))
+        // The app describes its own backend, including why the app-managed one
+        // is unavailable, so a stale CLI cannot invent a reason.
+        let described = (response["backend_description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (neAvailable ? "app-managed (NetworkExtension)" : "wg-quick")
+        print(String(format: backendFormat, described))
         if !neAvailable, Self.firstExecutable(Self.wgQuickCandidates) == nil {
             print(String(
                 localized: "cli.vpn.status.wgQuickMissing",

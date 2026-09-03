@@ -18597,8 +18597,7 @@ struct CMUXCLI {
             exec, and port verbs need this tunnel up.
 
             up      Enroll this Mac (first run), bring the tunnel up, and sync
-                    internal hostnames. Uses wg-quick and prompts for sudo;
-                    install with `brew install wireguard-tools`.
+                    internal hostnames.
             down    Take the tunnel down. Enrollment is kept.
             status  Show tunnel state, config path, and backend.
             revoke  Take the tunnel down, unenroll this Mac, and clear its
@@ -18612,6 +18611,12 @@ struct CMUXCLI {
 
             The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
             with the private key generated on this Mac; the key never leaves it.
+
+            Two backends, and `status` says which one this build has. When the
+            app embeds its packet-tunnel system extension it owns the tunnel as
+            a real macOS VPN: approve it once in System Settings, then no sudo
+            ever. Otherwise `up` runs `sudo wg-quick up` on that config, which
+            needs `brew install wireguard-tools`.
             """
         case "auth":
             return """

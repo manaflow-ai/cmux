@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import Security
 
 /// This Mac's membership in the user's private Cloud VM network.
 ///
@@ -22,11 +21,12 @@ import Security
 /// - **wg-quick** (`cmux vpn up`) — the shipping path. The CLI runs
 ///   `sudo wg-quick up` against the config this manager wrote; sudo in the
 ///   user's own terminal is the honest privilege prompt.
-/// - **NetworkExtension** — the long-term path, pending the
-///   `com.apple.developer.networking.networkextension` entitlement. When a
-///   build carries it, the app can own the tunnel as a real macOS VPN with no
-///   admin prompt. `networkExtensionAvailable` gates that branch at runtime so
-///   the same build degrades to the CLI path when the entitlement is absent.
+/// - **NetworkExtension** — the long-term path. When a build both carries the
+///   packet-tunnel entitlement and embeds the packet-tunnel system extension,
+///   the app owns the tunnel as a real macOS VPN: one approval in System
+///   Settings, then no admin prompt ever again. `VMTunnelBackendSelection`
+///   resolves which backend the running build actually has, so the same binary
+///   degrades to the CLI path — and says why — when either half is missing.
 struct VMTunnelManager: Sendable {
     struct LocalTunnelState: Sendable {
         let endpoint: VMTunnelEndpoint
@@ -106,19 +106,39 @@ struct VMTunnelManager: Sendable {
 
     /// Whether this build can own the tunnel as a NetworkExtension VPN.
     ///
-    /// Reads the signed entitlement rather than trying to configure a manager,
-    /// so an unentitled build never shows the user a doomed VPN prompt. Today
-    /// no build carries the entitlement; when release signing gains it, this
-    /// flips to true with no code change and `cmux vpn up` starts steering to
-    /// the app-managed tunnel.
+    /// True only when the code signature grants a packet-tunnel provider AND
+    /// this bundle embeds one to drive; see `VMTunnelBackendSelection` for why
+    /// the entitlement alone is not enough (Developer ID profiles have carried
+    /// the capability since 2026-09-01, so entitlement presence stopped
+    /// implying that a provider exists).
     static func networkExtensionAvailable() -> Bool {
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        let key = "com.apple.developer.networking.networkextension" as CFString
-        guard let raw = SecTaskCopyValueForEntitlement(task, key, nil) else { return false }
-        if let capabilities = raw as? [String] {
-            return capabilities.contains("packet-tunnel-provider")
+        VMTunnelBackendSelection.current.backend == .networkExtension
+    }
+
+    /// The `PrivateKey` this Mac's config carries, read straight from the 0600
+    /// file rather than re-derived, so the app-managed backend hands the
+    /// provider the exact key the enrollment registered. Never leaves the app
+    /// process except as a keychain item the sandboxed provider reads back.
+    func configuredPrivateKey() throws -> String {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            throw TunnelError.configMalformed("no tunnel config at \(configURL.path)")
         }
-        return false
+        for rawLine in config.components(separatedBy: "\n") {
+            let parts = rawLine.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "privatekey" else { continue }
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            if !value.isEmpty { return value }
+        }
+        throw TunnelError.configMalformed("the tunnel config has no PrivateKey")
+    }
+
+    /// The config on disk parsed for the app-managed backend.
+    func parsedConfiguration() throws -> VMTunnelConfiguration {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            throw TunnelError.configMalformed("no tunnel config at \(configURL.path)")
+        }
+        return try VMTunnelConfiguration(wgQuickConfig: config)
     }
 
     /// The stable per-installation device fingerprint, minted on first use.
@@ -239,6 +259,13 @@ struct VMTunnelManager: Sendable {
     /// Why a private-network route cannot work right now — the line the
     /// sidebar shows ahead of the raw link error — or nil when the tunnel is
     /// up with the current enrollment.
+    ///
+    /// Reports on the wg-quick backend, which is every build's backend until one
+    /// embeds the packet-tunnel provider (see `VMTunnelBackendSelection`). The
+    /// app-managed backend's liveness is `NEVPNStatus`, which only an async load
+    /// can read, so the sidebar's synchronous blocker moves to it in the change
+    /// that ships the provider — not before, where it would only add an
+    /// unreachable branch.
     func privateRouteBlocker() -> String? {
         let up = wgQuickInterfaceUp()
         return Self.privateRouteBlocker(interfaceUp: up, stale: up && isStale())
