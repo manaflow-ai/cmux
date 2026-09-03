@@ -213,10 +213,11 @@ extension TerminalController {
                 didRegisterOptimistically = true
             }
             defer {
-                guard didRegisterOptimistically else { return }
-                Task { @MainActor in
-                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
-                        await provider.refresh(force: true)
+                if didRegisterOptimistically {
+                    Task { @MainActor in
+                        if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                            await provider.refresh(force: true)
+                        }
                     }
                 }
             }
