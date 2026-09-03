@@ -334,6 +334,11 @@ if "archive" in args:
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
+    auth_environment = setting("CMUX_IOS_AUTH_ENV=")
+    api_base_url = setting("CMUX_API_BASE_URL=")
+    iroh_broker_base_url = setting("CMUX_IROH_BROKER_BASE_URL=")
+    presence_base_url = setting("CMUX_PRESENCE_BASE_URL=")
+    dev_tag = setting("CMUX_DEV_TAG=")
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -353,6 +358,11 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
+            "CMUXAuthEnvironment": auth_environment,
+            "CMUXApiBaseURL": api_base_url,
+            "CMUXIrohBrokerBaseURL": iroh_broker_base_url,
+            "CMUXPresenceBaseURL": presence_base_url,
+            "CMUXDevTag": dev_tag,
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -562,6 +572,13 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
+        "CMUXAuthEnvironment": "production",
+        "CMUXApiBaseURL": "https://cmux.com",
+        "CMUXIrohBrokerBaseURL": "https://cmux.com",
+        "CMUXPresenceBaseURL": "https://presence.cmux.dev",
+        "CMUXDevTag": "",
+        "CMUXCrashReportingEnabled": "YES",
+        "CMUXKeychainAccessGroup": f"{TEAM_ID}.{bundle_id}",
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)
@@ -587,6 +604,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/upload-testflight.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        "scripts/lib/verify-ios-release-origins.sh",
     ):
         source = ROOT / relative
         destination = repo / relative
@@ -668,6 +686,20 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
         "beta archive keeps crash reporting enabled",
     )
+    for setting_name, expected_value, description in (
+        ("CMUX_IOS_AUTH_ENV", "production", "beta archive uses production auth"),
+        ("CMUX_API_BASE_URL", "https://cmux.com", "beta archive uses the production API origin"),
+        ("CMUX_IROH_BROKER_BASE_URL", "https://cmux.com", "beta archive uses the production Iroh origin"),
+        (
+            "CMUX_PRESENCE_BASE_URL",
+            "https://presence.cmux.dev",
+            "beta archive uses the production presence origin",
+        ),
+    ):
+        _check(
+            f"{setting_name}={expected_value}" in archive_call,
+            description,
+        )
 
     export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
     profiles = export_options.get("provisioningProfiles", {})
