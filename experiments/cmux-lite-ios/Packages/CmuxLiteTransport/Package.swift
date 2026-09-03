@@ -3,46 +3,37 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxIrohTransport",
+    name: "CmuxLiteTransport",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxIrohTransport",
-            targets: ["CmuxIrohTransport"]
+            name: "CmuxLiteTransport",
+            targets: ["CmuxLiteTransport"]
         ),
     ],
     dependencies: [
-        .package(path: "../CMUXMobileCore"),
-        .package(
-            url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            branch: "cmux-lite"
-        ),
+        .package(path: "../CmuxLiteProtocol"),
     ],
     targets: [
         .target(
-            name: "CmuxIrohTransport",
+            name: "CmuxLiteTransport",
             dependencies: [
-                "CMUXMobileCore",
-                .product(name: "IrohLib", package: "iroh-ffi"),
+                .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
-            ],
-            linkerSettings: [
-                .linkedFramework("Security"),
             ]
         ),
         .testTarget(
-            name: "CmuxIrohTransportTests",
+            name: "CmuxLiteTransportTests",
             dependencies: [
-                "CmuxIrohTransport",
-                "CMUXMobileCore",
-                .product(name: "IrohLib", package: "iroh-ffi"),
+                "CmuxLiteTransport",
+                .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

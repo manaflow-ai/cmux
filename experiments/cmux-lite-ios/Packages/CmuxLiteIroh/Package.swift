@@ -3,19 +3,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxIrohTransport",
+    name: "CmuxLiteIroh",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxIrohTransport",
-            targets: ["CmuxIrohTransport"]
+            name: "CmuxLiteIroh",
+            targets: ["CmuxLiteIroh"]
         ),
     ],
     dependencies: [
-        .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxLiteProtocol"),
+        .package(path: "../CmuxLiteSession"),
+        .package(path: "../CmuxLiteTransport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
             branch: "cmux-lite"
@@ -23,25 +25,26 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CmuxIrohTransport",
+            name: "CmuxLiteIroh",
             dependencies: [
-                "CMUXMobileCore",
+                .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
+                .product(name: "CmuxLiteSession", package: "CmuxLiteSession"),
+                .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
-            ],
-            linkerSettings: [
-                .linkedFramework("Security"),
             ]
         ),
         .testTarget(
-            name: "CmuxIrohTransportTests",
+            name: "CmuxLiteIrohTests",
             dependencies: [
-                "CmuxIrohTransport",
-                "CMUXMobileCore",
+                "CmuxLiteIroh",
+                .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
+                .product(name: "CmuxLiteSession", package: "CmuxLiteSession"),
+                .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
