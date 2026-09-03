@@ -494,14 +494,14 @@ extension CMUXCLI {
                 // local title rename path then has one exact remote target after a
                 // fresh open, without relying on a later catalog refresh or a
                 // name-based inference.
-                if let remoteWorkspaceID, !remoteWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let remoteWorkspaceId, !remoteWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     _ = try client.sendV2(
                         method: "workspace.cloud_vm_bind",
                         params: [
                             "workspace_id": workspaceId,
                             "vm_id": vmId,
                             "base": options.pinAsBase,
-                            "remote_workspace_id": remoteWorkspaceID,
+                            "remote_workspace_id": remoteWorkspaceId,
                         ]
                     )
                 }
