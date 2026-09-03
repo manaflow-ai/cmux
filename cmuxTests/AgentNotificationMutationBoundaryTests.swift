@@ -225,7 +225,7 @@ extension AgentNotificationRegressionTests {
         )
         bus.drainForTesting()
         #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.statusEntries["omp"] == nil)
-        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == nil)
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == .running)
 
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(dockOwnerId),
@@ -238,12 +238,6 @@ extension AgentNotificationRegressionTests {
             format: .plain,
             panelID: fixture.panelId,
             pid: nil
-        )
-        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
-            target: .workspace(dockOwnerId),
-            key: "omp",
-            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
-            panelID: fixture.panelId
         )
         bus.drainForTesting()
         #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == .running)
@@ -259,6 +253,19 @@ extension AgentNotificationRegressionTests {
             ) == fixture.panelId
         )
         #expect(fixture.destination.statusEntries["omp"]?.value == "Running")
+        #expect(fixture.destination.agentPIDs[sessionKey] == getpid())
+        #expect(
+            fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
+                == .running
+        )
+
+        TerminalController.shared.controlSidebarScheduleStatusClear(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+        #expect(fixture.destination.statusEntries["omp"] == nil)
         #expect(fixture.destination.agentPIDs[sessionKey] == getpid())
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
