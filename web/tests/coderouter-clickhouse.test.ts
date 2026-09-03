@@ -155,7 +155,7 @@ describe("CodeRouter ClickHouse client", () => {
       config: () => config,
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
         markStarted();
-        requestSignal = init?.signal;
+        requestSignal = init?.signal ?? undefined;
         return await new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => {
             reject(new Error("aborted"));
