@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::link::{FrameLink, LinkError};
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const SCHEDULER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const SCHEDULER_ABORT_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -76,7 +77,9 @@ impl Drop for CloseUncommittedLink {
         let Some(link) = self.0.take() else { return };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
         runtime.spawn(async move {
-            let _ = tokio::time::timeout(RECONNECT_CLEANUP_TIMEOUT, link.close()).await;
+            if tokio::time::timeout(RECONNECT_CLEANUP_TIMEOUT, link.close()).await.is_err() {
+                link.abort_close();
+            }
         });
     }
 }
@@ -527,9 +530,17 @@ impl ReliableSession {
             progress.notify_waiters();
         }
         // Stop ACK production first. Lane writers keep an already admitted
-        // frame in flight, then observe cancellation after the link closes.
+        // frame in flight, then observe cancellation after link close completes
+        // or reaches its deadline.
         self.scheduler.request_shutdown();
-        let link_result = self.link.close().await.map_err(SessionError::Link);
+        let link_result = match tokio::time::timeout(SESSION_CLOSE_TIMEOUT, self.link.close()).await
+        {
+            Ok(result) => result.map_err(SessionError::Link),
+            Err(_) => {
+                self.link.abort_close();
+                Err(SessionError::Link(LinkError::Transport("timed out closing link".into())))
+            }
+        };
         let scheduler_result = self.scheduler.wait_for_shutdown().await;
         match (link_result, scheduler_result) {
             (Err(error), _) => Err(error),
@@ -1204,6 +1215,13 @@ mod tests {
         send_release: Semaphore,
     }
 
+    struct StuckCloseLink;
+
+    struct CloseTrackedLink {
+        started: Arc<Semaphore>,
+        aborted: Arc<Semaphore>,
+    }
+
     #[async_trait]
     impl FrameLink for RejectingLink {
         fn description(&self) -> &str {
@@ -1320,6 +1338,57 @@ mod tests {
 
         async fn close(&self) -> Result<(), LinkError> {
             Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for StuckCloseLink {
+        fn description(&self) -> &str {
+            "stuck-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for CloseTrackedLink {
+        fn description(&self) -> &str {
+            "close-tracked"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.started.add_permits(1);
+            std::future::pending().await
+        }
+
+        fn abort_close(&self) {
+            self.aborted.add_permits(1);
         }
     }
 
@@ -1644,6 +1713,55 @@ mod tests {
         drop(session);
         drop(link);
         assert!(weak_link.upgrade().is_none(), "close retained the stuck worker link");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_times_out_when_link_close_stalls() {
+        let session = ReliableSession::new(
+            SessionId([23; 16]),
+            Arc::new(StuckCloseLink),
+            SessionLimits::default(),
+        );
+        let close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let result = result.await.expect("close remained blocked on link close").unwrap();
+        assert!(matches!(
+            result,
+            Err(SessionError::Link(LinkError::Transport(message)))
+                if message == "timed out closing link"
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropped_uncommitted_link_aborts_timed_out_close() {
+        let started = Arc::new(Semaphore::new(0));
+        let aborted = Arc::new(Semaphore::new(0));
+        let link =
+            Arc::new(CloseTrackedLink { started: started.clone(), aborted: aborted.clone() });
+        let weak_link = Arc::downgrade(&link);
+        drop(CloseUncommittedLink(Some(link)));
+
+        let started_wait = tokio::time::timeout(Duration::from_secs(1), started.acquire());
+        tokio::pin!(started_wait);
+        tokio::task::yield_now().await;
+        started_wait.await.expect("uncommitted link cleanup did not start").unwrap().forget();
+
+        tokio::time::advance(RECONNECT_CLEANUP_TIMEOUT + Duration::from_secs(1)).await;
+        let aborted_wait = tokio::time::timeout(Duration::from_secs(1), aborted.acquire());
+        tokio::pin!(aborted_wait);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        aborted_wait.await.expect("timed-out cleanup did not abort the link").unwrap().forget();
+        assert!(weak_link.upgrade().is_none(), "timed-out cleanup retained the link");
     }
 
     #[tokio::test]
