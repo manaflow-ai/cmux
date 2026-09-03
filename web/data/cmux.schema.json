@@ -58,7 +58,7 @@
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
+      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, setup (a bootstrap command sent to the first terminal before its own command), terminalBackground, and terminalForeground (#RRGGBB hex colors applied via OSC 11/10 to every terminal the workspace launches).",
       "type": "array",
       "items": {
         "type": "object",
