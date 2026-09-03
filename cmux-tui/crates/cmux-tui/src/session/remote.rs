@@ -6,8 +6,6 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-#[cfg(test)]
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -1402,12 +1400,20 @@ struct WorkerRuntime {
     reaper: Arc<Mutex<ReaperState>>,
 }
 
+static PROCESS_WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new();
+
+fn process_worker_admission() -> Arc<WorkerAdmission> {
+    PROCESS_WORKER_ADMISSION
+        .get_or_init(|| {
+            Arc::new(WorkerAdmission { available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT) })
+        })
+        .clone()
+}
+
 impl WorkerRuntime {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            admission: Arc::new(WorkerAdmission {
-                available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT),
-            }),
+            admission: process_worker_admission(),
             reaper: Arc::new(Mutex::new(ReaperState {
                 sender: None,
                 worker: None,
