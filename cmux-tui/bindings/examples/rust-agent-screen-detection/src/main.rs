@@ -161,14 +161,12 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
     if live {
         if process.is_some() || screen_path.is_some() || !title.is_empty() || !progress.is_empty() {
             return print_error(
-                "--live cannot be combined with --process, --screen, --title, or --progress"
-                    .into(),
+                "--live cannot be combined with --process, --screen, --title, or --progress".into(),
             );
         }
         let Some(target) = live_target else {
             return print_error(
-                "usage: cmux-agent-screen-detection explain --live <terminal-id-or-title>"
-                    .into(),
+                "usage: cmux-agent-screen-detection explain --live <terminal-id-or-title>".into(),
             );
         };
         let socket = match env::var("CMUX_TUI_SOCKET") {
