@@ -250,11 +250,24 @@ final class SidebarRowIconTextLine: NSView {
     private let secondTextView = SidebarRowTextView(lines: 1)
     private var iconSize: CGFloat = 0
     private var stacked = false
+    private let statusIconImageLoader: (any SidebarStatusIconImageLoading)?
+    private var imageLoadTask: Task<Void, Never>?
 
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
+        statusIconImageLoader = nil
         super.init(frame: frameRect)
+        setUpSubviews()
+    }
+
+    init(statusIconImageLoader: (any SidebarStatusIconImageLoading)?) {
+        self.statusIconImageLoader = statusIconImageLoader
+        super.init(frame: .zero)
+        setUpSubviews()
+    }
+
+    private func setUpSubviews() {
         iconView.imageScaling = .scaleProportionallyDown
         addSubview(iconView)
         addSubview(iconLabel)
@@ -292,6 +305,7 @@ final class SidebarRowIconTextLine: NSView {
                 iconLabel.isHidden = false
                 iconLabel.stringValue = value
                 iconLabel.font = .systemFont(ofSize: model.scaled(9))
+                iconLabel.textColor = color
                 iconSize = model.scaled(9) + 3
             case .text(let value):
                 iconLabel.isHidden = false
@@ -300,10 +314,15 @@ final class SidebarRowIconTextLine: NSView {
                 iconLabel.textColor = color
                 iconSize = model.scaled(8) + 3
             case .imageFile(let path):
-                if let image = SidebarStatusIconImageLoader.image(at: path) {
+                guard let statusIconImageLoader else { break }
+                imageLoadTask = Task { [weak self] in
+                    guard let image = await statusIconImageLoader.image(at: path),
+                          !Task.isCancelled,
+                          let self else { return }
                     iconView.isHidden = false
-                    iconView.image = image
+                    iconView.image = NSImage(cgImage: image, size: .zero)
                     iconSize = model.scaled(10) + 3
+                    needsLayout = true
                 }
             case .systemSymbol(let name):
                 if let image = RenderableSystemSymbol.configuredAppKitImage(
@@ -452,6 +471,8 @@ final class SidebarRowIconTextLine: NSView {
     }
 
     private func resetPrimaryContent() {
+        imageLoadTask?.cancel()
+        imageLoadTask = nil
         textView.isHidden = true
         textView.stringValue = ""
         textView.attributedStringValue = NSAttributedString(string: "")

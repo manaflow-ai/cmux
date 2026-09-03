@@ -1,64 +1,118 @@
-public import AppKit
-import Foundation
+public import CoreGraphics
+public import Foundation
+import ImageIO
 
-/// Bounded local-image loader shared by the built-in sidebar renderers.
+/// Actor-backed local-image loader shared by the built-in sidebar renderers.
 ///
-/// The cache key includes file metadata so replacing an image in place is
-/// picked up the next time its status row is configured.
-@MainActor
-public enum SidebarStatusIconImageLoader {
-    private static let maxImageBytes = 1_000_000
-    private static let cacheLimit = 64
-    private static let allowedExtensions = Set([
-        "bmp", "gif", "heic", "icns", "ico", "jpeg", "jpg", "pdf", "png", "tif", "tiff", "webp",
-    ])
+/// File access is injected so callers and tests can supply isolated implementations.
+/// Reads, validation, decoding, and cache mutation all run away from the main actor.
+public actor SidebarStatusIconImageLoader: SidebarStatusIconImageLoading {
+    /// Function used to read one bounded local file.
+    public typealias ReadFile = @Sendable (_ path: String, _ maximumByteCount: Int) -> Data?
 
     private struct CacheKey: Hashable {
         let path: String
-        let fileSize: Int
-        let modificationDate: Date
+        let data: Data
     }
 
-    private static var images: [CacheKey: NSImage] = [:]
-    private static var insertionOrder: [CacheKey] = []
+    private struct CacheEntry {
+        let image: CGImage
+        let decodedByteCount: Int
+    }
 
-    /// Loads an absolute local path or a path beginning with `~`.
-    public static func image(at rawPath: String) -> NSImage? {
+    private static let maxImageBytes = 1_000_000
+    private static let maxPixelCount = 4_194_304
+    private static let maxDecodedCacheBytes = 32 * 1024 * 1024
+    private static let cacheLimit = 64
+    private static let allowedExtensions = Set([
+        "bmp", "gif", "heic", "icns", "ico", "jpeg", "jpg", "png", "tif", "tiff", "webp",
+    ])
+
+    private let readFile: ReadFile
+    private var images: [CacheKey: CacheEntry] = [:]
+    private var insertionOrder: [CacheKey] = []
+    private var decodedCacheByteCount = 0
+
+    /// Creates a loader with injected file access.
+    ///
+    /// - Parameter readFile: A function that reads at most the supplied byte limit.
+    public init(readFile: @escaping ReadFile) {
+        self.readFile = readFile
+    }
+
+    /// Creates a loader backed by a local descriptor-based file reader.
+    ///
+    /// - Parameter fileReader: The local file reader used for bounded reads.
+    public init(fileReader: SidebarStatusIconFileReader) {
+        self.readFile = { path, maximumByteCount in
+            fileReader.data(at: path, maximumByteCount: maximumByteCount)
+        }
+    }
+
+    /// Loads a bounded raster image from an absolute local path or a path beginning with `~`.
+    ///
+    /// Images larger than 1 MB encoded or 4,194,304 decoded pixels are rejected.
+    ///
+    /// - Parameter rawPath: The local image path from an `image:` status icon token.
+    /// - Returns: The decoded first frame, or `nil` when validation or decoding fails.
+    public func image(at rawPath: String) async -> CGImage? {
         let expandedPath = (rawPath as NSString).expandingTildeInPath
         guard (expandedPath as NSString).isAbsolutePath else { return nil }
 
         let path = (expandedPath as NSString).standardizingPath
         let url = URL(fileURLWithPath: path)
-        guard allowedExtensions.contains(url.pathExtension.lowercased()),
-              let values = try? url.resourceValues(forKeys: [
-                  .isRegularFileKey,
-                  .fileSizeKey,
-                  .contentModificationDateKey,
-              ]),
-              values.isRegularFile == true,
-              let fileSize = values.fileSize,
-              fileSize > 0,
-              fileSize <= maxImageBytes,
-              let modificationDate = values.contentModificationDate else {
+        guard Self.allowedExtensions.contains(url.pathExtension.lowercased()),
+              let data = readFile(path, Self.maxImageBytes),
+              !data.isEmpty,
+              data.count <= Self.maxImageBytes else {
             return nil
         }
 
-        let key = CacheKey(path: path, fileSize: fileSize, modificationDate: modificationDate)
+        let key = CacheKey(path: path, data: data)
         if let cached = images[key] {
-            return cached
+            return cached.image
         }
 
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              data.count <= maxImageBytes,
-              let image = NSImage(data: data) else {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+              Self.hasSafeDimensions(width: width.intValue, height: height.intValue),
+              let image = CGImageSourceCreateImageAtIndex(
+                  source,
+                  0,
+                  [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+              ),
+              Self.hasSafeDimensions(width: image.width, height: image.height) else {
             return nil
         }
-        image.isTemplate = false
-        images[key] = image
-        insertionOrder.append(key)
-        while insertionOrder.count > cacheLimit {
-            images.removeValue(forKey: insertionOrder.removeFirst())
+
+        let decodedByteCount = image.bytesPerRow.multipliedReportingOverflow(by: image.height)
+        guard !decodedByteCount.overflow,
+              decodedByteCount.partialValue <= Self.maxDecodedCacheBytes else {
+            return nil
         }
+        insert(CacheEntry(image: image, decodedByteCount: decodedByteCount.partialValue), for: key)
         return image
+    }
+
+    private static func hasSafeDimensions(width: Int, height: Int) -> Bool {
+        guard width > 0, height > 0 else { return false }
+        let pixels = width.multipliedReportingOverflow(by: height)
+        return !pixels.overflow && pixels.partialValue <= maxPixelCount
+    }
+
+    private func insert(_ entry: CacheEntry, for key: CacheKey) {
+        images[key] = entry
+        insertionOrder.append(key)
+        decodedCacheByteCount += entry.decodedByteCount
+        while insertionOrder.count > Self.cacheLimit
+            || decodedCacheByteCount > Self.maxDecodedCacheBytes {
+            let evictedKey = insertionOrder.removeFirst()
+            if let evicted = images.removeValue(forKey: evictedKey) {
+                decodedCacheByteCount -= evicted.decodedByteCount
+            }
+        }
     }
 }

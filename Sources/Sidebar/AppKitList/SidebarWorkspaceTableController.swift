@@ -3,11 +3,23 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSidebar
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private let statusIconImageLoader: any SidebarStatusIconImageLoading
+
+    init(
+        statusIconImageLoader: any SidebarStatusIconImageLoading = SidebarStatusIconImageLoader(
+            fileReader: SidebarStatusIconFileReader()
+        )
+    ) {
+        self.statusIconImageLoader = statusIconImageLoader
+        super.init()
+    }
+
     private struct DeferredRowClick {
         let rowId: SidebarWorkspaceRenderItemID
         let modifiers: NSEvent.ModifierFlags
@@ -1102,7 +1114,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let cell = tableView.makeView(
                 withIdentifier: SidebarWorkspaceRowTableCellView.reuseIdentifier,
                 owner: self
-            ) as? SidebarWorkspaceRowTableCellView ?? SidebarWorkspaceRowTableCellView()
+            ) as? SidebarWorkspaceRowTableCellView ?? SidebarWorkspaceRowTableCellView(
+                statusIconImageLoader: statusIconImageLoader
+            )
             createdCellViews.add(cell)
             configure(workspaceCell: cell, at: row)
             return cell
