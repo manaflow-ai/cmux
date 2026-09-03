@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -4183,6 +4184,7 @@ final class SocketClient {
             .joined(separator: "\n")
     }
 
+    /// Streams v2 protocol lines, replacing plain-text authorization failures with a localized CLI error.
     func streamV2(
         method: String,
         params: [String: Any] = [:],
@@ -4208,8 +4210,35 @@ final class SocketClient {
             deadline: deadline
         )
 
+        // The server resolves this key from the enclosing app bundle. The CLI
+        // executable has no catalog of its own, so use that same bundle when
+        // matching the wire response before mapping it to a CLIError below.
+        let localizedAccessDeniedResponse = "ERROR: " + String(
+            localized: "socket.client.accessDenied",
+            defaultValue: "Access denied - only processes started inside cmux can connect",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
         while true {
             let line = try readStreamLine(deadline: deadline)
+            if let errorKind = SocketStreamErrorKind.classify(
+                line: line,
+                localizedAccessDeniedResponse: localizedAccessDeniedResponse
+            ) {
+                switch errorKind {
+                case .accessDenied:
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.connectionDenied",
+                        defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ))
+                case .server:
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.server",
+                        defaultValue: "cmux returned an error while starting the event stream. Check the command and try again.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ))
+                }
+            }
             try onLine(line)
         }
     }

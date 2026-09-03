@@ -39598,6 +39598,256 @@
         }
       }
     },
+    "cli.events.error.connectionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الاتصال بـ cmux. شغّل هذا الأمر من طرفية cmux أو راجع الوصول إلى المقبس في الإعدادات > الأتمتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s cmuxom je odbijena. Pokrenite ovu naredbu iz cmux terminala ili provjerite pristup utičnici u Postavkama > Automatizacija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen til cmux blev afvist. Kør denne kommando fra en cmux-terminal, eller gennemgå socketadgangen under Indstillinger > Automatisering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu cmux wurde abgelehnt. Führen Sie diesen Befehl in einem cmux-Terminal aus oder überprüfen Sie den Socket-Zugriff unter Einstellungen > Automatisierung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se rechazó la conexión con cmux. Ejecuta este comando desde un terminal de cmux o revisa el acceso al socket en Ajustes > Automatización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à cmux a été refusée. Exécutez cette commande depuis un terminal cmux ou vérifiez l’accès au socket dans Réglages > Automatisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione a cmux è stata rifiutata. Esegui questo comando da un terminale cmux oppure verifica l’accesso al socket in Impostazioni > Automazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxへの接続が拒否されました。cmuxのターミナルからこのコマンドを実行するか、「設定」>「自動化」でソケットアクセスを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់ទៅ cmux ត្រូវបានបដិសេធ។ សូមដំណើរការពាក្យបញ្ជានេះពីស្ថានីយ cmux ឬពិនិត្យមើលការចូលប្រើ socket នៅ ការកំណត់ > ស្វ័យប្រវត្តិកម្ម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 연결이 거부되었습니다. cmux 터미널에서 이 명령을 실행하거나 설정 > 자동화에서 소켓 접근을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingen til cmux ble avvist. Kjør denne kommandoen fra en cmux-terminal, eller sjekk sokkeltilgangen under Innstillinger > Automatisering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmówiono połączenia z cmux. Uruchom to polecenie z terminala cmux albo sprawdź dostęp do gniazda w Ustawienia > Automatyzacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão com o cmux foi negada. Execute este comando em um terminal do cmux ou verifique o acesso ao socket em Ajustes > Automação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединение с cmux отклонено. Запустите эту команду из терминала cmux или проверьте доступ к сокету в разделе «Настройки» > «Автоматизация»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อกับ cmux ถูกปฏิเสธ เรียกใช้คำสั่งนี้จากเทอร์มินัล cmux หรือตรวจสอบการเข้าถึงซ็อกเก็ตที่ การตั้งค่า > ระบบอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bağlantısı reddedildi. Bu komutu bir cmux terminalinden çalıştırın veya Ayarlar > Otomasyon bölümünde soket erişimini gözden geçirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення до cmux відхилено. Запустіть цю команду з термінала cmux або перевірте доступ до сокета в Налаштуваннях > Автоматизація."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 cmux 的连接被拒绝。请在 cmux 终端中运行此命令，或在“设置”>“自动化”中检查套接字访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 cmux 的連線遭拒。請在 cmux 終端機中執行此命令，或在「設定」>「自動化」中檢查通訊端存取權限。"
+          }
+        }
+      }
+    },
+    "cli.events.error.server": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux بدء بث الأحداث. تحقّق من الأمر وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pokrenuti tok događaja. Provjerite naredbu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte hændelsesstrømmen. Kontrollér kommandoen, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte den Ereignisstream nicht starten. Überprüfen Sie den Befehl und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux returned an error while starting the event stream. Check the command and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar el flujo de eventos. Comprueba el comando y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu démarrer le flux d’événements. Vérifiez la commande et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha potuto avviare il flusso di eventi. Controlla il comando e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはイベントストリームを開始できませんでした。コマンドを確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើមស្ទ្រីមព្រឹត្តិការណ៍បានទេ។ សូមពិនិត្យពាក្យបញ្ជា ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 이벤트 스트림을 시작할 수 없습니다. 명령을 확인하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte hendelsesstrømmen. Kontroller kommandoen og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może uruchomić strumienia zdarzeń. Sprawdź polecenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não pôde iniciar o fluxo de eventos. Verifique o comando e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить поток событий cmux. Проверьте команду и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่มสตรีมเหตุการณ์ได้ ตรวจสอบคำสั่งแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux olay akışını başlatamadı. Komutu kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити потік подій cmux. Перевірте команду й повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法启动事件流。请检查命令后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法啟動事件串流。請檢查命令後重試。"
+          }
+        }
+      }
+    },
     "cli.events.help.snapshot": {
       "extractionState": "manual",
       "localizations": {
@@ -244208,16 +244458,124 @@
     "socket.client.accessDenied": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الوصول - لا يمكن الاتصال إلا من العمليات التي بدأت داخل cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup je odbijen - povezati se mogu samo procesi pokrenuti unutar cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang nægtet - kun processer, der er startet i cmux, kan oprette forbindelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff verweigert - nur innerhalb von cmux gestartete Prozesse können eine Verbindung herstellen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Access denied - only processes started inside cmux can connect"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso denegado: solo pueden conectarse los procesos iniciados dentro de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès refusé : seuls les processus démarrés dans cmux peuvent se connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso negato: solo i processi avviati all'interno di cmux possono connettersi"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "アクセスが拒否されました。cmux 内で起動されたプロセスのみ接続できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើត្រូវបានបដិសេធ - មានតែដំណើរការដែលបានចាប់ផ្តើមនៅក្នុង cmux ប៉ុណ្ណោះដែលអាចតភ្ជាប់បាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근이 거부되었습니다. cmux 내부에서 시작된 프로세스만 연결할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang nektet - bare prosesser som er startet i cmux, kan koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmowa dostępu - łączyć się mogą tylko procesy uruchomione w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso negado - somente processos iniciados dentro do cmux podem se conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ запрещён — подключаться могут только процессы, запущенные внутри cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธการเข้าถึง — เฉพาะกระบวนการที่เริ่มต้นภายใน cmux เท่านั้นที่เชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim reddedildi — yalnızca cmux içinde başlatılan işlemler bağlanabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ заборонено — підключатися можуть лише процеси, запущені всередині cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问被拒绝——只有在 cmux 内启动的进程才能连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕存取——只有在 cmux 內啟動的程序才能連線"
           }
         }
       }
