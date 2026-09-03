@@ -7,8 +7,8 @@ import Foundation
 ///
 /// Cloud machines live on one private network per account and open no public
 /// inbound port, so their session daemons are reachable only through this
-/// tunnel. The cmux app owns enrollment (keypair, device identity, the config
-/// file at `~/.cmuxterm/wireguard/<interface>.conf`).
+/// tunnel. The cmux app owns enrollment (keypair, device identity, and the
+/// build-scoped config file at `~/.cmuxterm/wireguard/<interface>.conf`).
 ///
 /// Two backends, one command; the socket response's `backend` field picks:
 /// - **app-managed** (`network-extension`): the app runs the tunnel through its
@@ -29,9 +29,9 @@ extension CMUXCLI {
     func runVPNCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         let sub = commandArgs.first?.lowercased() ?? "status"
         switch sub {
-        case "up":
+        case "up", "on":
             try runVPNUp(client: client, jsonOutput: jsonOutput)
-        case "down":
+        case "down", "off":
             try runVPNDown(client: client, jsonOutput: jsonOutput)
         case "status":
             try runVPNStatus(client: client, jsonOutput: jsonOutput)

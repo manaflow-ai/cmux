@@ -1,6 +1,37 @@
 import CmuxAuthRuntime
 import Foundation
 
+extension URLError.Code {
+    /// Whether URLSession failed before receiving a usable Cloud response.
+    /// Keep client-configuration errors (for example `badURL`) visible as
+    /// service errors; only connection, DNS, and TLS failures are folded into
+    /// the actionable backend-unreachable message below.
+    nonisolated var isCloudBackendTransportFailure: Bool {
+        switch self {
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .timedOut,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .dnsLookupFailed,
+             .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .serverCertificateUntrusted,
+             .clientCertificateRejected,
+             .clientCertificateRequired,
+             .appTransportSecurityRequiresSecureConnection,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 enum VMClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
@@ -1844,13 +1875,11 @@ actor VMClient {
             } catch let error as URLError {
                 // Surface unreachable-backend errors as a human-readable message with recovery steps
                 // instead of the verbose NSURLErrorDomain payload.
-                switch error.code {
-                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                if error.code.isCloudBackendTransportFailure {
                     let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
                     throw VMClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-                default:
-                    throw error
                 }
+                throw error
             }
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
