@@ -343,8 +343,8 @@ await handlers.get("session_shutdown")({ reason: "hot path test complete" }, ctx
 if (projectedSynchronously) {
   throw new Error("tool payload was traversed before the Pi event handler returned");
 }
-if (projectionCount !== 1) {
-  throw new Error(`expected one deferred payload projection, got ${projectionCount}`);
+if (projectionCount !== 0) {
+  throw new Error(`ordinary Pi tool starts must not project Feed payloads, got ${projectionCount}`);
 }
 """
     projection = run_extension(
@@ -678,10 +678,11 @@ const ctx = {
   sessionManager: { getSessionId() { return "pi-feed-backlog-session"; } }
 };
 for (let index = 0; index < 10; index += 1) {
-  handlers.get("tool_execution_start")({
+  handlers.get("tool_execution_end")({
     toolCallId: `tool-${index}`,
     toolName: "bash",
-    args: { command: `echo ${index}` }
+    result: { content: [{ type: "text", text: `result ${index}` }] },
+    isError: false
   }, ctx);
 }
 handlers.get("tool_execution_end")({
@@ -1472,7 +1473,7 @@ if "hooks feed" in args and "PostToolUse" in args and lock_path:
             raise SystemExit(91)
         time.sleep(0.1)
 
-if "hooks feed" in args and "PreToolUse" in args:
+if "hooks feed" in args and "PostToolUse" in args and not lock_path:
     def handle_term(_signum, _frame):
         time.sleep(1.0)
         raise SystemExit(88)
@@ -1500,10 +1501,11 @@ const ctx = {
   sessionManager: { getSessionId() { return "pi-cancellation-session"; } }
 };
 for (let index = 0; index < 10; index += 1) {
-  handlers.get("tool_execution_start")({
+  handlers.get("tool_execution_end")({
     toolCallId: `cancel-tool-${index}`,
     toolName: "bash",
-    args: { command: `echo ${index}` }
+    result: { content: [{ type: "text", text: `result ${index}` }] },
+    isError: false
   }, ctx);
 }
 const logPath = process.env.CMUX_TEST_PI_CANCELLATION_LOG;
@@ -1645,9 +1647,6 @@ async function readLog() {
     return "";
   }
 }
-while (!(await readLog()).includes("hooks feed")) {
-  await new Promise((resolve) => setTimeout(resolve, 10));
-}
 for (const index of [3, 1, 2, 0]) {
   handlers.get("tool_execution_end")({
     toolCallId: `completion-tool-${index}`,
@@ -1689,7 +1688,7 @@ while (performance.now() < completionDeadline) {
     completion_feed_indexes = [index for index, line in enumerate(completion_calls) if "hooks feed" in line]
     notification_indexes = [index for index, line in enumerate(completion_calls) if "hooks pi notification" in line]
     stop_indexes = [index for index, line in enumerate(completion_calls) if "hooks pi stop" in line]
-    if len(completion_feed_indexes) != 5:
+    if len(completion_feed_indexes) != 4:
         print(f"FAIL: terminal lifecycle did not cancel feed backlog: {completion_calls!r}")
         return 1
     if sum("PostToolUse" in line for line in completion_calls) != 4:
