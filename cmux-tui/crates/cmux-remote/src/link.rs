@@ -3,6 +3,7 @@ use std::fmt;
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -16,6 +17,7 @@ const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
+const PHYSICAL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 // ReliableSession owns one physical send loop per lane, so at most one caller
 // per lane can wait for LaneMuxLink queue admission in production.
 const OUTBOUND_FRAMES_PER_LANE: usize = PRIORITY_BURST_FRAMES * PRIORITY_LANES.len();
@@ -876,7 +878,13 @@ impl FrameLink for LaneMuxLink {
                 }
                 let _ = join_all(tasks).await;
                 incoming.lock().await.discard();
-                for result in join_all(links.iter().map(|link| link.close())).await {
+                let results = tokio::time::timeout(
+                    PHYSICAL_CLOSE_TIMEOUT,
+                    join_all(links.iter().map(|link| link.close())),
+                )
+                .await
+                .map_err(|_| LinkError::Transport("timed out closing physical link".into()))?;
+                for result in results {
                     result?;
                 }
                 Ok(())
