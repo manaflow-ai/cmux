@@ -461,41 +461,6 @@ struct VMTunnelManager: Sendable {
         }
     }
 
-    /// Fill the blank `PrivateKey` line the server left in the config, and —
-    /// when the network's prefixes are known — replace the peer's `AllowedIPs`
-    /// with them (see `enroll`). The server-issued config is otherwise
-    /// complete and final.
-    static func completedConfig(_ config: String, privateKey: String, allowedIPs: [String] = []) throws -> String {
-        var lines = config.components(separatedBy: "\n")
-        func key(of line: String) -> String {
-            line.split(separator: "=", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
-        }
-        if let index = lines.firstIndex(where: { key(of: $0) == "privatekey" }) {
-            lines[index] = "PrivateKey = \(privateKey)"
-        } else {
-            // No PrivateKey line at all: insert directly under [Interface].
-            guard let interfaceIndex = lines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
-            }) else {
-                throw TunnelError.configMalformed("no [Interface] section in server config")
-            }
-            lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
-        }
-        if !allowedIPs.isEmpty {
-            let routes = "AllowedIPs = \(allowedIPs.joined(separator: ", "))"
-            if let index = lines.firstIndex(where: { key(of: $0) == "allowedips" }) {
-                lines[index] = routes
-            } else if let peerIndex = lines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[peer]"
-            }) {
-                lines.insert(routes, at: peerIndex + 1)
-            } else {
-                throw TunnelError.configMalformed("no [Peer] section in server config")
-            }
-        }
-        return lines.joined(separator: "\n")
-    }
-
     private func ensureStateDir() throws {
         try FileManager.default.createDirectory(
             at: stateDir,
