@@ -24053,6 +24053,49 @@ mod tests {
     }
 
     #[test]
+    fn invalid_empty_agent_roster_snapshot_is_repaired_on_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-empty-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-empty-snapshot";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let (version, cursor, snapshot) = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .expect("startup must replace a rejected empty snapshot");
+        assert_eq!(version, crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION);
+        assert_eq!(cursor, 0);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
