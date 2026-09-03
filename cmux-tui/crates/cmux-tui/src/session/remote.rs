@@ -3603,12 +3603,30 @@ impl Drop for RemoteSession {
             // Secure descriptor-relative file creation is not available in
             // this implementation. Do not emit secret-bearing dumps through
             // path-based APIs on unsupported targets.
-            let _ = dir;
+            crate::client_log::error(
+                "mux-dump",
+                &format!(
+                    "CMUX_MUX_DEBUG_MIRROR_DUMP={} is unsupported on this platform; no dump was written",
+                    dir.display()
+                ),
+            );
             return;
         }
         #[cfg(unix)]
         {
-            let Ok(directory) = private_dump_directory(dir) else { return };
+            let directory = match private_dump_directory(dir) {
+                Ok(directory) => directory,
+                Err(error) => {
+                    crate::client_log::error(
+                        "mux-dump",
+                        &format!(
+                            "cannot use CMUX_MUX_DEBUG_MIRROR_DUMP={}: {error}; choose a directory owned by the current user with mode 0700",
+                            dir.display()
+                        ),
+                    );
+                    return;
+                }
+            };
             let logs = self.frame_logs.lock().unwrap();
             let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
             for entry in &logs.entries {
@@ -3617,16 +3635,26 @@ impl Drop for RemoteSession {
             for surface in self.surfaces.lock().unwrap().values() {
                 let mirror_name = format!("mirror-{}.txt", surface.id);
                 let mirror = dump_mirror(surface);
-                let _ = write_private_dump(&directory, &mirror_name, |file| {
+                if let Err(error) = write_private_dump(&directory, &mirror_name, |file| {
                     file.write_all(mirror.as_bytes())
-                });
+                }) {
+                    crate::client_log::error(
+                        "mux-dump",
+                        &format!("cannot write private dump {mirror_name}: {error}"),
+                    );
+                }
                 let frames_name = format!("frames-{}.log", surface.id);
-                let _ = write_private_dump(&directory, &frames_name, |file| {
+                if let Err(error) = write_private_dump(&directory, &frames_name, |file| {
                     for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                         writeln!(file, "{line}")?;
                     }
                     Ok(())
-                });
+                }) {
+                    crate::client_log::error(
+                        "mux-dump",
+                        &format!("cannot write private dump {frames_name}: {error}"),
+                    );
+                }
             }
         }
     }
@@ -3644,6 +3672,7 @@ fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
+    let path = normalize_dump_path(path)?;
     let start = if path.is_absolute() { "/" } else { "." };
     let start = CString::new(start).unwrap();
     let fd =
@@ -3701,6 +3730,42 @@ fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
     let temporary = open_private_child_directory(&directory, ".cmux-dump-tmp")?;
     prune_stale_dump_temps(&temporary)?;
     Ok(PrivateDumpDirectory { output: directory, temporary })
+}
+
+#[cfg(unix)]
+fn normalize_dump_path(path: &Path) -> io::Result<PathBuf> {
+    use std::path::Component;
+
+    if path.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "dump path must not contain '..'"));
+    }
+    let mut existing = path.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let Some(name) = existing.file_name().map(ToOwned::to_owned) else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "dump path has no existing ancestor",
+            ));
+        };
+        missing.push(name);
+        if !existing.pop() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "dump path has no existing ancestor",
+            ));
+        }
+    }
+    let mut normalized = fs::canonicalize(existing)?;
+    for component in missing.into_iter().rev() {
+        normalized.push(component);
+    }
+    Ok(normalized)
 }
 
 #[cfg(unix)]
@@ -3852,13 +3917,22 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
 fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
 
-    // `acl_get_fd_np` reads the effective macOS ACL from the opened
-    // descriptor, including inherited ACEs that are not exposed by the mode
-    // bits. Reject any extended ACL instead of attempting to interpret ACE
-    // ordering, principals, and inheritance flags here.
     unsafe extern "C" {
         fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> *mut libc::c_void;
+        fn acl_get_entry(
+            acl: *mut libc::c_void,
+            entry_id: libc::c_int,
+            entry: *mut *mut libc::c_void,
+        ) -> libc::c_int;
+        fn acl_get_tag_type(entry: *mut libc::c_void, tag: *mut libc::c_int) -> libc::c_int;
         fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+    }
+
+    struct Acl(*mut libc::c_void);
+    impl Drop for Acl {
+        fn drop(&mut self) {
+            unsafe { acl_free(self.0) };
+        }
     }
 
     const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
@@ -3877,10 +3951,35 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
         }
         return Err(error);
     }
-    unsafe {
-        acl_free(acl);
+    let acl = Acl(acl);
+    let mut entry = std::ptr::null_mut();
+    let mut entry_id = 0;
+    loop {
+        let status = unsafe { acl_get_entry(acl.0, entry_id, &mut entry) };
+        if status == 0 {
+            return Ok(());
+        }
+        if status < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut tag = 0;
+        if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if !macos_dump_acl_tag_is_safe(tag) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "dump directory ACL grants access; remove allow entries or choose another directory",
+            ));
+        }
+        entry_id = 1;
     }
-    Err(io::Error::new(io::ErrorKind::PermissionDenied, "dump directory has an extended ACL"))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_dump_acl_tag_is_safe(tag: libc::c_int) -> bool {
+    const ACL_EXTENDED_DENY: libc::c_int = 2;
+    tag == ACL_EXTENDED_DENY
 }
 
 #[cfg(target_os = "linux")]
@@ -3967,7 +4066,11 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
 }
 
 #[cfg(unix)]
-fn write_private_dump<F>(directory: &PrivateDumpDirectory, name: &str, write_contents: F) -> io::Result<()>
+fn write_private_dump<F>(
+    directory: &PrivateDumpDirectory,
+    name: &str,
+    write_contents: F,
+) -> io::Result<()>
 where
     F: FnOnce(&mut fs::File) -> io::Result<()>,
 {
@@ -4996,14 +5099,9 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(fs::read(&final_path).unwrap(), b"previous");
-        assert!(
-            fs::read_dir(&dump_path)
-                .unwrap()
-                .filter_map(Result::ok)
-                .all(|entry| {
-                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
-                })
-        );
+        assert!(fs::read_dir(&dump_path).unwrap().filter_map(Result::ok).all(|entry| {
+            entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+        }));
     }
 
     #[cfg(unix)]
@@ -5057,14 +5155,9 @@ mod tests {
 
         assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
         assert!(final_path.is_dir());
-        assert!(
-            fs::read_dir(&dump_path)
-                .unwrap()
-                .filter_map(Result::ok)
-                .all(|entry| {
-                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
-                })
-        );
+        assert!(fs::read_dir(&dump_path).unwrap().filter_map(Result::ok).all(|entry| {
+            entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+        }));
     }
 
     #[test]
