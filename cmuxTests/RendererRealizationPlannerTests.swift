@@ -102,7 +102,7 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(ids[4])) // oldest released
     }
 
-    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() throws {
+    @Test func defaultBaselineKeepsWarmCapAndReclaimsTheExcess() throws {
         let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -110,15 +110,17 @@ struct RendererRealizationPlannerTests {
 
         let now: TimeInterval = 1000
         let visible = UUID()
-        let hidden = (0..<4).map { _ in UUID() }
         let settings = RendererRealizationSettings.values(defaults: defaults)
+        // One more hidden idle surface than the default warm cap: the planner
+        // keeps the cap's most recent renderers warm (instant, pixel-ready
+        // switching between recent workspaces, #1291) and reclaims the rest.
+        let hidden = (0..<(settings.maxWarmRenderers + 1)).map { offset in
+            (id: UUID(), idleFor: settings.idleSeconds + TimeInterval(offset))
+        }
         let inputs = [
             input(visible, visible: true, lastVisibleAt: now),
         ] + hidden.map {
-            input(
-                $0,
-                lastVisibleAt: now - settings.idleSeconds
-            )
+            input($0.id, lastVisibleAt: now - $0.idleFor)
         }
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs,
@@ -126,10 +128,10 @@ struct RendererRealizationPlannerTests {
             now: now
         )
 
-        #expect(selected == Set(hidden))
+        #expect(selected == [hidden.last!.id])
     }
 
-    @Test func defaultFiveTabBaselineSchedulesTheIdleDeadline() throws {
+    @Test func defaultBaselineSchedulesTheIdleDeadlineForTheExcess() throws {
         let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -137,8 +139,8 @@ struct RendererRealizationPlannerTests {
 
         let now: TimeInterval = 1000
         let visible = UUID()
-        let hidden = (0..<4).map { _ in UUID() }
         let settings = RendererRealizationSettings.values(defaults: defaults)
+        let hidden = (0..<(settings.maxWarmRenderers + 1)).map { _ in UUID() }
         let inputs = [
             input(visible, visible: true, lastVisibleAt: now),
         ] + hidden.map {

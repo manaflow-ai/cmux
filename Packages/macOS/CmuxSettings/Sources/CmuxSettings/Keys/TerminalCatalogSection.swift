@@ -96,7 +96,11 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// instant. Extra off-screen renderers are reclaimed oldest first.
     public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
         id: "terminal.rendererRealization.maxWarmRenderers",
-        defaultValue: 1,
+        // Keep the last few hidden surfaces' renderers warm so switching
+        // between recently used workspaces presents retained pixels instantly
+        // (#1291). Hidden windows still release everything via window
+        // occlusion, and the idle threshold bounds the rest.
+        defaultValue: 4,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 

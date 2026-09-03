@@ -934,6 +934,7 @@ struct ContentView: View {
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffFallbackScheduler = MainActorDeferredActionScheduler()
+    @State private var workspaceHandoffFrameWatcher = WorkspaceHandoffFrameWatcher()
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -3025,6 +3026,7 @@ struct ContentView: View {
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
                 workspaceHandoffFallbackScheduler.cancel()
+                workspaceHandoffFrameWatcher.cancel()
             }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -3559,11 +3561,13 @@ struct ContentView: View {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
             workspaceHandoffFallbackScheduler.cancel()
+            workspaceHandoffFrameWatcher.cancel()
             return
         }
 
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackScheduler.cancel()
+        workspaceHandoffFrameWatcher.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -3594,7 +3598,23 @@ struct ContentView: View {
             return
         }
 
-        workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(150)) {
+        // Complete as soon as every incoming visible terminal renders a frame,
+        // so the retiring workspace's content covers the whole gap without a
+        // blank transition frame (#1291). The timeout below stays the ceiling.
+        if let workspace = tabManager.tabs.first(where: { $0.id == newSelectedId }) {
+            workspaceHandoffFrameWatcher.begin(
+                workspaceId: newSelectedId,
+                targets: workspace.handoffWatchTargets()
+            ) {
+                completeWorkspaceHandoff(reason: "first_frame")
+            }
+        }
+
+        // The timeout is a liveness escape (dead PTY, wedged renderer), not
+        // the normal completion: frame-driven completion typically lands well
+        // under 100ms. Holding the retiring content a bit longer beats
+        // painting a blank frame.
+        workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(500)) {
             completeWorkspaceHandoff(reason: "timeout")
         }
     }
@@ -3602,6 +3622,10 @@ struct ContentView: View {
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
         guard focusedTabId == tabManager.selectedTabId else { return }
         guard retiringWorkspaceId != nil else { return }
+        // Focus can land on an incoming terminal before it renders its first
+        // frame; completing then hides the retiring content over an empty
+        // layer (#1291). Let the frame watcher (or the timeout) finish.
+        guard !workspaceHandoffFrameWatcher.isPending else { return }
         completeWorkspaceHandoff(reason: reason)
     }
 
@@ -3611,11 +3635,18 @@ struct ContentView: View {
            workspace.browserPanel(for: focusedPanelId) != nil {
             return true
         }
-        return workspace.hasLoadedTerminalSurface()
+        guard workspace.hasLoadedTerminalSurface() else { return false }
+        // Surface existence is not presentation: a freshly mounted workspace
+        // has hidden, unrevealed portals, and hiding the old content at that
+        // point paints a frame with neither workspace's terminals (#1291).
+        // Complete immediately only when the incoming terminals are already
+        // presented on screen (e.g. the cycle-hot mounted pair).
+        return workspace.visibleTerminalsReadyForImmediateHandoff()
     }
 
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackScheduler.cancel()
+        workspaceHandoffFrameWatcher.cancel()
         let retiring = retiringWorkspaceId
 
         // Disable before clearing retiringWorkspaceId: unmount teardown does not

@@ -5423,6 +5423,46 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return terminalPanels.contains { $0.surface.surface != nil }
     }
 
+    /// The terminals the current layout model would show, as handoff watch
+    /// targets. The workspace handoff waits for each one's first rendered
+    /// frame and reveal before the retiring workspace's content is hidden
+    /// (#1291).
+    func handoffWatchTargets() -> [WorkspaceHandoffFrameWatcher.Target] {
+        let visiblePanelIds = expectedVisiblePanelIdsForLayout()
+        var targets: [WorkspaceHandoffFrameWatcher.Target] = []
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Mirror-rendered window-tab panels are drawn by their split view,
+            // not this panel's surface (see the portal visibility reconcile).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
+            guard visiblePanelIds.contains(terminalPanel.id) else { continue }
+            targets.append(WorkspaceHandoffFrameWatcher.Target(
+                surface: terminalPanel.surface,
+                hostedView: terminalPanel.hostedView
+            ))
+        }
+        return targets
+    }
+
+    /// Whether every rendered-visible terminal is already presented in the
+    /// window, so hiding the retiring workspace's content cannot expose a
+    /// frame with neither workspace's terminals (#1291). False for a freshly
+    /// mounted workspace whose portals have not revealed yet.
+    func visibleTerminalsReadyForImmediateHandoff() -> Bool {
+        let visiblePanelIds = expectedVisiblePanelIdsForLayout()
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
+            guard visiblePanelIds.contains(terminalPanel.id) else { continue }
+            let hostedView = terminalPanel.hostedView
+            guard !hostedView.isHidden,
+                  hostedView.superview != nil,
+                  terminalPanel.surface.isViewInWindow,
+                  terminalPanel.surface.isRendererPresented else { return false }
+        }
+        return true
+    }
+
     func panelTitle(panelId: UUID) -> String? {
         if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
             return remotePane.pane.title
@@ -12151,6 +12191,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
+        return expectedVisiblePanelIdsForLayout()
+    }
+
+    /// The panel ids the current layout model would show, independent of
+    /// whether this workspace's portals are rendering yet. The workspace
+    /// handoff consults this for a workspace that is about to mount (#1291),
+    /// when `portalRenderingEnabled` is still false.
+    private func expectedVisiblePanelIdsForLayout() -> Set<UUID> {
         // Canvas mode renders one panel per canvas pane — its selected tab.
         // Background tabs are unmounted, so reporting them as rendered makes
         // the terminal window portal float them at stale frames (chromeless
