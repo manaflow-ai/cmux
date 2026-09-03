@@ -71,7 +71,8 @@ struct CloudTunnelCoordinatorTests {
                 }
                 let first = await group.next() ?? nil
                 group.cancelAll()
-                return first ?? (await coordinator.state)
+                if let first { return first }
+                return await coordinator.state
             }
         }
     }
