@@ -2271,7 +2271,13 @@ impl Inner {
         }
         current.close_pending.store(true, Ordering::SeqCst);
         drop(_publication);
-        let _ = current.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        if !current.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT)) {
+            // A control callback can outlive the synchronous close budget.
+            // Retire this generation explicitly instead of treating the
+            // still-active operation as drained.
+            self.force_retire(pty_id, Some(attachment.generation), Some(&gate));
+            return;
+        }
         let _publication = gate.lock();
         let removed = {
             let mut attachments = self.attachments.lock().expect("attach lock");
@@ -2437,7 +2443,14 @@ impl Inner {
             current.close_pending.store(true, Ordering::SeqCst);
             current.clone()
         };
-        let _ = attachment.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        if !attachment.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT)) {
+            // A control callback can outlive the synchronous close budget.
+            // Retire this generation explicitly instead of treating the
+            // still-active operation as drained.
+            drop(_publication);
+            self.force_retire(pty_id, generation, Some(&gate));
+            return;
+        }
         let attachment = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
