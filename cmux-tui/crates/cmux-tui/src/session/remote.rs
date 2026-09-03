@@ -3629,87 +3629,132 @@ impl Drop for RemoteSession {
 #[cfg(unix)]
 fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
     use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-
-    // Validate existing ancestors before create_dir_all follows them, then
-    // validate again after creation to catch newly created components. A
-    // writable non-sticky ancestor permits another user to replace the dump
-    // directory between path operations and redirect secret-bearing output.
-    validate_dump_ancestors(path)?;
-
-    let existed = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_dir() => true,
-        Ok(_) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("dump path is not a directory: {}", path.display()),
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error),
-    };
-    if !existed {
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)?;
-        }
-        let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "invalid dump directory path")
-        })?;
-        let status = unsafe { libc::mkdir(path.as_ptr(), 0o700) };
-        if status != 0 {
+    let start = if path.is_absolute() { "/" } else { "." };
+    let start = CString::new(start).unwrap();
+    let fd =
+        unsafe { libc::open(start.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut directory = unsafe { fs::File::from_raw_fd(fd) };
+    for component in path.components() {
+        use std::path::Component;
+        let Component::Normal(component) = component else {
+            if matches!(component, Component::ParentDir) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "dump path must not contain '..'",
+                ));
+            }
+            continue;
+        };
+        validate_dump_directory(&directory, false)?;
+        let component =
+            CString::new(component.as_bytes()).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let next = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                component.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        let next = if next >= 0 {
+            next
+        } else {
             let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::AlreadyExists {
+            if error.kind() != io::ErrorKind::NotFound {
                 return Err(error);
             }
-        }
+            if unsafe { libc::mkdirat(directory.as_raw_fd(), component.as_ptr(), 0o700) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let next = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    component.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if next < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            next
+        };
+        directory = unsafe { fs::File::from_raw_fd(next) };
     }
-    validate_dump_ancestors(path)?;
-    let directory = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
-    let metadata = directory.metadata()?;
-    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("dump directory is not private and user-owned: {}", path.display()),
-        ));
-    }
-    reject_extended_acl(&directory)?;
-    if metadata.mode() & 0o077 != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("dump directory is not private: {}", path.display()),
-        ));
-    }
-    prune_stale_dump_temps(&directory, path)?;
+    validate_dump_directory(&directory, true)?;
+    prune_stale_dump_temps(&directory)?;
     Ok(directory)
 }
 
 #[cfg(unix)]
-fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
+fn validate_dump_directory(directory: &fs::File, private: bool) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = directory.metadata()?;
+    let trusted_owner = metadata.uid() == unsafe { libc::geteuid() } || metadata.uid() == 0;
+    let sticky = metadata.mode() & 0o1000 != 0;
+    if !trusted_owner
+        || (!private && metadata.mode() & 0o022 != 0 && !sticky)
+        || (private && metadata.mode() & 0o077 != 0)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "dump directory component is not private or trusted",
+        ));
+    }
+    reject_extended_acl(directory)
+}
+
+#[cfg(unix)]
+fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::MetadataExt;
 
     let uid = unsafe { libc::geteuid() };
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name_bytes = name.as_os_str().as_bytes();
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() {
+        unsafe { libc::close(duplicate) };
+        return Err(io::Error::last_os_error());
+    }
+    loop {
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name_bytes = name.to_bytes();
         let is_dump_temp = (name_bytes.starts_with(b".mirror-")
             || name_bytes.starts_with(b".frames-"))
             && name_bytes.windows(b".tmp-".len()).any(|part| part == b".tmp-");
         if !is_dump_temp {
             continue;
         }
-        let metadata = fs::symlink_metadata(entry.path())?;
-        if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
             continue;
         }
-        let Some(name) = name.to_str() else { continue };
+        let metadata = unsafe { metadata.assume_init() };
+        if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+            || metadata.st_uid != uid
+            || metadata.st_nlink != 1
+        {
+            continue;
+        }
+        let Some(name) = name.to_str().ok() else { continue };
         let Some((_, suffix)) = name.rsplit_once(".tmp-") else { continue };
         let Some(pid) = suffix.split('-').next().and_then(|pid| pid.parse().ok()) else {
             continue;
@@ -3719,8 +3764,7 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         if process_alive {
             continue;
         }
-        let name = CString::new(name_bytes)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+        let name = CString::new(name_bytes).map_err(|_| io::ErrorKind::InvalidInput)?;
         let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
         if status != 0 {
             let error = io::Error::last_os_error();
@@ -3729,77 +3773,8 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
             }
         }
     }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn validate_dump_ancestors(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-
-    let mut ancestor = path.parent();
-    while let Some(candidate) = ancestor {
-        if candidate.as_os_str().is_empty() {
-            break;
-        }
-        match fs::symlink_metadata(candidate) {
-            Ok(metadata) => {
-                let resolved = if metadata.file_type().is_symlink() {
-                    if metadata.uid() != unsafe { libc::geteuid() } && metadata.uid() != 0 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            format!(
-                                "dump directory ancestor is not trusted: {}",
-                                candidate.display()
-                            ),
-                        ));
-                    }
-                    let resolved = fs::canonicalize(candidate)?;
-                    validate_dump_ancestors(&resolved)?;
-                    resolved
-                } else {
-                    candidate.to_path_buf()
-                };
-                let metadata = fs::symlink_metadata(&resolved)?;
-                if !metadata.is_dir() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!(
-                            "dump directory ancestor is not a directory: {}",
-                            candidate.display()
-                        ),
-                    ));
-                }
-                if metadata.uid() != unsafe { libc::geteuid() } && metadata.uid() != 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        format!("dump directory ancestor is not trusted: {}", candidate.display()),
-                    ));
-                }
-                let mode = metadata.mode();
-                let sticky = mode & 0o1000 != 0;
-                if mode & 0o022 != 0 && !sticky {
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        format!(
-                            "dump directory ancestor is writable without private protection: {}",
-                            candidate.display()
-                        ),
-                    ));
-                }
-                let directory = fs::OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-                    .open(&resolved)?;
-                reject_extended_acl(&directory)?;
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        let next = candidate.parent();
-        if next == Some(candidate) {
-            break;
-        }
-        ancestor = next;
+    unsafe {
+        libc::closedir(stream);
     }
     Ok(())
 }
@@ -4854,6 +4829,37 @@ mod tests {
         let _directory = private_dump_directory(&dump_path).unwrap();
 
         assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_rejects_symlink_components() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        fs::create_dir(&target).unwrap();
+        let link = root.path().join("link");
+        symlink(&target, &link).unwrap();
+
+        assert!(private_dump_directory(&link.join("dumps")).is_err());
+        assert!(!target.join("dumps").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_dump_directory_is_stable_across_path_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let original = root.path().join("original");
+        fs::rename(&dump_path, &original).unwrap();
+        fs::create_dir(&dump_path).unwrap();
+
+        write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"secret")).unwrap();
+
+        assert_eq!(fs::read(original.join("mirror.txt")).unwrap(), b"secret");
+        assert!(!dump_path.join("mirror.txt").exists());
     }
 
     #[cfg(unix)]
