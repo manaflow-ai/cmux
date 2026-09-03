@@ -604,7 +604,7 @@ extension TerminalController {
         return nil
     }
 
-    private nonisolated static func socketWorkerString(_ raw: Any?) -> String? {
+    nonisolated static func socketWorkerString(_ raw: Any?) -> String? {
         guard let string = raw as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
