@@ -725,7 +725,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     }
                     break;
                 }
-                Err(_) => {
+                Err(error) => {
+                    if !matches!(error.raw_os_error(), Some(libc::ECHILD | libc::ESRCH)) {
+                        if observer_tx.send(PtyChildCommand::ObserveFailed).is_err() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
                     failures += 1;
                     if failures >= PTY_OBSERVER_MAX_FAILURES {
                         let _ = observer_tx.send(PtyChildCommand::ObserveUnavailable);
