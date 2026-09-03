@@ -9,9 +9,12 @@ import {
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
   freestyleDaemonHealthyCommand,
+  freestyleDesktopHealCommand,
   freestyleEdgeProbeCommand,
   freestyleEdgeRules,
   freestyleFirewallRules,
+  freestylePortAddress,
+  freestylePortUrls,
   freestyleResizeRequest,
   freestyleStartDaemonCommand,
   freestyleTargetResources,
@@ -22,6 +25,7 @@ import {
 } from "../services/vms/drivers/freestyle";
 import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
+import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -476,5 +480,83 @@ describe("Freestyle machine sizing", () => {
       { cpu: 5, memory: 20480, storage: 16384 },
       { cpu: 5, memory: 20480, storage: 204800 },
     )).toEqual({ storage: 204800 });
+  });
+});
+
+// The desktop and forwarded ports travel the daemon's private path: the URL
+// is the machine's VPC address over the owner's tunnel, nothing is minted at
+// the platform and nothing public is opened. noVNC on 6901 has no auth of
+// its own, so a machine outside a private network gets no URL at all.
+describe("Freestyle port open: the private address, the desktop healed", () => {
+  const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
+
+  function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
+    const execs: string[] = [];
+    const vm = {
+      data: async () => input.data,
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        const exit = command.includes(`':${DEVBOX_DESKTOP_NOVNC_PORT} '`) ? (input.healExit ?? 0) : 0;
+        return { statusCode: exit, stdout: "", stderr: exit === 0 ? "" : "desktop down" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    return { provider: new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } }), execs };
+  }
+
+  test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
+    expect(freestylePortAddress(PRIVATE, VM_ID)).toBe("10.4.0.7");
+    expect(freestylePortAddress({ vpcs: [{ ipv6: "fd00:4::7" }] }, VM_ID)).toBe("fd00:4::7");
+    expect(() => freestylePortAddress({ publicIpv6: "2602:f75c:0:1::2a", vpcs: [] }, VM_ID)).toThrow(ProviderError);
+    expect(() => freestylePortAddress({ publicIpv6: "2602:f75c:0:1::2a", vpcs: [] }, VM_ID)).toThrow(/not on a private network/);
+    expect(() => freestylePortAddress({ vpcs: [{}] }, VM_ID)).toThrow(/holds no address/);
+    // The deprecated `networks` alias still counts.
+    expect(freestylePortAddress({ networks: [{ ipv4: "10.4.0.9" }] }, VM_ID)).toBe("10.4.0.9");
+  });
+
+  test("urls: the desktop port opens the noVNC page with a query to extend; other ports the bare origin", () => {
+    expect(freestylePortUrls(PRIVATE, VM_ID, DEVBOX_DESKTOP_NOVNC_PORT)).toEqual({
+      url: "http://10.4.0.7:6901/",
+      openUrl: "http://10.4.0.7:6901/vnc.html?path=websockify",
+    });
+    expect(freestylePortUrls(PRIVATE, VM_ID, 3000)).toEqual({ url: "http://10.4.0.7:3000/", openUrl: "http://10.4.0.7:3000/" });
+    expect(freestylePortUrls({ vpcs: [{ ipv6: "fd00:4::7" }] }, VM_ID, 3000).url).toBe("http://[fd00:4::7]:3000/");
+  });
+
+  test("the desktop heal is one bounded guest loop that starts the unit once and tells a base image apart", () => {
+    const command = freestyleDesktopHealCommand();
+    expect(command).toContain("seq 1 30");
+    expect(command).toContain("grep -q ':6901 ' && exit 0");
+    expect(command).toContain("[ -x /usr/local/bin/start-vnc.sh ] || exit 3");
+    expect(command).toContain("systemctl start cmux-desktop");
+    expect(command.endsWith("exit 1")).toBe(true);
+  });
+
+  test("openPort(6901) heals the desktop, returns the private noVNC URL and a ledger-only token", async () => {
+    const fake = portFake({ data: PRIVATE });
+    const endpoint = await fake.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT);
+    expect(endpoint.url).toBe("http://10.4.0.7:6901/");
+    expect(endpoint.openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+    expect(endpoint.token).toMatch(/^cmux-freestyle-port-[0-9a-f]{64}$/);
+    expect(endpoint.expiresAtMs).toBeGreaterThan(Date.now());
+    expect(fake.execs).toEqual([freestyleDesktopHealCommand()]);
+  });
+
+  test("openPort for a dev server port runs no guest command at all", async () => {
+    const fake = portFake({ data: PRIVATE });
+    const endpoint = await fake.provider.openPort(VM_ID, 3000);
+    expect(endpoint.openUrl).toBe("http://10.4.0.7:3000/");
+    expect(fake.execs).toEqual([]);
+  });
+
+  test("openPort refuses a machine outside a private network, the daemon port, and a base image", async () => {
+    await expect(portFake({ data: { publicIpv6: "2602:f75c:0:1::2a", vpcs: [] } }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/not on a private network/);
+    await expect(portFake({ data: PRIVATE }).provider.openPort(VM_ID, 1337)).rejects.toThrow(/other than the daemon/);
+    await expect(portFake({ data: PRIVATE }).provider.openPort(VM_ID, 0)).rejects.toThrow(ProviderError);
+    await expect(portFake({ data: PRIVATE, healExit: 3 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/has no desktop/);
+    await expect(portFake({ data: PRIVATE, healExit: 1 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
+      .rejects.toThrow(/did not come up on port 6901/);
   });
 });
