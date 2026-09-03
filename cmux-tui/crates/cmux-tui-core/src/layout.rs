@@ -1,7 +1,7 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects that tile the area exactly.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use crate::{Node, PaneId, SplitDir, SplitId, ViewportColumn};
 
@@ -523,7 +523,7 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
             for column in panes[first_column_len..].chunks(4) {
                 columns.push(equal_split(column, SplitDir::Down, next_split_id));
             }
-            Some(equal_nodes(columns, SplitDir::Right, next_split_id))
+            Some(equal_nodes(columns.into(), SplitDir::Right, next_split_id))
         }
     }
 }
@@ -550,15 +550,15 @@ fn equal_split(
 }
 
 fn equal_nodes(
-    mut nodes: Vec<Node>,
+    mut nodes: VecDeque<Node>,
     dir: SplitDir,
     next_split_id: &mut impl FnMut() -> SplitId,
 ) -> Node {
     debug_assert!(!nodes.is_empty());
     if nodes.len() == 1 {
-        return nodes.pop().unwrap();
+        return nodes.pop_front().expect("equal_nodes has one node");
     }
-    let first = nodes.remove(0);
+    let first = nodes.pop_front().expect("equal_nodes has at least two nodes");
     let ratio = 1.0 / (nodes.len() + 1) as f32;
     Node::Split {
         id: next_split_id(),
