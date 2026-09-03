@@ -8,3 +8,6 @@
 [submodule "vendor/bonsplit"]
 	path = vendor/bonsplit
 	url = https://github.com/manaflow-ai/bonsplit.git
+[submodule "mac-cua"]
+	path = mac-cua
+	url = https://github.com/lawrencecchen/mac-cua.git
