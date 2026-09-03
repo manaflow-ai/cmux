@@ -70,6 +70,27 @@ import Testing
         #expect(starter.startedConfigs.count == 2)
     }
 
+    @Test func pushedScreenKeepsTheTunnelWhenTheSectionDisappears() async {
+        let starter = FakeTunnelStarter()
+        let controller = makeController(starter: starter)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        // Catalog pushed: its appear lands before the section's disappear.
+        controller.sectionDidAppear()
+        controller.sectionDidDisappear()
+        #expect(controller.sectionIsVisible)
+        if case .ready = controller.tunnel {} else { Issue.record("tunnel dropped during push") }
+        #expect(starter.startedConfigs.count == 1)
+        // Pop back: section appears, catalog disappears.
+        controller.sectionDidAppear()
+        controller.sectionDidDisappear()
+        if case .ready = controller.tunnel {} else { Issue.record("tunnel dropped during pop") }
+        // Leave the section entirely.
+        controller.sectionDidDisappear()
+        #expect(controller.tunnel == .idle)
+        #expect(controller.visibleScreenCount == 0)
+    }
+
     @Test func backgroundStopsAndForegroundRestartsWhileVisible() async {
         let starter = FakeTunnelStarter()
         let controller = makeController(starter: starter)
