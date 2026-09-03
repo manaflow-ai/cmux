@@ -8302,9 +8302,33 @@ mod tests {
         }));
         assert_eq!(session.cached_tree().workspaces()[1].name, "renamed");
 
-        // Revision 8 skips 7: a gap is a resync barrier.
+        // Moving the active workspace must preserve focus by workspace id,
+        // rather than leaving the active index at its old position.
         session.handle_line(json!({
-            "event": "workspace-closed", "workspace": 20, "index": 1, "workspace_revision": 8,
+            "event": "workspace-moved", "workspace": 1, "index": 1,
+            "workspace_revision": 7, "registry_id": "r", "generation": "g",
+            "entity": {"id": 1}
+        }));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces().iter().map(|ws| ws.id).collect::<Vec<_>>(), vec![20, 1]);
+        assert_eq!(tree.active_workspace, 1);
+
+        // An active workspace insertion sets focus to its inserted index.
+        session.handle_line(json!({
+            "event": "workspace-added", "workspace": 30, "index": 0,
+            "workspace_revision": 8, "registry_id": "r", "generation": "g",
+            "entity": {"id": 30, "name": "active", "active": true,
+                "screens": [{"id": 31, "active_pane": 32,
+                    "layout": {"type": "leaf", "pane": 32},
+                    "panes": [{"id": 32, "tabs": [{"surface": 33, "title": "e"}]}]}]}
+        }));
+        let tree = session.cached_tree();
+        assert_eq!(tree.workspaces().iter().map(|ws| ws.id).collect::<Vec<_>>(), vec![30, 20, 1]);
+        assert_eq!(tree.active_workspace, 0);
+
+        // Revision 10 skips 9: a gap is a resync barrier.
+        session.handle_line(json!({
+            "event": "workspace-closed", "workspace": 20, "index": 1, "workspace_revision": 10,
             "registry_id": "r", "generation": "g", "entity": {"id": 20, "name": "renamed"}
         }));
         assert!(session.tree_is_stale(), "a revision gap must force a refetch");
