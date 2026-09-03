@@ -195,7 +195,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["start", "ensure", "status", "stats", "stop", "reload-config"],
+                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
                 ),
             )));
         }
