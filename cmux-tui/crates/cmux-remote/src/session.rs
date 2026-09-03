@@ -1383,6 +1383,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_rejects_send_waiting_for_queue_without_orphaning_completion() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let mut limits = SessionLimits::default();
+        limits.queued_frames_per_lane = 1;
+        let session = ReliableSession::new(SessionId([19; 16]), link.clone(), limits);
+
+        let first = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session.send(Lane::Bulk, 1, Bytes::from_static(b"first"), FrameFlags::empty()).await
+            }
+        });
+        link.entered.acquire().await.unwrap().forget();
+
+        let second = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 2, Bytes::from_static(b"second"), FrameFlags::empty())
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while session.scheduler.inner.budgets[lane_index(Lane::Bulk)].load(Ordering::Acquire)
+                == 0
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second frame was not admitted to the bounded lane queue");
+
+        let third = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session.send(Lane::Bulk, 3, Bytes::from_static(b"third"), FrameFlags::empty()).await
+            }
+        });
+        session.scheduler.request_shutdown();
+        let third_result = tokio::time::timeout(Duration::from_secs(1), third)
+            .await
+            .expect("send waiting for queue did not observe shutdown")
+            .unwrap();
+        assert!(matches!(third_result, Err(SessionError::SchedulerClosed)));
+
+        link.release.add_permits(1);
+        let _ = first.await;
+        let _ = second.await;
+    }
+
+    #[tokio::test]
     async fn committed_frame_is_delivered_when_its_ack_write_fails() {
         let session_id = SessionId([15; 16]);
         let frame = WireFrame {
