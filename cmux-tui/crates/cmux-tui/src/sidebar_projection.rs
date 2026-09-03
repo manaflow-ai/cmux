@@ -131,11 +131,10 @@ impl ProjectionRowsCache {
         }
         let rows = build();
         let rows = Arc::<[ProjectionRow]>::from(rows);
-        self.entries
-            .insert(
-                view_id.to_string(),
-                CachedProjectionRows { revision: *revision, rows: Arc::clone(&rows) },
-            );
+        self.entries.insert(
+            view_id.to_string(),
+            CachedProjectionRows { revision: *revision, rows: Arc::clone(&rows) },
+        );
         rows
     }
 
