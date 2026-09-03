@@ -1012,6 +1012,48 @@ mod tests {
     }
 
     #[test]
+    fn stdin_pump_uses_contract_tokens_when_remote_session_is_gone() {
+        for (line, expected) in [
+            (
+                r#"{"resize":{"cols":80,"rows":24}}"#,
+                serde_json::json!({
+                    "diag": {
+                        "resize": {
+                            "cols": 80,
+                            "rows": 24,
+                            "error": RESIZE_ERROR_CODE,
+                        }
+                    }
+                }),
+            ),
+            (
+                r#"{"claim":{"geometry":true}}"#,
+                serde_json::json!({"diag": {"claim": {"error": CLAIM_ERROR_CODE}}}),
+            ),
+        ] {
+            let mut input = Cursor::new(format!("{line}\n").into_bytes());
+            let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+            let mut diagnostics = Vec::new();
+
+            run_stdin_pump_with_handlers(
+                &mut input,
+                &lifecycle_sender,
+                |_bytes| PipeIoControlResult::Completed(()),
+                |_cols, _rows| PipeIoControlResult::Gone,
+                || PipeIoControlResult::Gone,
+                |line| diagnostics.push(line),
+            );
+
+            assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&diagnostics[0]).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
         let terminal_ended =
             crate::session::test_remote_rejected_error_with_message("unknown surface 7");
