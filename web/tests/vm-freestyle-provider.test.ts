@@ -4,6 +4,7 @@ import { describe, expect, setSystemTime, test } from "bun:test";
 import type { Freestyle } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
+  FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
   FreestyleProvider,
   PORT_OPEN_LEASE_TTL_SECONDS,
   assertNoRouteTokenInGuestPayload,
@@ -267,6 +268,18 @@ describe("Freestyle platform contract", () => {
 });
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("creates persistent machines with idle pausing disabled", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox" });
+
+    expect(fake.creates[0]).toMatchObject({
+      // Cloud machines keep their durable box available until the user
+      // explicitly pauses or destroys it. The explicit -1 also overrides a
+      // provider/account default that would otherwise idle-pause the VM.
+      idleTimeoutSeconds: -1,
+    });
+  });
+
   test("passes the rule inline, writes nothing into the guest, and returns the machine", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
@@ -324,6 +337,41 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(ok.writes).toEqual([]);
     expect(JSON.stringify(ok.writes)).not.toContain("crt_");
     expect(ok.deletes).toEqual([]);
+  });
+});
+
+describe("FreestyleProvider resume policy", () => {
+  test("clears a legacy idle timeout when waking an existing machine", async () => {
+    const updates: unknown[] = [];
+    const vm = {
+      start: async () => ({
+        id: VM_ID,
+        state: "running" as const,
+        snapshotId: "sh-devbox",
+        resources: { cpu: 2, memory: 4096, storage: 16384 },
+        idleTimeoutSeconds: 3600,
+      }),
+      update: async (options: unknown) => {
+        updates.push(options);
+        return {};
+      },
+      exec: async () => ({ statusCode: 0, stdout: "", stderr: "" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async () => ({
+        url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
+        sha256: "0".repeat(64),
+        commit: "abc",
+        builtAt: null,
+      }),
+    });
+
+    const handle = await provider.resume(VM_ID);
+
+    expect(handle.status).toBe("running");
+    expect(updates).toEqual([{ idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS }]);
   });
 });
 
