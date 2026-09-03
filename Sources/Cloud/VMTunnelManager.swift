@@ -50,13 +50,37 @@ struct VMTunnelManager: Sendable {
         }
     }
 
+    /// Which of this Mac's two tunnel identities a manager instance owns.
+    ///
+    /// WireGuard binds one key to one live session: the server remembers the
+    /// endpoint of the last authenticated sender, so two processes handshaking
+    /// with the same key steal each other's traffic. The system interface
+    /// (`cmux vpn up`) and the app's in-process hub (`cmux-tui wg hub`) therefore
+    /// never share a key; each is its own device on the account's network.
+    enum Identity: Sendable, Equatable {
+        /// The wg-quick system interface: `cmux.conf`, `private.key`, `mac-<uuid>`.
+        case system
+        /// The app hub: `cmux-app.conf`, `app.key`, `mac-<uuid>-app`.
+        case app
+
+        /// The device fingerprint suffix appended to the system fingerprint.
+        var fingerprintSuffix: String {
+            switch self {
+            case .system: return ""
+            case .app: return "-app"
+            }
+        }
+    }
+
     /// wg-quick names the interface after the config file, so this is both.
     static let interfaceName = "cmux"
 
     let home: URL
+    let identity: Identity
 
-    init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+    init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true), identity: Identity = .system) {
         self.home = home
+        self.identity = identity
     }
 
     /// `~/.cmuxterm/wireguard`, 0700 — alongside the cmux-tui client state,
@@ -66,9 +90,21 @@ struct VMTunnelManager: Sendable {
             .appendingPathComponent("wireguard", isDirectory: true)
     }
 
-    var privateKeyURL: URL { stateDir.appendingPathComponent("private.key", isDirectory: false) }
+    var privateKeyURL: URL {
+        switch identity {
+        case .system: return stateDir.appendingPathComponent("private.key", isDirectory: false)
+        case .app: return stateDir.appendingPathComponent("app.key", isDirectory: false)
+        }
+    }
+    /// The one per-installation device id both identities derive from; a
+    /// reinstall that mints a new one rotates both tunnels together.
     var deviceIDURL: URL { stateDir.appendingPathComponent("device-id", isDirectory: false) }
-    var configURL: URL { stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false) }
+    var configURL: URL {
+        switch identity {
+        case .system: return stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false)
+        case .app: return stateDir.appendingPathComponent("\(Self.interfaceName)-app.conf", isDirectory: false)
+        }
+    }
 
     /// wg-quick(8) records the created utun's name here — but on macOS the
     /// file is root-only (0400), so liveness detection must not depend on it;
@@ -96,8 +132,13 @@ struct VMTunnelManager: Sendable {
 
     /// The stable per-installation device fingerprint, minted on first use.
     /// Distinct from the per-machine cmux-tui fingerprints: this one names the
-    /// Mac itself on the account's network.
+    /// Mac itself on the account's network. The app identity appends `-app` to
+    /// the same minted id, so the two tunnels are visibly one Mac.
     func deviceFingerprint() throws -> String {
+        try baseDeviceFingerprint() + identity.fingerprintSuffix
+    }
+
+    private func baseDeviceFingerprint() throws -> String {
         if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8) {
             let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
@@ -106,6 +147,35 @@ struct VMTunnelManager: Sendable {
         try ensureStateDir()
         try write(minted + "\n", to: deviceIDURL)
         return minted
+    }
+
+    /// The `AllowedIPs` of the config on disk (the addresses this tunnel routes),
+    /// or empty when no config has been written yet.
+    func configuredRoutes() -> [String] {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
+        return Self.allowedIPs(in: config)
+    }
+
+    /// The `AllowedIPs =` values in a wg-quick config's `[Peer]` sections, in order.
+    static func allowedIPs(in config: String) -> [String] {
+        var routes: [String] = []
+        var inPeer = false
+        for rawLine in config.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inPeer = line.lowercased() == "[peer]"
+                continue
+            }
+            guard inPeer else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "allowedips" else { continue }
+            for entry in parts[1].split(separator: ",") {
+                let value = entry.trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { routes.append(value) }
+            }
+        }
+        return routes
     }
 
     /// The Mac's WireGuard keypair, minted on first use. Returns base64 halves;

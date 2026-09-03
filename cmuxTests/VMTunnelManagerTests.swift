@@ -140,4 +140,67 @@ struct VMTunnelManagerTests {
         """.write(to: manager.configURL, atomically: true, encoding: .utf8)
         #expect(manager.wgQuickInterfaceUp() == true)
     }
+
+    @Test
+    func appIdentityDerivesFromTheSystemFingerprintWithItsOwnKeyAndConfig() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let system = VMTunnelManager(home: home, identity: .system)
+        let app = VMTunnelManager(home: home, identity: .app)
+
+        // One minted device id, two fingerprints: the hub is visibly the same Mac.
+        let base = try system.deviceFingerprint()
+        #expect(try app.deviceFingerprint() == base + "-app")
+        #expect(try system.deviceFingerprint() == base)
+
+        // Separate key material: one WireGuard key supports one live session.
+        let systemKeys = try system.keypair()
+        let appKeys = try app.keypair()
+        #expect(systemKeys.privateKey != appKeys.privateKey)
+        #expect(app.privateKeyURL.lastPathComponent == "app.key")
+        #expect(system.privateKeyURL.lastPathComponent == "private.key")
+        let attrs = try FileManager.default.attributesOfItem(atPath: app.privateKeyURL.path)
+        #expect((attrs[.posixPermissions] as? Int) == 0o600)
+
+        // Separate configs, so `cmux vpn up` and the hub never read each other's.
+        #expect(app.configURL.lastPathComponent == "cmux-app.conf")
+        #expect(system.configURL.lastPathComponent == "cmux.conf")
+        #expect(app.configURL != system.configURL)
+    }
+
+    @Test
+    func allowedIPsParseOnlyPeerSections() {
+        let config = """
+        [Interface]
+        PrivateKey = X
+        Address = 100.64.0.9/32
+        AllowedIPs = 1.2.3.4/32
+
+        [Peer]
+        PublicKey = Y
+        AllowedIPs = 10.0.0.0/8, fd00::/8
+        Endpoint = [2606:4700::1]:51820
+        """
+        #expect(VMTunnelManager.allowedIPs(in: config) == ["10.0.0.0/8", "fd00::/8"])
+    }
+
+    @Test
+    func configuredRoutesReadTheIdentityConfigOnDisk() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = VMTunnelManager(home: home, identity: .app)
+        #expect(app.configuredRoutes() == [])
+        try FileManager.default.createDirectory(at: app.stateDir, withIntermediateDirectories: true)
+        try """
+        [Interface]
+        Address = 100.64.0.2/32
+
+        [Peer]
+        PublicKey = Y
+        AllowedIPs = 10.0.0.0/8
+        """.write(to: app.configURL, atomically: true, encoding: .utf8)
+        #expect(app.configuredRoutes() == ["10.0.0.0/8"])
+        // The system identity has no config here; it never reads the app's.
+        #expect(VMTunnelManager(home: home).configuredRoutes() == [])
+    }
 }

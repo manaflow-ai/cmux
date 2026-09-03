@@ -175,6 +175,30 @@ protocol, and `cmux-terminal-client` (today iroh-only, C-ABI) can later
 subsume the sidecar by adding `ws`/`wss` to its accepted schemes; the
 provider machinery it needs is already shared in `cmux-remote`.
 
+## macOS: private-network machines dial through one WireGuard hub
+
+A machine on the owner's private network is reachable only inside the VPC. The
+app does not require `cmux vpn up` for that: when the bundled client advertises
+`wireguard-hub` (`remote-probe --json`) and the route host is a literal address
+inside the tunnel's `AllowedIPs` (before enrollment, inside the RFC 1918 / RFC
+4193 private ranges), the link is spawned with `--wireguard-hub <socket>` and
+dials through `cmux-tui wg hub`, one process per app that owns the in-process
+WireGuard tunnel and serves SOCKS5 on `~/.cmuxterm/wireguard/hub-<pid>.sock`.
+Public hosts and older clients dial directly, exactly as before.
+
+The hub has its own tunnel identity (`VMTunnelManager.Identity.app`:
+`mac-<uuid>-app`, `app.key`, `cmux-app.conf`), never the `cmux vpn up` key,
+because one WireGuard key supports one live session. `CloudWireGuardHub` owns
+the lifecycle: the first link starts it (enroll, write config, spawn, wait for the hub's
+`hub-ready` stdout line, whose `routes` are the authoritative membership set),
+links hold leases, and it stops 10 s after the last
+release. An unexpected exit while leased restarts it with 1/2/4/8/16 s backoff;
+the links' own reconnect loops then find the socket again. A `cmux vm tui` pane
+execs its own client the app cannot watch, so `vm.cmux_remote_info` pins the
+hub for the rest of the app session when it hands that pane a
+`wireguard_hub_socket`. Sign-out and revoke stop it; app termination kills it.
+`vm.tunnel_status` reports the hub under `app_tunnel`.
+
 ## Drag-from-right-pane UX
 
 The right pane gains a "terminals" catalog: for each known daemon
