@@ -54,7 +54,7 @@ extension MobileShellComposite {
     ) -> MobileMacCompatPolicy.Channel? {
         switch buildCompatibilityPolicy {
         case .official?:
-            return MobileMacCompatPolicy.constrainedChannel(instanceTag: instanceTag)
+            return MobileMacCompatPolicy.Channel(instanceTag: instanceTag)
         case .development?:
             #if DEBUG
             guard mobileMacCompatDebugOverrideForcesEvaluation() else { return nil }

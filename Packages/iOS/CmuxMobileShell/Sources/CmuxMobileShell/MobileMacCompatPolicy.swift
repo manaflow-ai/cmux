@@ -1,7 +1,8 @@
 public import Foundation
 
 /// The minimum Mac app versions one iOS build accepts, fetched from
-/// `GET /api/mobile-mac-compat` (authoritative, cached per origin) with
+/// `GET /api/mobile-mac-compat` (authoritative, cached per origin and app
+/// build) with
 /// ``baked`` as the compiled-in fallback for devices that have never fetched.
 ///
 /// Tiers are keyed by an inclusive minimum iOS marketing version; the tier
@@ -10,80 +11,6 @@ public import Foundation
 /// build cannot fully parse is discarded (the previous policy stays), so a
 /// bad remote edit can never brick pairing beyond what it explicitly states.
 public struct MobileMacCompatPolicy: Equatable, Sendable {
-    /// The minimum nightly-channel build for one tier.
-    public struct NightlyRequirement: Equatable, Sendable {
-        /// The nightly stamp's base version at the minimum.
-        public let minBaseVersion: MobileMacAppVersion
-        /// The minimum monotonic nightly build counter, applied only when the
-        /// stamp's base equals ``minBaseVersion`` (a greater base is newer).
-        public let minBuild: UInt64
-
-        /// Creates a nightly minimum from its base version and counter.
-        ///
-        /// - Parameters:
-        ///   - minBaseVersion: The nightly stamp's base version at the minimum.
-        ///   - minBuild: The minimum monotonic nightly build counter.
-        public init(minBaseVersion: MobileMacAppVersion, minBuild: UInt64) {
-            self.minBaseVersion = minBaseVersion
-            self.minBuild = minBuild
-        }
-    }
-
-    /// One iOS-version tier and the Mac minimums it demands.
-    public struct Tier: Equatable, Sendable {
-        /// The inclusive minimum iOS marketing version this tier applies to.
-        public let minIOSVersion: MobileMacAppVersion
-        /// The optional inclusive maximum iOS marketing version. `nil` is
-        /// open-ended, so one tier captures every version from its minimum
-        /// upward without listing each patch release; a bound scopes the
-        /// tier to a range (equal min and max pinpoints one version).
-        public let maxIOSVersion: MobileMacAppVersion?
-        /// The inclusive minimum stable-channel Mac marketing version.
-        public let stableMinVersion: MobileMacAppVersion
-        /// The minimum nightly-channel build; `nil` leaves nightly unconstrained.
-        public let nightly: NightlyRequirement?
-
-        /// Creates one tier of the policy.
-        ///
-        /// - Parameters:
-        ///   - minIOSVersion: The inclusive minimum iOS version of the tier.
-        ///   - maxIOSVersion: The optional inclusive maximum iOS version.
-        ///   - stableMinVersion: The minimum stable-channel Mac version.
-        ///   - nightly: The minimum nightly-channel build, or `nil`.
-        public init(
-            minIOSVersion: MobileMacAppVersion,
-            maxIOSVersion: MobileMacAppVersion? = nil,
-            stableMinVersion: MobileMacAppVersion,
-            nightly: NightlyRequirement?
-        ) {
-            self.minIOSVersion = minIOSVersion
-            self.maxIOSVersion = maxIOSVersion
-            self.stableMinVersion = stableMinVersion
-            self.nightly = nightly
-        }
-    }
-
-    /// The Mac release channel a version constraint applies to.
-    public enum Channel: Equatable, Sendable {
-        /// The stable release lane (`default` and legacy untagged Macs).
-        case stable
-        /// The nightly release lane.
-        case nightly
-    }
-
-    /// Why a connected Mac was refused, carrying everything the failure copy
-    /// needs: the channel, the Mac's reported version (nil when the Mac
-    /// predates version reporting), and the tier minimum for that channel.
-    public struct Violation: Equatable, Sendable {
-        /// The release lane whose minimum the Mac missed.
-        public let channel: Channel
-        /// The Mac's reported version, or `nil` when it predates reporting.
-        public let macAppVersion: String?
-        /// The minimum version to present: the stable minimum, or the nightly
-        /// minimum rendered in the nightly stamp grammar.
-        public let requiredVersionDisplay: String
-    }
-
     /// The tiers of the policy, ascending by ``Tier/minIOSVersion``.
     public let tiers: [Tier]
 
@@ -183,25 +110,6 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         }
     }
 
-    /// Resolves the constrained channel for an authenticated Mac instance
-    /// tag: `default` is the stable release lane and `nightly` the nightly
-    /// lane. Every other tag (development tags, `rc`, `staging`) is outside
-    /// this policy — those lanes are already gated by
-    /// ``MobileMacBuildCompatibilityPolicy`` and rebuilt from source. A
-    /// missing tag is the pre-0.64.18 stable release lane.
-    public static func constrainedChannel(instanceTag: String?) -> Channel? {
-        let normalized = instanceTag?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        switch normalized {
-        case nil, "", "default":
-            return .stable
-        case "nightly":
-            return .nightly
-        default:
-            return nil
-        }
-    }
 }
 
 extension MobileMacCompatPolicy {
@@ -216,8 +124,8 @@ extension MobileMacCompatPolicy {
     /// limit — accidentally blocking every Mac is the failure mode this
     /// product explicitly chose to avoid, so retraction is expressed by
     /// serving no tiers, not by hiding the endpoint.
-    public static func decode(_ data: Data) -> MobileMacCompatPolicy? {
-        guard let payload = try? JSONDecoder().decode(RemoteList.self, from: data) else {
+    public init?(decoding data: Data) {
+        guard let payload = try? JSONDecoder().decode(MobileMacCompatRemoteList.self, from: data) else {
             return nil
         }
         var tiers: [Tier] = []
@@ -251,24 +159,7 @@ extension MobileMacCompatPolicy {
                 nightly: nightly
             ))
         }
-        return MobileMacCompatPolicy(tiers: tiers)
+        self.init(tiers: tiers)
     }
 
-    /// The wire shape of `web/data/mobile-mac-compat.ts`. Unknown fields are
-    /// ignored so the payload can grow without breaking older clients.
-    private struct RemoteList: Decodable {
-        struct Entry: Decodable {
-            let minIOSVersion: String
-            let maxIOSVersion: String?
-            let stableMinVersion: String
-            let nightly: Nightly?
-        }
-
-        struct Nightly: Decodable {
-            let minBaseVersion: String
-            let minBuild: String
-        }
-
-        let entries: [Entry]
-    }
 }

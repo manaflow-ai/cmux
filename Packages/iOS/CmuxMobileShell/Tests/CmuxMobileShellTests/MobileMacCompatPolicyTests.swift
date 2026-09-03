@@ -112,10 +112,10 @@ import Testing
         let payload = Data("""
         {"entries":[{"minIOSVersion":"1.0","maxIOSVersion":"1.0.99","stableMinVersion":"0.64.23"}]}
         """.utf8)
-        let decoded = try #require(MobileMacCompatPolicy.decode(payload))
+        let decoded = try #require(MobileMacCompatPolicy(decoding: payload))
         #expect(decoded.tiers.first?.maxIOSVersion == version("1.0.99"))
         let badMax = Data(#"{"entries":[{"minIOSVersion":"1.0","maxIOSVersion":"x","stableMinVersion":"0.64.23"}]}"#.utf8)
-        #expect(MobileMacCompatPolicy.decode(badMax) == nil)
+        #expect(MobileMacCompatPolicy(decoding: badMax) == nil)
     }
 
     @Test func tierSelectionFailsOpenForUnparseableAppVersion() {
@@ -128,16 +128,16 @@ import Testing
     // MARK: - Channel resolution
 
     @Test func releaseLanesAreConstrained() {
-        #expect(MobileMacCompatPolicy.constrainedChannel(instanceTag: "default") == .stable)
-        #expect(MobileMacCompatPolicy.constrainedChannel(instanceTag: "nightly") == .nightly)
+        #expect(MobileMacCompatPolicy.Channel(instanceTag: "default") == .stable)
+        #expect(MobileMacCompatPolicy.Channel(instanceTag: "nightly") == .nightly)
         // Pre-0.64.18 releases report no tag and are the oldest stable lane.
-        #expect(MobileMacCompatPolicy.constrainedChannel(instanceTag: nil) == .stable)
-        #expect(MobileMacCompatPolicy.constrainedChannel(instanceTag: " ") == .stable)
+        #expect(MobileMacCompatPolicy.Channel(instanceTag: nil) == .stable)
+        #expect(MobileMacCompatPolicy.Channel(instanceTag: " ") == .stable)
     }
 
     @Test(arguments: ["rc", "staging", "dev", "minmac"])
     func nonReleaseLanesAreOutsideThePolicy(_ tag: String) {
-        #expect(MobileMacCompatPolicy.constrainedChannel(instanceTag: tag) == nil)
+        #expect(MobileMacCompatPolicy.Channel(instanceTag: tag) == nil)
     }
 
     // MARK: - Stable-channel violations
@@ -247,7 +247,7 @@ import Testing
         "entries":[{"minIOSVersion":"1.0.4","stableMinVersion":"0.64.23",\
         "nightly":{"minBaseVersion":"0.64.22","minBuild":"3345650013202"}}]}
         """.utf8)
-        let decoded = try #require(MobileMacCompatPolicy.decode(payload))
+        let decoded = try #require(MobileMacCompatPolicy(decoding: payload))
         #expect(decoded.tiers.count == 1)
         #expect(decoded.tiers.first?.stableMinVersion == version("0.64.23"))
         #expect(decoded.tiers.first?.nightly?.minBuild == 3_345_650_013_202)
@@ -257,20 +257,20 @@ import Testing
         // Dropping an unparseable entry could silently weaken the
         // constraint, so the whole payload is discarded instead.
         let badVersion = Data(#"{"entries":[{"minIOSVersion":"x","stableMinVersion":"0.64.23"}]}"#.utf8)
-        #expect(MobileMacCompatPolicy.decode(badVersion) == nil)
+        #expect(MobileMacCompatPolicy(decoding: badVersion) == nil)
         let badBuild = Data("""
         {"entries":[{"minIOSVersion":"1.0.4","stableMinVersion":"0.64.23",\
         "nightly":{"minBaseVersion":"0.64.22","minBuild":"12a"}}]}
         """.utf8)
-        #expect(MobileMacCompatPolicy.decode(badBuild) == nil)
-        #expect(MobileMacCompatPolicy.decode(Data("not json".utf8)) == nil)
+        #expect(MobileMacCompatPolicy(decoding: badBuild) == nil)
+        #expect(MobileMacCompatPolicy(decoding: Data("not json".utf8)) == nil)
     }
 
     @Test func decodeIgnoresUnknownFields() throws {
         let payload = Data("""
         {"entries":[{"minIOSVersion":"1.0.4","stableMinVersion":"0.64.23","future":true}],"extra":1}
         """.utf8)
-        let decoded = try #require(MobileMacCompatPolicy.decode(payload))
+        let decoded = try #require(MobileMacCompatPolicy(decoding: payload))
         #expect(decoded.tiers.count == 1)
     }
 
@@ -294,7 +294,7 @@ import Testing
         // A fetched empty list means the server sets no limit for anyone:
         // no tier matches, so every Mac is admitted. Better than accidentally
         // accepting none.
-        let decoded = try #require(MobileMacCompatPolicy.decode(Data(#"{"entries":[]}"#.utf8)))
+        let decoded = try #require(MobileMacCompatPolicy(decoding: Data(#"{"entries":[]}"#.utf8)))
         #expect(decoded.tier(forIOSVersion: "1.0.4") == nil)
         #expect(decoded.violation(iosVersion: "1.0.4", channel: .stable, macAppVersion: nil) == nil)
         #expect(decoded.violation(iosVersion: "1.0.4", channel: .nightly, macAppVersion: "0.1.0") == nil)

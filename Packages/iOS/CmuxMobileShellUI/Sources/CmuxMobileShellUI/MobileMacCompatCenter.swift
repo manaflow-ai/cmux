@@ -1,10 +1,11 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileSupport
 import Foundation
 import Observation
 
 /// App-root minimum-Mac-version state: the last fetched
-/// `/api/mobile-mac-compat` list, cached per API origin, with the
+/// `/api/mobile-mac-compat` list, cached per API origin and app build, with the
 /// compiled-in ``MobileMacCompatPolicy/baked`` fallback for devices that
 /// have never fetched.
 ///
@@ -25,6 +26,7 @@ public final class MobileMacCompatCenter {
     private let requestURL: URL?
     private let defaults: UserDefaults
     private let loader: Loader
+    private let appBuildIdentity: String
 
     /// The effective policy: the last successfully decoded fetch (this
     /// launch or a cached previous one), else the compiled-in fallback.
@@ -37,10 +39,14 @@ public final class MobileMacCompatCenter {
     ///     empty disables fetching (the baked fallback stays).
     ///   - defaults: The store backing the per-origin payload cache.
     ///   - loader: The payload loader; `nil` uses the shared URLSession one.
+    ///   - appBuildIdentity: The running iOS version/build identity used to
+    ///     isolate cached policy across app upgrades. `nil` derives it from
+    ///     ``AppVersionInfo/current()``; tests may provide a deterministic value.
     public init(
         apiBaseURL: String?,
         defaults: UserDefaults = .standard,
-        loader: Loader? = nil
+        loader: Loader? = nil,
+        appBuildIdentity: String? = nil
     ) {
         let url: URL?
         if let apiBaseURL, !apiBaseURL.isEmpty {
@@ -51,13 +57,22 @@ public final class MobileMacCompatCenter {
         requestURL = url
         self.defaults = defaults
         self.loader = loader ?? mobileRemoteJSONLoader
+        let versionInfo = AppVersionInfo.current()
+        let buildIdentity = appBuildIdentity
+            ?? [versionInfo.marketingVersion, versionInfo.buildNumber, versionInfo.devTag, versionInfo.gitSHA]
+                .filter { !$0.isEmpty }
+                .joined(separator: "|")
+        self.appBuildIdentity = buildIdentity
         let scheme = url?.scheme?.lowercased() ?? "none"
         let host = url?.host?.lowercased() ?? "none"
         let port = url?.port.map(String.init) ?? "default"
-        let environmentCacheKey = "\(Self.cacheKey).\(scheme).\(host).\(port)"
+        // Version/build scoping prevents an older binary's weaker policy (or
+        // its valid empty kill switch) from replacing this binary's baked
+        // floor before this build has completed a successful fetch.
+        let environmentCacheKey = "\(Self.cacheKey).\(scheme).\(host).\(port).\(buildIdentity)"
         self.environmentCacheKey = environmentCacheKey
         if let cached = defaults.data(forKey: environmentCacheKey),
-           let decoded = MobileMacCompatPolicy.decode(cached) {
+           let decoded = MobileMacCompatPolicy(decoding: cached) {
             policy = decoded
         } else {
             policy = .baked
@@ -65,8 +80,8 @@ public final class MobileMacCompatCenter {
     }
 
     /// The cache key scoped to the configured API origin (scheme, host, and
-    /// port), so a build that switches environments never consumes another
-    /// environment's minimums from the cache.
+    /// port) plus this app's version/build identity, so an environment switch
+    /// or app upgrade never consumes another policy from the cache.
     private let environmentCacheKey: String
 
     /// Fetches the remote list, replacing the device cache on success. Any
@@ -76,7 +91,7 @@ public final class MobileMacCompatCenter {
         guard let requestURL else { return }
         do {
             let data = try await loader(requestURL)
-            guard let decoded = MobileMacCompatPolicy.decode(data) else { return }
+            guard let decoded = MobileMacCompatPolicy(decoding: data) else { return }
             policy = decoded
             defaults.set(data, forKey: environmentCacheKey)
         } catch {
