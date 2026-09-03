@@ -16633,7 +16633,7 @@ private struct SidebarMetadataEntryRow: View {
                     .onTapGesture { onFocus() }
             }
         }
-        .task(id: entry.icon) {
+        .task(id: entry.timestamp) {
             guard case .imageFile(let path) = entry.sidebarIcon else {
                 loadedImage = nil
                 return

@@ -62,20 +62,24 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         ))
         bitmap.setColor(.systemRed, atX: 0, y: 0)
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
-        let loader = SidebarStatusIconImageLoader { path, _ in
-            switch path {
-            case "/tmp/agent.png", "/tmp/agent.svg": data
-            case "/tmp/oversized.png": Data(count: 1_000_001)
-            default: nil
-            }
-        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-status-icons-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let imageURL = directory.appendingPathComponent("agent.png")
+        let oversizedURL = directory.appendingPathComponent("oversized.png")
+        let unsupportedURL = directory.appendingPathComponent("agent.svg")
+        try data.write(to: imageURL)
+        try Data(count: 1_000_001).write(to: oversizedURL)
+        try data.write(to: unsupportedURL)
+        let loader = SidebarStatusIconImageLoader(fileReader: SidebarStatusIconFileReader())
 
-        let loaded = try #require(await loader.image(at: "/tmp/agent.png"))
+        let loaded = try #require(await loader.image(at: imageURL.path))
         #expect(loaded.width == 2)
         #expect(loaded.height == 2)
         #expect(await loader.image(at: "agent.png") == nil)
-        #expect(await loader.image(at: "/tmp/oversized.png") == nil)
-        #expect(await loader.image(at: "/tmp/agent.svg") == nil)
+        #expect(await loader.image(at: oversizedURL.path) == nil)
+        #expect(await loader.image(at: unsupportedURL.path) == nil)
     }
 
     @Test func statusImageLoaderRejectsExcessiveDecodedDimensions() async throws {
@@ -92,9 +96,56 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
             bitsPerPixel: 0
         ))
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
-        let loader = SidebarStatusIconImageLoader { _, _ in data }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-oversized-status-icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try data.write(to: fileURL)
+        let loader = SidebarStatusIconImageLoader(fileReader: SidebarStatusIconFileReader())
 
-        #expect(await loader.image(at: "/tmp/oversized-dimensions.png") == nil)
+        #expect(await loader.image(at: fileURL.path) == nil)
+    }
+
+    @Test func statusImageLoaderRefreshesCachedPathAfterFileReplacement() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-replaced-status-icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let firstBitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 2,
+            pixelsHigh: 2,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let firstData = try #require(firstBitmap.representation(using: .png, properties: [:]))
+        try firstData.write(to: fileURL, options: .atomic)
+
+        let loader = SidebarStatusIconImageLoader(fileReader: SidebarStatusIconFileReader())
+        let firstImage = try #require(await loader.image(at: fileURL.path))
+        #expect(firstImage.width == 2)
+
+        let replacementBitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 3,
+            pixelsHigh: 3,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let replacementData = try #require(replacementBitmap.representation(using: .png, properties: [:]))
+        try replacementData.write(to: fileURL, options: .atomic)
+
+        let replacementImage = try #require(await loader.image(at: fileURL.path))
+        #expect(replacementImage.width == 3)
     }
 
     @Test func statusIconFileReaderRejectsIntMaxByteLimit() throws {

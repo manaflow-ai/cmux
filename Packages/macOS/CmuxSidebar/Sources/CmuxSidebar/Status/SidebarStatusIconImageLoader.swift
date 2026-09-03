@@ -1,5 +1,5 @@
 public import CoreGraphics
-public import Foundation
+import Foundation
 import ImageIO
 
 /// Actor-backed local-image loader shared by the built-in sidebar renderers.
@@ -7,12 +7,9 @@ import ImageIO
 /// File access is injected so callers and tests can supply isolated implementations.
 /// Reads, validation, decoding, and cache mutation all run away from the main actor.
 public actor SidebarStatusIconImageLoader: SidebarStatusIconImageLoading {
-    /// Function used to read one bounded local file.
-    public typealias ReadFile = @Sendable (_ path: String, _ maximumByteCount: Int) -> Data?
-
     private struct CacheKey: Hashable {
         let path: String
-        let data: Data
+        let metadata: SidebarStatusIconOpenFile.Metadata
     }
 
     private struct CacheEntry {
@@ -28,25 +25,16 @@ public actor SidebarStatusIconImageLoader: SidebarStatusIconImageLoading {
         "bmp", "gif", "heic", "icns", "ico", "jpeg", "jpg", "png", "tif", "tiff", "webp",
     ])
 
-    private let readFile: ReadFile
+    private let fileReader: SidebarStatusIconFileReader
     private var images: [CacheKey: CacheEntry] = [:]
     private var insertionOrder: [CacheKey] = []
     private var decodedCacheByteCount = 0
-
-    /// Creates a loader with injected file access.
-    ///
-    /// - Parameter readFile: A function that reads at most the supplied byte limit.
-    public init(readFile: @escaping ReadFile) {
-        self.readFile = readFile
-    }
 
     /// Creates a loader backed by a local descriptor-based file reader.
     ///
     /// - Parameter fileReader: The local file reader used for bounded reads.
     public init(fileReader: SidebarStatusIconFileReader) {
-        self.readFile = { path, maximumByteCount in
-            fileReader.data(at: path, maximumByteCount: maximumByteCount)
-        }
+        self.fileReader = fileReader
     }
 
     /// Loads a bounded raster image from an absolute local path or a path beginning with `~`.
@@ -62,18 +50,17 @@ public actor SidebarStatusIconImageLoader: SidebarStatusIconImageLoading {
         let path = (expandedPath as NSString).standardizingPath
         let url = URL(fileURLWithPath: path)
         guard Self.allowedExtensions.contains(url.pathExtension.lowercased()),
-              let data = readFile(path, Self.maxImageBytes),
-              !data.isEmpty,
-              data.count <= Self.maxImageBytes else {
+              let file = fileReader.openFile(at: path, maximumByteCount: Self.maxImageBytes) else {
             return nil
         }
 
-        let key = CacheKey(path: path, data: data)
+        let key = CacheKey(path: path, metadata: file.metadata)
         if let cached = images[key] {
             return cached.image
         }
 
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+        guard let data = file.data(maximumByteCount: Self.maxImageBytes),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
