@@ -44,6 +44,7 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(result.stdout.utf8.count, 32 * 1024)
         XCTAssertNotNil(String(data: Data(result.stdout.utf8), encoding: .utf8))
+        XCTAssertNil(result.machineId, "machine protocol is authoritative only on stdout")
         XCTAssertNil(MachineCreateCoordinator.createdMachineID(fromOutput: result.stdout))
         XCTAssertTrue(result.output.contains("OK machine=stderr-id"))
     }
