@@ -1,10 +1,10 @@
 public import Foundation
 
-/// Persists bounded user-owned identity recovery records by workspace identity.
+/// Persists bounded workspace identity recovery records by workspace identity.
 ///
 /// The session snapshot remains the baseline. This journal records immediate
-/// user mutations so a quit before the next autosave cannot lose a rename,
-/// recolor, or explicit clear.
+/// title and user mutations so a quit before the next autosave cannot lose a
+/// rename, recolor, or explicit clear.
 @MainActor
 public struct WorkspaceCustomizationStore {
     /// Production key for the stable-workspace-ID recovery journal.
@@ -21,6 +21,9 @@ public struct WorkspaceCustomizationStore {
     private let storageKey: String
     private let legacyStorageKey: String
     private let capacity: Int
+    /// Nonisolated so a workspace owner can synchronously hand off pending
+    /// records from its deinitializer without retaining the owner.
+    private nonisolated let synchronousWriter: WorkspaceCustomizationSynchronousWriter
 
     /// Creates a store backed by the supplied defaults suite.
     ///
@@ -42,6 +45,26 @@ public struct WorkspaceCustomizationStore {
         self.storageKey = storageKey
         self.legacyStorageKey = legacyStorageKey
         self.capacity = max(1, capacity)
+        self.synchronousWriter = WorkspaceCustomizationSynchronousWriter(
+            defaults: defaults,
+            storageKey: storageKey,
+            capacity: max(1, capacity)
+        )
+    }
+
+    /// Persists automatic title records synchronously from a nonisolated owner
+    /// teardown. The writer owns the lock and the complete snapshot transaction.
+    public nonisolated func persistPendingAutomaticTitlesSynchronously(
+        _ pending: [WorkspaceCustomizationPendingAutomaticTitle]
+    ) {
+        synchronousWriter.persistPendingAutomaticTitles(pending)
+    }
+
+    /// Returns a cheap process-local generation that changes whenever the
+    /// backing defaults value changes. Callers can cache a journal read until
+    /// this value changes without decoding the full snapshot for each event.
+    public nonisolated func changeGeneration() -> UInt64 {
+        synchronousWriter.changeGeneration()
     }
 
     /// Reads the recovery record for one stable workspace identity.
@@ -50,6 +73,61 @@ public struct WorkspaceCustomizationStore {
     /// - Returns: The recorded customization, or `nil` when none exists.
     public func customization(for stableId: UUID) -> WorkspaceCustomization? {
         loadSnapshot().entries[stableId.uuidString]?.customization
+    }
+
+    /// Reads the monotonic title mutation revision for one stable workspace identity.
+    /// A caller can use this as a fence for deferred writes that must not
+    /// overwrite a later mutation made by another manager instance.
+    public func customizationTitleMutationRevision(for stableId: UUID) -> UInt64? {
+        loadSnapshot().entries[stableId.uuidString]?.titleMutationRevision
+    }
+
+    /// Reads the recovery value and its title-mutation fence from one snapshot.
+    ///
+    /// Automatic title notifications use this combined read because decoding
+    /// the complete journal is synchronous. Keeping the two fields together
+    /// avoids decoding the journal twice for one high-frequency notification.
+    public func customizationAndTitleMutationRevision(
+        for stableId: UUID
+    ) -> (customization: WorkspaceCustomization, titleMutationRevision: UInt64)? {
+        guard let entry = loadSnapshot().entries[stableId.uuidString] else { return nil }
+        return (entry.customization, entry.titleMutationRevision)
+    }
+
+    /// Reads title-mutation fences for several stable workspace identities with
+    /// one defaults decode. Missing identities are omitted.
+    public func titleMutationRevisions(for stableIds: [UUID]) -> [UUID: UInt64] {
+        let requested = Set(stableIds)
+        guard !requested.isEmpty else { return [:] }
+        let entries = loadSnapshot().entries
+        return Dictionary(uniqueKeysWithValues: requested.compactMap { stableId in
+            entries[stableId.uuidString].map { (stableId, $0.titleMutationRevision) }
+        })
+    }
+
+    /// Reads recovery values and their title-mutation fences from one immutable
+    /// journal snapshot. The two dictionaries always describe the same
+    /// persisted state, even when another store writes immediately afterward.
+    ///
+    /// - Parameter stableIds: The stable workspace identities to read.
+    /// - Returns: Matching customization values and title fences.
+    public func customizationsAndTitleMutationRevisions(
+        for stableIds: [UUID]
+    ) -> (
+        customizations: [UUID: WorkspaceCustomization],
+        titleMutationRevisions: [UUID: UInt64]
+    ) {
+        let requested = Set(stableIds)
+        guard !requested.isEmpty else { return ([:], [:]) }
+        let entries = loadSnapshot().entries
+        var customizations: [UUID: WorkspaceCustomization] = [:]
+        var titleMutationRevisions: [UUID: UInt64] = [:]
+        for stableId in requested {
+            guard let entry = entries[stableId.uuidString] else { continue }
+            customizations[stableId] = entry.customization
+            titleMutationRevisions[stableId] = entry.titleMutationRevision
+        }
+        return (customizations, titleMutationRevisions)
     }
 
     /// Reads a batch of recovery records with one defaults decode.
@@ -65,14 +143,19 @@ public struct WorkspaceCustomizationStore {
         })
     }
 
-    /// Records the latest explicit workspace-title mutation.
+    /// Records the latest workspace-title mutation.
     ///
     /// - Parameters:
     ///   - title: The title to record, or `nil` to record an explicit clear.
+    ///   - source: Whether the title came from a user or automatic naming.
     ///   - stableId: The stable workspace identity.
-    public func setCustomTitle(_ title: String?, for stableId: UUID) {
-        let field = normalizedField(title)
-        updateCustomization(for: stableId) { current in
+    public func setCustomTitle(
+        _ title: String?,
+        for stableId: UUID,
+        source: WorkspaceCustomizationTitleSource = .user
+    ) {
+        let field = normalizedTitleField(title, source: source)
+        updateTitleCustomization(for: stableId) { current in
             WorkspaceCustomization(
                 customTitle: field,
                 customColor: current?.customColor ?? .absent
@@ -165,16 +248,28 @@ public struct WorkspaceCustomizationStore {
         return result
     }
 
+    @discardableResult
+    private func updateTitleCustomization(
+        for stableId: UUID,
+        _ transform: (WorkspaceCustomization?) -> WorkspaceCustomization
+    ) -> WorkspaceCustomization {
+        var result = WorkspaceCustomization()
+        synchronousWriter.updateSnapshot { snapshot in
+            result = transform(snapshot.entries[stableId.uuidString]?.customization)
+            snapshot.setTitle(result, for: stableId.uuidString)
+        }
+        return result
+    }
+
     private func updateCustomizations(
         forKeys keys: Set<String>,
         transform: (WorkspaceCustomization?) -> WorkspaceCustomization
     ) {
-        var snapshot = loadSnapshot()
-        for key in keys.sorted() {
-            snapshot.set(transform(snapshot.entries[key]?.customization), for: key)
+        synchronousWriter.updateSnapshot { snapshot in
+            for key in keys.sorted() {
+                snapshot.set(transform(snapshot.entries[key]?.customization), for: key)
+            }
         }
-        snapshot.trim(to: capacity)
-        persist(snapshot)
     }
 
     private func normalizedField(_ value: String?) -> WorkspaceCustomizationField {
@@ -182,34 +277,20 @@ public struct WorkspaceCustomizationStore {
         return trimmed.isEmpty ? .cleared : .value(trimmed)
     }
 
+    private func normalizedTitleField(
+        _ value: String?,
+        source: WorkspaceCustomizationTitleSource
+    ) -> WorkspaceCustomizationField {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return .cleared }
+        return source == .auto ? .autoValue(trimmed) : .value(trimmed)
+    }
+
     private func migratedField(_ value: String?) -> WorkspaceCustomizationField {
         value.map(WorkspaceCustomizationField.value) ?? .cleared
     }
 
     private func loadSnapshot() -> WorkspaceCustomizationPersistenceSnapshot {
-        guard let data = defaults?.data(forKey: storageKey),
-              var snapshot = try? JSONDecoder().decode(
-                  WorkspaceCustomizationPersistenceSnapshot.self,
-                  from: data
-              ),
-              snapshot.version == WorkspaceCustomizationPersistenceSnapshot.currentVersion else {
-            return WorkspaceCustomizationPersistenceSnapshot()
-        }
-        let previousCount = snapshot.entries.count
-        snapshot.trim(to: capacity)
-        if snapshot.entries.count != previousCount {
-            persist(snapshot)
-        }
-        return snapshot
-    }
-
-    private func persist(_ snapshot: WorkspaceCustomizationPersistenceSnapshot) {
-        guard let defaults else { return }
-        guard !snapshot.entries.isEmpty else {
-            defaults.removeObject(forKey: storageKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: storageKey)
+        synchronousWriter.loadSnapshot()
     }
 }

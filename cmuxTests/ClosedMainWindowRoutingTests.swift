@@ -54,6 +54,51 @@ struct ClosedMainWindowRoutingTests {
         return window
     }
 
+    @Test("Window-context removal flushes queued automatic workspace titles")
+    func windowContextRemovalFlushesQueuedAutomaticWorkspaceTitle() throws {
+        _ = NSApplication.shared
+        let suiteName = "WorkspaceCustomizationStore.window-teardown.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WorkspaceCustomizationStore(
+            defaults: defaults,
+            storageKey: "test.customizations",
+            legacyStorageKey: "test.legacy-customizations"
+        )
+
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "User Title"))
+        manager.clearCustomTitle(tabId: workspace.id)
+        #expect(manager.setCustomTitle(
+            tabId: workspace.id,
+            title: "Automatic Title",
+            source: .auto
+        ))
+        #expect(
+            store.customization(for: workspace.stableId)?.customTitle == .cleared
+        )
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+
+        #expect(
+            store.customization(for: workspace.stableId)?.customTitle ==
+                .autoValue("Automatic Title")
+        )
+    }
+
     @Test("Closed main window is not listed or focusable while its objects linger")
     func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared

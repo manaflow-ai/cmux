@@ -460,6 +460,29 @@ class TabManager: ObservableObject {
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
+    /// Coalesces automatic title journal writes so frequent process-title
+    /// events do not encode the full customization snapshot on every event.
+    struct PendingAutomaticWorkspaceTitle: Sendable {
+        let title: String?
+        let titleMutationRevision: UInt64
+        let automaticTitleOrdering: UInt64
+    }
+    // These members are internal because the persistence behavior is split
+    // across same-type extensions in separate source files.
+    var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
+    /// One journal read is shared by all automatic-title notifications until
+    /// the backing defaults value changes. The writer still revalidates the
+    /// revision at flush time for cross-manager races.
+    var automaticWorkspaceTitleJournalState: [UUID: (
+        generation: UInt64,
+        titleMutationRevision: UInt64,
+        automaticTitleAllowed: Bool
+    )] = [:]
+    var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
+    // This counter is shared with the persistence extension in this module.
+    // TabManager is main-actor isolated, so incrementing it does not need a
+    // second lock on the high-frequency title path.
+    static var nextAutomaticWorkspaceTitleOrdering: UInt64 = 0
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -730,6 +753,19 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
+        let pendingAutomaticTitles = pendingAutomaticWorkspaceTitles.map {
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: $0.key,
+                title: $0.value.title,
+                titleMutationRevision: $0.value.titleMutationRevision,
+                automaticTitleOrdering: $0.value.automaticTitleOrdering
+            )
+        }
+        let workspaceCustomizationStore = workspaceCustomizationStore
+        automaticWorkspaceTitlePersistenceTask?.cancel()
+        workspaceCustomizationStore.persistPendingAutomaticTitlesSynchronously(
+            pendingAutomaticTitles
+        )
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
@@ -2402,10 +2438,21 @@ class TabManager: ObservableObject {
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
-            let snapshot = workspace.sessionSnapshot(
+            let persistedWorkspaceCustomizationState = workspaceCustomizationStore
+                .customizationsAndTitleMutationRevisions(for: [workspace.stableId])
+            let pendingAutomaticTitle = pendingAutomaticWorkspaceTitles[workspace.stableId]
+            var snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
+            )
+            reconcileWorkspaceSnapshotCustomization(
+                &snapshot,
+                persistedCustomization: persistedWorkspaceCustomizationState
+                    .customizations[workspace.stableId],
+                persistedTitleMutationRevision: persistedWorkspaceCustomizationState
+                    .titleMutationRevisions[workspace.stableId],
+                pendingAutomaticTitle: pendingAutomaticTitle
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
@@ -6137,6 +6184,11 @@ class TabManager: ObservableObject {
         }
     }
 #endif
+    /// Test seam for mutating persisted workspace state after live snapshots are captured.
+    ///
+    /// This declaration lives in the class body so focused tests can override
+    /// it while production keeps the default no-op behavior.
+    func didCaptureWorkspaceSessionSnapshots() {}
 }
 
 extension TabManager {
@@ -6437,14 +6489,32 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        let workspaceSnapshots = restorableTabs
+        // Capture the persisted state before projecting workspace state. The
+        // snapshot helper pairs each local title with this immutable read and
+        // uses the durable value when the live title is stale.
+        let stableIds = restorableTabs.compactMap(\.stableId)
+        let persistedWorkspaceCustomizationState = workspaceCustomizationStore
+            .customizationsAndTitleMutationRevisions(for: stableIds)
+        let pendingAutomaticTitles = pendingAutomaticWorkspaceTitles
+        var workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
-            }
+        }
+        didCaptureWorkspaceSessionSnapshots()
+        for index in workspaceSnapshots.indices {
+            guard let stableId = workspaceSnapshots[index].stableId else { continue }
+            reconcileWorkspaceSnapshotCustomization(
+                &workspaceSnapshots[index],
+                persistedCustomization: persistedWorkspaceCustomizationState.customizations[stableId],
+                persistedTitleMutationRevision: persistedWorkspaceCustomizationState
+                    .titleMutationRevisions[stableId],
+                pendingAutomaticTitle: pendingAutomaticTitles[stableId]
+            )
+        }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
@@ -6594,9 +6664,13 @@ extension TabManager {
         prepareLegacyWorkspaceCustomizationMigration(
             afterRestoring: Array(workspaceSnapshots)
         )
-        let restoredCustomizations = cachedWorkspaceCustomizations(
-            afterRestoring: Array(workspaceSnapshots)
-        )
+        let restoredWorkspaceCustomizationState = workspaceCustomizationStore
+            .customizationsAndTitleMutationRevisions(
+                for: workspaceSnapshots.compactMap(\.stableId)
+            )
+        let restoredCustomizations = restoredWorkspaceCustomizationState.customizations
+        let restoredTitleMutationRevisions =
+            restoredWorkspaceCustomizationState.titleMutationRevisions
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6630,7 +6704,8 @@ extension TabManager {
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
                 to: workspace,
-                cachedCustomizations: restoredCustomizations
+                cachedCustomizations: restoredCustomizations,
+                cachedTitleMutationRevisions: restoredTitleMutationRevisions
             )
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)

@@ -2102,6 +2102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     ttyDeviceBindings: ttyDeviceBindings
                 )
                 guard !Task.isCancelled else { return }
+                self.flushPendingWorkspaceCustomizationWrites()
                 _ = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
@@ -2140,6 +2141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasOwnedRuntimeCleanup: hasOwnedRuntimeCleanup
                 )
                 guard disposition == .cancelTerminationAfterRuntimeCleanupFailure else {
+                    self.flushPendingWorkspaceCustomizationWrites()
                     _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
                         includeScrollback: true,
                         removeWhenEmpty: false
@@ -2211,6 +2213,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The hard AppKit watchdog is armed immediately before the terminate
         // reply, after any owned asynchronous cleanup has finished. This keeps
         // the will-terminate gauntlet bounded without cutting rollback short.
+    }
+
+    private func flushPendingWorkspaceCustomizationWrites() {
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager,
+           !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        for manager in managers {
+            manager.flushPendingWorkspaceCustomizationWrites()
+        }
     }
 
     private func presentQuitConfirmationAlert(
@@ -2328,6 +2341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        flushPendingWorkspaceCustomizationWrites()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
@@ -6770,6 +6784,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rememberRecoverableRoute: Bool
     ) -> MainWindowContext? {
         guard mainWindowContexts.values.contains(where: { $0 === context }) else { return nil }
+        // Persist queued automatic titles before removing the context's strong
+        // manager owner. This handoff is synchronous, so a quit immediately
+        // after window teardown cannot lose the queued journal update.
+        context.tabManager.flushPendingWorkspaceCustomizationWrites()
         let sidebarSnapshot = sessionSidebarSnapshot(for: context)
         let recoverableWindowDock: DockSplitStore?
         if rememberRecoverableRoute {

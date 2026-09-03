@@ -100,7 +100,189 @@ struct WorkspaceCustomizationStoreTests {
         #expect(fixture.defaults.object(forKey: fixture.legacyStorageKey) == nil)
     }
 
-    private func makeFixture(capacity: Int = 512) throws -> (
+@Test("automatic title records remain decodable by the previous schema")
+func automaticTitleRecordIsLegacyDecodable() throws {
+    let fixture = try makeFixture()
+    defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+    let stableId = UUID()
+    fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+    let data = try #require(fixture.defaults.data(forKey: fixture.storageKey))
+    let legacy = try JSONDecoder().decode(LegacyWorkspaceCustomizationSnapshot.self, from: data)
+    let entry = try #require(legacy.entries[stableId.uuidString])
+
+    // The pre-provenance decoder must still read the record as a normal value.
+    // The new decoder retains automatic provenance through its extension key.
+    #expect(entry.customization.customTitle == .value("Auto title"))
+    #expect(entry.customization.customColor == .absent)
+    let reloaded = WorkspaceCustomizationStore(
+        defaults: fixture.defaults,
+        storageKey: fixture.storageKey,
+        legacyStorageKey: fixture.legacyStorageKey
+    )
+    #expect(reloaded.customization(for: stableId)?.customTitle == .autoValue("Auto title"))
+}
+
+@Test("title recovery reads the value and mutation fence from one record")
+func titleRecoveryRecordIncludesMutationFence() throws {
+    let fixture = try makeFixture()
+    defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+    let stableId = UUID()
+    fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+
+    let record = try #require(
+        fixture.store.customizationAndTitleMutationRevision(for: stableId)
+    )
+    #expect(record.customization.customTitle == .autoValue("Auto title"))
+    #expect(record.titleMutationRevision > 0)
+}
+
+    @Test("batch title recovery returns values and fences from one snapshot")
+    func batchTitleRecoveryUsesOneSnapshot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+
+        let records = fixture.store.customizationsAndTitleMutationRevisions(for: [stableId])
+        let customization = try #require(records.customizations[stableId])
+        let revision = try #require(records.titleMutationRevisions[stableId])
+        #expect(customization.customTitle == .autoValue("Auto title"))
+        #expect(revision > 0)
+    }
+
+    @Test("invalidates a cached snapshot when another store changes the defaults")
+    func snapshotCacheInvalidatesAcrossStoreInstances() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+        let otherStore = WorkspaceCustomizationStore(
+            defaults: fixture.defaults,
+            storageKey: fixture.storageKey,
+            legacyStorageKey: fixture.legacyStorageKey
+        )
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+
+        otherStore.setCustomTitle("Second", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Second"))
+    }
+
+    @Test("invalidates when the backing UserDefaults value changes directly")
+    func snapshotCacheInvalidatesForDirectDefaultsMutation() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+
+        let replacement = WorkspaceCustomizationPersistenceSnapshot(
+            nextRevision: 1,
+            entries: [
+                stableId.uuidString: WorkspaceCustomizationPersistenceEntry(
+                    customization: WorkspaceCustomization(
+                        customTitle: .value("Direct"),
+                        customColor: .absent
+                    ),
+                    revision: 1
+                ),
+            ]
+        )
+        fixture.defaults.set(try JSONEncoder().encode(replacement), forKey: fixture.storageKey)
+
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Direct"))
+    }
+
+    @Test("advances generation when backing value changes before the cache is populated")
+    func backingMutationBeforeInitialLoadAdvancesGeneration() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let generationBeforeMutation = fixture.store.changeGeneration()
+        let snapshot = WorkspaceCustomizationPersistenceSnapshot()
+        fixture.defaults.set(try JSONEncoder().encode(snapshot), forKey: fixture.storageKey)
+
+        #expect(fixture.store.changeGeneration() > generationBeforeMutation)
+    }
+
+    @Test("ignores unrelated UserDefaults changes")
+    func snapshotCacheIgnoresUnrelatedDefaultsChanges() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        let generationBeforeUnrelatedChange = fixture.store.changeGeneration()
+
+        fixture.defaults.set("unrelated", forKey: "workspaceCustomizations.unrelated")
+
+        #expect(fixture.store.changeGeneration() == generationBeforeUnrelatedChange)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+    }
+
+    @Test("preserves ordering for same-revision automatic titles from separate stores")
+    func sameRevisionAutomaticTitlesUseQueueOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let otherStore = WorkspaceCustomizationStore(
+            defaults: fixture.defaults,
+            storageKey: fixture.storageKey,
+            legacyStorageKey: fixture.legacyStorageKey
+        )
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle(nil, for: stableId)
+        let revision = try #require(
+            fixture.store.customizationAndTitleMutationRevision(for: stableId)
+        ).titleMutationRevision
+
+        fixture.store.persistPendingAutomaticTitlesSynchronously([
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: stableId,
+                title: "First",
+                titleMutationRevision: revision,
+                automaticTitleOrdering: 1
+            ),
+        ])
+        otherStore.persistPendingAutomaticTitlesSynchronously([
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: stableId,
+                title: "Second",
+                titleMutationRevision: revision,
+                automaticTitleOrdering: 2
+            ),
+        ])
+
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .autoValue("Second"))
+    }
+
+private enum LegacyWorkspaceCustomizationField: Codable, Equatable {
+    case absent
+    case value(String)
+    case cleared
+}
+
+private struct LegacyWorkspaceCustomization: Codable, Equatable {
+    let customTitle: LegacyWorkspaceCustomizationField
+    let customColor: LegacyWorkspaceCustomizationField
+}
+
+private struct LegacyWorkspaceCustomizationPersistenceEntry: Codable, Equatable {
+    let customization: LegacyWorkspaceCustomization
+    let revision: UInt64
+}
+
+private struct LegacyWorkspaceCustomizationSnapshot: Codable, Equatable {
+    let version: Int
+    let nextRevision: UInt64
+    let entries: [String: LegacyWorkspaceCustomizationPersistenceEntry]
+}
+
+private func makeFixture(capacity: Int = 512) throws -> (
         store: WorkspaceCustomizationStore,
         defaults: UserDefaults,
         suiteName: String,
@@ -125,4 +307,5 @@ struct WorkspaceCustomizationStoreTests {
             legacyStorageKey
         )
     }
+
 }

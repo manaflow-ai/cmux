@@ -1849,6 +1849,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Title-mutation fence observed in the stable-ID customization journal
+    /// when this snapshot was written. It lets restore choose a newer session
+    /// snapshot over an automatic journal record that was still pending.
+    var customTitleMutationRevision: UInt64? = nil
     var customDescription: String?
     var customColor: String?
     var customizationDirectory: String? = nil
