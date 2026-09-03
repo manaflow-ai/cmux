@@ -1305,57 +1305,78 @@ impl WorkerCompletion {
     fn was_joined(&self) -> bool {
         self.joined.load(Ordering::Acquire)
     }
+
+    fn mark_joined(&self) {
+        #[cfg(test)]
+        self.joined.store(true, Ordering::Release);
+    }
+}
+
+type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
+
+static REAPER: OnceLock<Sender<ReapRequest>> = OnceLock::new();
+static REAPER_FALLBACK: OnceLock<Arc<Mutex<Vec<ReapRequest>>>> = OnceLock::new();
+
+fn reaper_fallback() -> &'static Arc<Mutex<Vec<ReapRequest>>> {
+    REAPER_FALLBACK.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
 }
 
 fn enqueue_worker_reap(
     handle: std::thread::JoinHandle<()>,
     completion: Arc<WorkerCompletion>,
 ) -> Result<(), std::thread::JoinHandle<()>> {
-    type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
-    static REAPER: OnceLock<std::sync::mpsc::SyncSender<ReapRequest>> = OnceLock::new();
+    let fallback = reaper_fallback().clone();
     let sender = REAPER.get_or_init(|| {
-        let (sender, receiver) = std::sync::mpsc::sync_channel::<ReapRequest>(64);
-        let Ok(_) =
-            std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
-                let mut pending = Vec::new();
-                loop {
-                    while let Ok(request) = receiver.try_recv() {
-                        pending.push(request);
+        let (sender, receiver) = channel::<ReapRequest>();
+        let reaper_fallback = fallback.clone();
+        let _ = std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
+            let mut pending = Vec::new();
+            loop {
+                pending.extend(
+                    reaper_fallback.lock().unwrap_or_else(|poison| poison.into_inner()).drain(..),
+                );
+                while let Ok(request) = receiver.try_recv() {
+                    pending.push(request);
+                }
+                let mut index = pending.len();
+                while index > 0 {
+                    index -= 1;
+                    if pending[index].1.is_done() {
+                        let (handle, completion) = pending.swap_remove(index);
+                        completion.mark_joined();
+                        let _ = handle.join();
                     }
-                    let mut index = pending.len();
-                    while index > 0 {
-                        index -= 1;
-                        if pending[index].1.is_done() {
-                            let (handle, _) = pending.swap_remove(index);
-                            let _ = handle.join();
-                        }
+                }
+                if pending.is_empty() {
+                    match receiver.recv() {
+                        Ok(request) => pending.push(request),
+                        Err(_) => break,
                     }
-                    if pending.is_empty() {
-                        match receiver.recv() {
-                            Ok(request) => pending.push(request),
-                            Err(_) => break,
-                        }
-                    } else {
-                        match receiver.recv_timeout(Duration::from_millis(50)) {
-                            Ok(request) => pending.push(request),
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                for (handle, completion) in pending.drain(..) {
-                                    completion.wait_forever();
-                                    let _ = handle.join();
-                                }
-                                break;
+                } else {
+                    match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(request) => pending.push(request),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            for (handle, completion) in pending.drain(..) {
+                                completion.wait_forever();
+                                completion.mark_joined();
+                                let _ = handle.join();
                             }
+                            break;
                         }
                     }
                 }
-            })
-        else {
-            return sender;
-        };
+            }
+        });
         sender
     });
-    try_enqueue_worker_reap(sender, handle, completion)
+    match sender.send((handle, completion)) {
+        Ok(()) => Ok(()),
+        Err(std::sync::mpsc::SendError(request)) => {
+            fallback.lock().unwrap_or_else(|poison| poison.into_inner()).push(request);
+            Ok(())
+        }
+    }
 }
 
 fn try_enqueue_worker_reap(
@@ -1569,10 +1590,8 @@ impl InteractiveWriter {
                 .wait(deadline.saturating_duration_since(Instant::now()))
             {
                 let _ = handle.join();
-            } else if let Err(handle) =
-                enqueue_worker_reap(handle, self.shared.worker_completion.clone())
-            {
-                *self.worker.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+            } else {
+                let _ = enqueue_worker_reap(handle, self.shared.worker_completion.clone());
             }
         }
     }
@@ -1588,11 +1607,7 @@ impl InteractiveWriter {
                 return;
             };
             if !self.shared.worker_completion.is_done() {
-                if let Err(handle) =
-                    enqueue_worker_reap(handle, self.shared.worker_completion.clone())
-                {
-                    *worker = Some(handle);
-                }
+                let _ = enqueue_worker_reap(handle, self.shared.worker_completion.clone());
                 return;
             }
             Some(handle)
@@ -3220,7 +3235,11 @@ impl RemoteSession {
         let handle = {
             let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
             if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
-                worker.take();
+                let handle = worker.take();
+                drop(worker);
+                if let Some(handle) = handle {
+                    let _ = enqueue_worker_reap(handle, self.reader_completion.clone());
+                }
                 return;
             }
             worker.take()
@@ -3228,10 +3247,8 @@ impl RemoteSession {
         if let Some(handle) = handle {
             if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
                 let _ = handle.join();
-            } else if let Err(handle) = enqueue_worker_reap(handle, self.reader_completion.clone())
-            {
-                *self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner()) =
-                    Some(handle);
+            } else {
+                let _ = enqueue_worker_reap(handle, self.reader_completion.clone());
             }
         }
     }
