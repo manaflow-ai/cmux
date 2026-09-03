@@ -10,7 +10,7 @@ use cmux_remote_protocol::{
     FrameDecodeError, FrameFlags, Lane, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES, SessionId,
     WireFrame,
 };
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -759,8 +759,7 @@ struct ScheduledSenderInner {
     cancel: CancellationToken,
     tasks: Mutex<Option<Vec<JoinHandle<()>>>>,
     join_started: AtomicBool,
-    finished: AtomicBool,
-    done: Notify,
+    shutdown_complete: CancellationToken,
     active_tasks: AtomicUsize,
 }
 
@@ -785,8 +784,7 @@ impl ScheduledSender {
             cancel: CancellationToken::new(),
             tasks: Mutex::new(Some(Vec::with_capacity(8))),
             join_started: AtomicBool::new(false),
-            finished: AtomicBool::new(false),
-            done: Notify::new(),
+            shutdown_complete: CancellationToken::new(),
             active_tasks: AtomicUsize::new(0),
         });
         let scheduler = Self { inner };
@@ -840,7 +838,6 @@ impl ScheduledSender {
 
     async fn wait_for_shutdown(&self) {
         self.request_shutdown();
-        let notified = self.inner.done.notified();
         if self
             .inner
             .join_started
@@ -851,10 +848,9 @@ impl ScheduledSender {
             for task in tasks {
                 let _ = task.await;
             }
-            self.inner.finished.store(true, Ordering::Release);
-            self.inner.done.notify_waiters();
-        } else if !self.inner.finished.load(Ordering::Acquire) {
-            notified.await;
+            self.inner.shutdown_complete.cancel();
+        } else {
+            self.inner.shutdown_complete.cancelled().await;
         }
     }
 
