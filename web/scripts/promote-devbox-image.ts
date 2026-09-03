@@ -29,6 +29,10 @@
  *               snapshot slug onto the new id (default cmux-devbox; "none"
  *               disables). A human/dashboard convenience: production boots
  *               from the immutable id in the manifest, never from the slug.
+ *               With sizes, it is the prefix the derived snapshots are
+ *               slugged under (`<prefix>-<size>`, bare for md); "none" keeps
+ *               the shared pointer untouched and prefixes them with the
+ *               bake's own slug instead.
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.
@@ -174,10 +178,13 @@ if (skipVerify) {
 let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
 if (!skipVerify && sizeNames.length > 0) {
   const sizesOut = path.join(workDir, "sizes.json");
+  // "none" means "leave the shared pointer slugs alone", never a literal
+  // prefix: a branch bake's sizes are slugged under its own slug.
+  const derivePrefix = pointerSlug === "none" ? (argValue("--slug") ?? slug) : pointerSlug;
   const deriveStatus = run("derive sizes", [
     "scripts/derive-devbox-sizes.ts",
     imageId,
-    argValue("--pointer-slug") ?? "cmux-devbox",
+    derivePrefix,
     "--sizes",
     sizeNames.join(","),
     "--out",

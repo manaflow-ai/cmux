@@ -4,10 +4,14 @@
  * (verify-devbox-image.ts), and the promote step (promote-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
- * Dockerfile plus the files it COPYs. No daemon binary is baked: cmux-tui is
- * installed by the drivers at create time from the pinned files.cmux.com
- * manifest (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships
- * the cmux-devbox-boot supervisor.
+ * Dockerfile plus the files it COPYs (the desktop layer under desktop/). The
+ * pins the Freestyle replay installs (agent versions, the cua driver, the
+ * desktop apt packages, the Ghostty .deb) are read from the Dockerfile's ARG
+ * and ENV lines here, never kept as a second copy. No daemon binary is baked
+ * into the container image: cmux-tui is installed by the drivers at create
+ * time from the pinned files.cmux.com manifest
+ * (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships the
+ * cmux-devbox-boot supervisor.
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -35,15 +39,18 @@ export const DEVBOX_TEMPLATE_FILES = [
 
 /**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
- * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar and
- * noVNC on 6901. Baked by build-devbox-freestyle.ts (a full VM with
- * systemd); the container providers stay shell-only.
+ * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar, the
+ * accessibility bus for computer-use, and noVNC on 6901
+ * (web/services/vms/images/desktop.ts is the contract). The Dockerfile bakes
+ * it and starts it from cmux-devbox-boot; build-devbox-freestyle.ts installs
+ * the same files and runs it from the cmux-desktop systemd unit.
  */
 export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
   "cmux-desktop-boot",
   "cmux-desktop.service",
+  "desktop-env.sh",
   "ghostty-cmux.desktop",
   "google-chrome-cmux.desktop",
   "start-vnc.sh",
@@ -52,9 +59,56 @@ export const DEVBOX_DESKTOP_FILES = [
   "wallpaper.jpg",
 ] as const;
 
-/** Ghostty ships no upstream .deb; this community build is pinned by release tag. */
-export const DEVBOX_GHOSTTY_DEB_URL =
-  "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_24.04.deb";
+export type DevboxDesktopInstall = {
+  /** The checked-in file, relative to the devbox template dir. */
+  readonly source: `desktop/${string}`;
+  /** Where the image carries it. */
+  readonly target: string;
+  readonly mode: number;
+};
+
+/**
+ * Where every desktop file lands in the image. The one map the Dockerfile's
+ * COPY lines, the Freestyle bake's file writes, and the verifier's
+ * byte-identity checks are all pinned to (tests/vm-devbox-desktop.test.ts),
+ * so a path can only change in one place.
+ */
+export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
+  { source: "desktop/google-chrome-cmux.desktop", target: "/etc/cmux/apps/google-chrome-cmux.desktop", mode: 0o644 },
+  { source: "desktop/thunar-cmux.desktop", target: "/etc/cmux/apps/thunar-cmux.desktop", mode: 0o644 },
+  { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
+  { source: "desktop/tint2rc", target: "/etc/cmux/tint2rc", mode: 0o644 },
+  { source: "desktop/wallpaper.jpg", target: "/usr/share/backgrounds/cmux/wallpaper.jpg", mode: 0o644 },
+  { source: "desktop/start-vnc.sh", target: "/usr/local/bin/start-vnc.sh", mode: 0o755 },
+  { source: "desktop/cmux-desktop-boot", target: "/usr/local/bin/cmux-desktop-boot", mode: 0o755 },
+  { source: "desktop/cmux-desktop.service", target: "/etc/systemd/system/cmux-desktop.service", mode: 0o644 },
+  { source: "desktop/desktop-env.sh", target: "/etc/cmux/desktop-env.sh", mode: 0o644 },
+];
+
+/**
+ * The desktop apt packages, from the Dockerfile's
+ * `ARG CMUX_IMAGE_DESKTOP_PACKAGES="..."` (a quoted list; Docker joins its
+ * continuation lines). The Freestyle bake installs exactly this list.
+ */
+export function devboxDesktopPackages(dockerfile = readDevboxDockerfile()): string[] {
+  const joined = dockerfile.replace(/\\\n/g, " ");
+  const match = /^ARG CMUX_IMAGE_DESKTOP_PACKAGES="([^"]+)"/m.exec(joined);
+  if (!match) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_DESKTOP_PACKAGES");
+  const packages = match[1].split(/\s+/).filter(Boolean);
+  if (packages.length === 0) throw new Error("devbox Dockerfile's CMUX_IMAGE_DESKTOP_PACKAGES is empty");
+  return packages;
+}
+
+/**
+ * Ghostty ships no upstream .deb; the Dockerfile pins a community build for
+ * Ubuntu 24.04 by release tag (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL=`), and the
+ * Freestyle bake installs that exact file.
+ */
+export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_GHOSTTY_DEB_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_GHOSTTY_DEB_URL");
+  return url;
+}
 
 const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },

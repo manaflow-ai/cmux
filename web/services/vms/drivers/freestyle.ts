@@ -35,6 +35,12 @@ import {
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import {
+  DEVBOX_DESKTOP_NOVNC_PORT,
+  DEVBOX_DESKTOP_START_SCRIPT,
+  DEVBOX_DESKTOP_UNIT,
+  devboxDesktopOpenUrl,
+} from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_BINARY_PATH,
@@ -106,8 +112,18 @@ import {
 // of https://<host>/api/coderouter/vm-usage/self (a 200 proves the injected
 // token is bound to this machine) and rolls the machine back if it never
 // succeeds.
+//
+// The desktop and forwarded ports (`openPort`) travel the same private path
+// as the daemon: the URL is the machine's VPC address, reachable only through
+// the owner's tunnel, and the platform is never asked for a public ingress.
+// The devbox desktop serves noVNC on 6901 with no VNC-level auth (the
+// network is the gate, exactly as it is for the daemon port), so a machine
+// that is not on a private network gets no desktop URL at all rather than a
+// public one.
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
+/** The lease ledger's record of a port open; the private address itself never expires. */
+const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 
 /**
@@ -275,6 +291,60 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
     );
   }
   return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
+}
+
+/**
+ * The address a machine's HTTP ports are opened at: its private VPC address,
+ * v4 first for the same tunnel-routing reason the daemon route prefers it.
+ * There is deliberately no public fallback, unlike the daemon route: the
+ * daemon authenticates every session itself (Noise device enrollment), the
+ * desktop and a dev server do not, so only the network may gate them. A
+ * machine without a private network therefore has no port to open.
+ */
+export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: string): string {
+  const networks = addresses.vpcs ?? addresses.networks ?? [];
+  for (const network of networks) {
+    const ipv4 = network.ipv4?.trim();
+    if (ipv4) return ipv4;
+  }
+  for (const network of networks) {
+    const ipv6 = network.ipv6?.trim();
+    if (ipv6) return ipv6;
+  }
+  throw new ProviderError(
+    "freestyle",
+    networks.length > 0
+      ? `VM ${vmId} is attached to a private network but holds no address on it, so its ports cannot be opened`
+      : `VM ${vmId} is not on a private network: its desktop and ports are reachable only over the owner's private network (a machine created before private networking must be recreated), and the platform has no ingress to arbitrary ports`,
+  );
+}
+
+/**
+ * The URLs a port open returns: `url` is the bare origin at the private
+ * address, `openUrl` what a pane navigates to. For the desktop port that is
+ * the noVNC page (web/services/vms/images/desktop.ts), with a query for the
+ * app to append its display options to.
+ */
+export function freestylePortUrls(addresses: FreestyleRouteAddresses, vmId: string, port: number): { url: string; openUrl: string } {
+  const address = freestylePortAddress(addresses, vmId);
+  const host = address.includes(":") ? `[${address}]` : address;
+  const url = `http://${host}:${port}/`;
+  return { url, openUrl: port === DEVBOX_DESKTOP_NOVNC_PORT ? devboxDesktopOpenUrl(address) : url };
+}
+
+/**
+ * Bounded guest-side desktop heal, one exec: succeeds as soon as noVNC
+ * listens on 6901; on the first miss it (re)starts the cmux-desktop unit
+ * (the baked supervisor has Restart=always, so this only matters right after
+ * a cold boot or an operator stop). Exit 3 means the image carries no desktop
+ * layer at all; exit 1 means the desktop did not come up in time.
+ */
+export function freestyleDesktopHealCommand(): string {
+  return (
+    `for i in $(seq 1 30); do ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} ' && exit 0; ` +
+    `if [ "$i" = 1 ]; then [ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
+    `[ -d /run/systemd/system ] && systemctl start ${DEVBOX_DESKTOP_UNIT} >/dev/null 2>&1; fi; sleep 1; done; exit 1`
+  );
 }
 
 /**
@@ -1068,6 +1138,54 @@ export class FreestyleProvider implements VMProvider {
     throw new ProviderError(
       "freestyle",
       `openAttach(${vmId}) is not supported: Freestyle machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
+    );
+  }
+
+  /**
+   * A machine's HTTP port as a URL the owner's Mac can open: the private VPC
+   * address over the WireGuard tunnel, the same path the daemon route takes
+   * (see the header). Nothing is minted at the platform and nothing public is
+   * opened. The desktop port additionally proves the desktop is up, healing
+   * the cmux-desktop unit first when it is not, so the Displays row opens a
+   * live screen rather than a connection error. The token exists only for the
+   * lease ledger, as with the cmux-remote route.
+   */
+  async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
+    return withVmSpan(
+      "cmux.vm.provider.open_port",
+      spanAttributes(vmId, "open_port", { "cmux.vm.port": port }),
+      async (span) => {
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_TUI_PORT) {
+          throw new ProviderError("freestyle", `openPort(${vmId}) requires a valid port other than the daemon's ${CMUX_TUI_PORT}`);
+        }
+        try {
+          const fs = this.deps.client();
+          const vm = fs.vms.ref(vmId);
+          const data = await vm.data();
+          const urls = freestylePortUrls(data, vmId, port);
+          const desktop = port === DEVBOX_DESKTOP_NOVNC_PORT;
+          span.setAttribute("cmux.vm.port.desktop", desktop);
+          if (desktop) {
+            const healed = await this.execResult(vm, freestyleDesktopHealCommand(), 60_000);
+            if (healed?.exitCode === 3) {
+              throw new ProviderError("freestyle", `VM ${vmId} has no desktop: its image carries no desktop layer (a base machine)`);
+            }
+            if (healed?.exitCode !== 0) {
+              throw new ProviderError(
+                "freestyle",
+                `VM ${vmId}: the desktop did not come up on port ${port} (exit ${healed?.exitCode ?? "n/a"}): ${(healed?.stderr ?? healed?.stdout ?? "").trim().slice(0, 300)}`,
+              );
+            }
+          }
+          return {
+            ...urls,
+            token: `cmux-freestyle-port-${randomBytes(32).toString("hex")}`,
+            expiresAtMs: Date.now() + PORT_OPEN_LEASE_TTL_SECONDS * 1000,
+          };
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `openPort(${vmId}, ${port}) failed`, err);
+        }
+      },
     );
   }
 

@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 # Desktop starter for the cmux devbox image (/usr/local/bin/start-vnc.sh).
-# CONTRACT FILE: the desktop is reached on two fixed ports, and the Mac CLI
-# (cloudVMDesktopPort) plus any provider heal command depend on them:
-#   - RFB on 5901, loopback only, no VNC-level auth (the only ingress is a
-#     token-gated proxy in front of websockify; a VNC password would be a
-#     second prompt noVNC's autoconnect cannot answer).
+# CONTRACT FILE (web/services/vms/images/desktop.ts; tests/vm-devbox-desktop.test.ts
+# pins it): the desktop is reached on two fixed ports, and the Mac app
+# (CmuxTuiSnapshotParser.desktopPort), the CLI (cloudVMDesktopPort) and the
+# Freestyle driver's port-open heal depend on them:
+#   - RFB on 5901, loopback only, no VNC-level auth (the only ingress is the
+#     owner's private network; a VNC password would be a second prompt
+#     noVNC's autoconnect cannot answer).
 #   - noVNC web client via websockify on 6901, at `/`.
 # It runs as the work user `ubuntu` with HOME=/home/ubuntu and DISPLAY=:1
-# (cmux-desktop-boot under the cmux-desktop systemd unit on Freestyle; a
-# provider driver's heal command runs exactly the same invocation), so the
-# desktop session is the same account terminals and SSH land in. This
-# path, user, display, and ports must not change without a matching driver
-# change. tests/vm-devbox-desktop.test.ts pins the contract.
+# (cmux-desktop-boot under the cmux-desktop systemd unit on Freestyle, or
+# under cmux-devbox-boot in a container; a driver heal runs exactly the same
+# invocation), so the desktop session is the same account terminals and SSH
+# land in. This path, user, display, and ports must not change without a
+# matching driver change.
+#
+# The session: TigerVNC's Xvnc, one D-Bus session bus shared by everything
+# below, the accessibility bus (computer-use agents read window trees over
+# it), openbox, the wallpaper, the tint2 dock, TigerVNC's clipboard helper
+# (copy/paste between the noVNC pane and the apps), a resize watcher, and
+# websockify. It publishes DISPLAY and the accessibility bus address at
+# $CMUX_DESKTOP_RUNTIME_DIR/env (/run/cmux-desktop/env) for
+# /etc/cmux/desktop-env.sh, which every login and pane shell sources.
 #
 # Idempotent: every component is guarded by a liveness probe, so re-running
 # against a healthy desktop starts nothing. Starts everything in the background
@@ -21,10 +31,12 @@ set -u
 DISPLAY="${DISPLAY:-:1}"
 export DISPLAY
 GEOMETRY="${CMUX_VNC_GEOMETRY:-1440x900}"
+RUNTIME_DIR="${CMUX_DESKTOP_RUNTIME_DIR:-/run/cmux-desktop}"
 # Never let an unwritable HOME keep the desktop down: fall back to a per-user
-# tmp dir for logs.
-LOG_DIR="$HOME/.cmux/desktop-logs"
-mkdir -p "$LOG_DIR" 2>/dev/null || { LOG_DIR="/tmp/cmux-desktop-logs-$(id -u)"; mkdir -p "$LOG_DIR"; }
+# tmp dir for logs and session state.
+STATE_DIR="$HOME/.cmux"
+mkdir -p "$STATE_DIR/desktop-logs" 2>/dev/null || { STATE_DIR="/tmp/cmux-desktop-$(id -u)"; mkdir -p "$STATE_DIR/desktop-logs"; }
+LOG_DIR="$STATE_DIR/desktop-logs"
 
 # The supervisor re-runs this every 30 s, so cap each component log here: a
 # crash-looping component must not grow its log without bound.
@@ -38,6 +50,7 @@ done
 VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
+mine() { pgrep -u "$(id -u)" "$@" >/dev/null 2>&1; }
 
 # TigerVNC on :1, RFB on 5901, loopback only.
 if ! listening 5901; then
@@ -52,8 +65,39 @@ if ! listening 5901; then
   for _ in $(seq 1 50); do listening 5901 && break; sleep 0.2; done
 fi
 
-if ! pgrep -u "$(id -u)" -x openbox >/dev/null 2>&1; then
-  dbus-launch openbox >>"$LOG_DIR/openbox.log" 2>&1 &
+# One D-Bus session bus for the whole desktop: openbox, the dock and every app
+# it launches, and the accessibility bus. Its address is persisted so the next
+# supervisor pass reuses the live bus instead of launching another. Launched
+# with the display up so dbus-launch also publishes it on the X root window
+# (what --autolaunch clients find).
+SESSION_ENV="$STATE_DIR/desktop-session.env"
+[ -f "$SESSION_ENV" ] && . "$SESSION_ENV"
+if [ -z "${DBUS_SESSION_BUS_PID:-}" ] || ! kill -0 "$DBUS_SESSION_BUS_PID" 2>/dev/null; then
+  unset DBUS_SESSION_BUS_ADDRESS DBUS_SESSION_BUS_PID
+  eval "$(dbus-launch --sh-syntax 2>>"$LOG_DIR/dbus.log")"
+  if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    {
+      echo "DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'"
+      echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID"
+    } > "$SESSION_ENV"
+  fi
+fi
+if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then export DBUS_SESSION_BUS_ADDRESS; else DBUS_SESSION_BUS_ADDRESS=""; fi
+
+# The accessibility bus (at-spi2-core): cua-driver's get_window_state and any
+# other AT-SPI client resolve window trees through it. --launch-immediately
+# starts it now instead of on first use, and it registers on the session bus
+# (org.a11y.Bus) and on the X root window (AT_SPI_BUS).
+if ! mine -f at-spi-bus-launcher; then
+  for launcher in /usr/libexec/at-spi-bus-launcher /usr/lib/at-spi2-core/at-spi-bus-launcher; do
+    [ -x "$launcher" ] || continue
+    "$launcher" --launch-immediately >>"$LOG_DIR/at-spi.log" 2>&1 &
+    break
+  done
+fi
+
+if ! mine -x openbox; then
+  openbox >>"$LOG_DIR/openbox.log" 2>&1 &
 fi
 
 set_wallpaper() {
@@ -66,8 +110,14 @@ set_wallpaper() {
 }
 set_wallpaper
 
-if ! pgrep -u "$(id -u)" -x tint2 >/dev/null 2>&1; then
+if ! mine -x tint2; then
   tint2 -c /etc/cmux/tint2rc >>"$LOG_DIR/tint2.log" 2>&1 &
+fi
+
+# TigerVNC moves clipboard text between the viewer (the noVNC pane) and X
+# selections only while its helper is attached to the display.
+if command -v vncconfig >/dev/null 2>&1 && ! mine -x vncconfig; then
+  vncconfig -nowin >>"$LOG_DIR/vncconfig.log" 2>&1 &
 fi
 
 # noVNC's remote resize grows the display live, but the root pixmap keeps its
@@ -75,7 +125,7 @@ fi
 # strut. Re-fill the wallpaper and nudge tint2 whenever the geometry changes.
 # `bash -c '…' cmux-desktop-resize-watch` puts the marker in $0 so the pgrep
 # guard finds the loop on the next idempotent pass.
-if ! pgrep -u "$(id -u)" -f cmux-desktop-resize-watch >/dev/null 2>&1; then
+if ! mine -f cmux-desktop-resize-watch; then
   bash -c '
     last=""
     while :; do
@@ -92,10 +142,36 @@ if ! pgrep -u "$(id -u)" -f cmux-desktop-resize-watch >/dev/null 2>&1; then
   ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
 
-# noVNC web client + websocket proxy on 6901 (the CLI's cloudVMDesktopPort).
+# noVNC web client + websocket proxy on 6901 (the app's desktop port).
 if ! listening 6901; then
   websockify --web /usr/share/novnc --heartbeat 30 0.0.0.0:6901 127.0.0.1:5901 \
     >>"$LOG_DIR/websockify.log" 2>&1 &
+fi
+
+# Publish the session for other shells (/etc/cmux/desktop-env.sh): the
+# display, and the accessibility bus once the launcher has registered it,
+# under both names clients use (AT_SPI_BUS_ADDRESS is what the atspi
+# library connects to; AT_SPI_BUS is the launcher's X property name, what
+# cua-driver's doctor checks). Written atomically; a runtime dir that does
+# not exist or is not ours (no systemd RuntimeDirectory=, no supervisor)
+# simply gets no file.
+if [ -d "$RUNTIME_DIR" ] && [ -w "$RUNTIME_DIR" ]; then
+  a11y_bus=""
+  if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    for _ in $(seq 1 25); do
+      a11y_bus=$(dbus-send --session --print-reply=literal --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null | tr -d ' \n')
+      [ -n "$a11y_bus" ] && break
+      sleep 0.2
+    done
+  fi
+  {
+    echo "# generated by start-vnc.sh; the desktop session other shells attach to"
+    echo "export DISPLAY='$DISPLAY'"
+    [ -n "$a11y_bus" ] && echo "export AT_SPI_BUS_ADDRESS='$a11y_bus'"
+    [ -n "$a11y_bus" ] && echo "export AT_SPI_BUS='$a11y_bus'"
+    echo "CMUX_DESKTOP_UID=$(id -u)"
+    [ -n "$DBUS_SESSION_BUS_ADDRESS" ] && echo "CMUX_DESKTOP_SESSION_BUS='$DBUS_SESSION_BUS_ADDRESS'"
+  } > "$RUNTIME_DIR/env.tmp" 2>/dev/null && chmod 0644 "$RUNTIME_DIR/env.tmp" && mv -f "$RUNTIME_DIR/env.tmp" "$RUNTIME_DIR/env"
 fi
 
 exit 0

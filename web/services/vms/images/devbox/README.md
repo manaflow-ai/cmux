@@ -1,13 +1,18 @@
 # cmux Cloud devbox image (Freestyle)
 
 The devbox definition for cmux Cloud machines. The Dockerfile here is the
-reference recipe (container providers used to build it directly);
-`web/scripts/build-devbox-freestyle.ts` builds the same devbox on top of
-the `freestyle/ubuntu` base VM and adds the **desktop layer** from
-`desktop/`. Parity targets are the chatmux
-devbox (`chatmux:infra/sandbox-images/Dockerfile`): same devtools,
-node/python/bun, uv, gh, Chrome + cua-driver, pinned coding agents, ble.sh
-ghost text, half-life prompt, seeded history, and the coderouter
+reference recipe: Ubuntu 24.04 (the distro every Freestyle machine runs),
+the shell layer, and the **desktop layer** from `desktop/`, started by the
+`cmux-devbox-boot` supervisor when there is no systemd (`docker build` proves
+the whole desktop at build time). `web/scripts/build-devbox-freestyle.ts`
+builds the same devbox on top of the `freestyle/ubuntu` base VM: it reads the
+desktop package list, the Ghostty `.deb` and the agent pins from the
+Dockerfile's `ARG`s (`devbox-image-common.ts`) and installs the desktop files
+through the one `DEVBOX_DESKTOP_INSTALLS` map, so the two recipes cannot
+drift. Parity targets are the chatmux devbox
+(`chatmux:infra/sandbox-images/Dockerfile`) for the shell layer: same
+devtools, node/python/bun, uv, gh, Chrome + cua-driver, pinned coding agents,
+ble.sh ghost text, half-life prompt, seeded history, and the coderouter
 agent-config generator.
 
 On Freestyle the toolchain is the base's, not mise: `freestyle/ubuntu`
@@ -25,33 +30,65 @@ pam_motd on SSH) replaces the stock Ubuntu and Freestyle motd text.
 `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
 chatmux counterparts, so edit both copies together.
 
-## Desktop layer (`desktop/`, Freestyle)
+## Desktop layer (`desktop/`)
 
-Ported from the retired Blaxel `sandbox/cmux-devbox` image: an
-openbox/TigerVNC desktop with a tint2 dock (Chrome, Files, Ghostty), a CC0
-wallpaper, and noVNC on 6901. The contract the Mac CLI and any provider
-heal depend on (`vm-devbox-desktop.test.ts` pins it):
+Ported from the retired Blaxel `sandbox/cmux-devbox` image, the same stack
+on every provider: TigerVNC serving an openbox session with the tint2 dock
+(Chrome, Files, Ghostty), Thunar, the CC0 mountain-lake wallpaper, the
+accessibility bus for computer-use, TigerVNC's clipboard helper, and noVNC
+on 6901. The contract (`web/services/vms/images/desktop.ts`;
+`vm-devbox-desktop.test.ts` pins it, the Mac app's Displays row, the CLI's
+`cloudVMDesktopPort` and the Freestyle driver's `openPort` depend on it):
 
 - `start-vnc.sh` runs as the work user `ubuntu` with `HOME=/home/ubuntu`
   and `DISPLAY=:1`, so the desktop session is the same account terminals
-  and SSH land in; RFB on **5901 loopback-only** (no VNC auth; the only
-  ingress is a token-gated proxy in front of websockify), noVNC via
-  websockify on **6901** at `/`.
-- The `cmux-desktop` systemd unit runs `cmux-desktop-boot`, which re-asserts
-  Chrome's pre-accepted first run and re-runs the idempotent `start-vnc.sh`
-  every 30 s.
+  and SSH land in; RFB on **5901 loopback-only** (no VNC auth: the owner's
+  private network is the only ingress), noVNC via websockify on **6901**
+  at `/`. Idempotent: every component is guarded by a liveness probe.
+- The session runs one D-Bus session bus (reused across supervisor passes),
+  the accessibility bus (`at-spi-bus-launcher --launch-immediately`, so
+  `cua-driver`'s `get_window_state` resolves window trees), openbox, feh
+  (wallpaper), tint2, `vncconfig -nowin` (clipboard between the noVNC pane
+  and X apps), a resize watcher (noVNC remote resize re-fills the wallpaper
+  and nudges the dock), and websockify.
+- It publishes `DISPLAY` and the accessibility bus (`AT_SPI_BUS_ADDRESS` for
+  AT-SPI clients, `AT_SPI_BUS` for `cua-driver doctor`) at `/run/cmux-desktop/env`
+  (the unit's `RuntimeDirectory=`, owned by `ubuntu`, readable by all).
+  `/etc/cmux/desktop-env.sh`, sourced by `/etc/profile.d/cmux-desktop.sh`
+  and the bashrc chain (every pane the cmux-tui daemon opens, root's
+  included), points any shell without a `DISPLAY` at the desktop while it
+  is up, so `agent-browser`, `xdotool` and `cua-driver mcp`/`call` act on
+  the screen a person can watch. The session's own user also inherits its
+  D-Bus session bus; root does not (the bus admits only its owner). Root
+  can reach the display itself (`cmux` sessions run as root).
+- The `cmux-desktop` systemd unit runs `cmux-desktop-boot` as `ubuntu`,
+  which re-asserts Chrome's pre-accepted first run and re-runs the
+  idempotent `start-vnc.sh` every 30 s. In a container (no systemd) the
+  `cmux-devbox-boot` boot supervisor starts the same `cmux-desktop-boot` as
+  the uid-1000 account and restarts it if it exits; under systemd it starts
+  nothing (the bake and the verifier count exactly one desktop supervisor).
 - `ubuntu` has passwordless sudo, so coding agents' root-refusing modes
   (`claude --dangerously-skip-permissions`) work. The Freestyle driver still
   runs the cmux-tui daemon as root; moving sessions to `ubuntu` is a driver
   change.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
-  (`DEVBOX_GHOSTTY_DEB_URL` in `devbox-image-common.ts`).
+  (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile); the apt list is
+  `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads both.
 
 A desktop image is a superset of a base one, so one Freestyle snapshot is
 registered under both kinds (`desktop` and `base`). `--no-desktop` bakes a
-shell-only snapshot. Not yet wired: the Freestyle driver still runs the
-daemon as root and exposes no ingress to 6901 (a `style.dev` or
-`*.vm.cmux.sh` TLS rule is the intended path; see `desktopWrapper.ts`).
+shell-only snapshot.
+
+Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
+Displays row, `cmux vm open <m>:desktop`) returns
+`http://<private VPC IPv4>:6901/vnc.html?path=websockify`, reachable only
+over the owner's WireGuard tunnel, exactly the path the daemon route takes,
+after a guest-side heal that (re)starts the `cmux-desktop` unit when noVNC
+is not listening. No public ingress is ever opened for it: noVNC has no
+auth of its own, so a machine outside a private network gets an error, not
+a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
+edge. The daemon still runs as root, so root shells get `DISPLAY` but not
+the session bus.
 
 ## Session daemon: cmux-tui
 
@@ -140,6 +177,14 @@ deliberate branch bakes). No local Docker and no daemon build are needed.
 FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag> [--no-desktop] [--replace-slug]
 ```
 
+The container recipe builds and self-checks locally (amd64; the desktop
+comes up under `cmux-devbox-boot` during the build and is torn down before
+the image is committed):
+
+```bash
+docker build --platform linux/amd64 -t cmux-devbox:dev services/vms/images/devbox
+```
+
 Freestyle bakes on `freestyle/ubuntu` (4 vCPU / 8 GiB / 32 GB): VMs always
 boot at their snapshot's size and resizing is grow-only, so the builder's
 shape is what every cmux Cloud machine gets. Freestyle snapshot slugs are
@@ -152,7 +197,11 @@ never from the image.
 Each bake prints a `next` command. The verifier boots one VM from the
 snapshot, asserts the toolchain, the exact agent pins, ghost text
 under a tmux PTY, byte-identical baked files, the work user, and (when
-`/etc/cmux/image-stamp` says `desktop`) the desktop contract, then waits for
+`/etc/cmux/image-stamp` says `desktop`) the desktop contract (both ports,
+RFB loopback-only, the session processes, the wallpaper on the root window,
+one supervisor, `DISPLAY` in root's and `ubuntu`'s login shells,
+`cua-driver doctor` seeing the display and the accessibility bus, every
+desktop file byte-identical), then waits for
 the baked daemon to come up on its own, asserts the daemon contract (current
 pin, identity bound to this instance id) and that a second machine from the
 snapshot holds a different daemon identity, and deletes both sandboxes:

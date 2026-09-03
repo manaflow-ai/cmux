@@ -108,6 +108,15 @@ Image policy:
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
+- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
+  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
+  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
+  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+  vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
+  (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
+  path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
+  not listening. noVNC has no auth of its own, so a machine outside a private network (created
+  before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
 - To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
