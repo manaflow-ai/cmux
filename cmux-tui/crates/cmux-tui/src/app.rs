@@ -44228,7 +44228,7 @@ mod tests {
 
         let first_screen_pane = app
             .tree
-            .workspaces
+            .workspaces()
             .first()
             .and_then(|workspace| workspace.screens.first())
             .map(|screen| screen.active_pane)
@@ -44419,7 +44419,7 @@ mod tests {
         app.projection_rows(1);
         let first_before = app.projection_rows_cache.revision_for("first-view").unwrap();
         let second_before = app.projection_rows_cache.revision_for("second-view").unwrap();
-        let workspace_id = app.tree.workspaces.first().unwrap().id;
+        let workspace_id = app.tree.workspaces().first().unwrap().id;
 
         app.projection_rail_state_mut(0)
             .collapsed
