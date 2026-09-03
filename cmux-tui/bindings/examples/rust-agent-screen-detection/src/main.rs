@@ -223,4 +223,23 @@ mod tests {
         assert!(required_plugin_id(Some("  ".into())).is_err());
         assert_eq!(required_plugin_id(Some("agent-screen".into())).unwrap(), "agent-screen");
     }
+
+    #[test]
+    fn plugin_id_rejects_values_that_cannot_name_a_journal_namespace() {
+        let too_long = "a".repeat(65);
+        for value in [
+            "Screen-detector",
+            "screen.detector",
+            "screen detector",
+            "-screen-detector",
+            "cmux_agent",
+        ] {
+            assert!(
+                required_plugin_id(Some(value.to_string())).is_err(),
+                "invalid plugin id was accepted: {value:?}"
+            );
+        }
+        assert!(required_plugin_id(Some(too_long)).is_err());
+        assert!(required_plugin_id(Some("screen_detector-2".into())).is_ok());
+    }
 }
