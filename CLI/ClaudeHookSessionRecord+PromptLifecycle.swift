@@ -32,6 +32,13 @@ extension ClaudeHookSessionRecord {
         promptLifecycleState = state
     }
 
+    /// Clears active prompt fields while retaining the most recently observed turn identifier.
+    mutating func clearActivePromptState() {
+        var state = promptLifecycleState
+        state.clearActivePromptState()
+        promptLifecycleState = state
+    }
+
     /// Clears active and completed prompt markers at a fresh session boundary.
     mutating func clearPromptStartState() {
         var state = promptLifecycleState

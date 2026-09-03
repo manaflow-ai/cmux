@@ -36,6 +36,23 @@ struct AgentHookPromptLifecycleStateTests {
         #expect(state == AgentHookPromptLifecycleState())
     }
 
+    @Test
+    func activePromptResetRetainsCompletedTurnMarker() {
+        var state = AgentHookPromptLifecycleState(
+            depth: 2,
+            activeTurnID: "turn-active",
+            activeTurnIDs: ["turn-active", "turn-nested"],
+            lastTurnID: "turn-completed"
+        )
+
+        state.clearActivePromptState()
+
+        #expect(state.depth == nil)
+        #expect(state.activeTurnID == nil)
+        #expect(state.activeTurnIDs == nil)
+        #expect(state.lastTurnID == "turn-completed")
+    }
+
     @Test(arguments: [
         AgentHookPromptDepthPolicy.balanced,
         AgentHookPromptDepthPolicy.authoritative,

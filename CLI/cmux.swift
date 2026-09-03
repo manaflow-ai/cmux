@@ -1703,7 +1703,15 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
-            record.clearPromptStartState()
+            // A PID-bearing restart must retain the completed-turn marker so a
+            // duplicate SessionStart from that same process remains stale. A
+            // PID-less start cannot establish that identity and keeps the
+            // historical full reset behavior.
+            if pid != nil {
+                record.clearActivePromptState()
+            } else {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1782,6 +1790,7 @@ final class ClaudeHookSessionStore {
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -1791,6 +1800,7 @@ final class ClaudeHookSessionStore {
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
+                includeLastPromptTurnId: includeLastPromptTurnId,
                 includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
             )
         }
@@ -1923,12 +1933,13 @@ final class ClaudeHookSessionStore {
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return true
         }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
+        let hasCompletedTurnState = (includeLastPromptTurnId && normalizeOptional(record.lastPromptTurnId) != nil)
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
@@ -35241,9 +35252,14 @@ export default CMUXSessionRestore;
             )
             var supersededOMPRecords: [ClaudeHookSessionRecord] = []
             func codexSessionStartWentStaleAfterAccept() -> Bool {
+                // A fresh PID-bearing start retains the completed-turn marker so
+                // a later duplicate is rejected. This probe runs after our own
+                // PID write, so completed markers must be ignored here; only a
+                // competing active prompt should invalidate the accepted start.
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
                     incomingPID: pid,
+                    includeLastPromptTurnId: false,
                     includeTerminalPromptTurnIds: false
                 )) == true)
             }

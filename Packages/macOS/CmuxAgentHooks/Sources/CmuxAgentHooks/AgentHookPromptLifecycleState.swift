@@ -48,6 +48,11 @@ public struct AgentHookPromptLifecycleState: Sendable, Equatable {
         activeTurnIDs = nil
     }
 
+    /// Clears active prompt fields while retaining the most recently observed turn identifier.
+    public mutating func clearActivePromptState() {
+        endAuthoritativePrompt()
+    }
+
     /// Clears active and completed prompt markers at a fresh session boundary.
     public mutating func clearPromptStartState() {
         endAuthoritativePrompt()
