@@ -96,8 +96,17 @@ struct RightSidebarPanelRegistry {
                 AnyView(
                     SessionIndexView(
                         store: context.sessionIndexStore,
-                        chromeBackgroundColor: context.windowAppearance.resolvedChromeBackgroundColor,
-                        onResume: context.onResumeSession
+                        onResume: context.onResumeSession,
+                        onOpen: context.onOpenSession,
+                        activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(
+                            tabManager: context.tabManager
+                        ),
+                        onFocus: { entry in
+                            _ = SessionEntryResumeCoordinator.focusIfActive(
+                                entry,
+                                tabManager: context.tabManager
+                            )
+                        }
                     )
                     .onAppear {
                         context.sessionIndexStore.setCurrentDirectoryIfChanged(context.sessionIndexDirectory)

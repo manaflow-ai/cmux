@@ -72,6 +72,7 @@ struct RightSidebarPanelView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
+    let onOpenSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
@@ -382,6 +383,7 @@ struct RightSidebarPanelView: View {
                     windowAppearance: windowAppearance,
                     workspaceId: workspaceId,
                     onResumeSession: onResumeSession,
+                    onOpenSession: onOpenSession,
                     onOpenFilePreview: onOpenFilePreview,
                     onOpenAsPane: onOpenAsPane,
                     onOpenDiffViewer: { path, diffSource in

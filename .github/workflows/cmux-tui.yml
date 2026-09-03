@@ -198,7 +198,14 @@ jobs:
           VALGRIND_SHARD: ${{ matrix.shard }}
         run: |
           mkdir -p target
-          cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
+          # Cargo target selectors keep this startup shard from compiling the
+          # unrelated workspace test harnesses. The selected targets map to
+          # the cmux_tui-* and terminal-* binaries checked below.
+          cargo test \
+            -p cmux-tui --bin cmux-tui \
+            -p ghostty-vt --test terminal \
+            --locked --no-run --message-format=json \
+            > target/cargo-test-binaries.jsonl
           python3 <<'PY'
           import json
           import os

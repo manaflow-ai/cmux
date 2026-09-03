@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSidebar
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -8,7 +9,9 @@ import Testing
 @testable import cmux
 #endif
 
-extension TerminalControllerSocketSecurityTests {
+@MainActor
+@Suite("Right sidebar remote commands", .serialized)
+struct RightSidebarRemoteCommandTests {
     private func parseRightSidebarRequestForTesting(
         _ commandLine: String,
         defaults: UserDefaults = .standard
@@ -27,6 +30,7 @@ extension TerminalControllerSocketSecurityTests {
     @Test func v1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
@@ -77,13 +81,13 @@ extension TerminalControllerSocketSecurityTests {
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
 
-    @Test func v1CommandsRejectCustomSidebarNames() throws {
+    @Test func v1CommandsSelectCustomSidebar() throws {
         let name = "__cmux_test_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         try withTemporaryCustomSidebarsDirectory { directory in
             let fileURL = directory.appendingPathComponent("\(name).swift")
             try #"Text("Custom")"#.write(to: fileURL, atomically: true, encoding: .utf8)
 
-            let customSidebarsDefaultsKey = "customSidebars.beta.enabled"
+            let customSidebarsDefaultsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
             let previousCustomSidebars = UserDefaults.standard.object(forKey: customSidebarsDefaultsKey)
             UserDefaults.standard.set(true, forKey: customSidebarsDefaultsKey)
             defer {
@@ -96,6 +100,7 @@ extension TerminalControllerSocketSecurityTests {
 
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
             defer { AppDelegate.shared = previousAppDelegate }
 
             let windowId = UUID()
@@ -110,16 +115,19 @@ extension TerminalControllerSocketSecurityTests {
             )
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-            #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
-            #expect(!fileExplorerState.isVisible)
-            #expect(fileExplorerState.mode == .files)
-            #expect(fileExplorerState.customSidebarName != name)
+            fileExplorerState.setVisible(false)
+            fileExplorerState.mode = .files
+
+            #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus") == "OK")
+            #expect(fileExplorerState.isVisible)
+            #expect(fileExplorerState.mode == .customSidebar)
+            #expect(fileExplorerState.customSidebarName == name)
 
             let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
             let modeData = try #require(modeResponse.data(using: .utf8))
             let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
-            #expect(modePayload["visible"] as? Bool == false)
-            #expect(modePayload["mode"] as? String == "files")
+            #expect(modePayload["visible"] as? Bool == true)
+            #expect(modePayload["mode"] as? String == "custom-sidebar")
         }
     }
 
