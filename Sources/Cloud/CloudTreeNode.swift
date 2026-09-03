@@ -419,13 +419,13 @@ enum CloudTreeNodeBuilder {
                     isSelected: workspace.isSelected
                 )),
                 children: projected.map {
-                    terminalNode($0, snapshot: snapshot, openResourceIDs: openResourceIDs)
+                    terminalNode($0, openResourceIDs: openResourceIDs)
                 },
                 dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
             )
         }
         children.append(contentsOf: unplaced.map {
-            terminalNode($0, snapshot: snapshot, openResourceIDs: openResourceIDs)
+            terminalNode($0, openResourceIDs: openResourceIDs)
         })
         if children.isEmpty {
             children.append(placeholder(.local, text: String(localized: "cloudTree.placeholder.noLocalTerminals", defaultValue: "No terminals open"), style: .dimmed))
@@ -545,7 +545,6 @@ enum CloudTreeNodeBuilder {
             children.append(terminalsGroupNode(
                 machine: machine,
                 terminals: terminals,
-                snapshot: snapshot,
                 openResourceIDs: openResourceIDs
             ))
         case .asleep, .connecting, .error, .unavailable:
@@ -592,7 +591,6 @@ enum CloudTreeNodeBuilder {
                 children: members.terminals.map {
                     terminalNode(
                         $0,
-                        snapshot: snapshot,
                         id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
                         openResourceIDs: openResourceIDs
                     )
@@ -630,13 +628,11 @@ enum CloudTreeNodeBuilder {
     private static func terminalsGroupNode(
         machine: SurfaceMachineID,
         terminals: [SurfaceResource],
-        snapshot: SurfaceCatalogSnapshot,
         openResourceIDs: Set<SurfaceResourceID>
     ) -> CloudTreeNode {
         var rows = terminals.map {
             terminalNode(
                 $0,
-                snapshot: snapshot,
                 viewBadge: $0.remoteViews?.count,
                 openResourceIDs: openResourceIDs
             )
@@ -659,7 +655,6 @@ enum CloudTreeNodeBuilder {
 
     private static func terminalNode(
         _ resource: SurfaceResource,
-        snapshot: SurfaceCatalogSnapshot,
         id: String? = nil,
         viewBadge: Int? = nil,
         openResourceIDs: Set<SurfaceResourceID>
