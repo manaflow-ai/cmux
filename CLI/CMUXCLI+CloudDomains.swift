@@ -107,22 +107,24 @@ extension CMUXCLI {
             guard arguments.count == 1, let name = Self.nonempty(arguments[0]) else {
                 throw CLIError(message: Self.cloudDomainsUsage)
             }
-            // The app resolves the name: a live publication hostname refreshes
-            // that publication; anything else starts or completes a zone.
+            // Verification is always about a zone; a publication hostname
+            // resolves to the zone it belongs to on the app side.
             let response = try client.sendV2(
                 method: "vm.domain_verify",
                 params: ["name": name],
                 responseTimeout: 120
             )
-            if let domain = response["domain"] as? [String: Any] {
-                if jsonOutput {
-                    print(jsonString(["domain": domain]))
-                } else {
-                    Self.printPublicationDomain(domain)
-                }
-                return
+            guard let domain = response["domain"] as? [String: Any] else {
+                throw CLIError(message: String(
+                    localized: "cli.cloud.domains.malformedResponse",
+                    defaultValue: "The cmux app returned a publication response this CLI could not read."
+                ))
             }
-            try printPublicationMutation(response, jsonOutput: jsonOutput)
+            if jsonOutput {
+                print(jsonString(["domain": domain]))
+            } else {
+                Self.printPublicationDomain(domain)
+            }
 
         case "access":
             let (teamID, remaining) = parseOption(arguments, name: "--team")
@@ -269,7 +271,6 @@ extension CMUXCLI {
                     localized: "cli.cloud.domains.verification.generated",
                     defaultValue: "verification: not required (cmux domain)"
                 ))
-                if state != "active" { printPublicationVerifyHint(name: hostname) }
             } else {
                 let verificationFormat = String(
                     localized: "cli.cloud.domains.verificationState",
@@ -294,13 +295,10 @@ extension CMUXCLI {
                 }
             }
         }
-        // Verification is a zone-level step; once the zone is verified the
-        // publication itself is what still needs to make progress.
-        let zone = (verification["domain"] as? String) ?? hostname
-        if verificationState != "verified" {
-            printPublicationVerifyHint(name: zone)
-        } else if state != "active" {
-            printPublicationVerifyHint(name: hostname)
+        // Verification is a zone-level step: re-running it also re-checks the
+        // zone's certificate and finishes provisioning publications on it.
+        if verificationState != "verified" || state != "active" {
+            printPublicationVerifyHint(name: (verification["domain"] as? String) ?? hostname)
         }
     }
 

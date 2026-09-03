@@ -127,12 +127,12 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "example.com\nid: zone-1\nverification: pending"
             ),
             (
-                "verify-publication",
-                ["cloud", "domains", "verify", "prickly-lavender-minnow"],
+                "verify-by-publication-hostname",
+                ["cloud", "domains", "verify", "preview.example.com"],
                 "vm.domain_verify",
-                ["name": "prickly-lavender-minnow"],
-                ["publication": cloudDomainPublicationFixture()],
-                "https://preview.example.com"
+                ["name": "preview.example.com"],
+                ["domain": cloudDomainZoneFixture()],
+                "example.com\nid: zone-1\nverification: pending"
             ),
             (
                 "access",

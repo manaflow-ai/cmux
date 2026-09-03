@@ -255,6 +255,11 @@ function inputErrorCopy(error: PublicationInputError): {
         message: "That hostname is inside a zone CMUX generates names from and cannot be selected with --domain.",
         action: "Omit --domain for a generated name, or pass a hostname on a domain you own.",
       };
+    case "verification_not_required":
+      return {
+        message: "That name is a generated CMUX domain, which never needs verification.",
+        action: "Verify a domain you own instead, or run `cmux cloud domains list` to see the publication's state.",
+      };
     case "invalid_port":
       return {
         message: "port must be an integer between 1 and 65535.",

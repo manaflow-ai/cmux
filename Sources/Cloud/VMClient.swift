@@ -517,21 +517,6 @@ struct VMPublicationDomain: Equatable, Sendable {
     }
 }
 
-/// `POST /api/vm/domains/<name>/verify` answers with whichever the name
-/// resolved to: the publication serving that hostname, or the zone itself.
-enum VMPublicationVerifyResult: Equatable, Sendable {
-    case publication(VMPublication)
-    case domain(VMPublicationDomain)
-
-    var foundationObject: [String: Any] {
-        switch self {
-        case .publication(let publication):
-            return ["publication": publication.foundationObject]
-        case .domain(let domain):
-            return ["domain": domain.foundationObject]
-        }
-    }
-}
 
 struct VMSnapshotResult {
     let id: String
@@ -785,7 +770,8 @@ actor VMClient {
         return try items.map(Self.decodePublicationDomain)
     }
 
-    func verifyPublicationDomain(name: String) async throws -> VMPublicationVerifyResult {
+    /// Verify a zone by name; a publication hostname or id resolves to its zone server-side.
+    func verifyPublicationDomain(name: String) async throws -> VMPublicationDomain {
         let encodedName = try pathSegment(name, fieldName: "domain")
         let (data, http) = try await request(
             "POST",
@@ -793,16 +779,13 @@ actor VMClient {
         )
         try ensureOK(http, data: data)
         let object = try decodeJSONObject(data)
-        if let publication = object["publication"] as? [String: Any] {
-            return .publication(try Self.decodePublication(publication))
+        guard let domain = object["domain"] as? [String: Any] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDomain",
+                defaultValue: "Cloud VM domain verification response was missing `domain`."
+            ))
         }
-        if let domain = object["domain"] as? [String: Any] {
-            return .domain(try Self.decodePublicationDomain(domain))
-        }
-        throw VMClientError.malformedResponse(String(
-            localized: "cloudVM.publication.error.missingVerifyResult",
-            defaultValue: "Cloud VM domain verification response was missing `domain` or `publication`."
-        ))
+        return try Self.decodePublicationDomain(domain)
     }
 
     func createPublication(

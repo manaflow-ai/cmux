@@ -103,7 +103,8 @@ export type PublicationInvalidReason =
   | "invalid_access_mode"
   | "team_required"
   | "team_not_allowed"
-  | "generated_hostname_reserved";
+  | "generated_hostname_reserved"
+  | "verification_not_required";
 
 export class PublicationInputError extends Data.TaggedError(
   "PublicationInputError",
@@ -180,16 +181,13 @@ export function listCustomDomains(input: {
   });
 }
 
-export type VerifyDomainResult =
-  | { readonly kind: "publication"; readonly publication: PublicationDto }
-  | { readonly kind: "domain"; readonly domain: CustomDomainDto };
-
 /**
- * `cmux cloud domains verify <name>` works on domains, not database ids. The
- * name resolves in order: an owned publication id or live hostname (its own
- * verify), then an owned zone, and otherwise a new zone to start verifying.
+ * `cmux cloud domains verify <domain>` verifies zones and nothing else. A zone
+ * id, a publication id, or a publication hostname resolves to the zone it
+ * belongs to; any other hostname is a zone to start verifying. Generated names
+ * live on the CMUX zone and have nothing to verify.
  */
-export function verifyDomainOrPublication(input: {
+export function verifyDomain(input: {
   readonly principal: PublicationPrincipal;
   readonly reference: string;
   readonly generatedDomain?: string;
@@ -198,48 +196,31 @@ export function verifyDomainOrPublication(input: {
 }) {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
+    const ownerUserId = input.principal.userId;
     const reference = input.reference.trim();
     const hostname = normalizePublicationHostname(reference);
-    if (!hostname) {
-      if (!UUID_PATTERN.test(reference)) {
-        return yield* new PublicationInputError({ reason: "invalid_hostname", field: "hostname" });
-      }
-      const publication = yield* repository.findOwnedPublication({
-        id: reference,
-        ownerUserId: input.principal.userId,
+    let zone: CloudVmDomainRow | null = null;
+    if (hostname) {
+      const publication = yield* repository.findOwnedPublicationByHostname({
+        hostname,
+        ownerUserId,
       });
-      if (publication) {
-        return {
-          kind: "publication",
-          publication: yield* verifyPublication({ ...input, publicationId: reference }),
-        } as const;
-      }
-      const domain = yield* repository.findOwnedDomain({
-        id: reference,
-        ownerUserId: input.principal.userId,
+      zone = publication?.domain ?? null;
+    } else if (UUID_PATTERN.test(reference)) {
+      const publication = yield* repository.findOwnedPublication({ id: reference, ownerUserId });
+      zone = publication?.domain ??
+        (yield* repository.findOwnedDomain({ id: reference, ownerUserId }));
+      if (!zone) return yield* new PublicationNotFoundError({ resource: "domain" });
+    } else {
+      return yield* new PublicationInputError({ reason: "invalid_hostname", field: "hostname" });
+    }
+    if (zone?.kind === "generated") {
+      return yield* new PublicationInputError({
+        reason: "verification_not_required",
+        field: "hostname",
       });
-      if (!domain || domain.kind !== "custom") {
-        return yield* new PublicationNotFoundError({ resource: "domain" });
-      }
-      return {
-        kind: "domain",
-        domain: yield* verifyCustomDomain({ ...input, hostname: domain.hostname }),
-      } as const;
     }
-    const publication = yield* repository.findOwnedPublicationByHostname({
-      hostname,
-      ownerUserId: input.principal.userId,
-    });
-    if (publication) {
-      return {
-        kind: "publication",
-        publication: yield* verifyPublication({ ...input, publicationId: hostname }),
-      } as const;
-    }
-    return {
-      kind: "domain",
-      domain: yield* verifyCustomDomain({ ...input, hostname }),
-    } as const;
+    return yield* verifyCustomDomain({ ...input, hostname: zone?.hostname ?? hostname! });
   });
 }
 

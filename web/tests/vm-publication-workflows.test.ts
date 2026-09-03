@@ -23,7 +23,7 @@ import {
   PublicationConfigurationError,
   updatePublicationAccess,
   verifyCustomDomain,
-  verifyDomainOrPublication,
+  verifyDomain,
   verifyPublication,
 } from "../services/vm-publications/workflows";
 import { handleCustomDomainList } from "../app/api/vm/domains/route";
@@ -1610,12 +1610,7 @@ describe("Cloud VM publication workflows", () => {
     expect(result.dnsInstructions?.verification.name).toBe("_freestyle-verification.example.com");
   });
 
-  test("verify resolves a live publication hostname or id, a zone id, or a new zone", async () => {
-    const active = publication("public", {
-      state: "active",
-      providerTlsRuleId: "tls-rule-1",
-      providerForwardAuthId: null,
-    });
+  test("verify always resolves to a zone: by zone name, publication hostname, or either id", async () => {
     const zoneId = "00000000-0000-4000-8000-000000000002";
     const fresh = domain("custom", {
       id: zoneId,
@@ -1628,47 +1623,89 @@ describe("Cloud VM publication workflows", () => {
       providerVerificationId: zoneVerification.verificationId,
       verificationRecords: Object.values(zoneVerification.dnsInstructions),
     };
+    const customPublication = publication("public", {
+      id: "10000000-0000-4000-8000-000000000011",
+      domainId: zoneId,
+      hostname: "app.example.com",
+      providerForwardAuthId: null,
+    });
+    const generated = publication("public", {
+      id: "10000000-0000-4000-8000-000000000012",
+      state: "active",
+      providerForwardAuthId: null,
+    });
+    const looked: string[] = [];
     const repository = fakeRepository({
-      findOwnedPublicationByHostname: (input) =>
-        Effect.succeed(input.hostname === active.hostname ? target(active) : null),
-      findOwnedPublication: (input) =>
-        Effect.succeed(input.id === active.id ? target(active) : null),
+      findOwnedPublicationByHostname: (input) => {
+        looked.push(`publication:${input.hostname}`);
+        if (input.hostname === customPublication.hostname) {
+          return Effect.succeed(target(customPublication, fresh));
+        }
+        if (input.hostname === generated.hostname) {
+          return Effect.succeed(target(generated, domain("generated")));
+        }
+        return Effect.succeed(null);
+      },
+      findOwnedPublication: (input) => Effect.succeed(
+        input.id === customPublication.id ? target(customPublication, fresh) : null,
+      ),
       findOwnedDomain: (input) => Effect.succeed(input.id === zoneId ? fresh : null),
-      findOwnedDomainByHostname: () => Effect.succeed(null),
-      createDomain: () => Effect.succeed({ ...fresh, id: "zone-created", hostname: "new.example.org" }),
-      updateDomainState: (input) =>
-        Effect.succeed(input.providerVerificationId ? challenged : domain("generated")),
+      findOwnedDomainByHostname: (input) => {
+        looked.push(`zone:${input.hostname}`);
+        return Effect.succeed(input.hostname === "example.com" ? fresh : null);
+      },
+      createDomain: (input) => Effect.succeed({ ...fresh, id: "zone-created", hostname: input.hostname }),
+      updateDomainState: (input) => Effect.succeed({
+        ...challenged,
+        id: input.id,
+        hostname: input.id === "zone-created" ? "new.example.org" : challenged.hostname,
+      }),
       listOwnedPublications: () => Effect.succeed([]),
     });
     const provider = fakeProvider({
-      getCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
       createDomainVerification: () => Effect.succeed(zoneVerification),
     });
-    const verify = (reference: string) => run(verifyDomainOrPublication({
+    const verify = (reference: string) => run(verifyDomain({
       principal: { userId: "owner-1", teamIds: [] },
       reference,
       now: NOW,
     }), repository, provider);
 
-    expect((await verify(active.hostname)).kind).toBe("publication");
-    expect((await verify(active.id)).kind).toBe("publication");
-    expect(await verify(zoneId)).toMatchObject({ kind: "domain", domain: { id: zoneId } });
+    // The zone itself, a publication on it, the publication's id, and the zone's id
+    // all verify example.com.
+    for (const reference of ["example.com", "app.example.com", customPublication.id, zoneId]) {
+      looked.length = 0;
+      expect(await verify(reference)).toMatchObject({ id: zoneId, hostname: "example.com" });
+      expect(looked).toContain("zone:example.com");
+    }
+    // An unknown hostname starts a new zone.
     expect(await verify("new.example.org")).toMatchObject({
-      kind: "domain",
-      domain: { verificationState: "pending" },
+      hostname: "new.example.org",
+      verificationState: "pending",
     });
 
-    const missing = await Effect.runPromise(Effect.either(verifyDomainOrPublication({
+    const fail = (reference: string) => Effect.runPromise(Effect.either(verifyDomain({
       principal: { userId: "owner-1", teamIds: [] },
-      reference: "00000000-0000-4000-8000-000000000009",
+      reference,
       now: NOW,
     }).pipe(
       Effect.provideService(CloudVmPublicationRepository, repository),
       Effect.provideService(VmPublicationProvider, provider),
     )));
+    const generatedResult = await fail(generated.hostname);
+    expect(generatedResult._tag === "Left" ? generatedResult.left : null).toMatchObject({
+      _tag: "PublicationInputError",
+      reason: "verification_not_required",
+    });
+    const missing = await fail("00000000-0000-4000-8000-000000000009");
     expect(missing._tag === "Left" ? missing.left : null).toMatchObject({
       _tag: "PublicationNotFoundError",
       resource: "domain",
+    });
+    const garbage = await fail("not a domain");
+    expect(garbage._tag === "Left" ? garbage.left : null).toMatchObject({
+      _tag: "PublicationInputError",
+      reason: "invalid_hostname",
     });
   });
 
@@ -1885,7 +1922,7 @@ describe("Cloud VM publication REST adapters", () => {
     expect(publicationReference("  ", {})).toBe("");
   });
 
-  test("serves domain verification under a publication or domain envelope", async () => {
+  test("serves domain verification under a domain envelope", async () => {
     const zone = {
       id: "zone-1",
       hostname: "example.com",
@@ -1895,24 +1932,14 @@ describe("Cloud VM publication REST adapters", () => {
       dnsInstructions: null,
       publications: [],
     };
-    const domainRunner: PublicationWorkflowRunner = async <A>() =>
-      ({ kind: "domain", domain: zone }) as A;
-    const domainResponse = await handleDomainVerify(
+    const runner: PublicationWorkflowRunner = async <A>() => zone as A;
+    const response = await handleDomainVerify(
       "example.com",
-      { principal: { userId: "owner-1", teamIds: [] }, run: domainRunner },
+      { principal: { userId: "owner-1", teamIds: [] }, run: runner },
       { NODE_ENV: "test" },
     );
-    expect(await domainResponse.json()).toEqual({ domain: zone });
-
-    const dto = { id: "10000000-0000-4000-8000-000000000001", hostname: "prickly-lavender-minnow.cmux.sh" };
-    const publicationRunner: PublicationWorkflowRunner = async <A>() =>
-      ({ kind: "publication", publication: dto }) as A;
-    const publicationResponse = await handleDomainVerify(
-      "prickly-lavender-minnow",
-      { principal: { userId: "owner-1", teamIds: [] }, run: publicationRunner },
-      { NODE_ENV: "test" },
-    );
-    expect(await publicationResponse.json()).toEqual({ publication: dto });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ domain: zone });
   });
 
   test("serves the custom domain list under its own envelope", async () => {

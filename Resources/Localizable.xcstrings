@@ -127072,11 +127072,11 @@
     },
     "cloudVM.publication.error.invalidDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response contained an invalid DNS instruction."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに無効な DNS 指示が含まれています。"}}}},
     "cloudVM.publication.error.missingDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication verification response was missing DNS instructions."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開の検証レスポンスに DNS 指示がありません。"}}}},
+    "cloudVM.publication.error.missingDomain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain verification response was missing `domain`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメイン検証レスポンスに `domain` がありません。"}}}},
     "cloudVM.publication.error.missingDomainFields": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain response was missing required fields."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメインレスポンスに必須フィールドがありません。"}}}},
     "cloudVM.publication.error.missingDomainList": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain list response was missing `domains`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメイン一覧レスポンスに `domains` がありません。"}}}},
     "cloudVM.publication.error.missingFields": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response was missing required fields."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに必須フィールドがありません。"}}}},
     "cloudVM.publication.error.missingList": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication list response was missing `publications`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開一覧レスポンスに `publications` がありません。"}}}},
-    "cloudVM.publication.error.missingVerifyResult": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain verification response was missing `domain` or `publication`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメイン検証レスポンスに `domain` または `publication` がありません。"}}}},
     "cloudVM.error.requiresPro.action": {
       "extractionState": "manual",
       "localizations": {
@@ -244184,7 +244184,7 @@
         }
       }
     },
-    "socket.cloudVM.domain.nameRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.domain_verify requires `name` (a domain or publication hostname)."}},"ja":{"stringUnit":{"state":"translated","value":"vm.domain_verify には `name`（ドメインまたは公開ホスト名）が必要です。"}}}},
+    "socket.cloudVM.domain.nameRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.domain_verify requires `name` (a domain)."}},"ja":{"stringUnit":{"state":"translated","value":"vm.domain_verify には `name`（ドメイン）が必要です。"}}}},
     "socket.cloudVM.publication.create.invalidPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `port` between 1 and 65535."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には 1 から 65535 の `port` が必要です。"}}}},
     "socket.cloudVM.publication.create.missingVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `vmId`."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には `vmId` が必要です。"}}}},
     "socket.cloudVM.publication.idRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A publication id is required."}},"ja":{"stringUnit":{"state":"translated","value":"公開 ID が必要です。"}}}},

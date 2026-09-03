@@ -44,13 +44,13 @@ extension TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "socket.cloudVM.domain.nameRequired",
-                        defaultValue: "vm.domain_verify requires `name` (a domain or publication hostname)."
+                        defaultValue: "vm.domain_verify requires `name` (a domain)."
                     )
                 )
             }
             return v2VmCall(id: id) {
-                let result = try await VMClient.shared.verifyPublicationDomain(name: name)
-                return result.foundationObject
+                let domain = try await VMClient.shared.verifyPublicationDomain(name: name)
+                return ["domain": domain.foundationObject]
             }
         case "vm.publication_create":
             guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
