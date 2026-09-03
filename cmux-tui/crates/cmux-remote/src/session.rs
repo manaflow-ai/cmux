@@ -1474,8 +1474,7 @@ mod tests {
     #[tokio::test]
     async fn shutdown_rejects_send_waiting_for_queue_without_orphaning_completion() {
         let link = Arc::new(GatedRecordingLink::new());
-        let mut limits = SessionLimits::default();
-        limits.queued_frames_per_lane = 1;
+        let limits = SessionLimits { queued_frames_per_lane: 1, ..SessionLimits::default() };
         let session = ReliableSession::new(SessionId([19; 16]), link.clone(), limits);
         fn encode(sequence: u64, payload: &'static [u8]) -> Bytes {
             Bytes::from(
