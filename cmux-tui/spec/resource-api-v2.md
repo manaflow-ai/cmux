@@ -463,7 +463,7 @@ positions as identity, alternate ID forms, or internal storage nouns.
 state or an exited outcome. Outcomes are strict exit-code, signal with
 `core_dumped`, or unknown-reason variants. The terminal snapshot retains the
 same exit record while the durable terminal is exited; `terminal.close`
-tombstones it. Its required lifecycle is `launching`, `running`, or `exited`;
+tombstones it. A `launching` terminal now appears in the tree at reservation, before its host attaches (see `interaction-lifecycle.md`). Its required lifecycle is `launching`, `running`, or `exited`;
 the legacy `running` convenience is true exactly for `running`, and `exit` is
 present exactly for `exited`.
 Public results expose the stable terminal ID and never expose the private

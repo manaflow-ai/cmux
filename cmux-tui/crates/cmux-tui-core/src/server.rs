@@ -12615,7 +12615,7 @@ fn handle_command_with_cancellation(
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
-                    let value = match &event {
+                    let mut value = match &event {
                         MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                             if !trusted_pairing_client =>
                         {
@@ -12640,8 +12640,16 @@ fn handle_command_with_cancellation(
                             json!({"event": "tree-changed"})
                         }
                         MuxEvent::TreeSelectionChanged => continue,
+                        MuxEvent::TerminalLifecycle { .. } if tree_deltas => {
+                            subscribed_event_json(&event)
+                        }
+                        MuxEvent::TerminalLifecycle { .. } => continue,
                         _ => subscribed_event_json(&event),
                     };
+                    // The registry terminal identifier is an internal host
+                    // identity. Keep the field shape stable for SDK clients,
+                    // but never disclose the value to remote subscribers.
+                    redact_remote_terminal_lifecycle(&mut value, &event, trusted_pairing_client);
                     if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
@@ -13167,6 +13175,26 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+        MuxEvent::TerminalLifecycle {
+            terminal_id,
+            registry_terminal_id,
+            surface,
+            from,
+            to,
+            elapsed_ms,
+            cause,
+            discarded_input_bytes,
+        } => json!({
+            "event": "terminal-lifecycle",
+            "terminal_id": terminal_id,
+            "registry_terminal_id": registry_terminal_id,
+            "surface": surface,
+            "from": from,
+            "to": to,
+            "elapsed_ms": elapsed_ms,
+            "cause": cause,
+            "discarded_input_bytes": discarded_input_bytes,
+        }),
         MuxEvent::FrontendProjectionChanged {
             frontend,
             scope,
@@ -13219,6 +13247,15 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             json!({"event": "pairing-resolved", "request": request})
         }
         MuxEvent::Empty => json!({"event": "empty"}),
+    }
+}
+
+fn redact_remote_terminal_lifecycle(value: &mut Value, event: &MuxEvent, trusted_local: bool) {
+    if trusted_local || !matches!(event, MuxEvent::TerminalLifecycle { .. }) {
+        return;
+    }
+    if let Value::Object(object) = value {
+        object.insert("registry_terminal_id".to_string(), Value::String("<redacted>".to_string()));
     }
 }
 
@@ -22829,6 +22866,28 @@ mod tests {
                 "updated_at_ms": 41,
             })
         );
+    }
+
+    #[test]
+    fn remote_terminal_lifecycle_redacts_registry_identity() {
+        let event = MuxEvent::TerminalLifecycle {
+            terminal_id: Some("terminal-public".to_string()),
+            registry_terminal_id: "host-internal".to_string(),
+            surface: Some(7),
+            from: Some("launching"),
+            to: "running",
+            elapsed_ms: 41,
+            cause: None,
+            discarded_input_bytes: 0,
+        };
+
+        let mut remote = subscribed_event_json(&event);
+        redact_remote_terminal_lifecycle(&mut remote, &event, false);
+        assert_eq!(remote["registry_terminal_id"], "<redacted>");
+
+        let mut local = subscribed_event_json(&event);
+        redact_remote_terminal_lifecycle(&mut local, &event, true);
+        assert_eq!(local["registry_terminal_id"], "host-internal");
     }
 
     #[test]

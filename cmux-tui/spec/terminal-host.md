@@ -46,6 +46,11 @@ most 64 unexpired minted grants.
 
 ## Handshakes
 
+For a deferred default-shell create the daemon's control response to the client
+precedes this handshake: the placement is already in the tree as `launching`,
+and the launch barrier below still orders the first PTY byte after the created
+topology commits. See `interaction-lifecycle.md`.
+
 The private bootstrap pipe uses:
 
 1. Parent sends `Bootstrap`.

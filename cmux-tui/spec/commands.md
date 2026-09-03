@@ -1385,6 +1385,19 @@ The last terminal exiting never closes this workspace. Only
 
 ### create-terminal
 
+A default-shell create (`new-tab`, `new-pane`, `split`, `new-workspace` with no
+command) binds its placement in the tree at reservation with lifecycle
+`launching` and returns before its terminal host reaches `Ready`; the host
+launches asynchronously and the placement advances to `running` or, on a failed
+launch, to `exited` with a `launch-failed:` reason while staying in the tree. A
+`create-terminal` request that omits both `argv` and `command` follows this same
+deferred default-shell path. A
+command-bearing create (`run`, `create-terminal` with `argv` or `command`,
+`pane.run`,
+`workspace.run`) launches synchronously and fails the request, rolling the
+creation back, when its command cannot start. See `interaction-lifecycle.md`.
+
+
 Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
 
 | Field | Value |
@@ -1435,7 +1448,7 @@ fields. Retrying with the same `origin`, `mutation_id`, and logical request
 returns the same terminal and exit record without recreating its tab or
 process. Reusing a mutation identity with different parameters is an error.
 
-Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests. When a deferred default-shell launch cannot start, its durable exit reason is the stable message `launch-failed: host-launch-failed`; detailed spawn errors stay in internal diagnostics.
 
 Example:
 

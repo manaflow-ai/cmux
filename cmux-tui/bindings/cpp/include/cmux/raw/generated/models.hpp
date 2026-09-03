@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
+inline constexpr std::string_view kProtocolIrSha256 = "51b5794f706dd58c7ab29e45f21c229ee374649463ab155d621eac17d0a6abec";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -276,6 +276,7 @@ struct SurfaceResizedEvent;
 struct TabAddedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
+struct TerminalLifecycleEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
 struct TreeChangedEvent;
@@ -2482,6 +2483,18 @@ struct TerminalEventsResult {
     friend bool operator==(const TerminalEventsResult&, const TerminalEventsResult&) = default;
 };
 
+struct TerminalLifecycleEvent {
+    std::optional<std::string> cause{};
+    std::uint64_t discarded_input_bytes{};
+    std::uint64_t elapsed_ms{};
+    std::optional<TerminalLifecycle> from{};
+    std::string registry_terminal_id{};
+    std::optional<Id> surface{};
+    std::optional<std::string> terminal_id{};
+    TerminalLifecycle to{};
+    friend bool operator==(const TerminalLifecycleEvent&, const TerminalLifecycleEvent&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -4227,6 +4240,12 @@ template <>
 struct Codec<TabRenamedEvent> {
     static Result<Json> encode(const TabRenamedEvent& value);
     static Result<TabRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLifecycleEvent> {
+    static Result<Json> encode(const TerminalLifecycleEvent& value);
+    static Result<TerminalLifecycleEvent> decode(const Json& value);
 };
 
 template <>

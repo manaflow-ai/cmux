@@ -78,10 +78,9 @@ impl Mux {
                     .find(|candidate| candidate.public_id == pane_id)
                     .cloned()
                     .context("destination pane has no durable projection")?;
-                let host = mux
-                    .resource_terminal_host_identity(&terminal)
+                let host_id = mux
+                    .terminal_id_for_surface(&terminal)
                     .context("terminal omitted its durable host identity")?;
-                let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
@@ -797,10 +796,7 @@ impl Mux {
                                     live_terminals.insert(terminal_id.clone());
                                 let runtime = state.terminal_catalog.get(terminal_id).or(surface);
                                 let host_id = runtime
-                                    .and_then(|surface| {
-                                        self.resource_terminal_host_identity(surface)
-                                            .map(|host| host.terminal_id)
-                                    })
+                                    .and_then(|surface| self.terminal_id_for_surface(surface))
                                     .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
                                     .context("terminal view omitted its durable host identity")?;
                                 if first_terminal_placement {
@@ -994,11 +990,11 @@ impl Mux {
             if !live_terminals.insert(terminal_id.clone()) {
                 continue;
             }
-            let host = self
-                .resource_terminal_host_identity(surface)
+            let host_id = self
+                .terminal_id_for_surface(surface)
                 .context("catalog terminal omitted its durable host identity")?;
             let terminal = terminal_records
-                .get(&host.terminal_id)
+                .get(&host_id)
                 .cloned()
                 .context("catalog terminal has no durable host")?;
             changes

@@ -2278,14 +2278,21 @@ impl Mux {
         let content_id = ContentPublicId::Terminal(public_id.clone());
         let (target, mut plan) =
             if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
-                let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                let host_id = self.terminal_id_for_surface(&runtime).ok_or_else(|| {
                     terminal_close_state_error("terminal runtime omitted its durable host identity")
                 })?;
-                if host.terminal_id != terminal_id {
+                if host_id != terminal_id {
                     return Err(terminal_close_state_error("terminal resource changed hosts"));
                 }
                 if let Some(expected) = expected_incarnation {
-                    anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+                    // A launching runtime has no incarnation yet, so an
+                    // expected one cannot match it.
+                    let incarnation =
+                        self.resource_terminal_host_identity(&runtime).map(|host| host.incarnation);
+                    anyhow::ensure!(
+                        incarnation.as_deref() == Some(expected),
+                        "terminal_incarnation_mismatch"
+                    );
                 }
                 let target = state.placements_of_content(&content_id).first().copied();
                 let plan = self.resource_close_plan_locked(
@@ -2466,10 +2473,10 @@ impl Mux {
         let (runtime, removed, _) =
             remove_terminal_content_from_state(self, &mut projected, terminal_public_id);
         if let Some(runtime) = runtime.as_ref() {
-            let host = self
-                .resource_terminal_host_identity(runtime)
+            let host_id = self
+                .terminal_id_for_surface(runtime)
                 .context("terminal runtime omitted its durable host identity")?;
-            anyhow::ensure!(host.terminal_id == terminal_id, "terminal exit runtime changed hosts");
+            anyhow::ensure!(host_id == terminal_id, "terminal exit runtime changed hosts");
         }
         anyhow::ensure!(
             projected.placements_of_content(&content_id).is_empty(),
@@ -2720,7 +2727,7 @@ impl Mux {
         }
         if let Some(runtime) = effects.terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
-            self.terminate_terminal_runtime(&runtime);
+            self.terminate_terminal_runtime_deferred(runtime);
         }
         match effects.tree_publication {
             ResourceCloseTreePublication::PendingDelta(delta) => {
@@ -2845,10 +2852,10 @@ impl Mux {
                 // it. A live terminal still requires its catalog runtime.
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
                 if let Some(runtime) = runtime.as_ref() {
-                    let host = self
-                        .resource_terminal_host_identity(runtime)
+                    let runtime_host_id = self
+                        .terminal_id_for_surface(runtime)
                         .context("terminal omitted its durable host identity")?;
-                    anyhow::ensure!(host.terminal_id == host_id, "terminal changed durable hosts");
+                    anyhow::ensure!(runtime_host_id == host_id, "terminal changed durable hosts");
                 }
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
@@ -3063,8 +3070,7 @@ impl Mux {
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
                     Err(error) => {
-                        #[cfg(test)]
-                        eprintln!("correlated resource creation failed: {error:#}");
+                        eprintln!("cmux-tui: {operation_name} creation effect failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
                         return creation_settlement_result(
                             self.settle_resource_creation(recovery, Some(failure))?,
@@ -3081,9 +3087,8 @@ impl Mux {
                 ) {
                     Ok(commit) => Ok(commit),
                     Err(error) => {
-                        #[cfg(test)]
                         eprintln!(
-                            "correlated resource creation projection commit failed: {error:#}"
+                            "cmux-tui: {operation_name} creation projection commit failed: {error:#}"
                         );
                         let failure = resource_creation_failure(&recovery, &error);
                         creation_settlement_result(
@@ -3115,7 +3120,7 @@ impl Mux {
             return Ok(());
         };
         if let Some(surface) = self.surface(surface_id) {
-            surface.activate_hosted_launch_stream()?;
+            self.release_terminal_launch(&surface)?;
         }
         Ok(())
     }

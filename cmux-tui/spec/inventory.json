@@ -491,6 +491,12 @@
       ]
     },
     {
+      "name": "terminal-lifecycle",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
       "name": "terminal-registry-changed",
       "streams": [
         "subscribe"

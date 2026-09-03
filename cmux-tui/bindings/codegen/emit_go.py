@@ -388,6 +388,7 @@ def _render_encoded_constraint_validation(
 def _render_object_json(
     name: str,
     expr: Mapping[str, Any],
+    event_discriminator: str | None = None,
 ) -> list[str]:
     nullable = _nullable_fields(expr)
     constrained = [
@@ -398,7 +399,30 @@ def _render_object_json(
     additional = bool(expr["additional_properties"])
 
     lines: list[str] = []
-    if nullable or additional or constrained:
+    direct_event = (
+        event_discriminator is not None
+        and not nullable
+        and not additional
+        and not constrained
+    )
+    if direct_event:
+        lines.extend(
+            [
+                f"func (value {name}) MarshalJSON() ([]byte, error) {{",
+                f"\ttype wire {name}",
+                "\ttype envelope struct {",
+                '\t\tEvent string `json:"event"`',
+                "\t\twire",
+                "\t}",
+                "\treturn json.Marshal(envelope{",
+                f"\t\tEvent: {_go_string(event_discriminator)},",
+                "\t\twire: wire(value),",
+                "\t})",
+                "}",
+                "",
+            ]
+        )
+    if not direct_event and (nullable or additional or constrained or event_discriminator is not None):
         lines.append(f"func (value {name}) MarshalJSON() ([]byte, error) {{")
         for wire_name, field in constrained:
             go_name = _go_name(wire_name)
@@ -439,7 +463,7 @@ def _render_object_json(
                     )
                 )
         lines.append(f"\ttype wire {name}")
-        if not nullable and not additional:
+        if not nullable and not additional and event_discriminator is None:
             lines.extend(
                 [
                     "\treturn json.Marshal(wire(value))",
@@ -518,7 +542,11 @@ def _render_object_json(
                         "\t}",
                     ]
                 )
-        if nullable or additional:
+        if nullable or additional or event_discriminator is not None:
+            if event_discriminator is not None:
+                lines.append(
+                    f'\tobject["event"] = json.RawMessage({_go_string(json.dumps(event_discriminator))})'
+                )
             lines.extend(["\treturn json.Marshal(object)", "}", ""])
 
     lines.extend(
@@ -669,7 +697,11 @@ def _render_object_json(
     return lines
 
 
-def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
+def _render_object(
+    name: str,
+    expr: Mapping[str, Any],
+    event_discriminator: str | None = None,
+) -> list[str]:
     lines: list[str] = []
     for wire_name, field in expr["fields"].items():
         declarations = _render_inline_constrained_type(
@@ -691,7 +723,7 @@ def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
     if expr["additional_properties"]:
         lines.append('\tAdditional map[string]json.RawMessage `json:"-"`')
     lines.append("}")
-    json_methods = _render_object_json(name, expr)
+    json_methods = _render_object_json(name, expr, event_discriminator)
     if json_methods:
         lines.append("")
         lines.extend(json_methods)
@@ -1473,7 +1505,7 @@ def _render_event_type(
     name = _event_name(wire_name)
     lines = [
         f"// {name} is emitted by protocol v{event['since']}.",
-        *_render_object(name, payload),
+        *_render_object(name, payload, event_discriminator=wire_name),
         "",
         f"func ({name}) EventName() string {{ return {_go_string(wire_name)} }}",
     ]

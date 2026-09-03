@@ -162,6 +162,33 @@ func TestTerminalPlacementPreservesRunningAndEarlyExitLifecycles(t *testing.T) {
 	}
 }
 
+func TestTerminalLifecycleEventMarshalIncludesDiscriminator(t *testing.T) {
+	var event TerminalLifecycleEvent
+	if err := json.Unmarshal([]byte(`{
+		"cause":null,
+		"discarded_input_bytes":0,
+		"elapsed_ms":1,
+		"from":"launching",
+		"registry_terminal_id":"registry-id",
+		"surface":null,
+		"terminal_id":"terminal-id",
+		"to":"running"
+	}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		t.Fatal(err)
+	}
+	if object["event"] != "terminal-lifecycle" {
+		t.Fatalf("event discriminator = %#v, want terminal-lifecycle", object["event"])
+	}
+}
+
 func TestTaggedUnionDiscriminatorAndUnknownVariant(t *testing.T) {
 	for name, payload := range map[string][]byte{
 		"missing": []byte(`{}`),

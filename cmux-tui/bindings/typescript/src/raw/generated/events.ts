@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 51b5794f706dd58c7ab29e45f21c229ee374649463ab155d621eac17d0a6abec. */
 
 
 import type * as T from "./types.js";
@@ -309,6 +309,18 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type TerminalLifecycleEvent = { event: "terminal-lifecycle" } & {
+  "cause": (string) | null;
+  "discarded_input_bytes": bigint;
+  "elapsed_ms": bigint;
+  "from": (T.TerminalLifecycle) | null;
+  "registry_terminal_id": string;
+  "surface": (T.Id) | null;
+  "terminal_id": (string) | null;
+  "to": T.TerminalLifecycle;
+};
+
 /** Protocol v9; emission: emitted; streams: subscribe. */
 export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" } & {
   "generation": string;
@@ -435,6 +447,7 @@ export type KnownCmuxEvent =
   | TabAddedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalLifecycleEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
@@ -480,6 +493,7 @@ export type KnownSubscribeEvent =
   | TabAddedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalLifecycleEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
@@ -499,6 +513,7 @@ export type TreeDeltaEvent =
   | TabAddedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalLifecycleEvent
   | WorkspaceAddedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
