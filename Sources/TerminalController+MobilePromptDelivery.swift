@@ -43,7 +43,7 @@ extension TerminalController {
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(
                 code: "not_found",
-                message: "Terminal surface not found",
+                message: Self.terminalSurfaceUnavailableMessage,
                 data: nil
             )
         }

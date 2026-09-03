@@ -7503,7 +7503,10 @@ struct CMUXCLI {
                     : nil)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
-            guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
+            let hasPromptText = addressedAgentDelivery
+                ? !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                : !rawText.isEmpty
+            guard hasPromptText else { throw CLIError(message: "send requires text") }
             let text = addressedAgentDelivery ? rawText : unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
             let winId = try normalizeWindowHandle(windowRaw, client: client)

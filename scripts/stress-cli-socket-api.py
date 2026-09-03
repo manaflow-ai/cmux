@@ -945,7 +945,10 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("close-workspace-help", argv("close-workspace", "--help"), no_socket=True, covered_command="close-workspace"),
         CliCase("read-screen", ctx_argv(lambda c: ["read-screen", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--lines", "5"]), expect_codes=any_code, covered_command="read-screen"),
         CliCase("send", ctx_argv(lambda c: ["send", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "printf stress-cli\\n"]), expect_codes=any_code, covered_command="send"),
-        CliCase("agent-submit", ctx_argv(lambda c: ["agent-submit", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "stress atomic prompt"]), expect_codes=(1,), covered_command="agent-submit"),
+        # Agent availability is an environment property: a healthy stress
+        # workspace may accept this prompt (0) or report a retryable absence
+        # (1), but a usage error, signal, or transport failure must still fail.
+        CliCase("agent-submit", ctx_argv(lambda c: ["agent-submit", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "stress atomic prompt"]), expect_codes=(0, 1), covered_command="agent-submit"),
         CliCase("send-key", ctx_argv(lambda c: ["send-key", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key"),
         CliCase("send-panel", ctx_argv(lambda c: ["send-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "printf stress-panel\\n"]), expect_codes=any_code, covered_command="send-panel"),
         CliCase("send-key-panel", ctx_argv(lambda c: ["send-key-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key-panel"),
@@ -1096,7 +1099,10 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("workspace.rename", "workspace.rename", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "title": f"stress-{c.run_id}"}),
         SocketCase("workspace.reorder", "workspace.reorder", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "index": 0}, expect_ok=None),
         SocketCase("workspace.prompt_submit", "workspace.prompt_submit", p_workspace, expect_ok=None),
-        SocketCase("workspace.agent_submit", "workspace.agent_submit", lambda c: {**p_surface(c), "text": "stress atomic prompt"}, expect_ok=False),
+        # A running agent can accept the request; otherwise the addressed
+        # method returns a structured, retryable error. Validate transport and
+        # response shape without assuming one deployment's agent lifecycle.
+        SocketCase("workspace.agent_submit", "workspace.agent_submit", lambda c: {**p_surface(c), "text": "stress atomic prompt"}, expect_ok=None),
         SocketCase("workspace.action.pin", "workspace.action", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "action": "pin"}, expect_ok=None),
         SocketCase("workspace.action.unpin", "workspace.action", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "action": "unpin"}, expect_ok=None),
         SocketCase("workspace.next", "workspace.next", lambda c: {}, expect_ok=None),

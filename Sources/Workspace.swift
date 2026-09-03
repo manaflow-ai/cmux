@@ -5781,6 +5781,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
+    /// Marks a resumed agent ready only when its panel is in the prompt-idle state.
+    private func markAgentPromptResumeReadyIfPromptIdle(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) {
+        guard state == .promptIdle,
+              agentPromptInputScope(forPanelId: panelId) != nil else {
+            return
+        }
+        _ = markAgentPromptResumeReady(panelId: panelId)
+    }
+
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
@@ -5811,10 +5823,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
-            if state == .promptIdle,
-               agentPromptInputScope(forPanelId: panelId) != nil {
-                _ = markAgentPromptResumeReady(panelId: panelId)
-            }
+            markAgentPromptResumeReadyIfPromptIdle(panelId: panelId, state: state)
             return
         }
         let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
@@ -5840,10 +5849,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
-        if state == .promptIdle,
-           agentPromptInputScope(forPanelId: panelId) != nil {
-            _ = markAgentPromptResumeReady(panelId: panelId)
-        }
+        markAgentPromptResumeReadyIfPromptIdle(panelId: panelId, state: state)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
