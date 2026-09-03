@@ -30,7 +30,7 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long to wait for the visibility delta after a response arrives.
 const VISIBILITY_GRACE: Duration = Duration::from_secs(2);
 const BENCH_DEADLINE: Duration = Duration::from_secs(120);
-const MAX_INDEXED_SURFACES: usize = 4096;
+const MAX_INDEXED_SURFACES: usize = 100_000;
 const MAX_TIMESTAMPS_PER_SURFACE: usize = 128;
 /// How long teardown waits for closed terminals' host processes to exit before
 /// reporting them as leaked. Bounded by the host's own SIGKILL escalation.
@@ -504,6 +504,8 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     if guard.owner.as_ref().is_some_and(|owner| owner.should_stop()) {
         close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
+    } else {
+        cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
     }
     if let Some(owner_pid) = guard
         .owner
