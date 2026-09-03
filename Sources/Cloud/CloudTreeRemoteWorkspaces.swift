@@ -13,6 +13,8 @@ struct CloudTreeRemoteWorkspaceMembers: Equatable {
     var all: [SurfaceResource] { terminals + browsers + displays }
     var ids: [SurfaceResourceID] { all.map(\.id) }
     var isEmpty: Bool { terminals.isEmpty && browsers.isEmpty && displays.isEmpty }
+
+    static let none = CloudTreeRemoteWorkspaceMembers(terminals: [], browsers: [], displays: [])
 }
 
 /// How a `<workspace>` selector resolves on a machine — the one answer shared
@@ -51,17 +53,53 @@ extension CloudTreeNodeBuilder {
         remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: snapshot.resources(on: machine))
     }
 
-    /// The members of one workspace: every resource with a view in it, by kind,
-    /// in catalog order. The workspace row's children and drag group and the
-    /// socket's `vm.workspace_open` all read this, so a click and the CLI open
-    /// the same set.
+    /// Every workspace's members in ONE pass over the catalog: a resource is
+    /// appended to each workspace that views it, so the per-kind lists keep
+    /// catalog order. The workspace rows (children and drag group) and the
+    /// socket's `vm.workspace_open` both read this, so a click and the CLI open
+    /// the same set, and a tree rebuild stays O(resources × views) whatever the
+    /// workspace count.
+    static func remoteWorkspaceMembersByWorkspace(resources: [SurfaceResource]) -> [String: CloudTreeRemoteWorkspaceMembers] {
+        var byWorkspace: [String: CloudTreeRemoteWorkspaceMembers] = [:]
+        for resource in resources {
+            for workspace in resource.remoteWorkspaces {
+                var members = byWorkspace[workspace.id] ?? .none
+                switch resource.kind {
+                case .terminal: members.terminals.append(resource)
+                case .browser: members.browsers.append(resource)
+                case .display: members.displays.append(resource)
+                }
+                byWorkspace[workspace.id] = members
+            }
+        }
+        return byWorkspace
+    }
+
+    /// The members of one workspace (an existing workspace nothing views has none).
     static func remoteWorkspaceMembers(workspaceID: String, resources: [SurfaceResource]) -> CloudTreeRemoteWorkspaceMembers {
-        let viewed = resources.filter { resource in resource.remoteWorkspaces.contains { $0.id == workspaceID } }
-        return CloudTreeRemoteWorkspaceMembers(
-            terminals: viewed.filter { $0.kind == .terminal },
-            browsers: viewed.filter { $0.kind == .browser },
-            displays: viewed.filter { $0.kind == .display }
-        )
+        remoteWorkspaceMembersByWorkspace(resources: resources)[workspaceID] ?? .none
+    }
+
+    /// How many panes of each local workspace show each resource, built once per
+    /// tree so every workspace row's open mark is a dictionary read.
+    static func projectionIndex(_ snapshot: SurfaceCatalogSnapshot) -> [SurfaceResourceID: [UUID: Int]] {
+        var index: [SurfaceResourceID: [UUID: Int]] = [:]
+        for projection in snapshot.projections {
+            index[projection.resource, default: [:]][projection.workspaceID, default: 0] += 1
+        }
+        return index
+    }
+
+    /// The local workspace that shows a remote workspace: the one holding the most of
+    /// its members' panes (at least one). Nil when none of them is open anywhere.
+    static func localWorkspaceShowing(_ members: [SurfaceResourceID], projectionIndex: [SurfaceResourceID: [UUID: Int]]) -> UUID? {
+        var counts: [UUID: Int] = [:]
+        for member in members {
+            for (workspaceID, count) in projectionIndex[member] ?? [:] {
+                counts[workspaceID, default: 0] += count
+            }
+        }
+        return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
     }
 
     /// Resolves `selector` — a `ws_…` id, or a workspace name when exactly one

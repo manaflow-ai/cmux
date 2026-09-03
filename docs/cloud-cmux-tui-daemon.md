@@ -225,7 +225,8 @@ from the daemon's own session model rather than a cloud-specific catalog:
     <name>  ws_…  *              cmux-tui workspace (focused marked *)
       ● term_…  <title>  <cwd>  [agent claude running]  (open: surface:3)
     <name>  ws_…                 another workspace on the same machine
-    (detached)                   terminals no workspace views (the pool)
+  terminals/                     the pool: terminals no workspace views
+    ● term_…  <title>            (`cmux vm tree` prints these as "(detached)" under workspaces/)
   desktop                        noVNC screen (Mac-side synthetic node)
   ports/
     3000  http                   forwarded port (Mac-side synthetic node)

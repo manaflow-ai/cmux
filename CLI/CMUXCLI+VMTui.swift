@@ -723,20 +723,27 @@ extension CMUXCLI {
         }
     }
 
-    /// `<machine>/<workspace>` resolved against the machine's catalog payload: a
-    /// `ws_…` id or a workspace name, found in the machine's own workspace list
-    /// (so an EMPTY workspace resolves and `vm open` starts a shell in it) and in
-    /// every view of every terminal (a terminal viewed in two workspaces belongs
-    /// to both; older apps send only `remote_workspace`). Returns the workspace id
-    /// and the terminals it views.
+    /// How `<machine>/<workspace>` resolved against the machine's catalog payload.
+    enum VMOpenWorkspaceResolution {
+        /// Exactly one workspace: its `ws_…` id and the terminals it views.
+        case found(id: String, terminals: [[String: Any]])
+        /// Several workspaces carry the selector as their name; only an id picks one.
+        case ambiguous(ids: [String])
+        case notFound
+    }
+
+    /// `<machine>/<workspace>` resolved against the machine's catalog payload, the
+    /// way the sidebar row and `vm.workspace_open` resolve it: a `ws_…` id first,
+    /// else a workspace name when exactly one workspace carries it. Workspaces come
+    /// from the machine's own list (so an EMPTY workspace resolves and `vm open`
+    /// starts a shell in it) and from every view of every terminal (a terminal
+    /// viewed in two workspaces belongs to both; older apps send only
+    /// `remote_workspace`).
     static func resolveVMOpenWorkspace(
         _ selector: String,
         machine: [String: Any]?,
         resources: [[String: Any]]
-    ) -> (id: String, terminals: [[String: Any]])? {
-        func matches(_ workspace: [String: Any]) -> Bool {
-            (workspace["id"] as? String) == selector || (workspace["name"] as? String) == selector
-        }
+    ) -> VMOpenWorkspaceResolution {
         func workspaces(of terminal: [String: Any]) -> [[String: Any]] {
             if let views = terminal["remote_views"] as? [[String: Any]] {
                 let viewed = views.compactMap { $0["workspace"] as? [String: Any] }
@@ -744,18 +751,34 @@ extension CMUXCLI {
             }
             return (terminal["remote_workspace"] as? [String: Any]).map { [$0] } ?? []
         }
-        var resolvedID = ((machine?["remote_workspaces"] as? [[String: Any]]) ?? [])
-            .first(where: matches)
-            .flatMap { $0["id"] as? String }
-        var inWorkspace: [[String: Any]] = []
-        for terminal in resources where (terminal["kind"] as? String) == "terminal" {
-            guard let workspace = workspaces(of: terminal).first(where: matches),
-                  let workspaceID = workspace["id"] as? String else { continue }
-            if resolvedID == nil { resolvedID = workspaceID }
-            if workspaceID == resolvedID { inWorkspace.append(terminal) }
+        // Every workspace the payload knows, id → name, in first-seen order.
+        var nameByID: [String: String] = [:]
+        var order: [String] = []
+        func note(_ workspace: [String: Any]) {
+            guard let id = workspace["id"] as? String, !id.isEmpty else { return }
+            if nameByID[id] == nil { order.append(id) }
+            if let name = workspace["name"] as? String, !name.isEmpty { nameByID[id] = name } else if nameByID[id] == nil { nameByID[id] = "" }
         }
-        guard let resolvedID else { return nil }
-        return (resolvedID, inWorkspace)
+        for workspace in (machine?["remote_workspaces"] as? [[String: Any]]) ?? [] { note(workspace) }
+        let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
+        for terminal in terminals {
+            for workspace in workspaces(of: terminal) { note(workspace) }
+        }
+        let resolvedID: String
+        if nameByID[selector] != nil {
+            resolvedID = selector
+        } else {
+            let byName = order.filter { nameByID[$0] == selector }
+            switch byName.count {
+            case 0: return .notFound
+            case 1: resolvedID = byName[0]
+            default: return .ambiguous(ids: byName)
+            }
+        }
+        let inWorkspace = terminals.filter { terminal in
+            workspaces(of: terminal).contains { ($0["id"] as? String) == resolvedID }
+        }
+        return .found(id: resolvedID, terminals: inWorkspace)
     }
 
     static var vmTreeUsage: String {
@@ -1342,14 +1365,26 @@ extension CMUXCLI {
             let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
             let machinePayload = ((catalog["machines"] as? [[String: Any]]) ?? []).first { ($0["id"] as? String) == machine }
-            guard let resolved = Self.resolveVMOpenWorkspace(workspace, machine: machinePayload, resources: resources) else {
+            let remoteWorkspaceId: String
+            let inWorkspace: [[String: Any]]
+            switch Self.resolveVMOpenWorkspace(workspace, machine: machinePayload, resources: resources) {
+            case .found(let id, let terminals):
+                remoteWorkspaceId = id
+                inWorkspace = terminals
+            case .ambiguous(let ids):
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.vm.open.workspaceAmbiguous",
+                        defaultValue: "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+                    ),
+                    machine, workspace, ids.joined(separator: ", ")
+                ))
+            case .notFound:
                 throw CLIError(message: String(
                     format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"),
                     machine, workspace
                 ))
             }
-            let remoteWorkspaceId = resolved.id
-            let inWorkspace = resolved.terminals
             let live = inWorkspace.filter { ($0["lifecycle"] as? String) != "exited" }
             let focusedFirst = live.sorted { lhs, rhs in
                 let l = ((lhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true

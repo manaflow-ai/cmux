@@ -40,14 +40,14 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
     tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
-    (detached — no tab on the machine shows these)      ← the pool: terminals in no workspace
+    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
       ● term_c04…  sleep 1000
   desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
     3000  http  (cmux vm open vivid-newt:port/3000)
 ```
 
-The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id or the workspace name; an empty workspace still resolves, and `vm open` starts a shell in it.
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 

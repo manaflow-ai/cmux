@@ -60244,6 +60244,23 @@
         }
       }
     },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります（%3$@）。ws_… ID を使ってください: cmux vm open %1$@/<ws-id>"
+          }
+        }
+      }
+    },
     "cli.vm.open.workspaceNotFound": {
       "extractionState": "manual",
       "localizations": {

@@ -334,12 +334,7 @@ enum CloudTreeNodeBuilder {
     /// members' panes (at least one). Nil when none of them is open anywhere.
     static func localWorkspaceShowing(_ members: [SurfaceResourceID], snapshot: SurfaceCatalogSnapshot) -> UUID? {
         guard !members.isEmpty else { return nil }
-        let wanted = Set(members)
-        var counts: [UUID: Int] = [:]
-        for projection in snapshot.projections where wanted.contains(projection.resource) {
-            counts[projection.workspaceID, default: 0] += 1
-        }
-        return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
+        return localWorkspaceShowing(members, projectionIndex: projectionIndex(snapshot))
     }
 
     static func nodeID(resource: SurfaceResourceID) -> String { "resource:\(resource.rawValue)" }
@@ -533,18 +528,22 @@ enum CloudTreeNodeBuilder {
         displays: [SurfaceResource],
         snapshot: SurfaceCatalogSnapshot
     ) -> CloudTreeNode {
+        // One pass over the catalog for every workspace's members and one over the
+        // projections for the open marks; each row is then dictionary reads.
+        let membersByWorkspace = remoteWorkspaceMembersByWorkspace(resources: resources)
+        let projections = projectionIndex(snapshot)
         var rows = remoteWorkspaces(info: info, resources: resources).map { workspace -> CloudTreeNode in
             // A workspace holds more than terminals: daemon browsers are tab
             // content too, and a workspace that points at the machine's screen
             // shows it and opens/drags it with its terminals.
-            let members = remoteWorkspaceMembers(workspaceID: workspace.id, resources: resources)
+            let members = membersByWorkspace[workspace.id] ?? .none
             // Every workspace can reach the machine's screen: when no view pins a
             // display yet, the machine's displays still show under the workspace,
             // so its terminals and its desktop open from one place. Implicit rows
             // stay out of `members`/dragGroup — only real pointers travel with the
             // workspace's open/drag group.
             let shownDisplays = members.displays.isEmpty ? displays : members.displays
-            let openInLocal = localWorkspaceShowing(members.ids, snapshot: snapshot)
+            let openInLocal = localWorkspaceShowing(members.ids, projectionIndex: projections)
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(machine: machine, workspace, terminalCount: members.terminals.count, openIn: openInLocal),
