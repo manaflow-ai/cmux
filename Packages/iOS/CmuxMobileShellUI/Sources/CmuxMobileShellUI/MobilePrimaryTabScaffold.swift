@@ -47,14 +47,13 @@ struct MobilePrimaryTabScaffold<
                     primaryTabs
 
                     Tab(value: MobilePrimaryTab.search, role: .search) {
-                        // Scoped to the search tab's content: a TabView-level
-                        // searchable is inherited by every tab's navigation bar,
-                        // which rendered a second, top search field on the
-                        // workspaces and notifications tabs.
+                        // The search-role tab owns native presentation. A second
+                        // writable isPresented binding can receive a stale false
+                        // during a tab transition and collapse the field while
+                        // Search remains selected.
                         searchDestination
                             .searchable(
                                 text: activeSearchText,
-                                isPresented: searchPresentation,
                                 prompt: activeSearchPrompt
                             )
                             .onSubmit(of: .search) {
@@ -119,16 +118,12 @@ struct MobilePrimaryTabScaffold<
                         searchCoordinator.deactivateCurrentSearch()
                     }
                 }
+                // A primary-tab tap and a following Search tap can arrive
+                // before onChange runs. Set the scope first so Search never
+                // mounts the previous tab's destination and replaces it while
+                // native presentation is activating.
+                searchCoordinator.synchronizeSelection(newValue)
                 selection = newValue
-            }
-        )
-    }
-
-    private var searchPresentation: Binding<Bool> {
-        Binding(
-            get: { searchCoordinator.isPresented },
-            set: { presented in
-                searchCoordinator.setPresentation(presented)
             }
         )
     }
