@@ -7,33 +7,37 @@ import {
 } from "../services/vm-publications/friendlyNames";
 
 describe("Cloud VM publication friendly names", () => {
-  test("mints descriptor-colour-animal labels that are valid DNS labels", () => {
+  test("mints adjective-colour-animal labels that are valid DNS labels", () => {
+    const seen = new Set<string>();
     for (let index = 0; index < 200; index++) {
       const label = friendlyPublicationLabel();
       expect(label).toMatch(FRIENDLY_LABEL_PATTERN);
       expect(label.length).toBeLessThanOrEqual(63);
+      seen.add(label);
     }
-    expect(friendlyPublicationLabel(() => 0)).toBe("amused-amber-badgers");
-    const last = (max: number) => max - 1;
-    expect(friendlyPublicationLabel(last)).toBe("zesty-yellow-zebras");
+    // Three dictionaries of hundreds of words: repeats in 200 draws are rare.
+    expect(seen.size).toBeGreaterThan(190);
   });
 
-  test("keeps every vocabulary word lowercase, unique, and short", () => {
-    const { descriptors, colors, animals } = friendlyLabelVocabulary();
-    for (const words of [descriptors, colors, animals]) {
+  test("pins the label to a seed for deterministic fixtures", () => {
+    const first = friendlyPublicationLabel("publication-seed");
+    expect(first).toMatch(FRIENDLY_LABEL_PATTERN);
+    expect(friendlyPublicationLabel("publication-seed")).toBe(first);
+    expect(friendlyPublicationLabel("another-seed")).not.toBe(first);
+  });
+
+  test("keeps every vocabulary word lowercase ASCII, unique, and short enough", () => {
+    const dictionaries = friendlyLabelVocabulary();
+    expect(dictionaries).toHaveLength(3);
+    let longestLabel = 2;
+    for (const words of dictionaries) {
+      expect(words.length).toBeGreaterThan(20);
       expect(new Set(words).size).toBe(words.length);
       for (const word of words) {
-        expect(word).toMatch(/^[a-z]{3,12}$/u);
+        expect(word).toMatch(/^[a-z]+$/u);
       }
+      longestLabel += Math.max(...words.map((word) => word.length));
     }
-    const longest = (words: readonly string[]) =>
-      Math.max(...words.map((word) => word.length));
-    expect(longest(descriptors) + longest(colors) + longest(animals) + 2)
-      .toBeLessThanOrEqual(40);
-  });
-
-  test("rejects a random source that leaves the vocabulary", () => {
-    expect(() => friendlyPublicationLabel(() => 99)).toThrow(/out-of-range/u);
-    expect(() => friendlyPublicationLabel(() => -1)).toThrow(/out-of-range/u);
+    expect(longestLabel).toBeLessThanOrEqual(63);
   });
 });
