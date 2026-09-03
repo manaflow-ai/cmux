@@ -39,9 +39,6 @@ enum CloudTreeIconPalette {
 /// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
-    /// "Workspaces / " when this row folded a parent group into itself
-    /// (`CloudTreeNode.compactingSingleChildChains`); empty otherwise.
-    var titlePrefix: String = ""
     var style: CloudTreeStyle = CloudTreeStyleStore.current
 
     var body: some View {
@@ -87,7 +84,7 @@ struct CloudTreeRowContentView: View {
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
-                title: titlePrefix + workspace.name,
+                title: workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
                 detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil
             )
