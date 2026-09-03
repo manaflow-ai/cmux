@@ -16,17 +16,12 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTerminalKit"),
     ],
     targets: [
-        // The same libghostty the Mac links; iOS feeds raw PTY bytes straight
-        // into ghostty_surface_* so the phone runs the identical terminal core.
-        .binaryTarget(
-            name: "GhosttyKit",
-            path: "../../../GhosttyKit.xcframework"
-        ),
         .target(
             name: "CmuxMobileTerminal",
             dependencies: [
@@ -35,7 +30,10 @@ let package = Package(
                 "CmuxMobileDiagnostics",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminalKit",
-                "GhosttyKit",
+                // The same libghostty the Mac links; iOS feeds raw PTY bytes
+                // straight into ghostty_surface_* so the phone runs the
+                // identical terminal core.
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
