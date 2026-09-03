@@ -37,6 +37,7 @@ const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
 const PIPE_READ_POLL_MS: i32 = 100;
 const PTY_REAP_RETRY: Duration = Duration::from_millis(100);
+const PTY_REAP_MAX_RETRY: Duration = Duration::from_secs(5);
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -568,28 +569,25 @@ fn run_pty_wait_owner(
 ) -> i64 {
     let mut observer_unavailable = false;
     let mut reap_failures = 0;
+    let mut reap_retry = PTY_REAP_RETRY;
     loop {
         let command = if observer_unavailable {
-            match command_rx.recv_timeout(PTY_REAP_RETRY) {
+            match command_rx.recv_timeout(reap_retry) {
                 Ok(command) => command,
                 Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                     Ok(Some(_)) => break,
                     Ok(None) => {
                         reap_failures = 0;
+                        reap_retry = PTY_REAP_RETRY;
                         continue;
                     }
                     Err(_) => {
                         reap_failures += 1;
-                        if reap_failures < PTY_REAP_MAX_FAILURES {
-                            continue;
+                        if reap_failures >= PTY_REAP_MAX_FAILURES {
+                            reap_failures = 0;
                         }
-                        // A broken non-blocking wait implementation cannot
-                        // establish whether the child exited. Terminate it
-                        // through the owned wait path before the definitive
-                        // wait, so a later Drop/Kill command is not stranded.
-                        force_kill_process_group(pid, process_group);
-                        let _ = child.kill();
-                        break;
+                        reap_retry = (reap_retry * 2).min(PTY_REAP_MAX_RETRY);
+                        continue;
                     }
                 },
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
