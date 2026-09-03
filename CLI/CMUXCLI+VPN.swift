@@ -50,9 +50,9 @@ extension CMUXCLI {
         // 0600 file it does not read.
         // Read-only first: on the app-managed backend the app enrolls as part
         // of starting the tunnel, so `vm.tunnel_config` here would enroll twice.
-        let status = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
-        if Self.tunnelBackendIsAppManaged(status) {
-            try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, status: status)
+        let tunnelStatus = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
+        if Self.tunnelBackendIsAppManaged(tunnelStatus) {
+            try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, status: tunnelStatus)
             return
         }
         let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
