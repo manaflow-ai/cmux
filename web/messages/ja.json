@@ -123,11 +123,10 @@
     "backToSignIn": "サインインに戻る"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux クラウド",
     "title": "アクセス権がありません",
-    "signedOutBody": "このサイトを表示するには cmux にサインインしてください。",
     "signIn": "cmux にサインイン",
     "signedInAs": "{identity} としてサインイン中",
+    "switchAccount": "アカウントを切り替える",
     "invalidTitle": "このアクセスリンクは無効です",
     "invalidBody": "サイトに戻って、もう一度お試しください。",
     "footer": "アクセスは cmux によって管理されています。"
