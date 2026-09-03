@@ -1252,6 +1252,8 @@ struct WorkerCompletion {
     done: Mutex<bool>,
     changed: Condvar,
     admission: Mutex<Option<WorkerSlot>>,
+    handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+    runtime: Arc<WorkerRuntime>,
     wake_reaper: bool,
     #[cfg(test)]
     joined: AtomicBool,
@@ -1260,29 +1262,53 @@ struct WorkerCompletion {
 impl WorkerCompletion {
     #[cfg(test)]
     fn new() -> Self {
-        Self::with_slot_and_reaper(None, false)
+        Self::with_runtime(test_worker_runtime(), None, false)
     }
 
-    fn with_slot(slot: Option<WorkerSlot>) -> Self {
-        Self::with_slot_and_reaper(slot, true)
-    }
-
-    fn with_slot_and_reaper(slot: Option<WorkerSlot>, wake_reaper: bool) -> Self {
+    fn with_runtime(
+        runtime: Arc<WorkerRuntime>,
+        slot: Option<WorkerSlot>,
+        wake_reaper: bool,
+    ) -> Self {
         Self {
             done: Mutex::new(false),
             changed: Condvar::new(),
             admission: Mutex::new(slot),
+            handle: Mutex::new(None),
+            runtime,
             wake_reaper,
             #[cfg(test)]
             joined: AtomicBool::new(false),
         }
     }
 
-    fn mark_done(&self) {
+    fn with_slot(runtime: Arc<WorkerRuntime>, slot: Option<WorkerSlot>) -> Self {
+        Self::with_runtime(runtime, slot, true)
+    }
+
+    fn mark_done(self: &Arc<Self>) {
         *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
         self.changed.notify_all();
         if self.wake_reaper {
-            wake_reaper_after_completion();
+            self.runtime.wake_reaper();
+        }
+        self.reap_owned_handle();
+    }
+
+    fn install_handle(self: &Arc<Self>, handle: std::thread::JoinHandle<()>) {
+        *self.handle.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+        if self.is_done() {
+            self.reap_owned_handle();
+        }
+    }
+
+    fn take_handle(&self) -> Option<std::thread::JoinHandle<()>> {
+        self.handle.lock().unwrap_or_else(|poison| poison.into_inner()).take()
+    }
+
+    fn reap_owned_handle(self: &Arc<Self>) {
+        if let Some(handle) = self.take_handle() {
+            self.runtime.enqueue(handle, self.clone());
         }
     }
 
@@ -1334,8 +1360,6 @@ struct WorkerAdmission {
 
 struct WorkerSlot(Arc<WorkerAdmission>);
 
-static WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new();
-
 impl WorkerAdmission {
     fn try_reserve(self: &Arc<Self>) -> Option<WorkerSlot> {
         let mut available = self.available.load(Ordering::Acquire);
@@ -1356,15 +1380,6 @@ impl WorkerAdmission {
     }
 }
 
-fn reserve_worker_slot() -> Option<WorkerSlot> {
-    let admission = WORKER_ADMISSION
-        .get_or_init(|| {
-            Arc::new(WorkerAdmission { available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT) })
-        })
-        .clone();
-    admission.try_reserve()
-}
-
 impl Drop for WorkerSlot {
     fn drop(&mut self) {
         self.0.available.fetch_add(1, Ordering::Release);
@@ -1379,15 +1394,54 @@ struct ReaperState {
     pending: Vec<ReapRequest>,
 }
 
-static REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
+struct WorkerRuntime {
+    admission: Arc<WorkerAdmission>,
+    reaper: Arc<Mutex<ReaperState>>,
+}
+
+impl WorkerRuntime {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            admission: Arc::new(WorkerAdmission {
+                available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT),
+            }),
+            reaper: Arc::new(Mutex::new(ReaperState {
+                sender: None,
+                worker: None,
+                pending: Vec::new(),
+            })),
+        })
+    }
+
+    fn reserve_slot(&self) -> Option<WorkerSlot> {
+        self.admission.try_reserve()
+    }
+
+    fn enqueue(
+        self: &Arc<Self>,
+        handle: std::thread::JoinHandle<()>,
+        completion: Arc<WorkerCompletion>,
+    ) {
+        enqueue_worker_reap_in_state(&self.reaper, handle, completion);
+    }
+
+    fn wake_reaper(&self) {
+        wake_reaper_after_completion(&self.reaper);
+    }
+}
 
 #[cfg(test)]
 static FAIL_NEXT_REAPER_SPAWN: AtomicBool = AtomicBool::new(false);
 
-fn reaper_state() -> &'static Arc<Mutex<ReaperState>> {
-    REAPER.get_or_init(|| {
-        Arc::new(Mutex::new(ReaperState { sender: None, worker: None, pending: Vec::new() }))
-    })
+#[cfg(test)]
+fn test_worker_runtime() -> Arc<WorkerRuntime> {
+    static RUNTIME: OnceLock<Arc<WorkerRuntime>> = OnceLock::new();
+    RUNTIME.get_or_init(WorkerRuntime::new).clone()
+}
+
+#[cfg(test)]
+fn reaper_state() -> Arc<Mutex<ReaperState>> {
+    test_worker_runtime().reaper.clone()
 }
 
 fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
@@ -1430,15 +1484,21 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
                         worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
                     state.pending.append(&mut pending);
                 }
-                if has_pending {
-                    match receiver.recv_timeout(Duration::from_millis(50)) {
-                        Ok(()) | Err(RecvTimeoutError::Timeout) => {}
-                        Err(RecvTimeoutError::Disconnected) => break,
+                match receiver.recv_timeout(Duration::from_millis(50)) {
+                    Ok(()) => {}
+                    Err(RecvTimeoutError::Timeout) if !has_pending => {
+                        let mut state =
+                            worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                        if state.pending.is_empty() {
+                            state.sender = None;
+                            break;
+                        }
                     }
-                } else {
-                    match receiver.recv() {
-                        Ok(()) => {}
-                        Err(RecvError) => break,
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner()).sender =
+                            None;
+                        break;
                     }
                 }
             }
@@ -1477,8 +1537,11 @@ fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
     }
 }
 
-fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<WorkerCompletion>) {
-    let state = reaper_state().clone();
+fn enqueue_worker_reap_in_state(
+    state: &Arc<Mutex<ReaperState>>,
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) {
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
@@ -1498,10 +1561,12 @@ fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<Work
     }
 }
 
-fn wake_reaper_after_completion() {
-    let Some(state) = REAPER.get().cloned() else {
-        return;
-    };
+#[cfg(test)]
+fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<WorkerCompletion>) {
+    test_worker_runtime().enqueue(handle, completion);
+}
+
+fn wake_reaper_after_completion(state: &Arc<Mutex<ReaperState>>) {
     let needs_start = {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         match current.sender.as_ref() {
@@ -1549,7 +1614,6 @@ struct InteractiveWriter {
     abort: Arc<dyn RemoteTransportAbort>,
     transport_abort_lock: Mutex<()>,
     transport_aborted: AtomicBool,
-    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl InteractiveWriter {
@@ -1558,11 +1622,12 @@ impl InteractiveWriter {
     fn spawn(
         writer: Box<dyn RemoteMessageWriter>,
         abort: Arc<dyn RemoteTransportAbort>,
+        runtime: Arc<WorkerRuntime>,
     ) -> io::Result<Self> {
-        let slot = reserve_worker_slot().ok_or_else(|| {
+        let slot = runtime.reserve_slot().ok_or_else(|| {
             io::Error::new(io::ErrorKind::WouldBlock, "remote worker slots exhausted")
         })?;
-        let worker_completion = Arc::new(WorkerCompletion::with_slot(Some(slot)));
+        let worker_completion = Arc::new(WorkerCompletion::with_slot(runtime, Some(slot)));
         let shared = Arc::new(InteractiveWriterShared {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
@@ -1578,12 +1643,12 @@ impl InteractiveWriter {
             .inspect_err(|_| {
                 shared.worker_completion.release_slot();
             })?;
+        shared.worker_completion.install_handle(worker);
         Ok(Self {
             shared,
             abort,
             transport_abort_lock: Mutex::new(()),
             transport_aborted: AtomicBool::new(false),
-            worker: Mutex::new(Some(worker)),
         })
     }
 
@@ -1744,14 +1809,12 @@ impl InteractiveWriter {
 
     fn join_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
-        let handle = {
-            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
-            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+        let handle = self.shared.worker_completion.take_handle();
+        if let Some(handle) = handle {
+            if handle.thread().id() == current {
+                self.shared.worker_completion.install_handle(handle);
                 return;
             }
-            worker.take()
-        };
-        if let Some(handle) = handle {
             if self
                 .shared
                 .worker_completion
@@ -1760,31 +1823,31 @@ impl InteractiveWriter {
                 let _ = handle.join();
                 self.shared.worker_completion.release_slot();
             } else {
-                enqueue_worker_reap(handle, self.shared.worker_completion.clone());
+                self.shared
+                    .worker_completion
+                    .runtime
+                    .enqueue(handle, self.shared.worker_completion.clone());
             }
         }
     }
 
     fn join_worker_if_done(&self) {
-        let current = std::thread::current().id();
-        let handle = {
-            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
-            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
-                return;
-            }
-            let Some(handle) = worker.take() else {
-                return;
-            };
-            if !self.shared.worker_completion.is_done() {
-                enqueue_worker_reap(handle, self.shared.worker_completion.clone());
-                return;
-            }
-            Some(handle)
+        let Some(handle) = self.shared.worker_completion.take_handle() else {
+            return;
         };
-        if let Some(handle) = handle {
-            let _ = handle.join();
-            self.shared.worker_completion.release_slot();
+        if handle.thread().id() == std::thread::current().id() {
+            self.shared.worker_completion.install_handle(handle);
+            return;
         }
+        if !self.shared.worker_completion.is_done() {
+            self.shared
+                .worker_completion
+                .runtime
+                .enqueue(handle, self.shared.worker_completion.clone());
+            return;
+        }
+        let _ = handle.join();
+        self.shared.worker_completion.release_slot();
     }
 
     fn close_until(&self, deadline: Instant) {
@@ -2306,11 +2369,14 @@ impl RemoteSession {
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
-        let interactive_writer = InteractiveWriter::spawn(writer, abort)
+        let worker_runtime = WorkerRuntime::new();
+        let interactive_writer = InteractiveWriter::spawn(writer, abort, worker_runtime.clone())
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
-        let reader_slot = reserve_worker_slot()
+        let reader_slot = worker_runtime
+            .reserve_slot()
             .ok_or_else(|| anyhow::anyhow!("remote worker slots exhausted"))?;
-        let reader_completion = Arc::new(WorkerCompletion::with_slot(Some(reader_slot)));
+        let reader_completion =
+            Arc::new(WorkerCompletion::with_slot(worker_runtime.clone(), Some(reader_slot)));
         let session = Arc::new(RemoteSession {
             interactive_writer,
             reader_worker: Mutex::new(None),
@@ -3413,7 +3479,7 @@ impl RemoteSession {
                 let handle = worker.take();
                 drop(worker);
                 if let Some(handle) = handle {
-                    enqueue_worker_reap(handle, self.reader_completion.clone());
+                    self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
                 }
                 return;
             }
@@ -3424,7 +3490,7 @@ impl RemoteSession {
                 let _ = handle.join();
                 self.reader_completion.release_slot();
             } else {
-                enqueue_worker_reap(handle, self.reader_completion.clone());
+                self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
             }
         }
     }
@@ -4344,8 +4410,14 @@ fn test_session_with_writer(
     provider_workspace_authority: Option<BearerToken>,
     capabilities: HashSet<String>,
 ) -> Arc<RemoteSession> {
+    let worker_runtime = test_worker_runtime();
     Arc::new(RemoteSession {
-        interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        interactive_writer: InteractiveWriter::spawn(
+            writer,
+            Arc::new(NoopTransportAbort),
+            worker_runtime,
+        )
+        .unwrap(),
         reader_worker: Mutex::new(None),
         reader_completion: Arc::new(WorkerCompletion::new()),
         disconnect_state: Mutex::new(DisconnectState::default()),
@@ -5594,8 +5666,9 @@ mod tests {
         capabilities: HashSet<String>,
         provider_workspace_authority: Option<BearerToken>,
     ) -> Arc<RemoteSession> {
+        let worker_runtime = test_worker_runtime();
         Arc::new(RemoteSession {
-            interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            interactive_writer: InteractiveWriter::spawn(writer, abort, worker_runtime).unwrap(),
             reader_worker: Mutex::new(None),
             reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
@@ -7030,7 +7103,8 @@ mod tests {
         state.lock().unwrap().sender = None;
 
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let completion = Arc::new(WorkerCompletion::with_slot_and_reaper(None, true));
+        let completion =
+            Arc::new(WorkerCompletion::with_runtime(test_worker_runtime(), None, true));
         let worker_release = release.clone();
         let worker_completion = completion.clone();
         let handle = std::thread::spawn(move || {
@@ -8025,6 +8099,7 @@ mod tests {
 
     #[test]
     fn send_failure_wakes_every_waiter_and_discards_the_queue() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let output = stream.output.clone();
         let session = blocking_test_session(stream);
@@ -8065,6 +8140,7 @@ mod tests {
         drop(state);
         assert!(output.lock().unwrap().is_empty());
         assert_eq!(session.interactive_write_metrics().write_failures, 1);
+        wait_for_worker_join(&session.interactive_writer.shared.worker_completion);
     }
 
     #[cfg(unix)]
