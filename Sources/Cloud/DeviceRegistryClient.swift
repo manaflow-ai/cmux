@@ -2,6 +2,12 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import Foundation
+import OSLog
+
+nonisolated private let deviceRegistryLog = Logger(
+    subsystem: "dev.cmux",
+    category: "device-registry"
+)
 
 /// Registers this Mac (and its running cmux app instance's attach routes) in the
 /// team-scoped device registry (`POST /api/devices`), so a phone can look up the
@@ -197,7 +203,9 @@ final class DeviceRegistryClient {
                     consecutiveFailures = 0
                     retryNotBefore = nil
                 } else {
-                    NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
+                    deviceRegistryLog.warning(
+                        "device registry rejected registration status=\(http.statusCode, privacy: .public)"
+                    )
                     holdOffAfterFailure(
                         retryAfterSeconds: Self.retryAfterSeconds(http)
                     )
@@ -207,7 +215,11 @@ final class DeviceRegistryClient {
             // Best-effort; the registry must never disrupt the Mac. Still log:
             // a silently unreachable registry strands every paired phone on
             // stale routes with nothing to diagnose from.
-            NSLog("cmux.deviceRegistry register unreachable: %@", String(describing: error))
+            // The error's type, not its description: a URL error can carry the
+            // failing URL and the request's headers.
+            deviceRegistryLog.warning(
+                "device registry unreachable: \(String(describing: type(of: error)), privacy: .public)"
+            )
             holdOffAfterFailure(retryAfterSeconds: nil)
         }
     }

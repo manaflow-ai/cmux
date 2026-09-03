@@ -9,9 +9,15 @@ public import Foundation
 /// nothing cached there is no expiry to race, so failures back off
 /// exponentially and honor the broker's `Retry-After`.
 public actor IrxRelayCredentialAutopilot {
+    /// Waits out a computed delay. Injected so the retry ladder is testable
+    /// without wall-clock time; cancellation propagates through it, and the
+    /// loop's own `Task.isCancelled` checks bound every wait.
+    public typealias Sleeper = @Sendable (Duration) async throws -> Void
+
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
+    private let sleep: Sleeper
     private var loop: Task<Void, Never>?
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
@@ -20,11 +26,13 @@ public actor IrxRelayCredentialAutopilot {
     public init(
         broker: IrxBrokerService,
         endpoint: IrxEndpointSupervisor,
-        journal: IrxJournal
+        journal: IrxJournal,
+        sleep: @escaping Sleeper = { try await Task.sleep(for: $0) }
     ) {
         self.broker = broker
         self.endpoint = endpoint
         self.journal = journal
+        self.sleep = sleep
     }
 
     public func setOnRotation(_ handler: @escaping @Sendable () async -> Void) {
@@ -77,7 +85,7 @@ public actor IrxRelayCredentialAutopilot {
                     "credential-autopilot", "sleeping",
                     ["until_refresh_s": String(Int(wait))]
                 )
-                try? await Task.sleep(for: .seconds(wait))
+                try? await sleep(.seconds(wait))
                 if Task.isCancelled { return }
             }
             do {
@@ -107,7 +115,7 @@ public actor IrxRelayCredentialAutopilot {
                         "retry": String(describing: delay),
                     ]
                 )
-                try? await Task.sleep(for: delay)
+                try? await sleep(delay)
             }
         }
     }
