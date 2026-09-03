@@ -35584,6 +35584,37 @@ mod tests {
     }
 
     #[test]
+    fn cached_surface_exit_invalidates_projection_rows() {
+        let mux = Mux::new("cached-surface-exit-projection-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        let tree = notify_tree(40, false);
+        app.replace_tree(tree);
+
+        assert!(
+            app.projection_rows(0)
+                .iter()
+                .any(|row| { matches!(row.target, ProjectionTarget::Surface { surface: 40, .. }) })
+        );
+        app.remove_surface_from_cached_tree(40);
+        assert!(
+            !app.projection_rows(0)
+                .iter()
+                .any(|row| { matches!(row.target, ProjectionTarget::Surface { surface: 40, .. }) })
+        );
+    }
+
+    #[test]
     fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
         let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
