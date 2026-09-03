@@ -49,4 +49,12 @@ describe("Stack handler page", () => {
 
     expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
   });
+
+  test("keeps an unlisted future handler path behind the same boundary", async () => {
+    const page = await StackHandlerPage({
+      params: Promise.resolve({ stack: ["future-handler"] }),
+    });
+
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
+  });
 });
