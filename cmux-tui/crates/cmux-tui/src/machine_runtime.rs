@@ -913,9 +913,20 @@ impl MachineConnectionHub {
                 if let Ok(connection) = &result {
                     connection.session.begin_shutdown();
                 }
-                return Err(anyhow::anyhow!(
-                    crate::localization::catalog().sidebar.client_machine_unavailable
-                ));
+                // Another owner can publish a ready connection while this
+                // attempt is being cancelled. Reuse that connection instead
+                // of reporting a transient failure to the caller.
+                if !self.inner.closed.load(Ordering::Acquire)
+                    && let MachineConnectionState::Ready(connection) = &slot.state
+                    && connection.session.is_alive()
+                {
+                    let session = connection.session.clone();
+                    slot.last_used = self.next_use_stamp();
+                    drop(slots);
+                    return Ok((session, true));
+                }
+                drop(slots);
+                continue;
             }
             if self.inner.closed.load(Ordering::Acquire) {
                 slot.state = MachineConnectionState::Disconnected;
@@ -1442,5 +1453,52 @@ mod tests {
             Err(error) => error.to_string(),
         };
         assert!(error.contains("deadline"), "unexpected timeout error: {error}");
+    }
+
+    #[test]
+    fn concurrent_ready_connection_wins_over_cancelled_attempt() {
+        let key = MachineKey(101);
+        let entered = Arc::new(AtomicBool::new(false));
+        let connector: MachineConnectFn = {
+            let entered = Arc::clone(&entered);
+            Arc::new(move |context| {
+                entered.store(true, Ordering::Release);
+                while !context.is_cancelled() {
+                    thread::yield_now();
+                }
+                context.check()?;
+                unreachable!("cancelled connector must not continue")
+            })
+        };
+        let hub = MachineConnectionHub::with_warm_limit_and_timeout(
+            [(key, connector)],
+            2,
+            Duration::from_secs(1),
+        );
+        let connecting_hub = hub.clone();
+        let connect_thread = thread::spawn(move || connecting_hub.connect_tracked(key));
+
+        let entered_deadline = Instant::now() + Duration::from_secs(1);
+        while !entered.load(Ordering::Acquire) {
+            assert!(Instant::now() < entered_deadline, "connector did not start");
+            thread::yield_now();
+        }
+
+        let ready_mux = cmux_tui_core::Mux::new(
+            "concurrent-ready-connection-test",
+            cmux_tui_core::SurfaceOptions::default(),
+        );
+        let ready_session = Session::Local(ready_mux.clone());
+        hub.insert_ready(key, MachineConnection { session: ready_session, _lease: None });
+
+        let (session, reused) = connect_thread
+            .join()
+            .expect("connect caller must join")
+            .expect("ready connection should satisfy the cancelled attempt");
+        assert!(reused);
+        match session {
+            Session::Local(mux) => assert!(Arc::ptr_eq(&mux, &ready_mux)),
+            Session::Remote(_) => panic!("test ready connection must be local"),
+        }
     }
 }
