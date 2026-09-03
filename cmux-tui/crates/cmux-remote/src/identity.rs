@@ -3089,6 +3089,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn contended_client_state_file_does_not_block_cached_daemon_reads() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let state_path = temp.path().join(CLIENT_STATE_FILE);
+        let lock_path = sibling_lock_path(&state_path).unwrap();
+        let path_lock = OwnerFileLock::acquire(&lock_path).unwrap();
+
+        let lookup = store.daemon_key("unknown");
+        tokio::pin!(lookup);
+        assert!(
+            futures_util::poll!(lookup.as_mut()).is_pending(),
+            "daemon lookup unexpectedly completed while the state file was locked"
+        );
+
+        tokio::time::timeout(Duration::from_millis(100), store.known_daemons())
+            .await
+            .expect("cached daemon reads waited for an unrelated owner-file lock");
+
+        drop(path_lock);
+        assert_eq!(lookup.await.unwrap(), None);
+    }
+
+    #[tokio::test]
     async fn failed_known_daemon_forget_keeps_live_trust() {
         let temp = tempfile::tempdir().unwrap();
         let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
