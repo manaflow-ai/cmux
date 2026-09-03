@@ -2697,6 +2697,73 @@ mod tests {
         assert!(bootstrap.upgrade);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn cancelling_client_startup_joins_before_the_startup_timeout() {
+        use std::os::unix::net::UnixListener;
+
+        let directory = tempfile::tempdir().unwrap();
+        let remote_socket = directory.path().join("remote.sock");
+        let listener = UnixListener::bind(&remote_socket).unwrap();
+        let (accepted_tx, accepted_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            accepted_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(3));
+            drop(stream);
+        });
+
+        let context = MachineConnectContext::new(Duration::from_secs(30));
+        let worker_context = context.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let state_dir = directory.path().join("state");
+        let local_socket = directory.path().join("client.sock");
+        let route = format!("unix://{}", remote_socket.display());
+        let caller = thread::spawn(move || {
+            let flags = ConnectFlags {
+                route: Some(route),
+                startup_timeout: Some(Duration::from_secs(2)),
+                state_dir: Some(state_dir),
+                local_socket: Some(local_socket),
+                lanes: LanePolicy::Single,
+                ssh_session: "main".into(),
+                ssh_binary: "ssh".into(),
+                remote_binary: "~/.local/bin/cmux-tui".into(),
+                auto_install: true,
+                ..ConnectFlags::default()
+            };
+            let result = start_connected_with_context(flags, &worker_context);
+            let _ = done_tx.send(result.map(|connected| connected.runtime.shutdown()));
+        });
+
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("client startup did not reach the stalled remote handshake");
+        context.cancel();
+
+        let result = done_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap_or_else(|_| {
+                let _ = done_rx
+                    .recv_timeout(Duration::from_secs(3))
+                    .expect("client startup did not finish after its timeout");
+                panic!("client startup ignored cancellation until its startup timeout");
+            });
+        let error = match result {
+            Ok(_) => panic!("cancelled client startup published a ready runtime"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("cancelled") || error.to_string().contains("canceled"),
+            "unexpected cancellation error: {error:#}"
+        );
+
+        let _ = release_tx.send(());
+        caller.join().unwrap();
+        server.join().unwrap();
+    }
+
     #[test]
     fn iroh_url_query_becomes_non_secret_routing_hints() {
         let mut url =
