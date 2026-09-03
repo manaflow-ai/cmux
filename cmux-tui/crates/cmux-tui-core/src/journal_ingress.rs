@@ -1291,9 +1291,9 @@ mod tests {
     fn retry_wait_releases_mux_before_waiting() {
         let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
         let journal = mux.shared_journal_handle();
-        let (released_tx, released_rx) = std::sync::mpsc::sync_channel(1);
-        let (proceed_tx, proceed_rx) = std::sync::mpsc::sync_channel(1);
-        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let (released_tx, released_rx) = sync_channel(1);
+        let (proceed_tx, proceed_rx) = sync_channel(1);
+        let (done_tx, done_rx) = sync_channel(1);
         let waiter_mux = Arc::clone(&mux);
         let waiter = std::thread::spawn(move || {
             wait_for_journal_retry_after_release(waiter_mux, Duration::from_secs(60), || {

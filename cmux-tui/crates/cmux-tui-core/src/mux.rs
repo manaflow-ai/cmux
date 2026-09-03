@@ -16665,7 +16665,7 @@ fn restore_resource_state(
     for screen in &topology.screens {
         let expected_panes =
             panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
-        crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
+        crate::workspace_registry::validate_registry_screen_projection(screen, expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
             restore_layout_node(&screen.layout, &pane_slots, &mut split_slots, &mut allocate)?;
@@ -19275,7 +19275,7 @@ mod tests {
         let expected = expected_panes_by_screen(&duplicate_panes);
         assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(4));
         assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(1));
-        assert!(expected.get(&restore_screen_id(999)).is_none());
+        assert!(!expected.contains_key(&restore_screen_id(999)));
 
         let mut mismatched = topology;
         mismatched.panes[3].screen_id = second_screen.clone();
