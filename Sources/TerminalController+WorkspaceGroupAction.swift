@@ -17,9 +17,9 @@ extension TerminalController {
         v2MainSync {
             guard tabManager.createWorkspaceGroup(
                 name: name,
-                externalID: identity.value,
                 selectAnchor: false,
-                collapseSidebarSelection: false
+                collapseSidebarSelection: false,
+                externalID: identity.value
             ) != nil else {
                 mutationError = .err(code: "not_created", message: "Group was not created", data: nil)
                 return
@@ -220,8 +220,8 @@ extension TerminalController {
             )
             return (resolution.value, nil)
         } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
-            let messageKey: String
-            let defaultValue: String
+            let messageKey: StaticString
+            let defaultValue: String.LocalizationValue
             switch error {
             case .nonString:
                 messageKey = "workspaceGroup.error.idempotencyKeyMustBeString"
