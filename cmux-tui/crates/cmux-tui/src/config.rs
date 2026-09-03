@@ -7528,11 +7528,7 @@ mod tests {
                 panic!("observe helper child {pid}: {error}");
             }
             #[cfg(target_vendor = "apple")]
-            assert!(
-                descriptor >= 0,
-                "observe helper child {pid}: {}",
-                io::Error::last_os_error()
-            );
+            assert!(descriptor >= 0, "observe helper child {pid}: {}", io::Error::last_os_error());
             // SAFETY: pidfd_open and kqueue return a new owned descriptor.
             let descriptor =
                 unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
@@ -7809,8 +7805,7 @@ mod tests {
         }
         assert!(output.len() > 4 * 1024);
 
-        let reader =
-            read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
 
         assert_eq!(reader.wait(), Some(output));
     }

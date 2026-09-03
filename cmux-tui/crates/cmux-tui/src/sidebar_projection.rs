@@ -634,7 +634,8 @@ mod tests {
     #[test]
     fn agent_order_cache_reuses_order_until_roster_or_tree_changes() {
         let mut tree = tree();
-        tree.workspaces_mut()[0].screens[0].panes[0].tabs = vec![tab(4, "working"), tab(5, "blocked")];
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs =
+            vec![tab(4, "working"), tab(5, "blocked")];
         let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
             surface,
             state: state.into(),
