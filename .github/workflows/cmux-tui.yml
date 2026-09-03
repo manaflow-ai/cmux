@@ -152,10 +152,18 @@ jobs:
           npm test
 
   lint:
-    name: lint
+    name: lint (${{ matrix.os }})
     needs: validate-inputs
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -171,6 +179,7 @@ jobs:
         run: git submodule update --init --depth 1 ghostty
 
       - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
@@ -198,7 +207,7 @@ jobs:
         if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustfmt-${{ github.sha }}
+          name: rustfmt-${{ matrix.os }}-${{ github.sha }}
           path: ${{ runner.temp }}/rustfmt.patch
           if-no-files-found: error
           retention-days: 1
