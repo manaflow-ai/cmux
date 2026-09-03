@@ -24178,7 +24178,7 @@ mod tests {
             .expect("an ahead cursor must replay the retained journal");
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "hook");
-        let (repaired_head, cursor, snapshot) = {
+        let (live_head, cursor, snapshot) = {
             let registry = reopened.workspace_registry.lock().unwrap();
             let (_, cursor, snapshot) = registry
                 .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
@@ -24186,7 +24186,11 @@ mod tests {
                 .expect("startup must repair the rejected cursor");
             (registry.session_journal_head().unwrap(), cursor, snapshot)
         };
-        assert_eq!(cursor, repaired_head);
+        // Mux startup can append unrelated lifecycle records after the roster
+        // checkpoint is repaired. The durable cursor must reach the journal
+        // head that existed at reopen, while the live head may have advanced.
+        assert_eq!(cursor, journal_head);
+        assert!(live_head >= cursor);
         assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
         reopened.shutdown();
         drop(reopened);
