@@ -1,0 +1,15 @@
+name: Unused code comment
+
+on:
+  workflow_run:
+    workflows: [Unused code]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    permissions:
+      actions: read
+      pull-requests: write
+    uses: periphery-pro/actions/.github/workflows/comment.yml@v1
