@@ -696,6 +696,14 @@ struct Inner {
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
     start_slots: Arc<Semaphore>,
     next_generation: AtomicU64,
+    retire_tx: std::sync::mpsc::SyncSender<RetireRequest>,
+}
+
+struct RetireRequest {
+    inner: Arc<Inner>,
+    pty_id: String,
+    generation: Option<u64>,
+    publication_gate: Option<Arc<RouteGate>>,
 }
 
 #[derive(Default)]
@@ -752,22 +760,33 @@ pub struct PtyManager {
 
 impl PtyManager {
     pub fn new(deps: Arc<dyn PtyDeps>, home: PathBuf, env: HashMap<String, String>) -> PtyManager {
-        PtyManager {
-            inner: Arc::new(Inner {
-                deps,
-                home,
-                env,
-                max_ptys: MAX_PTYS,
-                scrollback_limit: SCROLLBACK_LIMIT,
-                output_cap: OUTPUT_BUFFER_CAP,
-                attachments: Mutex::new(HashMap::new()),
-                opening_state: Mutex::new(OpeningState::default()),
-                shell_sessions: Mutex::new(HashMap::new()),
-                shell_starting: Mutex::new(HashMap::new()),
-                start_slots: Arc::new(Semaphore::new(MAX_PTYS)),
-                next_generation: AtomicU64::new(1),
-            }),
-        }
+        let (retire_tx, retire_rx) =
+            std::sync::mpsc::sync_channel(MAX_PTYS.saturating_mul(2).max(1));
+        let inner = Arc::new(Inner {
+            deps,
+            home,
+            env,
+            max_ptys: MAX_PTYS,
+            scrollback_limit: SCROLLBACK_LIMIT,
+            output_cap: OUTPUT_BUFFER_CAP,
+            attachments: Mutex::new(HashMap::new()),
+            opening_state: Mutex::new(OpeningState::default()),
+            shell_sessions: Mutex::new(HashMap::new()),
+            shell_starting: Mutex::new(HashMap::new()),
+            start_slots: Arc::new(Semaphore::new(MAX_PTYS)),
+            next_generation: AtomicU64::new(1),
+            retire_tx,
+        });
+        std::thread::spawn(move || {
+            while let Ok(request) = retire_rx.recv() {
+                request.inner.retire_after_gate(
+                    &request.pty_id,
+                    request.generation,
+                    request.publication_gate.as_ref(),
+                );
+            }
+        });
+        PtyManager { inner }
     }
 
     pub fn with_limits(
@@ -778,22 +797,33 @@ impl PtyManager {
         scrollback_limit: usize,
         output_cap: u64,
     ) -> PtyManager {
-        PtyManager {
-            inner: Arc::new(Inner {
-                deps,
-                home,
-                env,
-                max_ptys,
-                scrollback_limit,
-                output_cap,
-                attachments: Mutex::new(HashMap::new()),
-                opening_state: Mutex::new(OpeningState::default()),
-                shell_sessions: Mutex::new(HashMap::new()),
-                shell_starting: Mutex::new(HashMap::new()),
-                start_slots: Arc::new(Semaphore::new(max_ptys.max(1))),
-                next_generation: AtomicU64::new(1),
-            }),
-        }
+        let (retire_tx, retire_rx) =
+            std::sync::mpsc::sync_channel(max_ptys.max(1).saturating_mul(2));
+        let inner = Arc::new(Inner {
+            deps,
+            home,
+            env,
+            max_ptys,
+            scrollback_limit,
+            output_cap,
+            attachments: Mutex::new(HashMap::new()),
+            opening_state: Mutex::new(OpeningState::default()),
+            shell_sessions: Mutex::new(HashMap::new()),
+            shell_starting: Mutex::new(HashMap::new()),
+            start_slots: Arc::new(Semaphore::new(max_ptys.max(1))),
+            next_generation: AtomicU64::new(1),
+            retire_tx,
+        });
+        std::thread::spawn(move || {
+            while let Ok(request) = retire_rx.recv() {
+                request.inner.retire_after_gate(
+                    &request.pty_id,
+                    request.generation,
+                    request.publication_gate.as_ref(),
+                );
+            }
+        });
+        PtyManager { inner }
     }
 
     /// Handle one Worker -> relay PTY frame.
@@ -892,12 +922,10 @@ impl PtyManager {
     /// this after a pty_error reply to tell a fatal refusal (attachment gone,
     /// connection ends) from a non-fatal one (oversized input, stream lives).
     pub fn has_attachment(&self, pty_id: &str) -> bool {
-        self.inner
-            .attachments
-            .lock()
-            .expect("attach lock")
-            .get(pty_id)
-            .is_some_and(|attachment| !attachment.closing.load(Ordering::SeqCst))
+        self.inner.attachments.lock().expect("attach lock").get(pty_id).is_some_and(|attachment| {
+            !attachment.closing.load(Ordering::SeqCst)
+                && !attachment.close_pending.load(Ordering::SeqCst)
+        })
     }
 
     /// Live attachment count (viewers, not sessions). Diagnostics and tests.
@@ -1702,7 +1730,7 @@ impl Inner {
     }
 
     async fn emit_error_for_generation_async(
-        &self,
+        self: &Arc<Self>,
         context: &FrameContext,
         pty_id: &str,
         generation: u64,
@@ -1802,7 +1830,7 @@ impl Inner {
     }
 
     fn close_if_transport(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         transport_id: Option<&str>,
         generation: Option<u64>,
@@ -2055,7 +2083,7 @@ impl Inner {
         }
     }
 
-    fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
+    fn close_authorized(self: &Arc<Self>, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
         let attachment = match self.authorize_snapshot_for_close(pty_id, &auth, context, "close", 0)
         {
@@ -2112,14 +2140,14 @@ impl Inner {
         self.close_exact_authorized_async(pty_id, &attachment, context).await;
     }
 
-    fn force_retire(
+    fn retire_after_gate(
         &self,
         pty_id: &str,
         generation: Option<u64>,
         publication_gate: Option<&Arc<RouteGate>>,
     ) {
-        let removed = {
-            let mut attachments = self.attachments.lock().expect("attach lock");
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if generation.is_some_and(|expected| current.generation != expected)
                 || publication_gate
@@ -2127,12 +2155,63 @@ impl Inner {
             {
                 return;
             }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock();
+        let removed = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+            {
+                return;
+            }
             let removed = attachments.remove(pty_id).expect("attachment still present");
-            removed.close_pending.store(true, Ordering::SeqCst);
             removed.closing.store(true, Ordering::SeqCst);
             removed
         };
+        drop(_publication);
         removed.control.kill();
+    }
+
+    fn force_retire(
+        self: &Arc<Self>,
+        pty_id: &str,
+        generation: Option<u64>,
+        publication_gate: Option<&Arc<RouteGate>>,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || publication_gate
+                    .is_some_and(|expected| !Arc::ptr_eq(&current.publication_gate, expected))
+            {
+                return;
+            }
+            current.close_pending.store(true, Ordering::SeqCst);
+            Arc::clone(&current.publication_gate)
+        };
+        if let Some(_publication) = gate.try_lock() {
+            self.retire_after_gate(pty_id, generation, Some(&gate));
+            return;
+        }
+        let request = RetireRequest {
+            inner: Arc::clone(self),
+            pty_id: pty_id.to_owned(),
+            generation,
+            publication_gate: Some(gate),
+        };
+        if let Err(std::sync::mpsc::TrySendError::Full(request)) = self.retire_tx.try_send(request)
+        {
+            std::thread::spawn(move || {
+                request.inner.retire_after_gate(
+                    &request.pty_id,
+                    request.generation,
+                    request.publication_gate.as_ref(),
+                );
+            });
+        }
     }
 
     async fn close_if_transport_async(
@@ -2242,7 +2321,7 @@ impl Inner {
     }
 
     fn close_exact_authorized(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         attachment: &Attachment,
         context: &FrameContext,
@@ -2427,7 +2506,7 @@ impl Inner {
     }
 
     fn close_exact(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         generation: Option<u64>,
         publication_gate: Option<&Arc<RouteGate>>,
@@ -4635,6 +4714,70 @@ mod tests {
 
         release_tx.send(()).expect("release publication gate owner");
         gate_owner.join().expect("publication gate owner");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn forced_retirement_waits_for_inflight_publication() {
+        let h = harness(None, None);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let sent = Arc::clone(&h.sent);
+        let entered_for_send = Arc::clone(&entered);
+        let release_for_send = Arc::clone(&release);
+        let mut context = h.context("supervised", h.owner.clone());
+        context.send = Arc::new(move |frame| {
+            if frame["type"] == "pty_output" {
+                entered_for_send.wait();
+                release_for_send.wait();
+            }
+            sent.lock().expect("sent lock").push(frame);
+        });
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let (generation, publication_gate) = {
+            let attachments = h.manager.inner.attachments.lock().expect("attach lock");
+            let attachment = attachments.get("p1").expect("opened attachment");
+            (attachment.generation, Arc::clone(&attachment.publication_gate))
+        };
+        let pty = h.spawned()[0].clone();
+        let emit = thread::spawn(move || pty.emit("in flight"));
+        entered.wait();
+
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let retire = thread::spawn(move || {
+            manager.inner.force_retire("p1", Some(generation), Some(&publication_gate));
+        });
+        retire.join().expect("forced retirement request");
+        assert!(
+            h.manager
+                .inner
+                .attachments
+                .lock()
+                .expect("attach lock")
+                .get("p1")
+                .is_some_and(|attachment| attachment.close_pending.load(Ordering::SeqCst)),
+            "retirement marks the generation pending while publication is in flight"
+        );
+
+        release.wait();
+        emit.join().expect("output publication");
+        for _ in 0..100 {
+            if !h.manager.inner.attachments.lock().expect("attach lock").contains_key("p1") {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert!(!h.manager.inner.attachments.lock().expect("attach lock").contains_key("p1"));
     }
 
     #[tokio::test]
