@@ -337,6 +337,55 @@ cmux_codex_computer_use_app_enabled() {
     [[ "$enabled" != "0" ]]
 }
 
+# Attachment diagnostics are deliberately opt-in. The normal wrapper remains
+# quiet, while a maintainer can set CMUX_CUA_DIAGNOSTICS=1 to see the single
+# fail-closed reason for this invocation. Keep this machine-readable line
+# free of paths, socket names, and credentials: it is safe to collect from a
+# terminal transcript without weakening the TCC/proxy boundary.
+cmux_codex_cua_diagnostic() {
+    [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]] || return 0
+    local reason="${1:-unknown}"
+    printf 'cmux-cua: codex attachment=%s\n' "$reason" >&2
+}
+
+cmux_codex_cua_attachment_present() {
+    local arg
+    for arg in "${cmux_codex_computer_use_args[@]}"; do
+        [[ "$arg" == mcp_servers.cmux-cua.command=* ]] && return 0
+    done
+    return 1
+}
+
+# Re-evaluate the same fail-closed gates in the parent shell after the
+# NUL-separated emitter finishes. The emitter runs in process substitution,
+# so shell variables assigned there cannot be used as a diagnostic channel.
+# These checks are read-only (including the private credential validation) and
+# do not launch a helper or probe the daemon.
+cmux_codex_cua_attachment_reason() {
+    if ! cmux_codex_computer_use_enabled_for_invocation "$@"; then
+        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] ||
+           ! cmux_codex_computer_use_app_enabled; then
+            printf '%s' 'computer-use-disabled'
+        else
+            printf '%s' 'strict-mcp-config'
+        fi
+        return 0
+    fi
+    if ! cmux_computer_use_surface_socket_available; then
+        printf '%s' 'stale-cmux-socket'
+        return 0
+    fi
+    if ! cmux_computer_use_resolve_client >/dev/null 2>&1; then
+        printf '%s' 'missing-client'
+        return 0
+    fi
+    if ! cmux_computer_use_auth_token >/dev/null 2>&1; then
+        printf '%s' 'missing-auth'
+        return 0
+    fi
+    printf '%s' 'attachment-unavailable'
+}
+
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     cmux_codex_computer_use_app_enabled || return 1
@@ -557,18 +606,21 @@ cmux_codex_read_computer_use_args() {
 # CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
 # stays fully inert — no cmux calls, no Computer Use attach, no argv changes.
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    cmux_codex_cua_diagnostic "hooks-disabled"
     exec_real_codex_passthrough "$@"
 fi
 
 # Outside cmux the wrapper does nothing: Computer Use is a feature of
 # cmux-launched agents, so plain `codex` in a random terminal stays untouched.
 if [[ "$IN_CMUX" == "0" ]]; then
+    cmux_codex_cua_diagnostic "outside-cmux"
     exec_real_codex_passthrough "$@"
 fi
 
 # Not a session entrypoint (review/login/doctor/--help/...): pass through with
 # no injection of any kind.
 if ! should_inject_codex_hooks "$@"; then
+    cmux_codex_cua_diagnostic "not-session"
     exec_real_codex_passthrough "$@"
 fi
 
@@ -666,6 +718,15 @@ fi
 # CLI is local and does not need the cmux hook socket, so a failed or empty
 # `hooks codex inject-args` emit must not silently drop computer use.
 cmux_codex_read_computer_use_args "$@" || true
+
+if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
+    if cmux_codex_cua_attachment_present; then
+        cmux_codex_cua_diagnostic "attached"
+    else
+        cmux_codex_cua_reason="$(cmux_codex_cua_attachment_reason "$@")"
+        cmux_codex_cua_diagnostic "$cmux_codex_cua_reason"
+    fi
+fi
 
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
