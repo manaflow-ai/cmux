@@ -111,6 +111,7 @@ impl EnsuredOwnerHandle {
             return;
         }
         let deadline = Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
         if let Ok(stream) = transport::connect(socket) {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
             let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
@@ -132,13 +133,22 @@ impl EnsuredOwnerHandle {
                     }
                     let mut bytes = Vec::new();
                     match connection.by_ref().take(4096).read_until(b'\n', &mut bytes) {
-                        Ok(0) | Err(_) => break,
+                        Ok(0) => {
+                            exited = true;
+                            break;
+                        }
+                        Err(error) if error.kind() != io::ErrorKind::TimedOut => {
+                            exited = true;
+                            break;
+                        }
+                        Err(_) => break,
                         Ok(_) => {}
                     }
                 }
             }
         }
-        if let Some(root) = self.state_root {
+        if exited {
+            if let Some(root) = self.state_root {
             let _ = std::fs::remove_dir_all(root);
             // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
             // place for durable sessions, because unlinking it reopens the
@@ -149,6 +159,7 @@ impl EnsuredOwnerHandle {
             let mut name = socket.file_name().unwrap_or_default().to_os_string();
             name.push(".spawn-lock");
             let _ = std::fs::remove_file(socket.with_file_name(name));
+            }
         }
     }
 }
