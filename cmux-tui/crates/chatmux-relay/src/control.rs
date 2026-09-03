@@ -591,7 +591,9 @@ mod unix {
                     return;
                 }
                 drop(slot);
-                handler();
+                if !self.shared.deliberate.load(Ordering::SeqCst) {
+                    handler();
+                }
             } else {
                 *slot = Some(handler);
             }

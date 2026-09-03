@@ -704,6 +704,7 @@ struct RetireRequest {
     pty_id: String,
     generation: Option<u64>,
     publication_gate: Option<Arc<RouteGate>>,
+    completion: Option<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 #[derive(Default)]
@@ -779,11 +780,16 @@ impl PtyManager {
         });
         std::thread::spawn(move || {
             while let Ok(request) = retire_rx.recv() {
-                request.inner.retire_after_gate(
+                let retired = request.inner.retire_after_gate(
                     &request.pty_id,
                     request.generation,
                     request.publication_gate.as_ref(),
                 );
+                if retired {
+                    if let Some(completion) = request.completion {
+                        completion();
+                    }
+                }
             }
         });
         PtyManager { inner }
@@ -816,11 +822,16 @@ impl PtyManager {
         });
         std::thread::spawn(move || {
             while let Ok(request) = retire_rx.recv() {
-                request.inner.retire_after_gate(
+                let retired = request.inner.retire_after_gate(
                     &request.pty_id,
                     request.generation,
                     request.publication_gate.as_ref(),
                 );
+                if retired {
+                    if let Some(completion) = request.completion {
+                        completion();
+                    }
+                }
             }
         });
         PtyManager { inner }
@@ -1752,8 +1763,24 @@ impl Inner {
             match tokio::time::timeout(PUBLICATION_GATE_TIMEOUT, gate.lock_async()).await {
                 Ok(guard) => guard,
                 Err(_) => {
-                    self.force_retire(pty_id, Some(generation), Some(publication_gate));
-                    send_pty_error(context, pty_id, code, message);
+                    let send = Arc::clone(&context.send);
+                    let pty_id = pty_id.to_owned();
+                    let code = code.to_owned();
+                    let message = message.to_owned();
+                    self.force_retire_with_completion(
+                        &pty_id,
+                        Some(generation),
+                        Some(publication_gate),
+                        Some(Box::new(move || {
+                            send(json!({
+                                "version": PTY_PROTOCOL_VERSION,
+                                "type": "pty_error",
+                                "ptyId": pty_id,
+                                "code": code,
+                                "message": message,
+                            }));
+                        })),
+                    );
                     return;
                 }
             };
@@ -2145,26 +2172,26 @@ impl Inner {
         pty_id: &str,
         generation: Option<u64>,
         publication_gate: Option<&Arc<RouteGate>>,
-    ) {
+    ) -> bool {
         let gate = {
             let attachments = self.attachments.lock().expect("attach lock");
-            let Some(current) = attachments.get(pty_id) else { return };
+            let Some(current) = attachments.get(pty_id) else { return false };
             if generation.is_some_and(|expected| current.generation != expected)
                 || publication_gate
                     .is_some_and(|expected| !Arc::ptr_eq(&current.publication_gate, expected))
             {
-                return;
+                return false;
             }
             Arc::clone(&current.publication_gate)
         };
         let _publication = gate.lock();
         let removed = {
             let mut attachments = self.attachments.lock().expect("attach lock");
-            let Some(current) = attachments.get(pty_id) else { return };
+            let Some(current) = attachments.get(pty_id) else { return false };
             if generation.is_some_and(|expected| current.generation != expected)
                 || !Arc::ptr_eq(&current.publication_gate, &gate)
             {
-                return;
+                return false;
             }
             let removed = attachments.remove(pty_id).expect("attachment still present");
             removed.closing.store(true, Ordering::SeqCst);
@@ -2172,6 +2199,7 @@ impl Inner {
         };
         drop(_publication);
         removed.control.kill();
+        true
     }
 
     fn force_retire(
@@ -2179,6 +2207,16 @@ impl Inner {
         pty_id: &str,
         generation: Option<u64>,
         publication_gate: Option<&Arc<RouteGate>>,
+    ) {
+        self.force_retire_with_completion(pty_id, generation, publication_gate, None);
+    }
+
+    fn force_retire_with_completion(
+        self: &Arc<Self>,
+        pty_id: &str,
+        generation: Option<u64>,
+        publication_gate: Option<&Arc<RouteGate>>,
+        completion: Option<Box<dyn FnOnce() + Send + 'static>>,
     ) {
         let gate = {
             let attachments = self.attachments.lock().expect("attach lock");
@@ -2193,7 +2231,11 @@ impl Inner {
             Arc::clone(&current.publication_gate)
         };
         if let Some(_publication) = gate.try_lock() {
-            self.retire_after_gate(pty_id, generation, Some(&gate));
+            if self.retire_after_gate(pty_id, generation, Some(&gate)) {
+                if let Some(completion) = completion {
+                    completion();
+                }
+            }
             return;
         }
         let request = RetireRequest {
@@ -2201,15 +2243,21 @@ impl Inner {
             pty_id: pty_id.to_owned(),
             generation,
             publication_gate: Some(gate),
+            completion,
         };
         if let Err(std::sync::mpsc::TrySendError::Full(request)) = self.retire_tx.try_send(request)
         {
             std::thread::spawn(move || {
-                request.inner.retire_after_gate(
+                let retired = request.inner.retire_after_gate(
                     &request.pty_id,
                     request.generation,
                     request.publication_gate.as_ref(),
                 );
+                if retired {
+                    if let Some(completion) = request.completion {
+                        completion();
+                    }
+                }
             });
         }
     }
