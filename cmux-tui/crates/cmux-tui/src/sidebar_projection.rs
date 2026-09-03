@@ -222,6 +222,11 @@ pub(crate) fn rows(
     } else {
         Vec::new()
     };
+    let agent_order_index = agent_order
+        .iter()
+        .enumerate()
+        .map(|(index, surface)| (*surface, index))
+        .collect::<HashMap<_, _>>();
     append_level(
         &mut rows,
         &spec.levels,
@@ -229,7 +234,7 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
-        &agent_order,
+        &agent_order_index,
         selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
@@ -255,7 +260,7 @@ fn append_level(
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
-    agent_order: &[SurfaceId],
+    agent_order_index: &HashMap<SurfaceId, usize>,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -293,7 +298,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
-                        agent_order,
+                        agent_order_index,
                         selected_workspace,
                         collapsed,
                     );
@@ -345,7 +350,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
-                            agent_order,
+                            agent_order_index,
                             selected_workspace,
                             collapsed,
                         );
@@ -424,13 +429,8 @@ fn append_level(
                 }
             }
             if agent_only {
-                let order_index = agent_order
-                    .iter()
-                    .enumerate()
-                    .map(|(index, surface)| (*surface, index))
-                    .collect::<HashMap<_, _>>();
                 agent_entries.sort_by_key(|(surface, _)| {
-                    order_index.get(surface).copied().unwrap_or(usize::MAX)
+                    agent_order_index.get(surface).copied().unwrap_or(usize::MAX)
                 });
                 output.extend(agent_entries.into_iter().map(|(_, row)| row));
             }
