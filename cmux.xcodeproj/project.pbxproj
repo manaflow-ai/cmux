@@ -179,6 +179,7 @@
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */; };
+		A42100010000000000000001 /* AggregateMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
@@ -1538,6 +1539,8 @@
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
 		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
+		A42100010000000000000003 /* MemoryPressureAggregatePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */; };
+		A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */; };
 		7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */; };
 		7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */; };
 		7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */; };
@@ -3326,6 +3329,7 @@
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceResumeBindingClearOutcome.swift; sourceTree = "<group>"; };
+		A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AggregateMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
@@ -4597,6 +4601,8 @@
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
+		A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregatePolicy.swift; sourceTree = "<group>"; };
+		A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregateSampler.swift; sourceTree = "<group>"; };
 		7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintSampling.swift; sourceTree = "<group>"; };
 		7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintThresholds.swift; sourceTree = "<group>"; };
 		7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureMonitor.swift; sourceTree = "<group>"; };
@@ -6797,6 +6803,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */,
 				8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */,
 				8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */,
+				A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				F65760160000000000000002 /* AgentHibernationPlanner.swift */,
 				F65760170000000000000002 /* AgentHibernationPlannerInput.swift */,
@@ -6810,6 +6817,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */,
 				F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */,
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
+				A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */,
+				A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */,
 				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
 				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
 				7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */,
@@ -9954,6 +9963,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				A42100010000000000000001 /* AggregateMemoryPressureResponder.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
 				A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */,
@@ -10719,6 +10729,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 					A50014F9 /* MarkdownWebSupport.swift in Sources */,
+				A42100010000000000000003 /* MemoryPressureAggregatePolicy.swift in Sources */,
+				A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */,
 				7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */,
 				7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */,
 				7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */,
