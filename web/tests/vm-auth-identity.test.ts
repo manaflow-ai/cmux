@@ -101,6 +101,16 @@ describe("verifyRequestIdentity", () => {
     expect(identity?.source).toBe("access_token");
   });
 
+  test("requireStackSession skips the local check and asks Stack", async () => {
+    const identity = await verifyRequestIdentity(nativeRequest("good-token"), {
+      allowCookie: false,
+      requireStackSession: true,
+      verifyAccessToken: localIdentity,
+    });
+    expect(identity).toEqual({ id: "stack-user-1", source: "stack" });
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
   test("without native credentials and with cookies disallowed there is no identity", async () => {
     const identity = await verifyRequestIdentity(
       new Request("https://cmux.test/api/devices/iroh/register", {

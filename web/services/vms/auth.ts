@@ -571,6 +571,11 @@ export type VerifiedIdentity = {
 
 type VerifyIdentityOptions = {
   readonly allowCookie?: boolean;
+  /**
+   * Skip the local token check and ask Stack, so a revoked session is refused
+   * immediately. Use for sensitive, low-volume operations.
+   */
+  readonly requireStackSession?: boolean;
   /** Test seam for the local token verifier. */
   readonly verifyAccessToken?: (
     accessToken: string,
@@ -595,7 +600,7 @@ export async function verifyRequestIdentity(
 ): Promise<VerifiedIdentity | null> {
   if (!isStackConfigured()) return null;
   const tokens = parseNativeStackTokens(request);
-  if (tokens) {
+  if (tokens && !options.requireStackSession) {
     const verifier = options.verifyAccessToken
       ? null
       : stackAccessTokenVerifierFromEnv();
