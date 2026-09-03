@@ -1558,6 +1558,8 @@ mod tests {
         let mut conn = Conn::open(&socket).unwrap();
         conn.reader.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
         assert!(conn.read_value().is_err(), "partial line should time out");
+        let deadline = Instant::now() + Duration::from_millis(30);
+        assert!(conn.read_value_until(deadline).is_err(), "deadline must bound partial reads");
         conn.reader.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         assert_eq!(conn.read_value().unwrap(), json!({"id":1,"ok":true}));
         server.join().unwrap();
