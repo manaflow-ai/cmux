@@ -1867,6 +1867,8 @@
     "metaDescription": "Preuzmite cmux NIGHTLY, zasebnu aplikaciju koja se automatski kompajlira iz posljednjeg commita na main. Radi uporedo sa stabilnom verzijom s vlastitim automatskim ažuriranjima.",
     "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
     "download": "Preuzmi NIGHTLY za Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
   "languageSwitcher": {

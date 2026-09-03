@@ -242,7 +242,7 @@ cmux เป็น primitive ไม่ใช่ solution มันมอบเท
 
 ## Nightly Builds
 
-[ดาวน์โหลด cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[ดาวน์โหลด cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY เป็นแอปแยกต่างหากที่มี bundle ID ของตัวเอง จึงทำงานเคียงข้างเวอร์ชันเสถียรได้ มันถูกสร้างขึ้นโดยอัตโนมัติจาก commit `main` ล่าสุด และอัปเดตอัตโนมัติผ่าน Sparkle feed ของตัวเอง
 
