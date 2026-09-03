@@ -8,11 +8,12 @@
 //! operation; it only sends existing commands. The output feeds the IX0
 //! baseline of `plans/cmux-tui-zero-wait-interaction.md`.
 //!
-//! The bench owns the session it runs against: at the end it closes every
-//! terminal that appeared during the run (`server stop` keeps terminal hosts
-//! alive by design, so a bench that only detached views would leak one host
-//! and one shell per create), and it exits non-zero when any create, close, or
-//! probe failed so a degraded environment cannot pass as a measurement.
+//! A bench-owned session closes every terminal that appeared during the run
+//! (`server stop` keeps terminal hosts alive by design). Shared sockets close
+//! only IDs recorded from successful create responses, preserving unrelated
+//! user terminals when a response is lost. The command exits non-zero when any
+//! create, close, or probe failed so a degraded environment cannot pass as a
+//! measurement.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufReader, Read, Write};
@@ -30,6 +31,7 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long to wait for the visibility delta after a response arrives.
 const VISIBILITY_GRACE: Duration = Duration::from_secs(2);
 const BENCH_DEADLINE: Duration = Duration::from_secs(120);
+const CLEANUP_DEADLINE: Duration = Duration::from_secs(15);
 const MAX_INDEXED_SURFACES: usize = 100_000;
 const MAX_TIMESTAMPS_PER_SURFACE: usize = 128;
 /// How long teardown waits for closed terminals' host processes to exit before
@@ -390,8 +392,8 @@ fn bounded_wait_duration(deadline: Instant, requested: Duration) -> Duration {
 /// any response. Two same-connection typing probes exist because they answer
 /// different questions: `TypingInterleaved` follows each create request, so
 /// its distribution is what one keystroke waits when 1..K creates are in
-/// flight ahead of it; `TypingAfterBatch` probes are all submitted after the
-/// whole batch, so they share one value, the wait behind the entire batch.
+/// flight ahead of it; `TypingAfterBatch` probes are submitted after the
+/// creates and interleaved probes, so they share one value for that full load.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SubmissionKind {
     Create { index: usize, kind: usize },
@@ -565,11 +567,12 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     subscriber_guard.stop_and_join();
 
     let owned_session = guard.owner.as_ref().is_some_and(|owner| owner.should_stop());
+    let cleanup_deadline = Instant::now() + CLEANUP_DEADLINE;
     close_created_terminals(
         &mut control,
         &initial_terminals,
         &report,
-        bench_deadline,
+        cleanup_deadline,
         owned_session,
     );
     if let Some(owner_pid) =
