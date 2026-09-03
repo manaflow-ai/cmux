@@ -259,6 +259,11 @@ public final class MobileIrohRuntimeComposition:
     private var relayPolicyEndpointID: CmxIrohPeerIdentity?
     private var relayPolicyObservationTask: Task<Void, Never>?
     private var relayPolicyRefreshTask: Task<Void, Never>?
+    /// When the last relay-policy refresh ATTEMPT started, from any lane
+    /// (activation, settings, refresh loop). The broker allows one request
+    /// per endpoint per phase per minute; duplicate attempts inside one
+    /// bucket are refused and only burn the budget.
+    private var relayPolicyLastRefreshAttemptAt: Date?
     private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAuthState: MobileIrohAuthState?
@@ -993,7 +998,8 @@ public final class MobileIrohRuntimeComposition:
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
         let diagnosticLog = diagnosticLog
-        sceneTransitionTask = Task {
+        let revalidationStartedAt = now()
+        sceneTransitionTask = Task { [weak self] in
             if let auth {
                 diagnosticLog?.recordAppEvent(.authRevalidationStarted)
                 await auth.revalidateSession()
@@ -1015,6 +1021,17 @@ public final class MobileIrohRuntimeComposition:
             }
             await lanPeerDiscovery?.permissionMayHaveChanged()
             guard !Task.isCancelled else { return }
+            // The relay-policy refresh loop's timer expires while iOS keeps
+            // the process suspended, so its wake attempt races the session
+            // revalidation above and can fail on stale authority; past policy
+            // expiry that failure deactivates relay authority and every dial
+            // assembles an empty plan while the loop naps on its retry
+            // schedule. Revalidation just minted fresh authority, so a failed
+            // or expired policy retries immediately instead.
+            await self?.retryRelayPolicyRefreshAfterAuthRevalidation(
+                revalidationStartedAt: revalidationStartedAt
+            )
+            guard !Task.isCancelled else { return }
             do {
                 try await runtime?.didBecomeActive()
             } catch {
@@ -1024,6 +1041,54 @@ public final class MobileIrohRuntimeComposition:
             }
         }
         return true
+    }
+
+    /// Re-arms the relay-policy refresh loop for one immediate attempt when
+    /// the last resolution failed or the signed policy has expired. Called
+    /// after a successful foreground session revalidation, the exact moment
+    /// fresh authority exists for the refresh the wake attempt lost racing it.
+    func retryRelayPolicyRefreshAfterAuthRevalidation(
+        revalidationStartedAt: Date
+    ) async {
+        guard let relayPolicyService,
+              let relayPolicyEndpointID,
+              let activeAccountID else { return }
+        // The broker budgets one refresh per endpoint per phase per minute.
+        // An attempt that already ran on or after this revalidation used the
+        // fresh session, so retrying it immediately is a duplicate that only
+        // burns the bucket (and, on a shared home IP, the Mac's budget too).
+        // Only an attempt that predates the revalidation lost the token race.
+        if let lastAttemptAt = relayPolicyLastRefreshAttemptAt,
+           lastAttemptAt >= revalidationStartedAt {
+            return
+        }
+        let snapshot = await relayPolicyService.diagnosticsSnapshot()
+        guard Self.shouldRetryRelayPolicyRefreshAfterRevalidation(
+            lastFailure: snapshot.failure,
+            policyExpiresAt: snapshot.policyExpiresAt,
+            now: now()
+        ) else { return }
+        scheduleRelayPolicyRefresh(
+            service: relayPolicyService,
+            accountID: activeAccountID,
+            endpointID: relayPolicyEndpointID,
+            trustRoot: relayPolicyTrustRoot,
+            revision: lifecycleRevision,
+            refreshImmediately: true
+        )
+    }
+
+    /// A healthy, unexpired policy never retriggers on foreground: the loop's
+    /// own expiry-driven schedule owns that case. Only a recorded resolution
+    /// failure or an already-expired policy justifies an immediate retry.
+    nonisolated static func shouldRetryRelayPolicyRefreshAfterRevalidation(
+        lastFailure: CmxIrohRelayPolicyFailure?,
+        policyExpiresAt: Date?,
+        now: Date
+    ) -> Bool {
+        if lastFailure != nil { return true }
+        guard let policyExpiresAt else { return false }
+        return now >= policyExpiresAt
     }
 
     /// Synchronously fences lifecycle work and starts local sign-out cleanup.
@@ -1874,10 +1939,12 @@ public final class MobileIrohRuntimeComposition:
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
-                    now: now()
+                    now: now(),
+                    staleGrace: Self.relayPolicyOutageStaleGrace
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
+                relayPolicyLastRefreshAttemptAt = now()
                 diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let outcome = try await service.refreshWithCredential(
@@ -1898,7 +1965,8 @@ public final class MobileIrohRuntimeComposition:
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         relayCredential: cachedRelay,
-                        now: now()
+                        now: now(),
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     relayPolicyNeedsImmediateRefresh = true
                 }
@@ -2783,6 +2851,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        relayPolicyLastRefreshAttemptAt = now()
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
@@ -2938,7 +3007,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     let expired = await service.restore(
                         accountID: accountID,
                         trustRoot: trustRoot,
-                        now: wakeDate
+                        now: wakeDate,
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     try? await self.applyRelayPolicy(expired)
                     relayAuthorityExpired = true
@@ -2948,6 +3018,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.relayPolicyService === service else { return }
+                self.relayPolicyLastRefreshAttemptAt = self.now()
                 self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
@@ -2974,7 +3045,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         let expired = await service.restore(
                             accountID: accountID,
                             trustRoot: trustRoot,
-                            now: failureDate
+                            now: failureDate,
+                            staleGrace: Self.relayPolicyOutageStaleGrace
                         )
                         try? await self.applyRelayPolicy(expired)
                         relayAuthorityExpired = true
@@ -2999,6 +3071,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             }
         }
     }
+
+    /// Bounded staleness for the verified relay policy while the policy
+    /// endpoint is unreachable (field incident: a 2.5-minute endpoint outage
+    /// emptied every dial plan and stranded the phone on "Reconnecting" for
+    /// 151s, https://github.com/manaflow-ai/cmux/issues/10375). The signed
+    /// policy's relay list stays authoritative for dial-plan membership up to
+    /// this long past its expiry; the relay's own credential expiry remains
+    /// the hard authorization floor, and any successful refresh replaces the
+    /// graced policy immediately.
+    nonisolated static let relayPolicyOutageStaleGrace: TimeInterval = 24 * 60 * 60
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
     /// that suspend automatic credential renewal must therefore suspend this

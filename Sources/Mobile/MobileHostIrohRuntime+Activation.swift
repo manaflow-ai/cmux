@@ -194,7 +194,8 @@ extension MobileHostIrohRuntime {
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
-                    now: Date()
+                    now: Date(),
+                    staleGrace: Self.relayPolicyOutageStaleGrace
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
@@ -221,7 +222,8 @@ extension MobileHostIrohRuntime {
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         relayCredential: cachedRelay,
-                        now: Date()
+                        now: Date(),
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     relayPolicyNeedsImmediateRefresh = true
                 }
