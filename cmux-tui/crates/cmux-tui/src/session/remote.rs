@@ -3678,6 +3678,7 @@ impl Drop for RemoteSession {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
 struct PrivateDumpDirectory {
     output: fs::File,
     temporary: fs::File,
