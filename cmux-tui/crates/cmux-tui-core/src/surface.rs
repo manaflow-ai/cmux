@@ -3268,7 +3268,7 @@ impl Surface {
                                 let mut scroll_changed = None;
                                 let generation = pty.with_terminal_stream_update(|term| {
                                     let before = terminal_scroll_position(&term);
-                                    **term = replacement;
+                                    *term = replacement;
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
@@ -6431,10 +6431,8 @@ impl PtySurface {
     /// The revision must be published before another screen reader can acquire
     /// the terminal lock.
     fn with_terminal_stream_update<R>(&self, update: impl FnOnce(&mut Terminal) -> R) -> R {
-        let result = {
-            let mut term = self.term.lock().unwrap();
-            update(&mut term)
-        };
+        let mut term = self.term.lock().unwrap();
+        let result = update(&mut term);
         self.stream_progress.notify();
         result
     }
@@ -8904,7 +8902,7 @@ mod tests {
             let mut geometry = pty.geometry.lock().unwrap();
             let next_geometry = PtyGeometry { cols: 81, ..*geometry };
             pty.with_terminal_stream_update(|term| {
-                **term = replacement;
+                *term = replacement;
                 *geometry = next_geometry;
                 term.vt_write(b"host-replacement");
             });
