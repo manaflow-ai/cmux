@@ -3859,6 +3859,12 @@
         "en": { "stringUnit": { "state": "translated", "value": "No cloud machines yet. Create one from cmux on your Mac or the web app." } }
       }
     },
+    "mobile.cloud.entry.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals on your cloud machines, no VPN needed" } }
+      }
+    },
     "mobile.cloud.error.controlPlane": {
       "extractionState": "manual",
       "localizations": {
