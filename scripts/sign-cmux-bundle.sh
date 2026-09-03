@@ -12,6 +12,9 @@
 #
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
+#   CMUX_TUNNEL_ENTITLEMENTS  entitlements for the Cloud tunnel system extension
+#                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly>.entitlements,
+#                              picked from the app entitlements file name)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
@@ -26,7 +29,16 @@
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. Each nested framework under Contents/Frameworks/* with --deep
 #      (covers Sparkle's XPCServices and Updater.app).
-#   5. The main app bundle with the provided app-level entitlements,
+#   4b. The Cloud tunnel system extension under
+#      Contents/Library/SystemExtensions/* with its own entitlements and its
+#      own embedded provisioning profile — but only when the app's embedded
+#      profile grants the tunnel capability. Otherwise the extension is
+#      removed and the tunnel entitlements are dropped from the app's
+#      effective entitlements (scripts/reconcile-entitlements-with-profile.py),
+#      because macOS refuses to launch an app claiming a restricted
+#      entitlement its profile does not grant. The app then falls back to
+#      `cmux vpn up` (wg-quick) exactly as before the extension existed.
+#   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
@@ -73,6 +85,36 @@ fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
+SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
+TUNNEL_STUB_MARKER="cmux_wireguard_go_bridge_is_stub"
+
+case "$(basename "$APP_ENTITLEMENTS")" in
+  *nightly*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.nightly.entitlements" ;;
+  *) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.release.entitlements" ;;
+esac
+TUNNEL_ENTITLEMENTS="${CMUX_TUNNEL_ENTITLEMENTS:-$DEFAULT_TUNNEL_ENTITLEMENTS}"
+
+# Effective app entitlements: the desired file reconciled against the embedded
+# provisioning profile. Deterministic, so every CMUX_SIGN_MODE pass agrees.
+EFFECTIVE_APP_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/cmux-effective-entitlements.XXXXXX")"
+RECONCILE_SUMMARY="$(mktemp "${TMPDIR:-/tmp}/cmux-entitlements-summary.XXXXXX")"
+trap 'rm -f "$EFFECTIVE_APP_ENTITLEMENTS" "$RECONCILE_SUMMARY"' EXIT
+APP_PROFILE="$APP_PATH/Contents/embedded.provisionprofile"
+if [[ -f "$APP_PROFILE" ]]; then
+  python3 "$SCRIPT_DIR/reconcile-entitlements-with-profile.py" \
+    --entitlements "$APP_ENTITLEMENTS" --profile "$APP_PROFILE" \
+    --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
+else
+  python3 "$SCRIPT_DIR/reconcile-entitlements-with-profile.py" \
+    --entitlements "$APP_ENTITLEMENTS" --no-profile \
+    --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
+fi
+TUNNEL_SUPPORTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_supported"] else "0")' "$RECONCILE_SUMMARY")"
+
+if [[ "$TUNNEL_SUPPORTED" != "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+  echo "==> removing Contents/Library/SystemExtensions: the provisioning profile does not grant the Cloud tunnel capability (the app falls back to cmux vpn up / wg-quick)"
+  rm -rf "$SYSTEM_EXTENSIONS_DIR"
+fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
   # 1. CLI and private helpers
@@ -111,11 +153,34 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
+
+  # 4b. Cloud tunnel system extension (only reaches here when the profile
+  # grants the capability; see the reconciliation above).
+  if [[ "$TUNNEL_SUPPORTED" == "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+    if [[ ! -f "$TUNNEL_ENTITLEMENTS" ]]; then
+      echo "error: tunnel extension entitlements not found at $TUNNEL_ENTITLEMENTS" >&2
+      exit 1
+    fi
+    while IFS= read -r -d '' sysext; do
+      name="$(basename "$sysext")"
+      binary="$sysext/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$sysext/Contents/Info.plist")"
+      if [[ ! -f "$sysext/Contents/embedded.provisionprofile" ]]; then
+        echo "error: $name has no embedded.provisionprofile. The app's profile grants the Cloud tunnel, so the extension needs its own Developer ID profile (App ID <app>.tunnel with Network Extensions). Embed it before signing or ship without the tunnel capability." >&2
+        exit 1
+      fi
+      if /usr/bin/nm "$binary" 2>/dev/null | grep -q "$TUNNEL_STUB_MARKER"; then
+        echo "error: $name was built with the stub WireGuard bridge (no Go toolchain at build time); refusing to ship a tunnel that cannot carry traffic" >&2
+        exit 1
+      fi
+      echo "==> signing system extension $name"
+      /usr/bin/codesign "${COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
+    done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
+  fi
 fi
 
-# 5. Main app bundle (no --deep).
-echo "==> signing main bundle ($SIGN_MODE)"
-/usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
+# 5. Main app bundle (no --deep), with the effective entitlements.
+echo "==> signing main bundle ($SIGN_MODE; Cloud tunnel capability: $([[ "$TUNNEL_SUPPORTED" == "1" ]] && echo granted || echo not granted, wg-quick fallback))"
+/usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
@@ -146,7 +211,7 @@ fi
 # requests to macOS personal-information services. Keep this check next to the
 # signing step so a release cannot silently regress to the old denial behavior.
 SIGNED_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/cmux-signed-entitlements.XXXXXX")"
-trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
+trap 'rm -f "$SIGNED_ENTITLEMENTS" "$EFFECTIVE_APP_ENTITLEMENTS" "$RECONCILE_SUMMARY"' EXIT
 /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null > "$SIGNED_ENTITLEMENTS" || {
   echo "error: unable to read signed app entitlements" >&2
   exit 1
@@ -163,6 +228,31 @@ for entitlement in \
     exit 1
   fi
 done
+
+# The signed app and the bundled extension must agree about the Cloud tunnel:
+# either both carry the capability, or neither exists in the bundle.
+if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
+  if ! grep -q "packet-tunnel-provider-systemextension" "$SIGNED_ENTITLEMENTS"; then
+    echo "error: profile grants the Cloud tunnel but the signed app lacks packet-tunnel-provider-systemextension" >&2
+    exit 1
+  fi
+  if [[ -z "$(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' 2>/dev/null)" ]]; then
+    echo "error: profile grants the Cloud tunnel but no system extension is bundled under Contents/Library/SystemExtensions" >&2
+    exit 1
+  fi
+  while IFS= read -r -d '' sysext; do
+    /usr/bin/codesign --verify --strict --verbose=2 "$sysext"
+  done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
+else
+  if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
+    echo "error: signed app carries a NetworkExtension entitlement its provisioning profile does not grant; it would not launch" >&2
+    exit 1
+  fi
+  if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+    echo "error: Contents/Library/SystemExtensions is still present without the tunnel capability" >&2
+    exit 1
+  fi
+fi
 
 # Helpers must NOT carry the main app's application-identifier.
 for helper_dir in bin libexec; do

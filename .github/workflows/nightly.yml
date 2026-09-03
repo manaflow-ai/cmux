@@ -168,6 +168,13 @@ jobs:
         if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
+      - name: Set up Go for the Cloud tunnel extension
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Refresh universal nightly compilation cache
         if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: |
@@ -307,6 +314,12 @@ jobs:
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
 
       - name: Build universal nightly app (Release)
         run: |
@@ -509,6 +522,15 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          TUNNEL_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
+          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
+          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
+          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
+          if nm "$TUNNEL_BINARY" | grep -q cmux_wireguard_go_bridge_is_stub; then
+            echo "Cloud tunnel extension was built with the stub WireGuard bridge (Go missing at build time)" >&2
+            exit 1
+          fi
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
 
       - name: Run CLI version memory guard regression
@@ -568,6 +590,15 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
+            # The bundled Cloud tunnel extension follows the app's identity:
+            # <bundle id>.tunnel, team-prefixed mach service, same version.
+            local sysext_plist="$app_dir/cmux.app/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/Info.plist"
+            if [[ -f "$sysext_plist" ]]; then
+              /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${bundle_id}.tunnel" "$sysext_plist"
+              /usr/libexec/PlistBuddy -c "Set :NetworkExtension:NEMachServiceName 7WLXT3NR37.${bundle_id}.tunnel" "$sysext_plist"
+              /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$sysext_plist"
+              /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$sysext_plist"
+            fi
             mv "$app_dir/cmux.app" "$app_dir/cmux NIGHTLY.app"
           }
 
@@ -659,6 +690,18 @@ jobs:
           fi
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
+
+      - name: Embed Cloud tunnel extension provisioning profile
+        env:
+          APPLE_NIGHTLY_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # Optional until the Apple portal grants the Network Extensions capability;
+          # without it the nightly ships with the wg-quick fallback and no bundled extension.
+          ./scripts/ci/embed-tunnel-extension-profile.sh \
+            "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
+            "7WLXT3NR37.com.cmuxterm.app.nightly.tunnel" \
+            "${APPLE_NIGHTLY_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
 
       - name: Codesign apps
         env:

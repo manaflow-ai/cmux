@@ -240,6 +240,13 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
+      - name: Set up Go for the Cloud tunnel extension
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -326,6 +333,15 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          TUNNEL_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
+          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
+          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
+          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
+          if nm "$TUNNEL_BINARY" | grep -q cmux_wireguard_go_bridge_is_stub; then
+            echo "Cloud tunnel extension was built with the stub WireGuard bridge (Go missing at build time)" >&2
+            exit 1
+          fi
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
@@ -390,6 +406,20 @@ jobs:
             exit 1
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
+
+      - name: Embed Cloud tunnel extension provisioning profile
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # Optional until the Apple portal grants the Network Extensions capability
+          # (see docs in scripts/sign-cmux-bundle.sh): without it the release ships
+          # with the wg-quick fallback and no bundled extension.
+          ./scripts/ci/embed-tunnel-extension-profile.sh \
+            "build-universal/Build/Products/Release/cmux.app" \
+            "7WLXT3NR37.com.cmuxterm.app.tunnel" \
+            "${APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
 
       - name: Strip release binaries
         if: steps.guard_release_assets.outputs.skip_all != 'true'

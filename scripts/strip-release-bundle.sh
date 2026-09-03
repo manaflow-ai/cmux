@@ -55,3 +55,9 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -name 'libcmux_*.dylib' -type f -print0)
 fi
+
+if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Library/SystemExtensions" -path '*/Contents/MacOS/*' -type f -print0)
+fi
