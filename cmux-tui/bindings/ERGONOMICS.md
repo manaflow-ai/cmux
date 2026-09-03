@@ -2,7 +2,7 @@
 
 The seven public SDKs expose handwritten resource handles over the reviewed
 125-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
-separate compatibility surface with 104 commands and 47 events. Deterministic
+separate compatibility surface with 105 commands and 48 events. Deterministic
 generation is limited to those private protocol-12 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a
 generator runtime.
