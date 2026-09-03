@@ -3174,10 +3174,13 @@ impl TerminalStream {
             state.backlog_bytes = 0;
             Self::start_delivery(&mut state)
         };
-        ready();
         if should_drain {
             self.drain();
         }
+        // Keep OPEN readiness behind the complete backlog handoff. A close
+        // or replacement can retire this generation as soon as readiness is
+        // published, so signaling first could discard replay callbacks.
+        ready();
     }
 }
 
