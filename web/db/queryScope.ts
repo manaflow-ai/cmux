@@ -4,9 +4,10 @@ const querySignalStorage = new AsyncLocalStorage<AbortSignal>();
 
 /** Runs database work with a signal that the underlying driver can cancel. */
 export function runWithCloudDbQuerySignal<T>(
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
   operation: () => T,
 ): T {
+  if (!signal) return operation();
   return querySignalStorage.run(signal, operation);
 }
 
