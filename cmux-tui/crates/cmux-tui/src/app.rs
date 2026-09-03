@@ -28759,10 +28759,10 @@ mod tests {
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.config.sidebar.columns.clear();
-        app.config.sidebar.profiles = vec![tabs_profile.clone(), agents_profile.clone()];
+        app.config.sidebar.profiles = vec![tabs_profile.clone(), agents_profile];
         app.config.sidebar.active_profile = tabs_profile.id.clone();
         app.config.sidebar.views = tabs_profile.views.clone();
-        app.config.sidebar.layout = tabs_profile.layout.clone();
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
 
@@ -28846,7 +28846,7 @@ mod tests {
             layout: second_layout,
         };
         first.sidebar.profiles = vec![first_profile.clone(), second_profile];
-        first.sidebar.active_profile = first_profile.id.clone();
+        first.sidebar.active_profile = "first".into();
 
         let mut app = test_app(Session::Local(mux));
         app.config = first;
@@ -45662,7 +45662,7 @@ mod tests {
     #[test]
     fn projection_surface_indexes_drop_retired_surfaces() {
         let (mux, surface) = test_mux("projection-surface-index-prune-test", None);
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.config.sidebar.columns.clear();
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "agents".into(),

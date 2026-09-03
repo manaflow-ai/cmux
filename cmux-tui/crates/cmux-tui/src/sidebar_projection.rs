@@ -458,7 +458,7 @@ fn append_level(
                                     .session
                                     .as_deref()
                                     .filter(|session| !session.is_empty())
-                                    .unwrap_or_else(|| {
+                                    .unwrap_or({
                                         // In an all-workspaces sweep the
                                         // workspace locates the agent better
                                         // than a pane short id.
