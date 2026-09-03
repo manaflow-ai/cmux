@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::link::{FrameLink, LinkError};
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const SCHEDULER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
@@ -528,8 +529,12 @@ impl ReliableSession {
         // frame in flight, then observe cancellation after the link closes.
         self.scheduler.request_shutdown();
         let link_result = self.link.close().await.map_err(SessionError::Link);
-        self.scheduler.wait_for_shutdown().await;
-        link_result
+        let scheduler_result = self.scheduler.wait_for_shutdown().await;
+        match (link_result, scheduler_result) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(())) => Err(SessionError::SchedulerClosed),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     }
 }
 
@@ -761,6 +766,7 @@ struct ScheduledSenderInner {
     task_abort_handles: Mutex<Vec<AbortHandle>>,
     shutdown_join: Mutex<Option<JoinHandle<()>>>,
     join_started: AtomicBool,
+    shutdown_forced: Arc<AtomicBool>,
     shutdown_complete: CancellationToken,
     active_tasks: AtomicUsize,
 }
@@ -820,6 +826,7 @@ impl ScheduledSender {
             task_abort_handles: Mutex::new(Vec::with_capacity(8)),
             shutdown_join: Mutex::new(None),
             join_started: AtomicBool::new(false),
+            shutdown_forced: Arc::new(AtomicBool::new(false)),
             shutdown_complete: CancellationToken::new(),
             active_tasks: AtomicUsize::new(0),
         });
@@ -921,7 +928,7 @@ impl ScheduledSender {
         self.inner.cancel.cancel();
     }
 
-    async fn wait_for_shutdown(&self) {
+    async fn wait_for_shutdown(&self) -> Result<(), ()> {
         self.request_shutdown();
         if self
             .inner
@@ -931,15 +938,28 @@ impl ScheduledSender {
         {
             let tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
             let shutdown_complete = self.inner.shutdown_complete.clone();
+            let abort_handles = self.inner.task_abort_handles.lock().unwrap().clone();
+            let shutdown_forced = self.inner.shutdown_forced.clone();
             let join = tokio::spawn(async move {
-                for task in tasks {
-                    let _ = task.await;
+                let timed_out = tokio::time::timeout(SCHEDULER_SHUTDOWN_TIMEOUT, async {
+                    for task in tasks {
+                        let _ = task.await;
+                    }
+                })
+                .await
+                .is_err();
+                if timed_out {
+                    shutdown_forced.store(true, Ordering::Release);
+                    for abort_handle in abort_handles {
+                        abort_handle.abort();
+                    }
                 }
                 shutdown_complete.cancel();
             });
             self.inner.shutdown_join.lock().unwrap().replace(join);
         }
         self.inner.shutdown_complete.cancelled().await;
+        if self.inner.shutdown_forced.load(Ordering::Acquire) { Err(()) } else { Ok(()) }
     }
 
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
@@ -1573,6 +1593,34 @@ mod tests {
         })
         .await
         .expect("cancelled close retained a worker and its link");
+    }
+
+    #[tokio::test]
+    async fn close_aborts_a_worker_stuck_in_link_send() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([22; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session.send(Lane::Bulk, 1, Bytes::from_static(b"stuck"), FrameFlags::empty()).await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let close = tokio::time::timeout(Duration::from_secs(4), session.close())
+            .await
+            .expect("close exceeded the bounded scheduler shutdown timeout");
+        assert!(matches!(close, Err(SessionError::SchedulerClosed)));
+        send.abort();
+        let _ = send.await;
+        drop(session);
+        drop(link);
+        assert!(weak_link.upgrade().is_none(), "close retained the stuck worker link");
     }
 
     #[tokio::test]
