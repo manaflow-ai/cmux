@@ -1793,6 +1793,23 @@
           }
         }
       }
+    },
+    "NSSystemExtensionUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installs a network extension so this Mac can reach your Cloud machines on their private network. It runs only while you use cmux Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの Mac からプライベートネットワーク上のクラウドマシンに到達できるように、ネットワーク機能拡張をインストールします。機能拡張は cmux Cloud を使用している間だけ動作します。"
+          }
+        }
+      }
     }
   }
 }

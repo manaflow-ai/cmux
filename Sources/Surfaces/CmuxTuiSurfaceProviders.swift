@@ -23,6 +23,11 @@ final class CmuxTuiSurfaceProviderRegistry {
         self.links = links
     }
 
+    /// Live headless links, for the Cloud tunnel's idle policy.
+    func connectedCloudLinkCount() async -> Int {
+        await links.connectedMachineCount
+    }
+
     /// Registers this Mac's cloud machines with the catalog and starts polling.
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog

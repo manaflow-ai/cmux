@@ -7,6 +7,9 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
+            return tunnelResponse
+        }
         switch method {
         case "vm.list":
             return v2VmCall(id: id) {
@@ -212,62 +215,6 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let payload = try CloudAgentSkillLauncher.promptPayload()
                 return ["prompt": payload.prompt, "skill_path": payload.skillPath]
-            }
-        case "vm.tunnel_config":
-            // Enrolls this Mac into the user's private Cloud VM network and
-            // returns the completed wg-quick config. The private key stays in
-            // app-owned files; it crosses only the same-user control socket,
-            // the same trust boundary every other vm verb already accepts
-            // (see the aiAccounts trust-model note below). `cmux vpn up` is
-            // the caller: it writes nothing itself, it just brings up the
-            // config path this returns.
-            return v2VmCall(id: id) {
-                let manager = VMTunnelManager()
-                let state = try await manager.enroll(client: VMClient.shared)
-                return [
-                    "config_path": state.configPath,
-                    "interface_name": state.interfaceName,
-                    "tunnel_id": state.endpoint.tunnelId,
-                    "provider": state.endpoint.provider,
-                    "device_fingerprint": state.endpoint.deviceFingerprint,
-                    "address_v4": state.endpoint.addressV4 ?? NSNull(),
-                    "address_v6": state.endpoint.addressV6 ?? NSNull(),
-                    "network_cidr": state.endpoint.networkCidr ?? NSNull(),
-                    "network_cidr_v6": state.endpoint.networkCidrV6 ?? NSNull(),
-                    "endpoint_host": state.endpoint.endpointHost ?? NSNull(),
-                    "endpoint_port": state.endpoint.endpointPort,
-                    "routes": state.endpoint.routes,
-                    "created": state.endpoint.created,
-                    "rotated": state.endpoint.rotated,
-                    "interface_up": manager.wgQuickInterfaceUp(),
-                    "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
-                ]
-            }
-        case "vm.tunnel_status":
-            // Read-only: local interface state plus whatever enrollment state
-            // is already on disk. Never enrolls, so it is safe for scripts.
-            return v2VmCall(id: id) {
-                let manager = VMTunnelManager()
-                let fingerprint = (try? manager.deviceFingerprint()) ?? ""
-                let hasConfig = FileManager.default.fileExists(atPath: manager.configURL.path)
-                return [
-                    "config_path": manager.configURL.path,
-                    "config_present": hasConfig,
-                    "interface_name": VMTunnelManager.interfaceName,
-                    "interface_up": manager.wgQuickInterfaceUp(),
-                    "device_fingerprint": fingerprint,
-                    "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
-                ]
-            }
-        case "vm.tunnel_revoke":
-            // Unenrolls this Mac server-side and removes the local config so a
-            // later `cmux vpn up` re-enrolls from scratch.
-            return v2VmCall(id: id) {
-                let manager = VMTunnelManager()
-                let fingerprint = try manager.deviceFingerprint()
-                try await VMClient.shared.revokeTunnel(deviceFingerprint: fingerprint)
-                try? FileManager.default.removeItem(at: manager.configURL)
-                return ["revoked": true]
             }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -663,7 +610,7 @@ extension TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private nonisolated static func socketWorkerInt(_ raw: Any?) -> Int? {
+    nonisolated static func socketWorkerInt(_ raw: Any?) -> Int? {
         if let int = raw as? Int { return int }
         if let number = raw as? NSNumber { return number.intValue }
         if let string = raw as? String { return Int(string) }

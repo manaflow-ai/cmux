@@ -17,16 +17,21 @@ import Security
 ///   which is the one artifact both bring-up paths consume.
 ///
 /// Bringing the interface up needs privileges the app process does not have,
-/// and there are two backends for it:
+/// and there are two backends for it (``CloudTunnelBackend``):
 ///
-/// - **wg-quick** (`cmux vpn up`) — the shipping path. The CLI runs
-///   `sudo wg-quick up` against the config this manager wrote; sudo in the
-///   user's own terminal is the honest privilege prompt.
-/// - **NetworkExtension** — the long-term path, pending the
-///   `com.apple.developer.networking.networkextension` entitlement. When a
-///   build carries it, the app can own the tunnel as a real macOS VPN with no
-///   admin prompt. `networkExtensionAvailable` gates that branch at runtime so
-///   the same build degrades to the CLI path when the entitlement is absent.
+/// - **NetworkExtension** — the app-managed path. When release signing
+///   carries `com.apple.developer.networking.networkextension` and the bundled
+///   `cmuxTunnel.systemextension`, ``CloudTunnelCoordinator`` saves the
+///   completed config as a macOS VPN configuration and starts it on demand
+///   when the user opens a Cloud machine: no sudo, no wg-quick, no Homebrew.
+/// - **wg-quick** (`cmux vpn up`) — the fallback for builds without that
+///   capability. The CLI runs `sudo wg-quick up` against the config this
+///   manager wrote; sudo in the user's own terminal is the honest privilege
+///   prompt.
+///
+/// ``networkExtensionAvailable()`` is the runtime gate between them; the same
+/// source degrades to the CLI path when the capability or the extension is
+/// absent from the running build.
 struct VMTunnelManager: Sendable {
     struct LocalTunnelState: Sendable {
         let endpoint: VMTunnelEndpoint
@@ -34,6 +39,9 @@ struct VMTunnelManager: Sendable {
         let configPath: String
         /// The wg-quick interface name derived from the config filename.
         let interfaceName: String
+        /// The same config as text, for the NetworkExtension backend, which
+        /// hands it to the system rather than to wg-quick. Never logged.
+        let completedConfig: String
     }
 
     enum TunnelError: Error, CustomStringConvertible {
@@ -77,21 +85,22 @@ struct VMTunnelManager: Sendable {
         URL(fileURLWithPath: "/var/run/wireguard/\(Self.interfaceName).name", isDirectory: false)
     }
 
-    /// Whether this build can own the tunnel as a NetworkExtension VPN.
+    /// Whether this build can own the tunnel as a NetworkExtension VPN:
+    /// the signed `packet-tunnel-provider-systemextension` capability, the
+    /// `system-extension.install` entitlement, and the bundled extension all
+    /// present. See ``CloudTunnelBackendSelector`` for the exact rule.
     ///
-    /// Reads the signed entitlement rather than trying to configure a manager,
-    /// so an unentitled build never shows the user a doomed VPN prompt. Today
-    /// no build carries the entitlement; when release signing gains it, this
-    /// flips to true with no code change and `cmux vpn up` starts steering to
-    /// the app-managed tunnel.
+    /// Reads the signature and the bundle rather than trying to configure a
+    /// manager, so an unentitled build never shows the user a doomed VPN
+    /// prompt, and a build whose signing dropped the extension never claims a
+    /// backend it cannot run.
     static func networkExtensionAvailable() -> Bool {
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        let key = "com.apple.developer.networking.networkextension" as CFString
-        guard let raw = SecTaskCopyValueForEntitlement(task, key, nil) else { return false }
-        if let capabilities = raw as? [String] {
-            return capabilities.contains("packet-tunnel-provider")
-        }
-        return false
+        CloudTunnelBackendSelector.live().select().isNetworkExtension
+    }
+
+    /// The config on disk from the last enrollment, or nil before the first.
+    func writtenConfig() -> String? {
+        try? String(contentsOf: configURL, encoding: .utf8)
     }
 
     /// The stable per-installation device fingerprint, minted on first use.
@@ -146,18 +155,21 @@ struct VMTunnelManager: Sendable {
         return LocalTunnelState(
             endpoint: endpoint,
             configPath: configURL.path,
-            interfaceName: Self.interfaceName
+            interfaceName: Self.interfaceName,
+            completedConfig: config
         )
     }
 
-    /// Whether wg-quick currently has this tunnel up, without privileges.
+    /// Whether this tunnel currently has an interface up, without privileges,
+    /// whichever backend brought it up.
     ///
     /// wg-quick's own record (`/var/run/wireguard/cmux.name`) is root-only on
     /// macOS, so instead this asks the question the network can answer: does
     /// any interface hold one of the tunnel's own `[Interface] Address`es from
     /// the config this manager wrote? Those are fixed platform-side addresses
-    /// unique to the tunnel, so a match is the tunnel and nothing else. A
-    /// future NetworkExtension tunnel reports through NEVPNStatus instead.
+    /// unique to the tunnel, so a match is the tunnel and nothing else. The
+    /// NetworkExtension backend assigns the same addresses to its utun, so the
+    /// check is backend-agnostic ground truth from the network stack.
     func wgQuickInterfaceUp() -> Bool {
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
         let expected = Self.interfaceAddresses(in: config)

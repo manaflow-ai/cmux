@@ -119,6 +119,10 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    /// The app-managed Cloud tunnel, set by the AppDelegate composition root
+    /// next to `VMClient.bootstrap`. Nil only before startup finishes; the
+    /// `vm.tunnel_*` socket verbs report the wg-quick backend until then.
+    var cloudTunnel: CloudTunnelCoordinator?
 #if DEBUG
     nonisolated let windowScreenshotCaptureCoordinator =
         WindowScreenshotCaptureCoordinator()
@@ -2902,6 +2906,12 @@ class TerminalController {
             "vm.link_socket",
             "vm.cloud_agent_open",
             "vm.cloud_prompt",
+            "vm.tunnel_config",
+            "vm.tunnel_status",
+            "vm.tunnel_revoke",
+            "vm.tunnel_up",
+            "vm.tunnel_down",
+            "vm.tunnel_wait",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",

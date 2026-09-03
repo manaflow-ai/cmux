@@ -273235,6 +273235,431 @@
           }
         }
       }
+    },
+    "cloudTunnel.vpnConfiguration.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.backendUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build does not include the app-managed tunnel. Use `cmux vpn up` (wg-quick) instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドにはアプリ管理のトンネルが含まれていません。代わりに `cmux vpn up`（wg-quick）を使用してください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux Cloud first (`cmux auth login`), then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず cmux Cloud にサインイン（`cmux auth login`）してから再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.rebootRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS needs a restart to finish installing the cmux Cloud Tunnel extension."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux クラウドトンネル機能拡張のインストールを完了するには macOS の再起動が必要です。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.appNotInApplicationsFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS only loads the cmux Cloud Tunnel extension from the Applications folder. Move cmux.app to /Applications and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS は「アプリケーション」フォルダにある cmux からのみクラウドトンネル機能拡張を読み込みます。cmux.app を /Applications に移動して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel could not start: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを開始できませんでした: %@"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.deadlineExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel did not come up in time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルが時間内に接続されませんでした。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.linkDropped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS reported the VPN as disconnected before it came up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が確立する前に macOS が VPN の切断を報告しました。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.linkStatusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN status updates stopped arriving."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN の状態更新が届かなくなりました。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.vpnConfiguration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS rejected the VPN configuration (code %d)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が VPN 構成を拒否しました（コード %d）。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.activationCanceled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The request to load the cmux Cloud Tunnel extension was canceled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux クラウドトンネル機能拡張の読み込み要求がキャンセルされました。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.activationNotAllowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS did not allow the cmux Cloud Tunnel extension to load. Allow it in System Settings › General › Login Items & Extensions, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux クラウドトンネル機能拡張の読み込みを許可しませんでした。「システム設定」›「一般」›「ログイン項目と機能拡張」で許可してから再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.activationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS could not load the cmux Cloud Tunnel extension (code %d)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux クラウドトンネル機能拡張を読み込めませんでした（コード %d）。"
+          }
+        }
+      }
+    },
+    "cli.vpn.appManaged.bringingUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringing the tunnel up (app-managed, no sudo needed)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを接続しています（アプリ管理、sudo 不要）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.appManaged.needsApproval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS needs your approval to load the cmux Cloud Tunnel extension. Open System Settings › General › Login Items & Extensions › Network Extensions, allow cmux, then return here (waiting up to 10 minutes)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux クラウドトンネル機能拡張を読み込むには macOS での承認が必要です。「システム設定」›「一般」›「ログイン項目と機能拡張」›「ネットワーク機能拡張」で cmux を許可してからここに戻ってください（最大 10 分待機します）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.appManaged.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned up until `cmux vpn down`. Otherwise cmux starts the tunnel when you open a Cloud machine and stops it when no Cloud sessions remain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux vpn down` を実行するまで接続を維持します。通常は、クラウドマシンを開くと cmux がトンネルを開始し、クラウドセッションがなくなると停止します。"
+          }
+        }
+      }
+    },
+    "cli.vpn.appManaged.hostsHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal hostnames: run `cmux vpn hosts` to map <machine>.internal in /etc/hosts (needs sudo)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部ホスト名: <machine>.internal を /etc/hosts に登録するには `cmux vpn hosts` を実行してください（sudo が必要）。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.state.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: starting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 開始中"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.state.awaitingApproval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: waiting for approval in System Settings › General › Login Items & Extensions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 「システム設定」›「一般」›「ログイン項目と機能拡張」での承認を待っています"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: failed (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 失敗（%@）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.downAppManaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: down (starts automatically when you open a Cloud machine)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 切断（クラウドマシンを開くと自動的に開始されます）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.notSetUpAppManaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: not set up (enrolls automatically when you open a Cloud machine)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 未設定（クラウドマシンを開くと自動的に登録されます）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned up by `cmux vpn up`; run `cmux vpn down` to release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux vpn up` により接続が固定されています。解除するには `cmux vpn down` を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.autoManaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel starts automatically when you open a Cloud machine and stops when no Cloud sessions remain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルはクラウドマシンを開くと自動的に開始し、クラウドセッションがなくなると停止します。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.startCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel start was cancelled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルの開始がキャンセルされました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

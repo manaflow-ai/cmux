@@ -152,6 +152,18 @@ actor CloudMachineLinkManager {
         links[machineID]
     }
 
+    /// Machines with a live link right now: the app-side consumers of the
+    /// private network for the tunnel's idle policy.
+    var connectedMachineCount: Int {
+        get async {
+            var count = 0
+            for link in links.values where await link.isConnected {
+                count += 1
+            }
+            return count
+        }
+    }
+
     func status(machineID: String) async -> LinkStatus? {
         if let link = links[machineID] {
             return LinkStatus(state: await link.state, error: await link.lastError)
