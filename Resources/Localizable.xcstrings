@@ -162,7 +162,25 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "--reply                السماح بردّ نصي مضمن" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "--reply                Dozvoli tekstualni ugrađeni odgovor" } },
+        "da": { "stringUnit": { "state": "translated", "value": "--reply                Tillad et frit tekstsvar inline" } },
+        "de": { "stringUnit": { "state": "translated", "value": "--reply                Freie Inline-Textantwort erlauben" } },
+        "es": { "stringUnit": { "state": "translated", "value": "--reply                Permitir una respuesta de texto en línea" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "--reply                Autoriser une réponse texte intégrée" } },
+        "it": { "stringUnit": { "state": "translated", "value": "--reply                Consenti una risposta testuale in linea" } },
+        "km": { "stringUnit": { "state": "translated", "value": "--reply                អនុញ្ញាតការឆ្លើយតបជាអក្សរ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "--reply                자유 형식 인라인 답장 허용" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "--reply                Tillat et fritt tekstsvar inline" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "--reply                Zezwól na tekstową odpowiedź w wierszu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "--reply                Permitir resposta de texto em linha" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "--reply                Разрешить свободный текстовый ответ" } },
+        "th": { "stringUnit": { "state": "translated", "value": "--reply                อนุญาตการตอบกลับแบบข้อความ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "--reply                Serbest metinli satır içi yanıta izin ver" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "--reply                Дозволити вільну текстову відповідь" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "--reply                允许自由文本内联回复" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "--reply                允許自由文字內嵌回覆" } }
       }
     },
     "cli.vault.usage": {
@@ -59620,6 +59638,329 @@
         }
       }
     },
+    "cli.vpn.address": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your address on the network: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク上のあなたのアドレス: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.alreadyUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is already up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルはすでに接続されています。"
+          }
+        }
+      }
+    },
+    "cli.vpn.bringingUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringing the tunnel up (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを接続しています（sudo のパスワード入力が求められます）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is down."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切断しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.enrolled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enrolled this Mac on your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を Cloud VM ネットワークに登録しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.notUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is not up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルは接続されていません。"
+          }
+        }
+      }
+    },
+    "cli.vpn.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is unenrolled from your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Cloud VM ネットワークから登録解除されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.rotated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshed this Mac's tunnel keys."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネル鍵を更新しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.config": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイル: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: down (enrolled; run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 切断（登録済み。`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.interface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェース: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.notSetUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: not set up (run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 未設定（`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中ですが別の登録のものです（`cmux vpn up` で切り替えてください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.wgQuickMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick is not installed. Install with: brew install wireguard-tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick がインストールされていません。`brew install wireguard-tools` でインストールしてください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.switching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のトンネルは別の登録（別のアカウント、または古い鍵）で立ち上げられたものです。このトンネルに置き換えます（sudo がパスワードを求めます）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルが接続されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切り替えられませんでした。上のコマンド出力を確認し、`cmux vpn down` を実行してから `cmux vpn up` を再試行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.tree.detached": {
       "extractionState": "manual",
       "localizations": {
@@ -59990,6 +60331,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート/"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります（%3$@）。ws_… ID を使ってください: cmux vm open %1$@/<ws-id>"
           }
         }
       }
@@ -61067,6 +61425,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel to your Cloud VM network is down — run `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac から Cloud VM ネットワークへのトンネルが切断されています — `cmux vpn up` を実行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel is up for a different enrollment — run `cmux vpn up` to switch it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネルは別の登録で接続されています — `cmux vpn up` で切り替えてください。"
           }
         }
       }
@@ -146253,124 +146645,124 @@
     "mobile.pairing.manual.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكنك المسح؟ أضف هذا الـ Mac يدويًا:"
+            "value": "لا يمكنك المسح؟ أدخل عنوان IP الرقمي لـ Tailscale لهذا الـ Mac والمنفذ:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne možete skenirati? Dodajte ovaj Mac ručno:"
+            "value": "Ne možete skenirati? Unesite numeričku Tailscale IP adresu i port ovog Maca:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kan du ikke scanne? Tilføj denne Mac manuelt:"
+            "value": "Kan du ikke scanne? Indtast denne Macs numeriske Tailscale-IP-adresse og port:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kannst du nicht scannen? Füge diesen Mac manuell hinzu:"
+            "value": "Du kannst nicht scannen? Gib die numerische Tailscale-IP-Adresse und den Port dieses Mac ein:"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿No puedes escanear? Añade este Mac manualmente:"
+            "value": "¿No puedes escanear? Introduce la dirección IP numérica de Tailscale y el puerto de este Mac:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de scanner ? Ajoutez ce Mac manuellement :"
+            "value": "Impossible de scanner ? Saisissez l’adresse IP Tailscale numérique et le port de ce Mac :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non riesci a scansionare? Aggiungi questo Mac manualmente:"
+            "value": "Non riesci a scansionare? Inserisci l’indirizzo IP numerico Tailscale e la porta di questo Mac:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្កេនមិនបានមែនទេ? បន្ថែម Mac នេះដោយដៃ៖"
+            "value": "ស្កេនមិនបានមែនទេ? បញ្ចូល IP Tailscale ជាលេខ និងច្រករបស់ Mac នេះ៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스캔할 수 없나요? 이 Mac을 수동으로 추가하세요:"
+            "value": "스캔할 수 없나요? 이 Mac의 숫자 Tailscale IP와 포트를 입력하세요:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kan du ikke skanne? Legg til denne Mac-en manuelt:"
+            "value": "Kan du ikke skanne? Skriv inn det numeriske Tailscale-IP-et og porten til denne Mac-en:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie możesz zeskanować? Dodaj tego Maca ręcznie:"
+            "value": "Nie możesz zeskanować? Wpisz numeryczny adres IP Tailscale i port tego Maca:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não consegue escanear? Adicione este Mac manualmente:"
+            "value": "Não consegue escanear? Digite o IP numérico do Tailscale e a porta deste Mac:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удаётся отсканировать? Добавьте этот Mac вручную:"
+            "value": "Не удаётся отсканировать? Введите числовой IP-адрес Tailscale и порт этого Mac:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สแกนไม่ได้ใช่ไหม เพิ่ม Mac เครื่องนี้ด้วยตนเอง:"
+            "value": "สแกนไม่ได้ใช่ไหม ป้อน IP Tailscale แบบตัวเลขและพอร์ตของ Mac เครื่องนี้:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tarayamıyor musunuz? Bu Mac'i elle ekleyin:"
+            "value": "Tarayamıyor musunuz? Bu Mac'in sayısal Tailscale IP adresini ve bağlantı noktasını girin:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдається відсканувати? Додайте цей Mac вручну:"
+            "value": "Не вдається відсканувати? Введіть числову IP-адресу Tailscale і порт цього Mac:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法扫描？请手动添加这台 Mac："
+            "value": "无法扫描？请输入这台 Mac 的数字 Tailscale IP 和端口："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法掃描？請手動加入這部 Mac："
+            "value": "無法掃描？請輸入這部 Mac 的數字 Tailscale IP 與連接埠："
           }
         }
       }
