@@ -573,9 +573,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     // Wait until every create connection has submitted its batch, then run
     // the separate-connection probe while those requests remain unread.
-    let _ = gates
-        .creates_submitted
-        .wait_timeout(bounded_wait_duration(bench_deadline, Duration::from_secs(1)));
+    let _ = gates.creates_submitted.wait();
     run_separate_typing_probe(
         &socket,
         baseline_surface,
@@ -629,12 +627,8 @@ fn run_separate_typing_probe(
     deadline: Instant,
 ) {
     if probes == 0 {
-        let _ = gates
-            .probes_submitted
-            .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
-        let _ = gates
-            .release_workers
-            .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+        let _ = gates.probes_submitted.wait();
+        let _ = gates.release_workers.wait();
         return;
     }
     let mut setup_error = None;
@@ -670,11 +664,8 @@ fn run_separate_typing_probe(
         }
     }
 
-    let _ = gates
-        .probes_submitted
-        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
-    let _ =
-        gates.release_workers.wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+    let _ = gates.probes_submitted.wait();
+    let _ = gates.release_workers.wait();
 
     if let Some(Err(error)) =
         conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report, deadline))
@@ -891,14 +882,9 @@ fn run_create_loop(
     // All workers reach this point before any response is read. The main
     // thread uses this barrier to start the separate-connection probe against
     // the same in-flight create load.
-    let _ = gates
-        .creates_submitted
-        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
-    let _ = gates
-        .probes_submitted
-        .wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
-    let _ =
-        gates.release_workers.wait_timeout(bounded_wait_duration(deadline, Duration::from_secs(1)));
+    let _ = gates.creates_submitted.wait();
+    let _ = gates.probes_submitted.wait();
+    let _ = gates.release_workers.wait();
 
     let Some(mut conn) = conn else {
         return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
