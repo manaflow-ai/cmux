@@ -8,7 +8,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirBuilder};
 use std::io::{self, Read, Write};
-use std::os::fd::{FromRawFd, IntoRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -254,7 +254,7 @@ impl MachineStreamConnector for UnixMachineStreamConnector {
         context.check_io()?;
         let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
         let address = SockAddr::unix(&self.socket_path)?;
-        socket.connect_timeout(&address, context.remaining_io()?)?;
+        connect_socket_with_context(&socket, &address, context)?;
         let writer = unsafe { UnixStream::from_raw_fd(socket.into_raw_fd()) };
         // The provider control and stream sockets stay open after the
         // handshake. Keep reads blocking so an idle session does not fail
@@ -266,6 +266,80 @@ impl MachineStreamConnector for UnixMachineStreamConnector {
         let cleanup =
             Arc::new(UnixCleanup { stream: writer.try_clone()?, closed: AtomicBool::new(false) });
         Ok(ProviderIo::new(reader, writer, ProviderIoGuard::new(cleanup)))
+    }
+}
+
+fn connect_socket_with_context(
+    socket: &Socket,
+    address: &SockAddr,
+    context: &MachineConnectContext,
+) -> io::Result<()> {
+    context.check_io()?;
+    socket.set_nonblocking(true)?;
+    match socket.connect(address) {
+        Ok(()) => {}
+        Err(error) if connect_is_pending(&error) => {
+            wait_for_socket_ready_with_context(socket, context)?;
+        }
+        Err(error) => return Err(error),
+    }
+    context.check_io()?;
+    socket.set_nonblocking(false)
+}
+
+fn connect_is_pending(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(code)
+            if code == libc::EALREADY
+                || code == libc::EAGAIN
+                || code == libc::EINPROGRESS
+                || code == libc::EINTR
+                || code == libc::EWOULDBLOCK
+    )
+}
+
+fn wait_for_socket_ready_with_context(
+    socket: &Socket,
+    context: &MachineConnectContext,
+) -> io::Result<()> {
+    let mut descriptor = libc::pollfd {
+        fd: socket.as_raw_fd(),
+        events: (libc::POLLOUT | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) as libc::c_short,
+        revents: 0,
+    };
+    loop {
+        context.check_io()?;
+        let timeout =
+            context.remaining_io()?.as_millis().min(Duration::from_millis(50).as_millis());
+        let timeout = i32::try_from(timeout).unwrap_or(50);
+        let result = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if result == 0 {
+            continue;
+        }
+        if descriptor.revents & libc::POLLNVAL as libc::c_short != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "socket descriptor is invalid",
+            ));
+        }
+        if let Some(error) = socket.take_error()? {
+            return Err(error);
+        }
+        if descriptor.revents & libc::POLLOUT as libc::c_short != 0 {
+            return Ok(());
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "Unix socket connection failed before becoming ready",
+        ));
     }
 }
 
@@ -1381,7 +1455,10 @@ mod tests {
         let result = done_rx
             .recv_timeout(Duration::from_millis(500))
             .expect("readiness wait ignored cancellation");
-        assert_eq!(result.expect_err("cancelled readiness wait succeeded").kind(), ErrorKind::Interrupted);
+        assert_eq!(
+            result.expect_err("cancelled readiness wait succeeded").kind(),
+            ErrorKind::Interrupted
+        );
         worker.join().expect("join readiness wait worker");
         drop(reader);
     }
