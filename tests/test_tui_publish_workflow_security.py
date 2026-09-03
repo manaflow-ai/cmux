@@ -1678,6 +1678,18 @@ def _checkout_target(
     return ref_input, ""
 
 
+def _attestation_checkout_allowed(
+    checkout_ref: str,
+    checked_out_sha: str,
+    caller_sha: str,
+) -> bool:
+    """Model the attestation job's fail-closed source guard."""
+
+    if checked_out_sha != caller_sha:
+        return False
+    return not checkout_ref or checkout_ref == caller_sha
+
+
 def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
     document = _package_workflow_document()
     jobs = document["jobs"]
@@ -1777,6 +1789,42 @@ def test_package_attestation_stays_bound_to_caller_digest_and_ref() -> None:
         '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/'
         'cmux-tui-build-package.yml"'
     ) in attest
+
+
+def test_package_attestation_rejects_divergent_checkout_ref() -> None:
+    workflow_text = workflow("cmux-tui-build-package.yml")
+    attest_job = workflow_job(workflow_text, "attest-npm-packages")
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+    attest_document = jobs["attest-npm-packages"]
+    assert isinstance(attest_document, dict)
+    steps = attest_document["steps"]
+    assert isinstance(steps, list)
+    guard = next(
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and step.get("name") == "Verify attestation checkout matches caller"
+    )
+    guard_run = guard["run"]
+    assert isinstance(guard_run, str)
+    guard_env = guard["env"]
+    assert isinstance(guard_env, dict)
+    assert guard_env["CHECKOUT_REF"] == "${{ inputs.checkout_ref }}"
+    assert 'git rev-parse HEAD' in guard_run
+    assert '"$checked_out_sha" != "$GITHUB_SHA"' in guard_run
+    assert '"$CHECKOUT_REF" != "$GITHUB_SHA"' in guard_run
+    assert attest_job.index("Verify attestation checkout matches caller") < attest_job.index(
+        "Download npm package archive"
+    )
+
+    caller_sha = "a" * 40
+    other_sha = "b" * 40
+    assert _attestation_checkout_allowed("", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed("refs/tags/other", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed(other_sha, other_sha, caller_sha)
+    assert not _attestation_checkout_allowed("", other_sha, caller_sha)
 
 
 def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
