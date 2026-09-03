@@ -704,47 +704,40 @@ fn walk_viewport_stack(
     owner: ViewportColumn,
     out: &mut ViewportLayoutResult,
 ) {
-    let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
-    let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
-    let available_before = expanded_index;
-    let available_after = panes.len() - expanded_index - 1;
-    let mut headers_before = 0;
-    let mut headers_after = 0;
-    while headers_before + headers_after < visible_headers {
-        let can_take_before = headers_before < available_before;
-        let can_take_after = headers_after < available_after;
-        if can_take_before && (!can_take_after || headers_before <= headers_after) {
-            headers_before += 1;
-        } else if can_take_after {
-            headers_after += 1;
-        } else {
-            break;
-        }
-    }
-    let expanded_height = area.height.saturating_sub((headers_before + headers_after) as u16);
-
     let mut y = area.y;
-    for (index, pane) in panes.iter().copied().enumerate() {
-        let height = if index == expanded_index {
-            expanded_height
-        } else if index >= expanded_index - headers_before && index < expanded_index
-            || index > expanded_index && index <= expanded_index + headers_after
-        {
-            1
-        } else {
-            0
-        };
+    walk_stack_rows(panes, expanded, area.height, |_, pane, height, is_expanded| {
         record_viewport_pane(out, owner, pane, VirtualRect { y, height, ..area });
-        if height == 1 && index != expanded_index {
+        if height == 1 && !is_expanded {
             out.stacked_headers.insert(pane);
         }
         y = y.saturating_add(height);
-    }
+    });
 }
 
 fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutResult) {
+    let mut y = area.y;
+    walk_stack_rows(panes, expanded, area.height, |_, pane, height, is_expanded| {
+        out.panes.push((pane, Rect { y, height, ..area }));
+        if height == 1 && !is_expanded {
+            out.stacked_headers.insert(pane);
+        }
+        y = y.saturating_add(height);
+    });
+}
+
+/// Visit each pane in a stack with its allocated row height.
+///
+/// Keeping row allocation in one traversal ensures normal and viewport
+/// layouts expose the same expanded pane and header ordering.
+fn walk_stack_rows(
+    panes: &[PaneId],
+    expanded: PaneId,
+    area_height: u16,
+    mut visit: impl FnMut(usize, PaneId, u16, bool),
+) {
+    debug_assert!(!panes.is_empty());
     let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
-    let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
+    let visible_headers = usize::from(area_height.saturating_sub(1)).min(panes.len() - 1);
     let available_before = expanded_index;
     let available_after = panes.len() - expanded_index - 1;
     let mut headers_before = 0;
@@ -760,9 +753,7 @@ fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutRe
             break;
         }
     }
-    let expanded_height = area.height.saturating_sub((headers_before + headers_after) as u16);
-
-    let mut y = area.y;
+    let expanded_height = area_height.saturating_sub((headers_before + headers_after) as u16);
     for (index, pane) in panes.iter().copied().enumerate() {
         let height = if index == expanded_index {
             expanded_height
@@ -773,11 +764,7 @@ fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutRe
         } else {
             0
         };
-        out.panes.push((pane, Rect { y, height, ..area }));
-        if height == 1 && index != expanded_index {
-            out.stacked_headers.insert(pane);
-        }
-        y = y.saturating_add(height);
+        visit(index, pane, height, index == expanded_index);
     }
 }
 
