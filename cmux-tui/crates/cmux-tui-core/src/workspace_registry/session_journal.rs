@@ -4,7 +4,7 @@ use flate2::read::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{Read, Result as IoResult};
+use std::io::{BufReader, Read, Result as IoResult};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1452,8 +1452,9 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     let decoder = GzDecoder::new(compressed.as_slice());
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
-    let mut reader =
-        DigestReader::new(decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)));
+    let mut reader = BufReader::new(DigestReader::new(
+        decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
+    ));
     let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
         .with_context(|| format!("decode journal segment {segment_id}"))?;
     // Force the bounded gzip reader to reach EOF. This validates the gzip
@@ -1470,11 +1471,11 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         );
     }
     anyhow::ensure!(
-        reader.bytes_read == expected_bytes,
+        reader.get_ref().bytes_read == expected_bytes,
         "journal segment {segment_id} length is invalid"
     );
     anyhow::ensure!(
-        reader.digest().as_slice() == expected_digest.as_slice(),
+        reader.into_inner().digest().as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
     for record in &mut records {
