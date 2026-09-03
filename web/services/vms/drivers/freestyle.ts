@@ -49,12 +49,14 @@ import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
   approveCmuxTuiEnrollment,
+  CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
+  cmuxTuiAttachBundleCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
-  isCmuxTuiDeviceEnrolled,
   mintCmuxTuiInvitation,
+  parseCmuxTuiAttachBundle,
   resolveCmuxTuiSource,
   type CmuxTuiSource,
   waitForCmuxTuiReady,
@@ -170,6 +172,18 @@ export type FreestyleProviderDependencies = {
  * the SDK's own default — the public api.freestyle.sh — is used. The
  * stack-token pair mirrors build-devbox-freestyle.ts for interactive use.
  */
+/**
+ * Open the TCP+TLS connection to the Freestyle API before it is needed. The
+ * first Freestyle call of a function invocation paid about 130 ms of DNS, TCP,
+ * and TLS in production (vpc.get: 150 ms from pdx1, 12 ms warm); a route fires
+ * this while it is still verifying the caller so the real call finds the
+ * connection in undici's pool. Best effort, never awaited for correctness.
+ */
+export function preconnectFreestyle(): void {
+  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
+  fetch(`${baseUrl}/`, { method: "HEAD", signal: AbortSignal.timeout(3_000) }).catch(() => undefined);
+}
+
 function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
     fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
@@ -358,6 +372,21 @@ export function freestyleDesktopHealCommand(): string {
  * are allocated at create, so the create response already carries them; a
  * response without any (no network) contributes nothing.
  */
+/**
+ * The persisted network addresses (see {@link freestyleNetworkAddressMetadata})
+ * re-shaped for {@link freestyleCmuxRemoteRoute}, so attach on a private
+ * machine needs no provider read. Null when the row carries none (a public
+ * ingress machine, whose public IPv6 is only known to the provider).
+ */
+export function freestyleRouteAddressesFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): FreestyleRouteAddresses | null {
+  const ipv4 = typeof metadata?.networkIpv4 === "string" ? metadata.networkIpv4.trim() : "";
+  const ipv6 = typeof metadata?.networkIpv6 === "string" ? metadata.networkIpv6.trim() : "";
+  if (!ipv4 && !ipv6) return null;
+  return { vpcs: [{ ...(ipv4 ? { ipv4 } : {}), ...(ipv6 ? { ipv6 } : {}) }] };
+}
+
 export function freestyleNetworkAddressMetadata(
   data: FreestyleRouteAddresses,
 ): { networkIpv4?: string; networkIpv6?: string } {
@@ -1106,25 +1135,51 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const data = await vm.data();
+          // The row already holds the private addresses from create; only a
+          // public-ingress machine needs the provider read for its IPv6.
+          const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
+          const data = persisted ?? await vm.data();
           const route = freestyleCmuxRemoteRoute(data, vmId);
           span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
-          await this.ensureCmuxTuiRunning(vm, vmId);
-          const invoke = this.cmuxTuiInvoke(vm);
+          span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
           // Direct-IPv6 carries no URL token; this one exists only for the
           // lease ledger. The daemon's Noise enrollment is the session gate —
           // the same trust model as E2B's public proxy route.
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
-          let invitation: CmuxRemoteEndpoint["invitation"];
-          const enrolled = options?.deviceFingerprint
-            ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
-            : false;
-          if (!enrolled) {
+          // One guest exec: readiness gate, daemon build, enrolled devices, and
+          // an invitation unless the caller is enrolled. Exit 3 means the daemon
+          // was not ready inside the settle budget; heal, then run it again.
+          const fingerprint = options?.deviceFingerprint;
+          let bundleResult = await this.execResult(
+            vm,
+            cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
+            DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
+          );
+          let healed = false;
+          if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
+            healed = true;
+            await this.ensureCmuxTuiRunning(vm, vmId);
+            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+          }
+          if (!bundleResult || bundleResult.exitCode !== 0) {
+            throw new ProviderError(
+              "freestyle",
+              `cmux-tui attach bundle in ${vmId} failed (exit ${bundleResult?.exitCode ?? "n/a"}): ${(bundleResult?.stderr || bundleResult?.stdout || "").slice(0, 500)}`,
+            );
+          }
+          const bundle = parseCmuxTuiAttachBundle(bundleResult.stdout, "freestyle", vmId, fingerprint);
+          span.setAttribute("cmux.vm.cmux_remote.healed", healed);
+          const invoke = this.cmuxTuiInvoke(vm);
+          const enrolled = bundle.enrolled;
+          let invitation: CmuxRemoteEndpoint["invitation"] = bundle.invitation ?? undefined;
+          if (!enrolled && !invitation) {
+            // The shell's substring check and the JSON parse disagreed (a
+            // revoked device with the same fingerprint): mint separately.
             invitation = await mintCmuxTuiInvitation(invoke, "freestyle", vmId);
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
-          const daemonBuild = await cmuxTuiDaemonBuild(invoke);
+          const daemonBuild = bundle.daemonBuild ?? await cmuxTuiDaemonBuild(invoke);
           const addresses = freestyleNetworkAddressMetadata(data);
           const networkAddresses = {
             ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),

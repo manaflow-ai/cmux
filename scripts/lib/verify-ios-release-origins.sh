@@ -29,23 +29,31 @@ PLIST="$APP/Info.plist"
 
 read_plist() {
   local key="$1"
-  # /usr/libexec/PlistBuddy on macOS release runners; the Linux workflow-guard
-  # lane (tests/test_ios_appstore_lane_identity.py) has no PlistBuddy, so fall
-  # back to plistlib. Both read the same baked Info.plist; the absolute path
-  # stays first so a PATH entry can never shadow the reader in a release lane.
   if [[ -x /usr/libexec/PlistBuddy ]]; then
+    # Keep release verification tied to Apple's system tool. Do not honor an
+    # environment override here, because that would let a caller replace the
+    # verifier and bypass this gate.
     /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
-  else
-    python3 - "$PLIST" "$key" 2>/dev/null <<'PY' || true
-import plistlib, sys
-try:
-    with open(sys.argv[1], "rb") as f:
-        value = plistlib.load(f).get(sys.argv[2], "")
-except Exception:
-    value = ""
-print(value if isinstance(value, str) else "")
-PY
+    return
   fi
+
+  # Linux CI does not provide PlistBuddy. Use the fixed system Python parser
+  # only for that environment; production macOS always takes the branch above.
+  /usr/bin/python3 - "$PLIST" "$key" <<'PY' 2>/dev/null || true
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    value = plistlib.load(stream)
+for component in sys.argv[2].split(":"):
+    value = value[component]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (dict, list)):
+    print(plistlib.dumps(value, fmt=plistlib.FMT_XML).decode(), end="")
+else:
+    print(value)
+PY
 }
 
 require_exact() {
