@@ -444,9 +444,18 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private var stderrPendingUTF8 = Data()
     private var stdoutProtocolLine = Data()
     private var observedMachineID: String?
-    private var isFinished = false
     private var acceptingReads = true
     private var activeReads = 0
+
+    private enum FinishState {
+        case open
+        case finishing
+        case finished(ProcessOutputResult)
+    }
+
+    private let finishCondition = NSCondition()
+    private var finishState: FinishState = .open
+    private var suppressOutputDelivery = false
 
     private let onOutput: ((Data) -> Void)?
 
@@ -492,54 +501,78 @@ final class ProcessOutputCollector: @unchecked Sendable {
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
         stopAcceptingAndWaitForReads()
-        lock.lock()
-        if isFinished {
-            let output = formattedResultLocked()
-            lock.unlock()
-            return output
+        finishCondition.lock()
+        while true {
+            switch finishState {
+            case .open:
+                finishState = .finishing
+                finishCondition.unlock()
+                let result = finalize(drain: true)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+                return result
+            case .finishing:
+                finishCondition.wait()
+            case .finished(let result):
+                finishCondition.unlock()
+                return result
+            }
         }
-        isFinished = true
-        lock.unlock()
-        append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
-        lock.lock()
-        finishPendingUTF8Locked()
-        lock.unlock()
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
-
-        lock.lock()
-        finishProtocolObservation()
-        let output = formattedResultLocked()
-        lock.unlock()
-        return output
     }
 
     func cancel() {
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
         stopAcceptingAndWaitForReads()
-        lock.lock()
-        if isFinished {
-            lock.unlock()
-            return
+        finishCondition.lock()
+        while true {
+            switch finishState {
+            case .open:
+                finishState = .finishing
+                finishCondition.unlock()
+                let result = finalize(drain: false)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+                return
+            case .finishing:
+                finishCondition.wait()
+            case .finished:
+                finishCondition.unlock()
+                return
+            }
         }
-        isFinished = true
+    }
+
+    private func finalize(drain: Bool) -> ProcessOutputResult {
+        lock.lock()
+        // A finish invoked from an output callback must not recursively deliver
+        // drain bytes to that callback. The callback's own bytes were committed
+        // before it was entered. Normal finalization still delivers drained
+        // bytes so live progress keeps its existing behavior.
+        suppressOutputDelivery = callbackDepthOnCurrentThread() > 0
         lock.unlock()
 
+        if drain {
+            append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
+            append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
+        }
         lock.lock()
         finishPendingUTF8Locked()
+        finishProtocolObservation()
+        let result = formattedResultLocked()
         lock.unlock()
         try? stdoutHandle.close()
         try? stderrHandle.close()
+        return result
     }
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
-        onOutput?(data)
         lock.lock()
-        defer { lock.unlock() }
-
         switch stream {
         case .stdout:
             observeMachineID(in: data)
@@ -547,6 +580,32 @@ final class ProcessOutputCollector: @unchecked Sendable {
         case .stderr:
             appendBounded(data, to: &stderr, pending: &stderrPendingUTF8)
         }
+        let shouldDeliver = !suppressOutputDelivery
+        lock.unlock()
+        if shouldDeliver {
+            deliverOutput(data)
+        }
+    }
+
+    private func deliverOutput(_ data: Data) {
+        guard let onOutput else { return }
+        let key = "ProcessOutputCollector.callbackDepth.\(ObjectIdentifier(self))"
+        let threadDictionary = Thread.current.threadDictionary
+        let priorDepth = threadDictionary[key] as? Int ?? 0
+        threadDictionary[key] = priorDepth + 1
+        defer {
+            if priorDepth == 0 {
+                threadDictionary.removeObject(forKey: key)
+            } else {
+                threadDictionary[key] = priorDepth
+            }
+        }
+        onOutput(data)
+    }
+
+    private func callbackDepthOnCurrentThread() -> Int {
+        let key = "ProcessOutputCollector.callbackDepth.\(ObjectIdentifier(self))"
+        return Thread.current.threadDictionary[key] as? Int ?? 0
     }
 
     private func beginRead() -> Bool {
@@ -566,7 +625,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private func stopAcceptingAndWaitForReads() {
         readCondition.lock()
         acceptingReads = false
-        while activeReads > 0 { readCondition.wait() }
+        let ownReadDepth = callbackDepthOnCurrentThread()
+        while activeReads > ownReadDepth { readCondition.wait() }
         readCondition.unlock()
     }
 
