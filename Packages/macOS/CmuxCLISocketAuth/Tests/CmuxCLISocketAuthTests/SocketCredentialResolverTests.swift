@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxCLISocketAuth
 
@@ -7,23 +8,18 @@ import Testing
 /// A connection has two distinct credential demands: an initial request, which
 /// must remain credential-free until the server challenges it, and an explicit
 /// authentication challenge. Keeping those demands separate prevents a
-/// successful allow-all request from touching LocalAuthentication.
+    /// successful allow-all request from touching LocalAuthentication.
 @Suite(.serialized)
 struct SocketCredentialResolverTests {
     private final class CallCounter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage = 0
+        private let storage = OSAllocatedUnfairLock<Int>(initialState: 0)
 
         var value: Int {
-            lock.lock()
-            defer { lock.unlock() }
-            return storage
+            storage.withLock { $0 }
         }
 
         func increment() {
-            lock.lock()
-            storage += 1
-            lock.unlock()
+            storage.withLock { $0 += 1 }
         }
     }
 

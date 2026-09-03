@@ -347,6 +347,10 @@ if "archive" in args:
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
+    auth_environment = setting("CMUX_IOS_AUTH_ENV=")
+    api_base_url = setting("CMUX_API_BASE_URL=")
+    iroh_broker_base_url = setting("CMUX_IROH_BROKER_BASE_URL=")
+    presence_base_url = setting("CMUX_PRESENCE_BASE_URL=")
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
