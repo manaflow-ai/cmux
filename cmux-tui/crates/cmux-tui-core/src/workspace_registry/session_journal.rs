@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
@@ -159,6 +160,23 @@ pub(crate) struct SessionJournalReader {
     connection: Connection,
 }
 
+pub(crate) struct JournalRestoreCursor {
+    connection: Connection,
+    source_sequence: u64,
+    target_head: u64,
+    next_segment_start: i64,
+    segments_exhausted: bool,
+    decoded_segment: Option<DecodedJournalSegment>,
+    record_offset: usize,
+    active_sequence: u64,
+    previous_segment_end: Option<u64>,
+    finished: bool,
+    #[cfg(test)]
+    segment_decode_count: usize,
+    #[cfg(test)]
+    segment_content_load_count: usize,
+}
+
 impl SessionJournalReader {
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
         let connection = open_registry_database_with_flags(
@@ -182,6 +200,202 @@ impl SessionJournalReader {
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
         query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+    }
+
+    pub(crate) fn restore_cursor(
+        self,
+        source_sequence: u64,
+    ) -> anyhow::Result<JournalRestoreCursor> {
+        self.connection.execute_batch("BEGIN DEFERRED TRANSACTION")?;
+        let target_head = query_journal_head(&self.connection)?;
+        anyhow::ensure!(
+            source_sequence <= target_head,
+            "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"
+        );
+        Ok(JournalRestoreCursor {
+            connection: self.connection,
+            source_sequence,
+            target_head,
+            next_segment_start: -1,
+            segments_exhausted: false,
+            decoded_segment: None,
+            record_offset: 0,
+            active_sequence: source_sequence,
+            previous_segment_end: None,
+            finished: false,
+            #[cfg(test)]
+            segment_decode_count: 0,
+            #[cfg(test)]
+            segment_content_load_count: 0,
+        })
+    }
+}
+
+impl JournalRestoreCursor {
+    pub(crate) fn next_page(&mut self, limit: usize) -> anyhow::Result<SessionJournalPage> {
+        anyhow::ensure!(!self.finished, "journal restore cursor is finished");
+        anyhow::ensure!(limit > 0, "journal page limit must be positive");
+        anyhow::ensure!(
+            limit <= MAX_JOURNAL_PAGE_SIZE,
+            "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+        );
+        let mut records = Vec::with_capacity(limit);
+        while records.len() < limit {
+            if let Some(decoded) = self.decoded_segment.as_ref() {
+                if self.record_offset == decoded.records.len() {
+                    self.decoded_segment = None;
+                    self.record_offset = 0;
+                    continue;
+                }
+                let record = decoded.records[self.record_offset].clone();
+                self.record_offset += 1;
+                if record.sequence <= self.source_sequence {
+                    continue;
+                }
+                if record.sequence > self.target_head {
+                    break;
+                }
+                self.validate_and_advance(record, &mut records)?;
+                continue;
+            }
+
+            let Some(segment_id) = self.next_segment()? else {
+                break;
+            };
+            self.note_segment_decoded();
+            let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
+            if let Some(previous_end) = self.previous_segment_end {
+                anyhow::ensure!(
+                    decoded.start_sequence == previous_end + 1,
+                    "journal segments contain a gap before sequence {}",
+                    decoded.start_sequence
+                );
+            } else {
+                anyhow::ensure!(
+                    decoded.start_sequence <= self.source_sequence.saturating_add(1),
+                    "journal segments contain a gap before sequence {}",
+                    decoded.start_sequence
+                );
+            }
+            self.previous_segment_end = Some(decoded.end_sequence);
+            self.decoded_segment = Some(decoded);
+        }
+
+        if records.len() < limit {
+            let remaining = limit - records.len();
+            let mut statement = self.connection.prepare(
+                "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                        occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                        causation_id, correlation_id, causation_depth, subjects_json,
+                        sensitivity, payload_json, content, resource_revision,
+                        previous_resource_revision
+                 FROM session_journal
+                 WHERE sequence > ?1 AND sequence <= ?2
+                 ORDER BY sequence ASC
+                 LIMIT ?3",
+            )?;
+            let active = statement
+                .query_map(
+                    params![
+                        i64::try_from(self.active_sequence)?,
+                        i64::try_from(self.target_head)?,
+                        i64::try_from(remaining)?,
+                    ],
+                    stored_record_row,
+                )?
+                .map(|row| decode_record(row?))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            drop(statement);
+            for record in active {
+                self.validate_and_advance(record, &mut records)?;
+            }
+        }
+        anyhow::ensure!(
+            self.active_sequence == self.target_head || !records.is_empty(),
+            "session journal contains a gap after sequence {}",
+            self.active_sequence
+        );
+        Ok(SessionJournalPage { head_sequence: self.target_head, records })
+    }
+
+    fn next_segment(&mut self) -> anyhow::Result<Option<String>> {
+        if self.segments_exhausted {
+            return Ok(None);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence
+             FROM journal_segments
+             WHERE end_sequence > ?1 AND start_sequence > ?2
+             ORDER BY start_sequence ASC
+             LIMIT 1",
+        )?;
+        let segment = statement
+            .query_row(
+                params![i64::try_from(self.source_sequence)?, self.next_segment_start,],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((segment_id, start_sequence)) = segment else {
+            self.segments_exhausted = true;
+            return Ok(None);
+        };
+        self.next_segment_start = start_sequence;
+        Ok(Some(segment_id))
+    }
+
+    #[cfg(test)]
+    fn note_segment_decoded(&mut self) {
+        self.segment_decode_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_decoded(&mut self) {}
+
+    fn load_segment(&mut self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
+        self.note_segment_content_loaded();
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    content, uncompressed_bytes, sha256
+             FROM journal_segments
+             WHERE segment_id = ?1
+               AND length(content) <= ?2",
+        )?;
+        statement
+            .query_row(
+                params![segment_id, i64::try_from(MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES)?],
+                journal_segment_row,
+            )
+            .with_context(|| format!("load journal segment {segment_id}"))
+    }
+
+    #[cfg(test)]
+    fn note_segment_content_loaded(&mut self) {
+        self.segment_content_load_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_content_loaded(&mut self) {}
+
+    fn validate_and_advance(
+        &mut self,
+        record: SessionJournalRecord,
+        records: &mut Vec<SessionJournalRecord>,
+    ) -> anyhow::Result<()> {
+        let expected = self.active_sequence.saturating_add(1);
+        anyhow::ensure!(
+            record.sequence == expected,
+            "session journal contains a gap before sequence {}",
+            record.sequence
+        );
+        self.active_sequence = record.sequence;
+        records.push(record);
+        Ok(())
+    }
+
+    pub(crate) fn finish(mut self) -> anyhow::Result<()> {
+        self.finished = true;
+        self.connection.execute_batch("COMMIT")?;
+        Ok(())
     }
 }
 
@@ -993,16 +1207,7 @@ pub(super) fn query_session_journal_after(
         limit <= MAX_JOURNAL_PAGE_SIZE,
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
-           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
-         )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    let head_sequence = query_journal_head(connection)?;
     anyhow::ensure!(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
@@ -1050,6 +1255,18 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
 pub(super) fn query_session_journal_sequences(
@@ -1214,6 +1431,10 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         expected_bytes,
         expected_digest,
     ) = row;
+    anyhow::ensure!(
+        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the compressed size limit"
+    );
     let start_sequence = u64::try_from(start_sequence)?;
     let end_sequence = u64::try_from(end_sequence)?;
     let record_count = usize::try_from(record_count)?;
@@ -2069,5 +2290,83 @@ mod tests {
 
         let error = registry.session_journal_after(0, 10).unwrap_err();
         assert!(error.to_string().contains("record count"), "{error:#}");
+    }
+
+    #[test]
+    fn restore_cursor_decodes_a_multi_page_segment_once() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-cursor-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        for sequence in 1..=4 {
+            let tx = registry.connection.transaction().unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [sequence.to_string()],
+            )
+            .unwrap();
+            append_resource_journal_record(
+                &tx,
+                sequence,
+                sequence - 1,
+                "cursor-test",
+                &format!("cursor-event-{sequence}"),
+                "workspace.focus",
+                None,
+                &serde_json::json!({"workspace_id":workspace_id}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('cursor-segment', 1, 4, 4, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+
+        let reader =
+            SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+        let mut cursor = reader.restore_cursor(0).unwrap();
+        assert!(!cursor.segments_exhausted);
+        assert_eq!(cursor.segment_content_load_count, 0);
+        let mut replayed = Vec::new();
+        loop {
+            let page = cursor.next_page(1).unwrap();
+            if page.records.is_empty() {
+                assert_eq!(page.head_sequence, 4);
+                break;
+            }
+            replayed.extend(page.records.into_iter().map(|record| record.sequence));
+        }
+        assert_eq!(cursor.segment_decode_count, 1);
+        assert_eq!(cursor.segment_content_load_count, 1);
+        cursor.finish().unwrap();
+        assert_eq!(replayed, [1, 2, 3, 4]);
+
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
     }
 }

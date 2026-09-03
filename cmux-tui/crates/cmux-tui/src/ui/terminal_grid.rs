@@ -1,9 +1,10 @@
 use std::borrow::Cow;
+use std::num::NonZeroU16;
 
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, CursorInfo, Rgb};
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellDiffOption, CellWidth as RatatuiCellWidth};
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
 
@@ -107,16 +108,23 @@ fn draw_render_frame_with_catalog(
         for col in 0..available {
             let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let selected = selected(source_col as u16, row as u16);
             let cell = &cells[source_col];
-            apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
-            if partial_wide_cell(cells, source_x, source_end, source_col) {
-                buf[(x, y)].set_symbol(" ");
+            let partial = partial_wide_cell(cells, source_x, source_end, source_col);
+            let selected = selected_cell(cells, source_col, row, &selected);
+            let target = &mut buf[(x, y)];
+            apply_cell(target, cell, &colors, selected.then_some(theme));
+            if partial {
+                // A clipped half of a wide grapheme is rendered as a normal
+                // blank cell. Clear the forced width applied above so Ratatui
+                // does not skip the adjacent column during diffing.
+                target.set_symbol(" ").set_diff_option(CellDiffOption::None);
             }
         }
         for col in available..live_cols {
             let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(blank_style);
+            let target = &mut buf[(x, y)];
+            target.reset();
+            target.set_symbol(" ").set_style(blank_style);
         }
     }
 
@@ -127,15 +135,83 @@ fn draw_render_frame_with_catalog(
         );
     }
 
-    render
-        .frame
-        .cursor
-        .filter(|cursor| {
-            cursor.x >= source_x
-                && usize::from(cursor.x - source_x) < live_cols
-                && (cursor.y as usize) < live_rows
-        })
-        .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
+    render.frame.cursor.and_then(|cursor| {
+        cropped_cursor_position(cursor, render.frame.styled_rows(), source_x, live_cols, live_rows)
+            .map(|(x, y)| (rect.x + x, rect.y + y))
+    })
+}
+
+/// Return whether a grid cell is selected, treating both columns of a wide
+/// grapheme as one selectable unit. Selection ranges are normally normalized
+/// to the lead cell, but checking the paired coordinate also keeps rendering
+/// correct for callers that still provide a raw spacer-tail endpoint. A
+/// wrapped grapheme's spacer head is a non-text continuation cell, so it must
+/// never receive independent selection styling.
+fn selected_cell(
+    cells: &[VtCell],
+    source_col: usize,
+    row: usize,
+    selected: &impl Fn(u16, u16) -> bool,
+) -> bool {
+    let selected_here =
+        cells[source_col].width != CellWidth::SpacerHead && selected(source_col as u16, row as u16);
+    let paired_col = match cells[source_col].width {
+        CellWidth::Wide
+            if cells
+                .get(source_col.saturating_add(1))
+                .is_some_and(|next| next.width == CellWidth::SpacerTail) =>
+        {
+            Some(source_col + 1)
+        }
+        CellWidth::SpacerTail
+            if source_col > 0
+                && cells
+                    .get(source_col - 1)
+                    .is_some_and(|previous| previous.width == CellWidth::Wide) =>
+        {
+            Some(source_col - 1)
+        }
+        CellWidth::Narrow | CellWidth::SpacerHead | CellWidth::Wide | CellWidth::SpacerTail => None,
+    };
+    selected_here || paired_col.is_some_and(|col| selected(col as u16, row as u16))
+}
+
+/// Return a cursor position that is drawable in a horizontally cropped frame.
+/// Ghostty can report a cursor on a wide grapheme's trailing spacer. That
+/// spacer is not an independent drawable cell, so place the cursor on the
+/// grapheme lead before applying crop bounds.
+fn cropped_cursor_position(
+    cursor: CursorInfo,
+    rows: &[Vec<VtCell>],
+    source_x: u16,
+    live_cols: usize,
+    live_rows: usize,
+) -> Option<(u16, u16)> {
+    let mut x = cursor.x;
+    let row = rows.get(cursor.y as usize)?;
+    if x > 0
+        && row.get(x as usize).is_some_and(|cell| cell.width == CellWidth::SpacerTail)
+        && row.get((x - 1) as usize).is_some_and(|cell| cell.width == CellWidth::Wide)
+    {
+        x -= 1;
+    }
+
+    if x < source_x || usize::from(x - source_x) >= live_cols || (cursor.y as usize) >= live_rows {
+        return None;
+    }
+
+    // A wide lead is drawable only when its trailing spacer is also inside
+    // the crop. This matches partial_wide_cell, which blanks split pairs.
+    if row.get(x as usize).is_some_and(|cell| cell.width == CellWidth::Wide)
+        && (usize::from(x - source_x).saturating_add(1) >= live_cols
+            || !row
+                .get(x.saturating_add(1) as usize)
+                .is_some_and(|cell| cell.width == CellWidth::SpacerTail))
+    {
+        return None;
+    }
+
+    Some((x - source_x, cursor.y))
 }
 
 fn partial_wide_cell(
@@ -357,7 +433,17 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    target.set_symbol(&renderable_cell_text(&cell.text));
+    let text = renderable_cell_text(&cell.text);
+    target.set_symbol(&text);
+    let columns = match cell.width {
+        CellWidth::Wide => 2,
+        CellWidth::Narrow | CellWidth::SpacerTail | CellWidth::SpacerHead => 1,
+    };
+    if text.cell_width() != columns {
+        target.set_diff_option(CellDiffOption::ForcedWidth(
+            NonZeroU16::new(columns).expect("Ghostty cells always occupy at least one column"),
+        ));
+    }
 
     let mut style = Style::default();
     style = style.fg(colors.resolve_fg(cell.fg));
@@ -412,9 +498,11 @@ fn renderable_cell_text(text: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ghostty_vt::{Callbacks, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, CursorShape, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::{CellDiffOption, CellWidth as RatatuiCellWidth};
+    use std::num::NonZeroU16;
 
     #[test]
     fn terminal_cells_drop_control_characters_before_ratatui_diffing() {
@@ -538,6 +626,7 @@ mod tests {
 
         let clipped_lead = draw_crop(0);
         assert_eq!(row_text(clipped_lead.backend().buffer(), 0, 0, 2), "a ");
+        assert_eq!(clipped_lead.backend().buffer()[(1, 0)].diff_option, CellDiffOption::None);
 
         let complete_glyph = draw_crop(1);
         assert_eq!(complete_glyph.backend().buffer()[(0, 0)].symbol(), "界");
@@ -545,6 +634,93 @@ mod tests {
 
         let clipped_tail = draw_crop(2);
         assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
+        assert_eq!(clipped_tail.backend().buffer()[(0, 0)].diff_option, CellDiffOption::None);
+    }
+
+    #[test]
+    fn cropped_grid_places_a_wide_cell_cursor_on_the_lead_cell() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界bc".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let mut render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        // A terminal cursor may be reported on the trailing spacer of a wide
+        // grapheme. The renderer must use the lead column for its placement.
+        render.frame.cursor =
+            Some(CursorInfo { x: 2, y: 0, shape: CursorShape::Block, blinking: false });
+
+        let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 3, height: 1 },
+                        source_x: 1,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        assert_eq!(cursor, Some((0, 0)));
+
+        // Cropping from the spacer itself must not leave a cursor on a blank
+        // partial-glyph cell.
+        let mut output = RatatuiTerminal::new(TestBackend::new(2, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 2, height: 1 },
+                        source_x: 2,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+        assert_eq!(cursor, None);
+
+        // A lead at the right crop edge is also blanked because its spacer
+        // falls outside the live width, so it must not receive a cursor.
+        let mut output = RatatuiTerminal::new(TestBackend::new(1, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 1, height: 1 },
+                        source_x: 1,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+        assert_eq!(cursor, None);
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {
@@ -672,6 +848,115 @@ mod tests {
             apply_cell(&mut target, &cell, &resolver, None);
             assert_eq!(target.symbol(), " ");
         }
+    }
+
+    #[test]
+    fn terminal_cells_keep_ghostty_width_for_ratatui_diffing() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+        let cases = [
+            (CellWidth::Narrow, 1, "ｶﾞ", true),
+            (CellWidth::Wide, 2, "x", true),
+            (CellWidth::Wide, 2, "界", false),
+            (CellWidth::SpacerTail, 1, "", false),
+            (CellWidth::SpacerHead, 1, "", false),
+        ];
+
+        for (width, columns, text, forced) in cases {
+            let cell = VtCell { text: text.to_string(), width, ..VtCell::default() };
+            let mut target = ratatui::buffer::Cell::default();
+            apply_cell(&mut target, &cell, &resolver, None);
+            assert_eq!(
+                target.cell_width(),
+                columns,
+                "Ghostty width {width:?} must remain authoritative"
+            );
+            let expected_diff_option = forced
+                .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
+                .unwrap_or(CellDiffOption::None);
+            assert_eq!(target.diff_option, expected_diff_option);
+        }
+    }
+
+    #[test]
+    fn selected_wide_glyph_styles_both_grid_cells() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界b".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(4, 1)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 4, height: 1 },
+                        source_x: 0,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |col, row| col == 1 && row == 0,
+                );
+            })
+            .unwrap();
+
+        let expected_bg = Theme::default().selection_bg;
+        assert_eq!(output.backend().buffer()[(1, 0)].bg, expected_bg);
+        assert_eq!(output.backend().buffer()[(2, 0)].bg, expected_bg);
+    }
+
+    #[test]
+    fn wrapped_wide_selection_keeps_the_spacer_head_unselected() {
+        let mut terminal = Terminal::new(4, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("ABC橋D".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(4, 3)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 4, height: 3 },
+                        source_x: 0,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    // A row-major range can include the physical spacer head,
+                    // but only the wrapped glyph's lead row is selectable.
+                    |col, row| (col == 3 && row == 0) || (col <= 1 && row == 1),
+                );
+            })
+            .unwrap();
+
+        let buffer = output.backend().buffer();
+        let selection_bg = Theme::default().selection_bg;
+        assert_ne!(buffer[(3, 0)].bg, selection_bg);
+        assert_eq!(buffer[(0, 1)].bg, selection_bg);
+        assert_eq!(buffer[(1, 1)].bg, selection_bg);
     }
 
     #[test]

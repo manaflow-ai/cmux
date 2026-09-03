@@ -685,6 +685,9 @@ mod detach {
     }
 }
 
+// Unix uses the `setsid`-based implementation above. Keep this fallback
+// explicitly limited to targets that are neither Unix nor Windows, where no
+// common process-group detachment API is available.
 #[cfg(not(unix))]
 mod detach {
     use std::io::{Read, Write};
@@ -697,31 +700,29 @@ mod detach {
 
     use super::{DETACHED_MODE_ARG, Handoff};
 
-    /// Respawns this helper detached from the provider's console and process
-    /// group with the request on its stdin, then waits (bounded) for the
-    /// child's one-byte confirmation that the request reached the server
-    /// socket, giving the same ordering and backpressure as the fork path.
+    /// Respawns this helper with the request on its stdin, then waits (bounded)
+    /// for the child's one-byte confirmation that the request reached the
+    /// server socket, giving the same ordering and backpressure as the fork
+    /// path. Windows adds process-detachment flags; other non-Unix targets use
+    /// a regular child spawn because Rust has no common process-group API for
+    /// them.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
     ) -> anyhow::Result<Handoff> {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = super::DetachedChildGuard::new(
-            Command::new(exe)
-                .arg(DETACHED_MODE_ARG)
-                .env("CMUX_TUI_SOCKET", socket)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-                .spawn()
-                .context("spawn detached hook child")?,
-        );
+        let mut command = Command::new(exe);
+        command
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_detached_command(&mut command);
+        let mut child =
+            super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
         let mut stdin =
             child.child_mut().stdin.take().context("detached hook child has no stdin")?;
         let mut stdout =
@@ -746,6 +747,18 @@ mod detach {
         super::settle_detached_child(child, reader);
         Ok(outcome)
     }
+
+    #[cfg(windows)]
+    fn configure_detached_command(command: &mut Command) {
+        use std::os::windows::process::CommandExt;
+
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
+    fn configure_detached_command(_command: &mut Command) {}
 }
 
 fn random_identifiers() -> anyhow::Result<(String, String)> {
