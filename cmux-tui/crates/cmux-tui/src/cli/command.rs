@@ -3018,13 +3018,19 @@ mod tests {
         let mut flags = Flags::default();
         flags.values.insert("creates".into(), Some("100000".into()));
         flags.values.insert("clients".into(), Some("100000".into()));
-        let error = parse_bench(&strings(&["interact"]), &mut flags).unwrap_err();
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("unbounded clients must be rejected"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("--clients must be at most"));
 
         let mut flags = Flags::default();
         flags.values.insert("creates".into(), Some("100000".into()));
         flags.values.insert("clients".into(), Some("2".into()));
-        let error = parse_bench(&strings(&["interact"]), &mut flags).unwrap_err();
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("unbounded request count must be rejected"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("total benchmark requests"));
     }
 
