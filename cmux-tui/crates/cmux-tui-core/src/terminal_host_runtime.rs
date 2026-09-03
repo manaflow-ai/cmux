@@ -3173,15 +3173,52 @@ mod unix {
         }
 
         fn release(&self, bytes: usize) {
-            let mut queued = self.queued_bytes.lock().unwrap();
-            *queued =
-                queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+            let mut queued =
+                self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *queued >= bytes {
+                *queued -= bytes;
+            } else if self.parser_alive.load(Ordering::Acquire) {
+                panic!("parser budget released more bytes than reserved");
+            } else {
+                // parser_stopped discards reservations owned by a failed
+                // worker. A queued send can still report failure after that
+                // reset, and its cleanup must remain panic-safe.
+                *queued = 0;
+            }
             self.available.notify_all();
         }
 
         fn parser_stopped(&self) {
             self.parser_alive.store(false, Ordering::Release);
+            let mut queued =
+                self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *queued = 0;
             self.available.notify_all();
+        }
+
+        fn reservation(&self, bytes: usize) -> ParserBudgetReservation<'_> {
+            ParserBudgetReservation { budget: self, bytes, active: true }
+        }
+    }
+
+    struct ParserBudgetReservation<'a> {
+        budget: &'a ParserBudget,
+        bytes: usize,
+        active: bool,
+    }
+
+    impl ParserBudgetReservation<'_> {
+        fn into_accounted_bytes(mut self) -> usize {
+            self.active = false;
+            self.bytes
+        }
+    }
+
+    impl Drop for ParserBudgetReservation<'_> {
+        fn drop(&mut self) {
+            if self.active {
+                self.budget.release(self.bytes);
+            }
         }
     }
 
@@ -3209,8 +3246,9 @@ mod unix {
         smart: &SmartStreamState,
         bytes: Vec<u8>,
         source_cursor: u64,
-        accounted_bytes: usize,
+        reservation: ParserBudgetReservation<'_>,
     ) -> bool {
+        let accounted_bytes = reservation.into_accounted_bytes();
         if parser_commands
             .send(ParserCommand::Output { bytes, source_cursor, accounted_bytes })
             .is_ok()
@@ -5294,6 +5332,7 @@ mod unix {
                 if !reader_host.parser_budget.reserve(count) {
                     break;
                 }
+                let reservation = reader_host.parser_budget.reservation(count);
                 // Publication deliberately precedes parser enqueue. The
                 // bounded queue limits memory while letting a fast renderer
                 // consume source bytes independently of parser throughput.
@@ -5305,7 +5344,7 @@ mod unix {
                     &reader_host.smart,
                     bytes,
                     source_cursor,
-                    count,
+                    reservation,
                 ) {
                     break;
                 }
@@ -8899,6 +8938,7 @@ mod unix {
             let failed = state.publish(Frame::new(MessageKind::Output, vec![1, 2, 3]));
             let budget = ParserBudget::new(3);
             budget.reserve(3);
+            let reservation = budget.reservation(3);
             let (parser_sender, parser_receiver) = sync_channel(1);
             drop(parser_receiver);
 
@@ -8908,7 +8948,7 @@ mod unix {
                 &state,
                 vec![1, 2, 3],
                 failed,
-                3,
+                reservation,
             ));
 
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
