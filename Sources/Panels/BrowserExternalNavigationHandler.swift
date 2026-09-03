@@ -54,6 +54,15 @@ struct BrowserExternalNavigationHandler {
         return policyCache.currentPolicy().matches(target)
     }
 
+    /// True when a link the user chose outside a web view (a sidebar
+    /// pull-request or port link) should bypass the embedded browser and go
+    /// to the system browser. Restricted to web schemes; other schemes have
+    /// their own external-open routing.
+    func linkEscapesToSystemBrowser(_ url: URL) -> Bool {
+        guard Self.isWebNavigationURL(url) else { return false }
+        return shouldOpenExternally(url)
+    }
+
     /// Returns whether a user-activated main-frame navigation should be external.
     func shouldOpenExternally(
         _ url: URL,
