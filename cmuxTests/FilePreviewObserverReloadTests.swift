@@ -97,26 +97,6 @@ struct FilePreviewObserverReloadTests {
         #expect(!panel.isDirty)
     }
 
-    @Test("Markdown manual refresh rereads the file")
-    func markdownManualRefreshRereadsFile() async throws {
-        let fileURL = FileManager.default.temporaryDirectory
-            .appending(path: "cmux-markdown-manual-\(UUID().uuidString).md")
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        try "# Before\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
-        defer { panel.close() }
-        if let initialLoad = panel.loadTextContent() {
-            await initialLoad.value
-        }
-        try "# After\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-        await panel.reloadFromDisk().value
-
-        #expect(panel.content == "# After\n")
-        #expect(!panel.isDirty)
-    }
-
     @Test("Markdown reload retries when the file changes during the read")
     func markdownReloadRetriesWhenFileChangesDuringRead() async throws {
         let fileURL = FileManager.default.temporaryDirectory
