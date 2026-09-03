@@ -1007,6 +1007,7 @@ mod tests {
     use futures_util::{SinkExt as _, StreamExt as _};
     use serde_json::Value;
     use std::io;
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message;
 
