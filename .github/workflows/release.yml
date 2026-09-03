@@ -338,10 +338,7 @@ jobs:
           TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
           echo "Tunnel extension architectures: $TUNNEL_ARCHS"
           [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
-          if nm "$TUNNEL_BINARY" | grep -q cmux_wireguard_go_bridge_is_stub; then
-            echo "Cloud tunnel extension was built with the stub WireGuard bridge (Go missing at build time)" >&2
-            exit 1
-          fi
+          ./scripts/verify-tunnel-extension-engine.sh "$TUNNEL_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 

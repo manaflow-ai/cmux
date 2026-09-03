@@ -670,6 +670,7 @@
 		7A0CE1000000000000000029 /* CloudTunnelBackendSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000003 /* CloudTunnelBackendSelector.swift */; };
 		7A0CE1000000000000000106 /* CloudTunnelBackendSelectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */; };
 		7A0CE1000000000000000030 /* CloudTunnelBroadcast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000004 /* CloudTunnelBroadcast.swift */; };
+		7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */; };
 		7A0CE1000000000000000031 /* CloudTunnelConsumerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000005 /* CloudTunnelConsumerSource.swift */; };
 		7A0CE1000000000000000032 /* CloudTunnelControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000006 /* CloudTunnelControlling.swift */; };
 		7A0CE1000000000000000034 /* CloudTunnelCoordinator+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000008 /* CloudTunnelCoordinator+Live.swift */; };
@@ -3898,6 +3899,7 @@
 		7A0CE1000000000000000003 /* CloudTunnelBackendSelector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelBackendSelector.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelBackendSelectorTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000004 /* CloudTunnelBroadcast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelBroadcast.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelBroadcastTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000005 /* CloudTunnelConsumerSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelConsumerSource.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000006 /* CloudTunnelControlling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelControlling.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000008 /* CloudTunnelCoordinator+Live.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudTunnelCoordinator+Live.swift"; sourceTree = "<group>"; };
@@ -8890,6 +8892,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */,
 				7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */,
 				7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */,
+				7A0CE1000000000000000601 /* CloudTunnelBroadcastTests.swift */,
 				7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */,
 				A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */,
 				F17A5F020000000000000002 /* FocusedPanelFlashShortcutTests.swift */,
@@ -12593,6 +12596,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */,
 				45F29E8BB64E4EE4BF204AC7 /* CloudTreeOneMachineManyWorkspacesTests.swift in Sources */,
 				7A0CE1000000000000000106 /* CloudTunnelBackendSelectorTests.swift in Sources */,
+				7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */,
 				7A0CE1000000000000000104 /* CloudTunnelCoordinatorTests.swift in Sources */,
 				7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */,
 				C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */,

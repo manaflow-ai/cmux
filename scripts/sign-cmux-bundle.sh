@@ -86,7 +86,6 @@ fi
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
-TUNNEL_STUB_MARKER="cmux_wireguard_go_bridge_is_stub"
 
 case "$(basename "$APP_ENTITLEMENTS")" in
   *nightly*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.nightly.entitlements" ;;
@@ -168,10 +167,9 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
         echo "error: $name has no embedded.provisionprofile. The app's profile grants the Cloud tunnel, so the extension needs its own Developer ID profile (App ID <app>.tunnel with Network Extensions). Embed it before signing or ship without the tunnel capability." >&2
         exit 1
       fi
-      if /usr/bin/nm "$binary" 2>/dev/null | grep -q "$TUNNEL_STUB_MARKER"; then
-        echo "error: $name was built with the stub WireGuard bridge (no Go toolchain at build time); refusing to ship a tunnel that cannot carry traffic" >&2
-        exit 1
-      fi
+      # Real engine or nothing: the stub cannot carry traffic (see the verifier
+      # for why a section check beats a marker symbol after stripping).
+      "$SCRIPT_DIR/verify-tunnel-extension-engine.sh" "$binary"
       echo "==> signing system extension $name"
       /usr/bin/codesign "${COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
     done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)

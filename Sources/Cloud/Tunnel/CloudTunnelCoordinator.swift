@@ -42,8 +42,8 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// True from a failed start until ``CloudTunnelTiming/failureBackoff`` elapses (or an explicit up/down).
     private(set) var isInFailureBackoff = false
     private var linkObservation: Task<Void, Never>?
-    private var stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
-    private var linkBroadcast = CloudTunnelBroadcast<CloudTunnelLinkStatus>()
+    private let stateBroadcast = CloudTunnelBroadcast<CloudTunnelState>()
+    private let linkBroadcast = CloudTunnelBroadcast<CloudTunnelLinkStatus>()
 
     init(
         backend: CloudTunnelBackend,
