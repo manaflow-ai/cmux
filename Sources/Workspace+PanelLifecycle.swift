@@ -136,6 +136,180 @@ extension Workspace {
         return false
     }
 
+    /// Stable composer-ownership epoch for a panel's supported live agent.
+    ///
+    /// Process identity is part of the scope so replacing an agent under the
+    /// same session key cannot inherit the prior process's draft boundaries.
+    /// Hook-capable agents can later confirm a boundary; hookless agents remain
+    /// fail-closed when unconfirmed input is present. The current owner remains
+    /// stable while unrelated process metadata comes and goes.
+    func agentPromptInputScope(forPanelId panelId: UUID) -> String? {
+        let currentScope = terminalPanel(for: panelId)?.surface
+            .currentPromptInputAgentScope
+        var firstCandidate: (key: String, scope: String)?
+        for key in agentPIDKeysByPanelId[panelId] ?? [] {
+            let context = "agentPIDKey:\(key)"
+            guard isPromptCapableAgentPIDKey(key),
+                  let pid = agentPIDs[key],
+                  pid > 0,
+                  let identity = agentPIDProcessIdentitiesByKey[key],
+                  isRecordedAgentPIDLive(key: key, pid: pid) else {
+                continue
+            }
+            let scope = [
+                context,
+                "pid:\(identity.pid)",
+                "start:\(identity.startSeconds).\(identity.startMicroseconds)",
+            ].joined(separator: "|")
+            if scope == currentScope {
+                return scope
+            }
+            if let candidate = firstCandidate {
+                if key < candidate.key {
+                    firstCandidate = (key, scope)
+                }
+            } else {
+                firstCandidate = (key, scope)
+            }
+        }
+        if let firstCandidate {
+            return firstCandidate.scope
+        }
+
+        return nil
+    }
+
+    /// Whether a hook session token belongs to the currently live agent bound
+    /// to a panel. This prevents delayed hooks from an older process from
+    /// changing the replacement panel's prompt state.
+    func agentPromptHookMatchesSession(
+        panelId: UUID,
+        hookSource: String,
+        sessionID: String,
+        hookProcessID: Int?
+    ) -> Bool {
+        guard let hookProcessID,
+              hookProcessID > 0,
+              let hookIdentity = AgentPIDProcessIdentity(
+                  pid: pid_t(hookProcessID)
+              ) else {
+            return false
+        }
+        let normalizedSource = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSource.isEmpty,
+              !normalizedSessionID.isEmpty else {
+            return false
+        }
+        let sourceContext = "agentPIDKey:\(normalizedSource)"
+        for key in agentPIDKeysByPanelId[panelId] ?? [] {
+            guard isPromptCapableAgentPIDKey(key),
+                  let separator = key.firstIndex(of: "."),
+                  let pid = agentPIDs[key],
+                  pid == pid_t(hookProcessID),
+                  let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+                  recordedIdentity == hookIdentity,
+                  isRecordedAgentPIDLive(key: key, pid: pid) else {
+                continue
+            }
+            let recordedSessionID = key[key.index(after: separator)...]
+            guard agentPromptSessionIDsMatch(
+                recordedSessionID: String(recordedSessionID),
+                hookSessionID: normalizedSessionID,
+                hookSource: normalizedSource
+            ) else {
+                continue
+            }
+            if TextBoxAgentDetection.representsSameAgentKind(
+                "agentPIDKey:\(key)",
+                sourceContext
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Compares the session token stored in an agent PID key with the
+    /// workstream token. Feed telemetry prefixes the raw token with its source
+    /// (`codex-<session>`), while the PID key stores the raw session; both are
+    /// the same process identity and must match case-insensitively.
+    func agentPromptSessionIDsMatch(
+        recordedSessionID: String,
+        hookSessionID: String,
+        hookSource: String
+    ) -> Bool {
+        let recorded = recordedSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let hook = hookSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let source = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !recorded.isEmpty, !hook.isEmpty else { return false }
+        if recorded.caseInsensitiveCompare(hook) == .orderedSame {
+            return true
+        }
+        guard !source.isEmpty else { return false }
+        let prefixes = [source, "agentPIDKey:\(source)"]
+        return prefixes.contains { prefix in
+            let prefixWithSeparator = "\(prefix)-"
+            guard hook.lowercased().hasPrefix(
+                prefixWithSeparator.lowercased()
+            ) else {
+                return false
+            }
+            return String(hook.dropFirst(prefixWithSeparator.count))
+                .caseInsensitiveCompare(recorded) == .orderedSame
+        }
+    }
+
+    private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
+        let scope = agentPromptInputScope(forPanelId: panelId)
+        let terminalPanel = terminalPanel(for: panelId)
+        let hasTrackedPromptAgent = agentPIDKeysByPanelId[panelId]?.contains {
+            isPromptCapableAgentPIDKey($0)
+        } == true
+        let isAgentPromptResumePending =
+            terminalPanel?.agentPromptResumePending == true
+        let controlReturnIsPromptSubmissionBoundary = scope.map {
+            let activeAgentContext = String(
+                $0.prefix { character in character != "|" }
+            )
+            return TextBoxAgentDetection.isClaudeCode(
+                context: activeAgentContext
+            )
+        }
+        terminalPanel?.surface
+            .synchronizePromptInputAgentScope(
+                scope,
+                controlReturnIsPromptSubmissionBoundary:
+                    controlReturnIsPromptSubmissionBoundary
+            )
+        if scope != nil {
+            if panelShellActivityStates[panelId] == .promptIdle {
+                _ = markAgentPromptResumeReady(panelId: panelId)
+            } else if terminalPanel?.agentPromptResumePending != true {
+                drainAgentPromptQueueIfReady(panelId: panelId)
+            }
+        } else if !hasTrackedPromptAgent && !isAgentPromptResumePending {
+            // No remaining cmux-owned agent binding means queued messages for
+            // this surface cannot safely target a replacement process. A
+            // hibernation resume is the exception: its replacement is still
+            // binding and the queue must survive the shell's idle callback.
+            TerminalController.shared.discardAgentPromptQueue(
+                surfaceID: panelId,
+                workspaceID: id
+            )
+        }
+    }
+
     private func removeAgentPIDOwnership(key: String) {
         if let previousPanelId = agentPIDPanelIdsByKey[key] {
             agentPIDKeysByPanelId[previousPanelId]?.remove(key)
@@ -146,7 +320,11 @@ extension Workspace {
         }
     }
 
-    private func recordAgentPIDOwnership(key: String, panelId: UUID) {
+    private func recordAgentPIDOwnership(
+        key: String,
+        panelId: UUID,
+        synchronizePromptInputScope: Bool = true
+    ) {
         if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
             removeAgentPIDOwnership(key: key)
         }
@@ -158,7 +336,13 @@ extension Workspace {
                 agentStatusKey(forAgentPIDKey: $0) != statusKey
             } ?? []
             for staleKey in stalePanelKeys {
-                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
+                _ = clearAgentPID(
+                    key: staleKey,
+                    panelId: panelId,
+                    clearStatus: true,
+                    refreshPorts: false,
+                    synchronizePromptInputScope: synchronizePromptInputScope
+                )
             }
         }
         agentPIDPanelIdsByKey[key] = panelId
@@ -166,34 +350,84 @@ extension Workspace {
     }
 
     @discardableResult
-    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+    private func clearOtherStructuredAgentRuntimes(
+        onPanel panelId: UUID,
+        keeping retainedKey: String,
+        synchronizePromptInputScope: Bool
+    ) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
-            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
+            if clearAgentPID(
+                key: staleKey,
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false,
+                synchronizePromptInputScope: synchronizePromptInputScope
+            ) {
                 didChange = true
             }
         }
         return didChange
     }
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        refreshPorts: Bool = true,
+        synchronizePromptInputScope: Bool = true
+    ) -> Bool {
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
             identity: agentPIDProcessIdentitiesByKey[key]
         )
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        // Replace a structured binding as one scope transition. Clearing the
+        // old key first is otherwise observable as "no agent" and discards a
+        // queued prompt before the replacement key is installed.
+        let deferReplacementScopeSynchronization =
+            synchronizePromptInputScope
+                && panelId != nil
+                && isStructuredAgentHookPIDKey(key)
+        let interimScopeSynchronization =
+            deferReplacementScopeSynchronization
+                ? false
+                : synchronizePromptInputScope
+        if let panelId {
+            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(
+                onPanel: panelId,
+                keeping: key,
+                synchronizePromptInputScope: interimScopeSynchronization
+            )
+        }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
-        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let panelId {
+            recordAgentPIDOwnership(
+                key: key,
+                panelId: panelId,
+                synchronizePromptInputScope: interimScopeSynchronization
+            )
+        } else {
+            removeAgentPIDOwnership(key: key)
+        }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+                if synchronizePromptInputScope {
+                    synchronizePromptInputAgentScope(forPanelId: changedPanelId)
+                }
             }
+        } else if didClearOtherStructuredAgentRuntime,
+                  synchronizePromptInputScope,
+                  let panelId {
+            // The retained key was already present, but stale sibling keys
+            // were removed; reconcile once after the complete replacement.
+            synchronizePromptInputAgentScope(forPanelId: panelId)
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime
@@ -238,10 +472,14 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        let previouslyOwnedPanelIds = Set(agentPIDPanelIdsByKey.values)
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        for panelId in previouslyOwnedPanelIds {
+            synchronizePromptInputAgentScope(forPanelId: panelId)
+        }
         if refreshPorts {
             refreshTrackedAgentPorts()
         } else {
@@ -299,13 +537,26 @@ extension Workspace {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
 
+    /// Whether a tracked agent key can own a recoverable prompt composer.
+    func isPromptCapableAgentPIDKey(_ key: String) -> Bool {
+        // Only cmux's structured hook bindings can provide an authoritative
+        // prompt boundary. A key may be tracked while its process identity is
+        // temporarily unavailable; that is still a target with a retryable
+        // scope gap rather than an unrelated/not-found agent.
+        isStructuredAgentHookPIDKey(key)
+            && TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                context: "agentPIDKey:\(key)"
+            )
+    }
+
     @discardableResult
     func clearAgentPID(
         key: String,
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         requireOwnedKey: Bool = false,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        synchronizePromptInputScope: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if requireOwnedKey, ownedPanelId == nil {
@@ -315,6 +566,7 @@ extension Workspace {
             return false
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        let updatesPromptInputScope = isStructuredAgentHookPIDKey(key)
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -327,7 +579,15 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
-        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
+        if let changedPanelId = ownedPanelId ?? panelId, didChange {
+            AgentHibernationController.shared.recordAgentProcessChange(
+                workspaceId: id,
+                panelId: changedPanelId
+            )
+            if updatesPromptInputScope && synchronizePromptInputScope {
+                synchronizePromptInputAgentScope(forPanelId: changedPanelId)
+            }
+        }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
@@ -375,11 +635,20 @@ extension Workspace {
     }
 
     @discardableResult
-    private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
+    private func discardAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        synchronizePromptInputScope: Bool = true
+    ) -> Bool {
         guard let runtimeState else { return false }
         var didChange = false
         for key in runtimeState.agentPIDKeys {
-            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
+            if clearAgentPID(
+                key: key,
+                panelId: runtimeState.panelId,
+                clearStatus: true,
+                refreshPorts: false,
+                synchronizePromptInputScope: synchronizePromptInputScope
+            ) {
                 didChange = true
             }
         }
@@ -402,18 +671,29 @@ extension Workspace {
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: runtimeState.panelId,
+                refreshPorts: false,
+                synchronizePromptInputScope: false
+            )
             if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
                 agentPIDProcessIdentitiesByKey[key] = recordedIdentity
             }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
-            recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+            recordAgentPIDOwnership(
+                key: key,
+                panelId: runtimeState.panelId,
+                synchronizePromptInputScope: false
+            )
         }
         for (key, lifecycle) in runtimeState.agentLifecycleStates {
             setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
         }
+        synchronizePromptInputAgentScope(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -521,6 +801,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
@@ -536,7 +817,14 @@ extension Workspace {
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
-        discardAgentRuntimeState(closedAgentRuntimeState)
+        // A successful detach carries the captured runtime to the destination
+        // (or a rollback source). Keep the prompt scope untouched until that
+        // destination has installed the final process identity; otherwise the
+        // transient empty source binding would discard queued submissions.
+        discardAgentRuntimeState(
+            closedAgentRuntimeState,
+            synchronizePromptInputScope: !preservesTerminalForTransfer
+        )
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

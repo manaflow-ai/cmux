@@ -11,6 +11,8 @@ public struct CmuxCLIArgumentParser: Sendable {
         public let idFormat: String?
         /// Arguments forwarded to the command-specific parser.
         public let remaining: [String]
+        /// Whether the `send` command requested addressed atomic delivery.
+        public let atomic: Bool
 
         /// Creates a parsed presentation-options result.
         ///
@@ -18,10 +20,16 @@ public struct CmuxCLIArgumentParser: Sendable {
         ///   - jsonOutput: Whether JSON output was requested.
         ///   - idFormat: The optional identifier format.
         ///   - remaining: Arguments that are not presentation options.
-        public init(jsonOutput: Bool, idFormat: String?, remaining: [String]) {
+        public init(
+            jsonOutput: Bool,
+            idFormat: String?,
+            remaining: [String],
+            atomic: Bool = false
+        ) {
             self.jsonOutput = jsonOutput
             self.idFormat = idFormat
             self.remaining = remaining
+            self.atomic = atomic
         }
     }
 
@@ -54,6 +62,12 @@ public struct CmuxCLIArgumentParser: Sendable {
         "--workspace", "--checkpoint", "--checkpoint-id",
     ]
 
+    private static let literalOptionValueBoundaries: Set<String> = [
+        "--",
+        "--json",
+        "--id-format",
+    ]
+
     /// Creates the parser with cmux's command-option vocabulary.
     public init() {}
 
@@ -66,9 +80,33 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// - Parameter commandArgs: Arguments after the top-level command.
     /// - Returns: The presentation flags and the command arguments to forward.
     /// - Throws: ``ParseError/missingIDFormatValue`` when `--id-format` has no value.
-    public func parse(_ commandArgs: [String]) throws -> Result {
+    public func parse(
+        _ commandArgs: [String],
+        command: String? = nil
+    ) throws -> Result {
+        if command == "send" {
+            return try parseSend(commandArgs)
+        }
+        return try parseGeneral(commandArgs)
+    }
+
+    private func parseGeneral(_ commandArgs: [String]) throws -> Result {
+        try parsePresentationOptions(
+            commandArgs,
+            booleanFlags: [],
+            literalOptions: []
+        )
+    }
+
+    /// Parses presentation flags once for commands with optional command-specific rules.
+    private func parsePresentationOptions(
+        _ commandArgs: [String],
+        booleanFlags: Set<String>,
+        literalOptions: Set<String>
+    ) throws -> Result {
         var jsonOutput = false
         var idFormat: String?
+        var atomic = false
         var remaining: [String] = []
         var index = 0
         var pastTerminator = false
@@ -98,12 +136,30 @@ public struct CmuxCLIArgumentParser: Sendable {
                 index += 2
                 continue
             }
+            if booleanFlags.contains(arg) {
+                atomic = true
+                index += 1
+                continue
+            }
             if !arg.hasPrefix("-") {
                 remaining.append(arg)
                 index += 1
                 continue
             }
             remaining.append(arg)
+            if literalOptions.contains(arg) {
+                // A legacy literal option such as `--agent` keeps its value
+                // in the command arguments, but must not consume a
+                // presentation option that follows it.
+                if index + 1 < commandArgs.count,
+                   !Self.literalOptionValueBoundaries.contains(commandArgs[index + 1]) {
+                    remaining.append(commandArgs[index + 1])
+                    index += 2
+                } else {
+                    index += 1
+                }
+                continue
+            }
             if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
                 remaining.append(commandArgs[index + 1])
                 index += 2
@@ -111,6 +167,21 @@ public struct CmuxCLIArgumentParser: Sendable {
             }
             index += 1
         }
-        return Result(jsonOutput: jsonOutput, idFormat: idFormat, remaining: remaining)
+        return Result(
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            remaining: remaining,
+            atomic: atomic
+        )
+    }
+
+    /// Parses `send` with its command-specific boolean flag before generic
+    /// option-value preservation can reinterpret prompt text.
+    private func parseSend(_ commandArgs: [String]) throws -> Result {
+        try parsePresentationOptions(
+            commandArgs,
+            booleanFlags: ["--atomic"],
+            literalOptions: ["--agent"]
+        )
     }
 }

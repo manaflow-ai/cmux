@@ -40,6 +40,7 @@ extension TerminalPanel {
             return false
         }
         agentHibernationPhase = .hibernated(state)
+        agentPromptResumePending = false
         return true
     }
 
@@ -98,6 +99,7 @@ extension TerminalPanel {
     func discardAgentHibernationPhaseForPermanentClose() {
         onRequestAgentHibernationTerminationRetry = nil
         agentHibernationPhase = .live
+        agentPromptResumePending = false
     }
 
     func retryAgentHibernationTermination() {
@@ -127,6 +129,7 @@ extension TerminalPanel {
             return .unavailable
         }
         agentHibernationPhase = .live
+        agentPromptResumePending = true
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return .resumed(queuedStartupInput: resumeStartupInput != nil)

@@ -120,7 +120,10 @@ extension DockSplitStore {
             guard let terminal = focusedDockTerminalPanel else {
                 return false
             }
-            let result = terminal.sendNamedKeyResult("ctrl-f")
+            let result = terminal.sendNamedKeyResult(
+                "ctrl-f",
+                recordsPromptInput: false
+            )
             if result == .sent {
                 terminal.surface.forceRefresh(
                     reason: "dock.sendCtrlFToFocusedTerminal"

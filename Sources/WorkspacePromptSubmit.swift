@@ -146,14 +146,18 @@ extension TabManager {
     func handlePromptSubmit(
         workspaceId: UUID,
         message: String?,
-        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
+        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled(),
+        source: String = "workspace.prompt_submit",
+        messageID: UUID? = nil
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
-            reorderWithoutMessage: true
+            reorderWithoutMessage: true,
+            promptSubmissionSource: source,
+            promptSubmissionMessageID: messageID
         )
     }
 
@@ -168,7 +172,9 @@ extension TabManager {
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .assistantFinal,
-            reorderWithoutMessage: false
+            reorderWithoutMessage: false,
+            promptSubmissionSource: nil,
+            promptSubmissionMessageID: nil
         )
     }
 
@@ -177,7 +183,9 @@ extension TabManager {
         message: String?,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
-        reorderWithoutMessage: Bool
+        reorderWithoutMessage: Bool,
+        promptSubmissionSource: String?,
+        promptSubmissionMessageID: UUID?
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         guard let originalIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else {
             return nil
@@ -193,7 +201,9 @@ extension TabManager {
                 CmuxEventBus.shared.publishWorkspacePromptSubmitted(
                     workspaceId: workspaceId,
                     message: message,
-                    preview: Workspace.conversationMessagePreview(from: message)
+                    preview: Workspace.conversationMessagePreview(from: message),
+                    source: promptSubmissionSource ?? "workspace.prompt_submit",
+                    messageID: promptSubmissionMessageID
                 )
             }
         case .assistantFinal:

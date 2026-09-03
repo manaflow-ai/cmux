@@ -94,6 +94,8 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// Keeps addressed prompts queued while a hibernated agent is rebinding.
+    var agentPromptResumePending = false
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -676,6 +678,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        TerminalController.shared.discardAgentPromptQueue(
+            surfaceID: id,
+            workspaceID: workspaceId,
+            discardAttachments: true
+        )
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
@@ -743,9 +750,72 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+    func sendNamedKeyResult(
+        _ keyName: String,
+        recordsPromptInput: Bool = true
+    ) -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendNamedKey(keyName)
+        return surface.sendNamedKey(
+            keyName,
+            recordsPromptInput: recordsPromptInput
+        )
+    }
+
+    /// Delivers one complete agent prompt transaction, including any app-owned
+    /// preparation keys, without touching a human-owned TextBox draft or
+    /// merging with unconfirmed physical terminal input. Guarded callers fail
+    /// closed while the agent scope is unavailable; the app-level service
+    /// retains that request for retry.
+    /// The optional message ID is forwarded into the surface ledger so live
+    /// and cold delivery share one confirmation identity.
+    @discardableResult
+    func sendPromptSubmissionResult(
+        _ text: String,
+        submitKey: String,
+        preparationKeys: [String] = [],
+        agentInputScope: String?,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool = false,
+        deferDuringRuntimeClipboardRead: Bool = true,
+        messageID: UUID? = nil
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        if rejectIfHumanComposerBusy {
+            guard let agentInputScope else {
+                return .agentScopeUnavailable
+            }
+            guard !terminalComposerIsBusy(
+                agentInputScope: agentInputScope
+            ) else {
+                return .composerBusy
+            }
+        } else {
+            surface.synchronizePromptInputAgentScope(agentInputScope)
+        }
+        resumeForExplicitInputIfNeeded()
+        return surface.sendPromptSubmission(
+            text,
+            submitKey: submitKey,
+            preparationKeys: preparationKeys,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmsHumanInput: hookConfirmsHumanInput,
+            deferDuringRuntimeClipboardRead: deferDuringRuntimeClipboardRead,
+            messageID: messageID
+        )
+    }
+
+    /// Synchronizes the agent ownership epoch and reports whether the terminal
+    /// TUI composer can contain a human draft.
+    ///
+    /// The native TextBox is separate app-owned state: a compound terminal
+    /// submission bypasses it and therefore preserves that draft as its own
+    /// future submission. The terminal composer cannot be extracted safely, so
+    /// unconfirmed input is reported to the app-level queue rather than
+    /// overwritten.
+    func terminalComposerIsBusy(agentInputScope: String?) -> Bool {
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        return surface.hasUnconfirmedHumanPromptInput
     }
 
     @discardableResult

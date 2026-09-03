@@ -968,3 +968,90 @@ extension Workspace {
         )
     }
 }
+
+extension Workspace {
+    /// Bounds a hook-observed turn so one missed stop hook cannot block
+    /// addressed prompt delivery indefinitely.
+    static let activeAgentTurnMaximumAge: TimeInterval = 2 * 60 * 60
+
+    /// Records a hook-observed agent turn start for the panel and session.
+    func recordAgentTurnStart(panelId: UUID, sessionID: String) {
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSessionID.isEmpty else { return }
+        activeAgentTurnStartsByPanelId[panelId] = AgentTurnStartRecord(
+            sessionID: normalizedSessionID,
+            startedAt: Date()
+        )
+    }
+
+    /// Returns the deadline at which a hook-observed turn stops blocking delivery.
+    func activeAgentTurnExpiryDate(panelId: UUID) -> Date? {
+        activeAgentTurnStartsByPanelId[panelId]?.startedAt
+            .addingTimeInterval(Self.activeAgentTurnMaximumAge)
+    }
+
+    /// Clears a turn only when the stop hook belongs to its recorded session.
+    ///
+    /// An unresolvable panel or session is deliberately a no-op: clearing all
+    /// workspace turns on an ambiguous stop would let a stale process release
+    /// a replacement agent.
+    @discardableResult
+    func recordAgentTurnEnd(panelId: UUID?, sessionID: String) -> Bool {
+        guard let panelId,
+              let activeTurn = activeAgentTurnStartsByPanelId[panelId] else {
+            return false
+        }
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSessionID.isEmpty,
+              activeTurn.sessionID.caseInsensitiveCompare(normalizedSessionID)
+                == .orderedSame else {
+            return false
+        }
+        activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
+        return true
+    }
+
+    /// Whether a hook-observed agent turn currently owns the panel's
+    /// composer. Stale entries expire in place.
+    func hasActiveAgentTurn(panelId: UUID, now: Date = Date()) -> Bool {
+        guard let record = activeAgentTurnStartsByPanelId[panelId] else {
+            return false
+        }
+        guard now.timeIntervalSince(record.startedAt) < Self.activeAgentTurnMaximumAge else {
+            activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
+            return false
+        }
+        return true
+    }
+
+    /// Marks a resumed panel ready after an authoritative hook or shell-idle
+    /// signal, then drains only when the canonical agent scope is available.
+    @discardableResult
+    func markAgentPromptResumeReady(panelId: UUID) -> Bool {
+        guard let panel = terminalPanel(for: panelId),
+              panel.surface.surface != nil else {
+            return false
+        }
+        let wasPending = panel.agentPromptResumePending
+        panel.agentPromptResumePending = false
+        drainAgentPromptQueueIfReady(panelId: panelId)
+        return wasPending
+    }
+
+    /// Drains the addressed-prompt FIFO only after the panel's current runtime
+    /// and process identity have both converged.
+    func drainAgentPromptQueueIfReady(panelId: UUID) {
+        guard let panel = terminalPanel(for: panelId),
+              !panel.agentPromptResumePending,
+              panel.surface.surface != nil,
+              agentPromptInputScope(forPanelId: panelId) != nil,
+              !hasActiveAgentTurn(panelId: panelId) else {
+            return
+        }
+        TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+    }
+}
