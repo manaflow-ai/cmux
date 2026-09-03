@@ -1755,6 +1755,8 @@ pub(crate) struct TerminalStreamProgress {
     next_resource_waiter_id: AtomicU64,
     state: Mutex<TerminalStreamProgressState>,
     changed: Condvar,
+    #[cfg(test)]
+    test_before_notify: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -1813,6 +1815,8 @@ impl Default for TerminalStreamProgress {
             next_resource_waiter_id: AtomicU64::new(1),
             state: Mutex::new(TerminalStreamProgressState::default()),
             changed: Condvar::new(),
+            #[cfg(test)]
+            test_before_notify: Mutex::new(None),
         }
     }
 }
@@ -1823,6 +1827,10 @@ impl TerminalStreamProgress {
     }
 
     pub(crate) fn notify(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.test_before_notify.lock().unwrap().clone() {
+            hook();
+        }
         let mut state = self.state.lock().unwrap();
         state.revision = state.revision.wrapping_add(1);
         // An expired budget is retained only while the stream is unchanged.
@@ -1836,6 +1844,11 @@ impl TerminalStreamProgress {
         for wake in resource_waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
             wake.notify();
         }
+    }
+
+    #[cfg(test)]
+    fn set_before_notify_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.test_before_notify.lock().unwrap() = hook;
     }
 
     fn notify_reconnect(&self) {
@@ -8732,6 +8745,67 @@ mod tests {
         assert_eq!(surface.try_with_terminal(|term| term.history_rows()).unwrap(), 0);
 
         assert_eq!(progress.revision(), revision_before);
+    }
+
+    #[test]
+    fn terminal_snapshot_cannot_pair_new_text_with_an_old_revision() {
+        let mux = Mux::new_for_test("terminal-snapshot-boundary", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let progress = &surface.as_pty().unwrap().stream_progress;
+        let revision_before = progress.revision();
+        let (notify_started_tx, notify_started_rx) = sync_channel(1);
+        let (release_notify_tx, release_notify_rx) = sync_channel(1);
+        progress.set_before_notify_hook(Some(Arc::new(move || {
+            notify_started_tx.send(()).unwrap();
+            release_notify_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("snapshot test did not release the notification boundary");
+        })));
+
+        let update_surface = surface.clone();
+        let update = std::thread::spawn(move || {
+            update_surface.apply_stream_output_for_test(b"new-output").unwrap();
+        });
+        notify_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("output did not reach the notification boundary");
+
+        let (snapshot_entered_tx, snapshot_entered_rx) = sync_channel(1);
+        let (snapshot_tx, snapshot_rx) = sync_channel(1);
+        let snapshot_surface = surface.clone();
+        std::thread::spawn(move || {
+            let snapshot = snapshot_surface
+                .try_with_terminal(|terminal| {
+                    snapshot_entered_tx.send(()).unwrap();
+                    let text = terminal.viewport_text().unwrap();
+                    let revision = snapshot_surface.terminal_stream_revision().unwrap();
+                    (text, revision)
+                })
+                .unwrap();
+            snapshot_tx.send(snapshot).unwrap();
+        });
+
+        assert!(
+            snapshot_entered_rx.recv_timeout(Duration::from_millis(250)).is_err(),
+            "snapshot entered while output revision notification was still pending"
+        );
+        assert!(
+            snapshot_rx.try_recv().is_err(),
+            "snapshot returned while output revision notification was still pending"
+        );
+
+        release_notify_tx.send(()).unwrap();
+        update.join().unwrap();
+        snapshot_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("snapshot did not run after the output boundary");
+        let (text, revision) = snapshot_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("snapshot result was not delivered");
+        assert!(text.contains("new-output"), "snapshot omitted applied output: {text:?}");
+        assert!(revision > revision_before, "snapshot returned stale revision {revision}");
+        progress.set_before_notify_hook(None);
     }
 
     #[test]
