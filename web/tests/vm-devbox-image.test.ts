@@ -77,6 +77,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-terminfo.src",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
       "seed-history",
@@ -89,6 +90,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-terminfo.src",
       "seed-history",
     ]);
   });
@@ -624,5 +626,54 @@ describe("model-plane env reaches provider creates", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv())");
     expect(readScript("verify-devbox-image.ts")).toContain("test -s /etc/cmux/model-plane.env");
     expect(read("agent-config.sh")).toContain("elif [ -f /etc/cmux/model-plane.env ]; then");
+  });
+});
+
+// The terminfo overlay the guest resolves TERM against. It is the cmux app's
+// Resources/terminfo-overlay (Ghostty's entry under xterm-ghostty and under
+// the xterm-256color name cmux exports, bright colors as indexed 38;5;n) as
+// infocmp source, because Linux tic cannot read the app's compiled files.
+// Compiled here with the local tic and queried like a guest program would.
+describe("devbox terminfo overlay", () => {
+  const hasNcurses = spawnSync("tic", ["-V"]).status === 0 && spawnSync("infocmp", ["-V"]).status === 0;
+  const compiled = mkdtempSync(path.join(tmpdir(), "cmux-terminfo-"));
+  const tput = (term: string, ...args: string[]) => {
+    const result = spawnSync("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled, TERMINFO_DIRS: compiled } });
+    expect({ term, args, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, args, status: 0 });
+    return result.stdout.toString("latin1");
+  };
+  const infocmp = (term: string) => {
+    const result = spawnSync("infocmp", ["-x", "-A", compiled, term]);
+    expect({ term, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, status: 0 });
+    return result.stdout.toString();
+  };
+
+  (hasNcurses ? test : test.skip)("compiles with tic and serves cmux's capabilities under every exported name", () => {
+    const tic = spawnSync("tic", ["-x", "-o", compiled, path.join(templateDir, "cmux-terminfo.src")]);
+    expect({ status: tic.status, stderr: tic.stderr.toString() }).toMatchObject({ status: 0 });
+    for (const term of ["xterm-ghostty", "ghostty", "xterm-256color"]) {
+      expect(tput(term, "colors").trim()).toBe("256");
+      const caps = infocmp(term);
+      expect(caps).toMatch(/\bTc\b/);
+      expect(caps).toMatch(/\bSu\b/);
+      expect(caps).toMatch(/\bfullkbd\b/);
+      // Bright black is the indexed sequence, not SGR 90 (invisible ghost text).
+      expect(tput(term, "setaf", "8")).toBe("\x1b[38;5;8m");
+      expect(tput(term, "setab", "8")).toBe("\x1b[48;5;8m");
+      expect(tput(term, "setaf", "7")).toBe("\x1b[37m");
+      expect(tput(term, "setaf", "16")).toBe("\x1b[38;5;16m");
+    }
+    rmSync(compiled, { recursive: true, force: true });
+  });
+
+  test("the bake installs it before seeding ble.sh's per-TERM tput caches", () => {
+    // Both recipes: ble.sh caches tput output per TERM, so a seed taken
+    // against stock terminfo would replay stock SGR 90 forever.
+    const bake = readScript("build-devbox-freestyle.ts");
+    expect(bake.indexOf('await step("terminfo"')).toBeGreaterThan(0);
+    expect(bake.indexOf('await step("terminfo"')).toBeLessThan(bake.indexOf('await step(\n    "devshell"'));
+    expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeGreaterThan(0);
+    expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
+    expect(dockerfile).toContain("xterm-ghostty; do");
   });
 });
