@@ -575,8 +575,12 @@ final class ProcessOutputCollector: @unchecked Sendable {
             let sequence = Data(data[index..<(index + width)])
             if String(data: sequence, encoding: .utf8) != nil {
                 valid.append(sequence)
+                index += width
+            } else {
+                // Skip only the malformed leading byte. The following bytes
+                // may begin a valid sequence and must be examined again.
+                index += 1
             }
-            index += width
         }
         return (valid, Data())
     }
