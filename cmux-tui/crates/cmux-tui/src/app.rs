@@ -6272,6 +6272,7 @@ struct RenderedPointerFrame {
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
     tabs_rail: Option<Rect>,
+    projection_rails: Arc<[(RailKind, Rect)]>,
     hits: Arc<[RenderedHitRoute]>,
     panes: Arc<[RenderedPaneRoute]>,
     terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
@@ -10483,6 +10484,14 @@ fn should_claim_clear_history_shortcut(
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
 }
 
+fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
+    if pane.active_tab > removed_tab_index {
+        pane.active_tab -= 1;
+    } else if pane.active_tab >= pane.tabs.len() {
+        pane.active_tab = pane.tabs.len().saturating_sub(1);
+    }
+}
+
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
@@ -13480,6 +13489,7 @@ impl App {
             machine_rail,
             workspace_rail,
             tabs_rail,
+            projection_rails,
             hits,
             panes,
             terminal_pointer_semantics,
@@ -14082,7 +14092,7 @@ impl App {
                 .update_surface_title_at(surface, [workspace, screen, pane, tab], title.as_ref())
                 .is_some_and(|changed| changed)
             {
-                changed = true;
+                changed.insert(surface);
             }
         }
         changed
