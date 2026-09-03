@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
+import type { CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -374,6 +376,8 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
+  readonly imageSize?: CreateOptions["imageSize"];
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -388,20 +392,35 @@ export function createVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
 
-    // Resolved before the row is inserted and the credit reserved, so a
-    // provisioning failure here costs nothing to unwind. The network is an
-    // account-level resource — free, idempotent, and reused by every later
-    // machine — so resolving it for a create that then hits the active-VM
-    // limit is not waste, it is setup the next create no longer has to do.
-    // Null means the deployment or provider has no private networking, and the
-    // machine falls back to being reachable at its public address.
-    const network = yield* measureVmEffect(
-      input.timing,
-      "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+    // The owner's network row and the create row do not depend on each other,
+    // so the request pays the slower of the two reads, not their sum. A network
+    // failure after the row was inserted marks that row failed instead of
+    // leaving it "creating" forever; the network itself is an account-level
+    // resource, so nothing there needs unwinding.
+    const [networkResult, create] = yield* Effect.all(
+      [
+        Effect.either(
+          measureVmEffect(
+            input.timing,
+            "resolve_network",
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+          ),
+        ),
+        beginCreateWithLazyProviderRefresh(repo, providers, input),
+      ],
+      { concurrency: 2 },
     );
-
-    const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
+    if (Either.isLeft(networkResult)) {
+      if (create.inserted) {
+        yield* repo.markCreateFailed({
+          id: create.vm.id,
+          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+          message: errorMessage(networkResult.left),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+      return yield* Effect.fail(networkResult.left);
+    }
+    const network = networkResult.right;
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -468,6 +487,7 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
+        imageSize: input.imageSize,
         envs: materials?.envs,
         edgeRules: materials?.edgeRules,
         ...(network ? { network: { id: network.providerNetworkId } } : {}),

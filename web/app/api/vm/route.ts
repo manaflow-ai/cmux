@@ -44,6 +44,7 @@ import {
   type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
+import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
   jsonResponse,
@@ -182,6 +183,13 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
+        // Per-stage timings travel with the response too, so a client or a
+        // smoke run sees where a create spent its time without Axiom.
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable headers on a passthrough Response: the span still has them.
+        }
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
       let user: AuthedUser = initialUser;
@@ -334,28 +342,43 @@ export async function POST(request: Request): Promise<Response> {
         // right before paid limits apply. Best-effort — billing reads must
         // not block VM creation, so the whole reconcile races a hard
         // deadline and VM create proceeds with current metadata on timeout.
-        try {
-          if (isStackConfigured()) {
-            const changed = await withBillingReconcileDeadline(
-              measureVmAsync(timing, "billing_reconcile", async () => {
-                const serverUser = await getStackServerApp().getUser(user.id);
-                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-              })
-            );
-            if (changed) {
+        // The Stripe-to-Stack plan reconcile (a Stack read plus our subscription
+        // table) used to run before every create and cost 150 to 360 ms. It can
+        // only change this request's outcome when the cached plan would block
+        // it, so it runs inline on that path alone. Otherwise it runs after the
+        // response, so the next request still sees fresh metadata.
+        const reconcileProPlan = (recordTiming: boolean) =>
+          withBillingReconcileDeadline(
+            measureVmAsync(recordTiming ? timing : undefined, "billing_reconcile", async () => {
+              const serverUser = await getStackServerApp().getUser(user.id);
+              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+            }),
+          );
+        let account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        let reconcileMode: "off" | "deferred" | "inline" = isStackConfigured() ? "deferred" : "off";
+        if (!account.ok && reconcileMode === "deferred") {
+          reconcileMode = "inline";
+          try {
+            if (await reconcileProPlan(true)) {
               const reconciledUser = await measureVmAsync(timing, "auth", () =>
                 verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
               );
               if (reconciledUser) user = reconciledUser;
+              account = await measureVmAsync(timing, "entitlements", () =>
+                resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+              );
             }
+          } catch (err) {
+            console.error("[VM] Pro plan reconcile failed", err);
           }
-        } catch (err) {
-          console.error("[VM] Pro plan reconcile failed", err);
         }
-        const account = await measureVmAsync(timing, "entitlements", () =>
-          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
-        );
+        setSpanAttributes(span, { "cmux.billing.reconcile_mode": reconcileMode });
         if (!account.ok) return account.response;
+        if (reconcileMode === "deferred") {
+          runAfterResponse(() => reconcileProPlan(false).then(() => undefined));
+        }
         const entitlements = account.entitlements;
         setSpanAttributes(span, {
           "cmux.billing.team_id_set": !!entitlements.billingTeamId,
@@ -436,6 +459,7 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.image_set": image.length > 0,
           "cmux.vm.image_version": imageSelection.imageVersion,
           "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+          "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
           "cmux.idempotency_key_set": !!idempotencyKey,
         });
 
@@ -463,6 +487,7 @@ export async function POST(request: Request): Promise<Response> {
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
+            imageSize: imageSelection.size ?? undefined,
             modelPlane,
             timing,
           }));
@@ -535,6 +560,20 @@ export async function POST(request: Request): Promise<Response> {
 // the reconcile keeps running in the background (its result is logged, not
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;
+
+/**
+ * Run best-effort work once the response has been sent. Vercel keeps the
+ * function alive for `after` callbacks; outside a request scope (tests, a
+ * plain Node server) `after` throws, and the work runs detached instead.
+ */
+function runAfterResponse(work: () => Promise<void>): void {
+  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  try {
+    after(guarded);
+  } catch {
+    void guarded();
+  }
+}
 
 export async function withBillingReconcileDeadline(
   reconcile: Promise<boolean>

@@ -733,11 +733,22 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
-            // CreateVmOptions has no size: a VM boots at its snapshot's
-            // resources (the devbox snapshot is 2 vCPU / 4 GB / 16 GB) and
-            // only a grow-only resize raises them. Size first so the machine
-            // the daemon comes up on is the one that was sold.
-            await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+            if (options.imageSize) {
+              // One snapshot per size: the machine already boots at the shape
+              // that was sold, so nothing is read back and nothing is grown.
+              setSpanAttributes(span, {
+                "cmux.vm.image_size": options.imageSize.name,
+                "cmux.vm.resources.cpu": options.imageSize.cpu,
+                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
+                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
+                "cmux.vm.resize.requested": false,
+              });
+            } else {
+              // A size-less image boots at its snapshot's resources and only a
+              // grow-only resize raises them. Size first so the machine the
+              // daemon comes up on is the one that was sold.
+              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+            }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
             if (options.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
