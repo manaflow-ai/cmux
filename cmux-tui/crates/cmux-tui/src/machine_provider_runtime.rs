@@ -172,9 +172,7 @@ impl Drop for ProviderMachineConnectionLease {
         let closing = Arc::clone(&self.closing);
         if let Ok(registry_guard) = registry.lock()
             && let Ok(mut closing_keys) = closing.lock()
-            && registry_guard
-                .get(&key)
-                .is_some_and(|open| open.connection_id == connection_id)
+            && registry_guard.get(&key).is_some_and(|open| open.connection_id == connection_id)
         {
             closing_keys.insert(key);
         }
@@ -184,18 +182,15 @@ impl Drop for ProviderMachineConnectionLease {
             key,
             connection_id: connection_id.clone(),
         };
-        if let Err(error) = self
-            .close_worker
-            .schedule(Box::new(move || {
-                let _cleanup = cleanup;
-                if let Err(error) = client.close_machine(connection_id) {
-                    crate::client_log::stderr_log!(
-                        "provider",
-                        "cmux-tui: failed to close provider machine connection: {error}"
-                    );
-                }
-            }))
-        {
+        if let Err(error) = self.close_worker.schedule(Box::new(move || {
+            let _cleanup = cleanup;
+            if let Err(error) = client.close_machine(connection_id) {
+                crate::client_log::stderr_log!(
+                    "provider",
+                    "cmux-tui: failed to close provider machine connection: {error}"
+                );
+            }
+        })) {
             let reason = match error {
                 crossbeam_channel::TrySendError::Full(_) => "close queue is full",
                 crossbeam_channel::TrySendError::Disconnected(_) => "close worker disconnected",
@@ -2848,7 +2843,10 @@ mod tests {
         worker
             .schedule(Box::new(|| {}))
             .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
-        assert!(matches!(worker.schedule(Box::new(|| {})), Err(crossbeam_channel::TrySendError::Full(_))));
+        assert!(matches!(
+            worker.schedule(Box::new(|| {})),
+            Err(crossbeam_channel::TrySendError::Full(_))
+        ));
         release.send(()).unwrap();
         drop(worker);
     }
