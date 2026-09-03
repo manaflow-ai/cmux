@@ -9,6 +9,7 @@ import {
   assertNoRouteTokenInGuestPayload,
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
+  freestyleRouteAddressesFromMetadata,
   freestyleDaemonHealthyCommand,
   freestyleDesktopHealCommand,
   freestyleEdgeProbeCommand,
@@ -412,6 +413,15 @@ const driverSource = readFileSync(
   path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
   "utf8",
 );
+
+describe("Freestyle attach route source", () => {
+  test("attach builds the route from the persisted row addresses, falling back to the provider only without them", () => {
+    expect(freestyleRouteAddressesFromMetadata({ networkIpv4: "10.0.0.5", networkIpv6: "fd00::5" })).toEqual({ vpcs: [{ ipv4: "10.0.0.5", ipv6: "fd00::5" }] });
+    expect(freestyleCmuxRemoteRoute(freestyleRouteAddressesFromMetadata({ networkIpv4: " 10.0.0.5 " })!, VM_ID)).toBe("ws://10.0.0.5:1337/v1/link");
+    expect(freestyleRouteAddressesFromMetadata({ networkId: "vpc-1" })).toBeNull();
+    expect(freestyleRouteAddressesFromMetadata(undefined)).toBeNull();
+  });
+});
 
 describe("Freestyle client configuration", () => {
   test("every guest exec is pinned to root", () => {
