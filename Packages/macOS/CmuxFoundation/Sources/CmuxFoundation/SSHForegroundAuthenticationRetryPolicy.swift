@@ -94,7 +94,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// a host process-start identity. Darwin uses the microsecond kernel start
     /// token; Linux uses the monotonic `/proc` start counter.
     /// A second snapshot must confirm the identity and stopped state before the
-    /// helper sends `SIGKILL`. After `SIGTERM`, the helper waits for the
+    /// helper sends `SIGKILL`. Linux uses pidfds when available and an
+    /// immediately revalidated `kill` fallback on kernels that reject pidfd
+    /// syscalls. After `SIGTERM`, the helper waits for the
     /// per-attempt completion FIFO emitted by the authentication wrapper, then
     /// records descendants that still hold the attempt's marker descriptor.
     /// Failed snapshots never trigger an unverified signal. This keeps cleanup
@@ -314,9 +316,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               P:*)
                 if [ -n "$cmux_ssh_auth_perl_command" ]; then
                   "$cmux_ssh_auth_perl_command" -e '
-                    use strict;
-                    use warnings;
-                    use POSIX ();
+                  use strict;
+                  use warnings;
+                  use Errno qw(EACCES EINVAL EINTR EMFILE ENFILE ENOSYS EPERM);
+                  use POSIX ();
                     my ($token) = @ARGV;
                     my ($kind, $pid, $parent, $group, $start) = split /:/, $token, -1;
                     exit 0 unless defined $kind && $kind eq "P" &&
@@ -326,8 +329,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       defined $start && $start =~ /\A[1-9][0-9]*\z/;
                     my $pid_number = int($pid);
                     # Linux exposes pidfd_open and pidfd_send_signal at these
-                    # stable syscall numbers. If this kernel does not provide
-                    # them, fail closed instead of sending to a bare PID.
+                    # stable syscall numbers. Older or sandboxed kernels can
+                    # reject those calls, so the signal helper below performs
+                    # one more identity read before using Perl's kill fallback.
                     my $pidfd_open_syscall = 434;
                     my $pidfd_send_signal_syscall = 424;
                     sub read_identity {
@@ -356,19 +360,47 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     };
                     my $identity = read_identity($pid);
                     exit 0 unless $matches->($identity);
-                    # Force the validated PID to an integer. Perl can pass a
-                    # string scalar as a pointer to syscall on 64-bit hosts.
-                    my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
-                    exit 0 unless defined $pidfd && $pidfd >= 0;
-                    my $after_open = read_identity($pid);
-                    unless ($matches->($after_open)) {
-                      POSIX::close($pidfd);
-                      exit 0;
-                    }
+                    my $pidfd_unavailable = 0;
+                    my $send = sub {
+                      my ($signal_number) = @_;
+                      unless ($pidfd_unavailable) {
+                        # Force the validated PID to an integer. Perl can pass
+                        # a string scalar as a pointer to syscall on 64-bit
+                        # hosts.
+                        my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
+                        if (defined $pidfd && $pidfd >= 0) {
+                          my $after_open = read_identity($pid);
+                          unless ($matches->($after_open)) {
+                            POSIX::close($pidfd);
+                            return 0;
+                          }
+                          my $result = syscall(
+                            $pidfd_send_signal_syscall, $pidfd, $signal_number, 0, 0
+                          );
+                          my $errno = 0 + $!;
+                          POSIX::close($pidfd);
+                          return 1 if defined $result && $result == 0;
+                          return 0 unless $errno == EACCES || $errno == EINVAL ||
+                            $errno == EINTR || $errno == EMFILE || $errno == ENFILE ||
+                            $errno == ENOSYS || $errno == EPERM;
+                        } else {
+                          my $errno = 0 + $!;
+                          return 0 unless $errno == EACCES || $errno == EINVAL ||
+                            $errno == EINTR || $errno == EMFILE || $errno == ENFILE ||
+                            $errno == ENOSYS || $errno == EPERM;
+                        }
+                        $pidfd_unavailable = 1;
+                      }
+                      # pidfd is unavailable on this host. Re-read the full
+                      # procfs identity immediately before the compatibility
+                      # signal so a reused PID is never accepted silently.
+                      my $before_kill = read_identity($pid);
+                      return 0 unless $matches->($before_kill);
+                      return kill($signal_number, $pid_number) ? 1 : 0;
+                    };
                     for my $signal_number (18, 15, 9) {
-                      syscall($pidfd_send_signal_syscall, $pidfd, $signal_number, 0, 0);
+                      $send->($signal_number);
                     }
-                    POSIX::close($pidfd);
                   ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1 || true
                 fi
                 ;;
@@ -978,7 +1010,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Validate and signal an identity batch. On Darwin, the shell/awk
           # snapshot is fenced again with the kernel audit token, which carries
           # the PID version. Linux uses a fresh procfs snapshot and pidfds so a
-          # PID cannot be reused between validation and signal delivery.
+          # PID cannot be reused between validation and signal delivery. On an
+          # older or sandboxed kernel that rejects pidfds, the Perl fallback
+          # re-reads the full identity immediately before kill(2).
           # STOP candidates are journaled after the identity-checked request.
           # A confirming snapshot must prove the stopped state before TERM or
           # KILL. A stopped process cannot exit and reuse its PID, which closes
@@ -1009,12 +1043,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_perl_command" -e '
               use strict;
               use warnings;
+              use Errno qw(EACCES EINVAL EINTR EMFILE ENFILE ENOSYS EPERM);
               use POSIX ();
               my ($signal_name, $input_path, $output_path, $require_stopped) = @ARGV;
               my %signals = (STOP => 19, TERM => 15, CONT => 18, KILL => 9);
               # Linux exposes pidfd_open and pidfd_send_signal at these stable
-              # syscall numbers. If this kernel does not provide them, report
-              # failure so the caller never falls back to a bare PID signal.
+              # syscall numbers. Older or sandboxed kernels can reject those
+              # calls, so the signal closure below performs one more identity
+              # read before using Perl's compatibility kill path.
               my $pidfd_open_syscall = 434;
               my $pidfd_send_signal_syscall = 424;
               exit 2 unless exists $signals{$signal_name};
@@ -1074,21 +1110,42 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 next if $signal_name =~ /\A(?:TERM|KILL)\z/ && $identity->[0] !~ /T/;
                 next if $require_stopped eq "1" && $identity->[0] !~ /T/ &&
                   $signal_name ne "CONT";
-                # Force the validated PID to an integer. Perl can pass a
-                # string scalar as a pointer to syscall on 64-bit hosts.
-                my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
-                if (!defined $pidfd || $pidfd < 0) {
-                  $failed = 1;
-                  next;
-                }
-                my $after_open = read_identity($pid);
-                unless (matches($after_open, $parent, $group, $expected_start)) {
-                  POSIX::close($pidfd);
-                  next;
-                }
+                my $pidfd_unavailable = 0;
                 my $send = sub {
-                  my $result = syscall($pidfd_send_signal_syscall, $pidfd, $_[0], 0, 0);
-                  defined($result) && $result == 0;
+                  my ($signal_number) = @_;
+                  unless ($pidfd_unavailable) {
+                    # Force the validated PID to an integer. Perl can pass a
+                    # string scalar as a pointer to syscall on 64-bit hosts.
+                    my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
+                    if (defined $pidfd && $pidfd >= 0) {
+                      my $after_open = read_identity($pid);
+                      unless (matches($after_open, $parent, $group, $expected_start)) {
+                        POSIX::close($pidfd);
+                        return 0;
+                      }
+                      my $result = syscall(
+                        $pidfd_send_signal_syscall, $pidfd, $signal_number, 0, 0
+                      );
+                      my $errno = 0 + $!;
+                      POSIX::close($pidfd);
+                      return 1 if defined $result && $result == 0;
+                      return 0 unless $errno == EACCES || $errno == EINVAL ||
+                        $errno == EINTR || $errno == EMFILE || $errno == ENFILE ||
+                        $errno == ENOSYS || $errno == EPERM;
+                    } else {
+                      my $errno = 0 + $!;
+                      return 0 unless $errno == EACCES || $errno == EINVAL ||
+                        $errno == EINTR || $errno == EMFILE || $errno == ENFILE ||
+                        $errno == ENOSYS || $errno == EPERM;
+                    }
+                    $pidfd_unavailable = 1;
+                  }
+                  # pidfd is unavailable on this host. Re-read the full
+                  # procfs identity immediately before the compatibility
+                  # signal so a reused PID is never accepted silently.
+                  my $before_kill = read_identity($pid);
+                  return 0 unless matches($before_kill, $parent, $group, $expected_start);
+                  return kill($signal_number, $pid_number) ? 1 : 0;
                 };
                 if ($signal_name eq "STOP") {
                   if ($send->($signals{STOP})) {

@@ -108,11 +108,17 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         // authentication; explicit auth/control failures still take the auth
         // path, preventing credentialed sessions from silently wedging.
         lines.append(contentsOf: [
+            "cmux_ssh_attach_generate_auth_event_token() {",
+            "  cmux_ssh_attach_auth_event_token=",
+            "  if [ -x /usr/bin/uuidgen ]; then cmux_ssh_attach_auth_event_token=$(/usr/bin/uuidgen 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]' || true); fi",
+            "  case \"$cmux_ssh_attach_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_attach_auth_event_token= ;; esac",
+            "  if [ -z \"$cmux_ssh_attach_auth_event_token\" ] && [ -r /dev/urandom ] && [ -x /usr/bin/od ] && [ -x /usr/bin/tr ]; then cmux_ssh_attach_auth_event_token=$(/usr/bin/od -An -N16 -tx1 /dev/urandom 2>/dev/null | /usr/bin/tr -d '[:space:]' || true); fi",
+            "  case \"$cmux_ssh_attach_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_attach_auth_event_token= ;; esac",
+            "}",
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_auth_launching=1",
-            "    cmux_ssh_attach_auth_event_token=$(/usr/bin/uuidgen 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]' || true)",
-            "    case \"$cmux_ssh_attach_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_attach_auth_event_token= ;; esac",
+            "    cmux_ssh_attach_generate_auth_event_token",
             "    CMUX_SSH_AUTH_EVENT_TOKEN=\"$cmux_ssh_attach_auth_event_token\"; export CMUX_SSH_AUTH_EVENT_TOKEN",
             "    ( cmux_ssh_attach_foreground_auth ) <&0 &",
             "    cmux_ssh_attach_auth_pid=$!",
