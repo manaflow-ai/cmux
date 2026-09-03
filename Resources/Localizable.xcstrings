@@ -60320,6 +60320,23 @@
         }
       }
     },
+    "cli.vm.tree.displays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC Displays/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC ディスプレイ/"
+          }
+        }
+      }
+    },
     "cli.vm.tree.ports": {
       "extractionState": "manual",
       "localizations": {

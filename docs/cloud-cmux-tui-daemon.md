@@ -225,11 +225,14 @@ from the daemon's own session model rather than a cloud-specific catalog:
     <name>  ws_…  *              cmux-tui workspace (focused marked *)
       ● term_…  <title>  <cwd>  [agent claude running]  (open: surface:3)
     <name>  ws_…                 another workspace on the same machine
-    (detached — …)               zero-view terminals: still running, in no workspace's layout
-      ● term_…  <title>
   ports/
     3000  http                   forwarded port (Mac-side synthetic node)
-  desktop                        noVNC screen (Mac-side synthetic node)
+  VNC Displays/
+    ● display:1  Desktop  noVNC  (cmux surface open <machine>/display/display:1)
+  terminals/                     every terminal resource the machine owns
+    ● term_…  <title>             terminal shown in a workspace
+    (detached — …)               live terminal in no workspace's layout
+      ● term_…  <title>
 ```
 
 A machine is the big box and its workspaces are rows under it, never machines
@@ -238,21 +241,23 @@ the machine's Workspaces group first (always its own row, with a ＋ that is
 `cmux vm workspace new`; an empty machine shows "No workspaces yet" under it;
 a workspace folder is exactly its layout — a terminal whose tab closed is gone
 from it), then Ports, VNC Displays (one row per screen), and last, its own
-section, Terminals (every terminal resource the machine owns, always present,
-zero-view ones greyed as "detached").
+Terminals section (every terminal resource the machine owns, always present;
+live zero-view ones are greyed as "detached"). Exited records with stale,
+unresolved tab ids remain ordinary exited rows rather than being called detached.
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the
 `session current events --jsonl` stream over that link's local socket; the
-tree is push-updated, never polled. Desktop and ports are not cmux-tui
-resources — they are the Mac's own nodes backed by `vm.desktop_open` /
-`vm.port_open` (the same `open-port` + browser-pane path as before).
+tree is push-updated, never polled. VNC display and forwarded-port rows are
+provider-backed catalog resources outside a workspace's terminal layout; their
+open verbs use the shared `surface.project` path (with `vm.desktop_open` /
+`vm.port_open` as the CLI equivalents) and the same tokened browser-pane flow.
 
 Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, desktop, memory_mb?, disk_mb?, link: {state, error?}, workspaces: [{id, name, focused, terminals: [{id, title, cwd?, lifecycle, agent?: {state, source}, open_surface_id?}]}], ports: [{port, label?}]}]}` |
+| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views?, port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}` — the renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals |
 | `vm.terminal_open` | `{id, terminal_id, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — `workspace_id` is the local target; an existing pane showing the terminal is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |

@@ -349,7 +349,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         return ports.sorted()
     }
 
-    /// Ports the tree hides: the daemon and desktop transports the machine itself owns.
+    /// Transport ports reserved for the daemon and the machine's noVNC display.
     static let internalPorts: Set<Int> = [1337, 5901, 6901, 8080]
 
     static let desktopPort = 6901

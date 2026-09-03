@@ -287,11 +287,11 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             Issue.record("expected the VNC Displays group"); return
         }
         #expect(count == 2)
-        #expect(CloudTreeDisplayDetail.text(for: first) == "noVNC · :1")
-        #expect(CloudTreeDisplayDetail.text(for: second) == "noVNC · :2")
-        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "display:2") == ":2")
-        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "desktop") == nil)
-        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "display:") == nil)
+        #expect(CloudTreeRowContentView.text(for: first) == "noVNC · :1")
+        #expect(CloudTreeRowContentView.text(for: second) == "noVNC · :2")
+        #expect(CloudTreeRowContentView.screenLabel(displayKey: "display:2") == ":2")
+        #expect(CloudTreeRowContentView.screenLabel(displayKey: "desktop") == nil)
+        #expect(CloudTreeRowContentView.screenLabel(displayKey: "display:") == nil)
     }
 
     @Test("The CLI keeps detached terminals in the final Terminals section and mirrors the sidebar order")
@@ -324,6 +324,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "kind": "terminal",
             "title": "worker",
             "lifecycle": "running",
+            "remote_workspace": workspace,
             "remote_views": [[String: Any]](),
         ]
         let display: [String: Any] = [

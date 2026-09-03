@@ -217,9 +217,10 @@ struct CloudTreeTerminalRow: Equatable {
     let isOpen: Bool
     var viewBadge: Int?
     /// A live terminal no daemon tab shows: out of every workspace's layout, so it
-    /// is a Terminals-group row only, drawn greyed with a "detached" mark. Its verbs
-    /// are a terminal's — a click re-attaches it in a pane, Kill Terminal ends it.
-    var isDetached: Bool = false
+    /// is a Terminals-group row only, drawn greyed with a "detached" mark. Derived
+    /// from the resource so lifecycle updates cannot leave a stale duplicate flag.
+    /// Its verbs are a terminal's — a click re-attaches it in a pane, Kill Terminal ends it.
+    var isDetached: Bool { resource.isDetachedTerminal }
 }
 
 /// A browser row (this Mac's browser panes, or a cloud machine's browsers).
@@ -263,6 +264,8 @@ enum CloudTreeNodeBuilder {
     /// sidebar — and the gate stays so the mixed tree remains one flip away.
     nonisolated(unsafe) static var includesLocalMachine = false
 
+    /// Builds the ordered outline for a catalog snapshot and the current fleet list.
+    /// The projection index is shared by every machine and row in this rebuild.
     static func nodes(
         machines: [MachineSnapshot],
         pendingCreates: [MachineCreateOperation] = [],
@@ -270,9 +273,19 @@ enum CloudTreeNodeBuilder {
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
+        // Build the projection index once for this immutable tree snapshot. Every
+        // row can then answer its open-state with dictionary membership instead of
+        // rescanning all projections (which matters when a machine owns many
+        // terminals and the user has many local panes).
+        let projectionsByResource = projectionIndex(snapshot)
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
-            nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
+            nodes.append(localMachineNode(
+                info: local,
+                snapshot: snapshot,
+                localWorkspaces: localWorkspaces,
+                projectionsByResource: projectionsByResource
+            ))
         }
         // Creates the person just started go first: they are what the person is
         // waiting on, and a failed one must not hide below a long fleet. A
@@ -290,7 +303,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: .cloud(machine.id)),
                 kind: .machine(machine, info),
-                children: cloudChildren(machine: .cloud(machine.id), info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: .cloud(machine.id),
+                    info: info,
+                    snapshot: snapshot,
+                    projectionsByResource: projectionsByResource
+                )
             ))
         }
         // Machines the catalog knows but the fleet list has not returned yet (or
@@ -309,7 +327,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
-                children: cloudChildren(machine: info.id, info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: info.id,
+                    info: info,
+                    snapshot: snapshot,
+                    projectionsByResource: projectionsByResource
+                )
             ))
         }
         return nodes
@@ -360,10 +383,12 @@ enum CloudTreeNodeBuilder {
 
     // MARK: This Mac
 
+    /// Builds the local machine branch, grouping projected terminals by local workspace.
     private static func localMachineNode(
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
-        localWorkspaces: [CloudTreeLocalWorkspace]
+        localWorkspaces: [CloudTreeLocalWorkspace],
+        projectionsByResource: [SurfaceResourceID: [UUID: Int]]
     ) -> CloudTreeNode {
         let resources = snapshot.resources(on: .local)
         let terminals = resources.filter { $0.kind == .terminal }
@@ -401,11 +426,11 @@ enum CloudTreeNodeBuilder {
                     terminalCount: projected.count,
                     isSelected: workspace.isSelected
                 )),
-                children: projected.map { terminalNode($0, snapshot: snapshot) },
+                children: projected.map { terminalNode($0, projectionsByResource: projectionsByResource) },
                 dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
             )
         }
-        children.append(contentsOf: unplaced.map { terminalNode($0, snapshot: snapshot) })
+        children.append(contentsOf: unplaced.map { terminalNode($0, projectionsByResource: projectionsByResource) })
         if children.isEmpty {
             children.append(placeholder(.local, text: String(localized: "cloudTree.placeholder.noLocalTerminals", defaultValue: "No terminals open"), style: .dimmed))
         }
@@ -418,7 +443,7 @@ enum CloudTreeNodeBuilder {
                         id: nodeID(resource: browser.id),
                         kind: .browser(CloudTreeBrowserRow(
                             resource: browser,
-                            isOpen: snapshot.isOpen(browser.id),
+                            isOpen: projectionsByResource[browser.id] != nil,
                             workspaceTitle: workspaceOf(browser.id).flatMap { titles[$0] }
                         ))
                     )
@@ -446,7 +471,14 @@ enum CloudTreeNodeBuilder {
         return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
     }
 
-    private static func cloudChildren(machine: SurfaceMachineID, info: SurfaceMachineInfo?, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+    /// Builds one cloud-machine branch in the canonical Workspaces, Ports,
+    /// VNC Displays, Terminals order.
+    private static func cloudChildren(
+        machine: SurfaceMachineID,
+        info: SurfaceMachineInfo?,
+        snapshot: SurfaceCatalogSnapshot,
+        projectionsByResource: [SurfaceResourceID: [UUID: Int]]
+    ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else { return [] }
         var children: [CloudTreeNode] = []
@@ -468,7 +500,13 @@ enum CloudTreeNodeBuilder {
             // always its own row (never folded into a lone workspace), so its
             // "+" — the New Workspace verb — is one click away on a fresh
             // machine with a single workspace as much as on a busy one.
-            children.append(workspacesGroupNode(machine: machine, info: info, resources: resources, displays: displays, snapshot: snapshot))
+            children.append(workspacesGroupNode(
+                machine: machine,
+                info: info,
+                resources: resources,
+                displays: displays,
+                projectionsByResource: projectionsByResource
+            ))
         }
         // Ports: one row per listening port, titled as the URL a person would
         // paste (`http://<private-ip>:<port>`) when the machine has a private
@@ -509,7 +547,11 @@ enum CloudTreeNodeBuilder {
         // is there on an empty machine too.
         switch info.linkState {
         case .connected, .notApplicable:
-            children.append(terminalsGroupNode(machine: machine, terminals: terminals, snapshot: snapshot))
+            children.append(terminalsGroupNode(
+                machine: machine,
+                terminals: terminals,
+                projectionsByResource: projectionsByResource
+            ))
         case .asleep, .connecting, .error, .unavailable:
             break
         }
@@ -518,7 +560,8 @@ enum CloudTreeNodeBuilder {
 
     /// The Workspaces group: one row per cmux-tui workspace on the machine, each a
     /// pointer list into the Terminals group — a terminal shows under every
-    /// workspace that views it, a zero-view terminal only there, and an empty workspace
+    /// workspace that views it, while a zero-view terminal appears only in the
+    /// Terminals group; an empty workspace
     /// (from the machine info) still gets a row. An empty machine keeps the group
     /// too, with a placeholder child, so "+" is how its first workspace is made.
     private static func workspacesGroupNode(
@@ -526,12 +569,11 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         resources: [SurfaceResource],
         displays: [SurfaceResource],
-        snapshot: SurfaceCatalogSnapshot
+        projectionsByResource: [SurfaceResourceID: [UUID: Int]]
     ) -> CloudTreeNode {
         // One pass over the catalog for every workspace's members and one over the
         // projections for the open marks; each row is then dictionary reads.
         let membersByWorkspace = remoteWorkspaceMembersByWorkspace(resources: resources)
-        let projections = projectionIndex(snapshot)
         var rows = remoteWorkspaces(info: info, resources: resources).map { workspace -> CloudTreeNode in
             // A workspace holds more than terminals: daemon browsers are tab
             // content too, and a workspace that points at the machine's screen
@@ -546,16 +588,24 @@ enum CloudTreeNodeBuilder {
             // stay out of `members`/dragGroup — only real pointers travel with the
             // workspace's open/drag group.
             let shownDisplays = members.displays.isEmpty ? displays : members.displays
-            let openInLocal = localWorkspaceShowing(members.ids, projectionIndex: projections)
+            let openInLocal = localWorkspaceShowing(members.ids, projectionIndex: projectionsByResource)
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(machine: machine, workspace, terminalCount: members.terminals.count, openIn: openInLocal),
                 children: members.terminals.map {
-                    terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
+                    terminalNode(
+                        $0,
+                        projectionsByResource: projectionsByResource,
+                        id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id)
+                    )
                 } + members.browsers.map {
                     CloudTreeNode(
                         id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
-                        kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
+                        kind: .browser(CloudTreeBrowserRow(
+                            resource: $0,
+                            isOpen: projectionsByResource[$0.id] != nil,
+                            workspaceTitle: nil
+                        ))
                     )
                 } + shownDisplays.map {
                     CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0, openIn: openInLocal))
@@ -583,9 +633,17 @@ enum CloudTreeNodeBuilder {
     /// one row per identity whatever workspaces show it (badge = daemon tabs), a
     /// zero-view one greyed as detached. Always present under a connected machine
     /// — its "+" is New Terminal — with a placeholder child when there is none yet.
-    private static func terminalsGroupNode(machine: SurfaceMachineID, terminals: [SurfaceResource], snapshot: SurfaceCatalogSnapshot) -> CloudTreeNode {
+    private static func terminalsGroupNode(
+        machine: SurfaceMachineID,
+        terminals: [SurfaceResource],
+        projectionsByResource: [SurfaceResourceID: [UUID: Int]]
+    ) -> CloudTreeNode {
         var rows = terminals.map {
-            terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count, isDetached: $0.isDetachedTerminal)
+            terminalNode(
+                $0,
+                projectionsByResource: projectionsByResource,
+                viewBadge: $0.remoteViews?.count
+            )
         }
         if rows.isEmpty {
             rows.append(CloudTreeNode(
@@ -603,16 +661,22 @@ enum CloudTreeNodeBuilder {
         )
     }
 
+    /// Builds one terminal row using the snapshot's precomputed projection index.
+    /// `viewBadge` is shown only by the flat machine Terminals group; workspace
+    /// pointer rows leave it nil.
     private static func terminalNode(
         _ resource: SurfaceResource,
-        snapshot: SurfaceCatalogSnapshot,
+        projectionsByResource: [SurfaceResourceID: [UUID: Int]],
         id: String? = nil,
-        viewBadge: Int? = nil,
-        isDetached: Bool = false
+        viewBadge: Int? = nil
     ) -> CloudTreeNode {
         CloudTreeNode(
             id: id ?? nodeID(resource: resource.id),
-            kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: snapshot.isOpen(resource.id), viewBadge: viewBadge, isDetached: isDetached))
+            kind: .terminal(CloudTreeTerminalRow(
+                resource: resource,
+                isOpen: projectionsByResource[resource.id] != nil,
+                viewBadge: viewBadge
+            ))
         )
     }
 

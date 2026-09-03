@@ -791,10 +791,9 @@ extension CMUXCLI {
                cmux surface ls [<machine>|local] [--refresh] [--json]
 
         The Finder-style view of every surface: This Mac first (its terminals grouped by
-        workspace, and its browsers), then each cloud machine — the cmux-tui workspaces
-        running on it, the terminals in each workspace (title, cwd, agent state, and
-        whether a pane in this app already shows it), the machine's desktop, and its
-        forwarded ports. Every line carries an address `cmux vm open` or
+        workspace, and its browsers), then each cloud machine — Workspaces, Ports, VNC
+        Displays (one row per screen), and a final Terminals section containing every
+        machine-owned terminal. Every line carries an address `cmux vm open` or
         `cmux surface open` accepts.
 
         Options:
@@ -1204,10 +1203,12 @@ extension CMUXCLI {
             ))
         }
         for terminal in terminals {
-            // Every workspace with a view of the terminal (deduped); a zero-view terminal
-            // lands in the detached group. Older apps send only `remote_workspace`.
+            // Every workspace with a view of the terminal (deduped). A zero-view
+            // terminal is kept for the final Terminals section below, never made
+            // into an empty-id pseudo-workspace. Older apps send only
+            // `remote_workspace`.
             var workspacePayloads: [[String: Any]?] = []
-            if let views = terminal["remote_views"] as? [[String: Any]], !views.isEmpty {
+            if let views = terminal["remote_views"] as? [[String: Any]] {
                 var seen = Set<String>()
                 for view in views {
                     guard let workspace = view["workspace"] as? [String: Any],
@@ -1215,12 +1216,14 @@ extension CMUXCLI {
                           seen.insert(workspaceId).inserted else { continue }
                     workspacePayloads.append(workspace)
                 }
-            }
-            if workspacePayloads.isEmpty {
+            } else {
+                // Only pre-multi-view payloads fall back to this field. An
+                // explicit empty `remote_views` is authoritative: the terminal
+                // has no workspace layout and belongs only in Terminals.
                 workspacePayloads = [terminal["remote_workspace"] as? [String: Any]]
             }
             for workspace in workspacePayloads {
-                let workspaceId = (workspace?["id"] as? String) ?? ""
+                guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
                 if let index = workspaces.firstIndex(where: { $0.id == workspaceId }) {
                     workspaces[index].terminals.append(terminal)
                 } else {
@@ -1265,14 +1268,6 @@ extension CMUXCLI {
             }
         }
         for workspace in workspaces {
-            if workspace.id.isEmpty {
-                // Zero-view terminals: alive in the machine's pool, in no workspace.
-                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
-                for terminal in workspace.terminals {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
-                }
-                continue
-            }
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
@@ -1280,6 +1275,7 @@ extension CMUXCLI {
                 lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
             }
         }
+        // Ports come before displays, matching the Cloud sidebar's group order.
         let ports = browsers.compactMap { browser -> (Int, [String: Any])? in
             guard let port = vmTreeNumber(browser["port"]).map({ Int($0) }) else { return nil }
             return (port, browser)
@@ -1294,20 +1290,72 @@ extension CMUXCLI {
                 lines.append(cell)
             }
         }
-        // The screens last, as the sidebar's VNC Displays group.
-        if !displays.isEmpty || (machine["has_desktop"] as? Bool) == true {
-            lines.append("  " + String(
-                format: String(localized: "cli.vm.tree.desktop", defaultValue: "desktop  (cmux vm open %@:desktop)"),
-                id
-            ))
+
+        // VNC Displays are catalog resources, so emit one addressable row per
+        // screen instead of collapsing several screens into one synthetic desktop.
+        if !displays.isEmpty {
+            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "VNC Displays/"))
+            for display in displays {
+                lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            }
+        }
+
+        // A connected machine always exposes its flat terminal index, including
+        // terminals that are not in any workspace. Keep the detached subgroup
+        // here rather than manufacturing an empty-id workspace above.
+        let sessionUnavailable = ["connecting", "asleep", "error", "unavailable"].contains(linkState)
+        if !sessionUnavailable {
+            lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
+            if terminals.isEmpty {
+                lines.append("    " + String(localized: "cli.vm.tree.noTerminals", defaultValue: "(no terminals)"))
+            } else {
+                var attached: [[String: Any]] = []
+                var detached: [[String: Any]] = []
+                for terminal in terminals {
+                    if vmTreeTerminalIsDetached(terminal) {
+                        detached.append(terminal)
+                    } else {
+                        attached.append(terminal)
+                    }
+                }
+                for terminal in attached {
+                    lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                }
+                if !detached.isEmpty {
+                    lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
+                    for terminal in detached {
+                        lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                    }
+                }
+            }
         }
         return lines
     }
 
-    /// One terminal line: lifecycle glyph, id, title, cwd, agent badge, open marker, and the
-    /// address to open it. `addressKey` picks the resource's `key` (cloud: `term_…`, after
-    /// the workspace address) or its full `id` (local: `cmux surface open <id>`).
-    private static func vmTreeResourceCell(_ terminal: [String: Any], openHint: String, addressKey: String = "id") -> String {
+    /// Whether a catalog terminal is live and has no resolved daemon views.
+    /// Exited records with stale tab ids are intentionally not detached.
+    private static func vmTreeTerminalIsDetached(_ terminal: [String: Any]) -> Bool {
+        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+        guard lifecycle == "launching" || lifecycle == "running" else { return false }
+        if let views = terminal["remote_views"] as? [[String: Any]] {
+            return views.isEmpty
+        }
+        if let viewCount = vmTreeNumber(terminal["view_count"]) {
+            return viewCount == 0
+        }
+        return terminal["remote_workspace"] == nil
+    }
+
+    /// One resource line: lifecycle glyph, id, title, detail, agent badge, open marker,
+    /// and the address to open it. `addressKey` picks the resource's `key` (cloud terminal
+    /// workspace rows) or its full id (pool rows); display rows set `showFullKey` so each
+    /// screen number remains visible instead of being truncated to the common prefix.
+    private static func vmTreeResourceCell(
+        _ terminal: [String: Any],
+        openHint: String,
+        addressKey: String = "id",
+        showFullKey: Bool = false
+    ) -> String {
         let resourceId = (terminal["id"] as? String) ?? "?"
         let key = (terminal["key"] as? String) ?? resourceId
         let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
@@ -1318,7 +1366,8 @@ extension CMUXCLI {
         case "unavailable": glyph = "◌"
         default: glyph = "●"
         }
-        var cell = "\(glyph) \(addressKey == "key" ? key : String(key.prefix(8)))"
+        let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
+        var cell = "\(glyph) \(displayKey)"
         if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
         if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {

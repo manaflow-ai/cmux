@@ -142,8 +142,17 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     /// A live cloud terminal no daemon tab shows: it keeps running on the machine
     /// and is out of every workspace's layout, so it lists only in the machine's
     /// Terminals group, greyed as "detached"; a click re-attaches it in a pane and
-    /// only its kill verb ends it.
-    var isDetachedTerminal: Bool { kind == .terminal && remoteViews?.isEmpty == true }
+    /// only its kill verb ends it. Exited and unavailable records are never marked
+    /// detached, even when stale tab ids leave an empty resolved-view list.
+    var isDetachedTerminal: Bool {
+        guard kind == .terminal, remoteViews?.isEmpty == true else { return false }
+        switch lifecycle {
+        case .launching, .running:
+            return true
+        case .exited, .unavailable:
+            return false
+        }
+    }
 
     /// The daemon workspaces holding at least one view, first-view order, deduped.
     /// Falls back to `remoteWorkspace` for providers that report a single workspace.
