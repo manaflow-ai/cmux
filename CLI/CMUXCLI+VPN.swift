@@ -242,7 +242,7 @@ extension CMUXCLI {
                     defaultValue: "App tunnel: unavailable (the bundled cmux-tui client lacks wireguard-hub; machine links use the system tunnel)"
                 ))
             } else if hubRunning {
-                let format = String(localized: "cli.vpn.status.appTunnel.up", defaultValue: "App tunnel: up (%lld machine links)")
+                let format = String(localized: "cli.vpn.status.appTunnel.up", defaultValue: "App tunnel: up (machine links: %lld)")
                 print(String(format: format, leases))
             } else {
                 print(String(

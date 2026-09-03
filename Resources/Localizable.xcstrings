@@ -59126,13 +59126,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "App tunnel: up (%lld machine links)"
+            "value": "App tunnel: up (machine links: %lld)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリトンネル: 接続中（マシン接続 %lld 件）"
+            "value": "アプリトンネル: 接続中（マシン接続: %lld 件）"
           }
         }
       }
