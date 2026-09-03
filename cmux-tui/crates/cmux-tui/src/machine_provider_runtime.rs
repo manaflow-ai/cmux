@@ -143,6 +143,7 @@ struct ProviderMachineConnectionLease {
     open: OpenConnection,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
     close_permit: Option<ProviderClosePermit>,
 }
@@ -155,8 +156,12 @@ impl Drop for ProviderMachineConnectionLease {
         let client = Arc::clone(&self.open.client);
         let connection_id = self.open.connection_id.clone();
         let registry_connection_id = connection_id.clone();
-        let key = self.key;
+        let key = self.key.clone();
         let registry = Arc::clone(&self.registry);
+        let closing = Arc::clone(&self.closing);
+        if let Ok(mut closing_keys) = closing.lock() {
+            closing_keys.insert(key.clone());
+        }
         let permit = self.close_permit.take().expect("provider connection owns a close permit");
         if let Err(error) = self.close_worker.schedule_reserved(
             permit,
@@ -173,6 +178,9 @@ impl Drop for ProviderMachineConnectionLease {
                         .is_some_and(|open| open.connection_id == registry_connection_id)
                 {
                     registry.remove(&key);
+                }
+                if let Ok(mut closing_keys) = closing.lock() {
+                    closing_keys.remove(&key);
                 }
             }),
         ) {
@@ -192,6 +200,9 @@ impl Drop for ProviderMachineConnectionLease {
                     .is_some_and(|open| open.connection_id == self.open.connection_id)
             {
                 registry.remove(&self.key);
+            }
+            if let Ok(mut closing_keys) = self.closing.lock() {
+                closing_keys.remove(&self.key);
             }
         }
     }
@@ -306,6 +317,7 @@ pub(crate) struct ProviderMachineRuntime {
     open: Option<OpenConnection>,
     connections: MachineConnectionHub,
     connection_registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
     accepted_selection: Option<AcceptedSelectionIntent>,
@@ -688,6 +700,7 @@ impl ProviderMachineRuntime {
                 MachineConnectFn,
             )>()),
             connection_registry: Arc::new(Mutex::new(HashMap::new())),
+            closing_connections: Arc::new(Mutex::new(HashSet::new())),
             pending: None,
             pending_external_connect: None,
             accepted_selection: None,
@@ -1566,6 +1579,7 @@ impl ProviderMachineRuntime {
                         &keys,
                         &connections,
                         &connection_registry,
+                        &closing_connections,
                         &close_worker,
                     );
                     let session_available = snapshot.selected_machine_id.is_some()
@@ -2029,6 +2043,7 @@ impl ProviderMachineRuntime {
             &self.keys,
             &self.connections,
             &self.connection_registry,
+            &self.closing_connections,
             &self.close_worker,
         );
     }
@@ -2364,6 +2379,7 @@ fn sync_provider_connection_hub(
     keys: &Arc<Mutex<KeyRegistry>>,
     connections: &MachineConnectionHub,
     registry: &Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: &Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: &Arc<ProviderCloseWorker>,
 ) {
     let visible =
@@ -2387,6 +2403,7 @@ fn sync_provider_connection_hub(
                 machine.clone(),
                 key,
                 Arc::clone(registry),
+                Arc::clone(closing_connections),
                 Arc::clone(close_worker),
             ),
         );
@@ -2399,6 +2416,7 @@ fn provider_machine_connector(
     machine: protocol::MachineDescriptor,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
 ) -> MachineConnectFn {
     Arc::new(move || {
@@ -2407,6 +2425,7 @@ fn provider_machine_connector(
             machine.clone(),
             key,
             Arc::clone(&registry),
+            Arc::clone(&closing_connections),
             Arc::clone(&close_worker),
         )
     })
@@ -2417,6 +2436,7 @@ fn connect_provider_machine(
     machine: protocol::MachineDescriptor,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     close_worker: Arc<ProviderCloseWorker>,
 ) -> anyhow::Result<MachineConnection> {
     let provider_managed =
@@ -2427,9 +2447,9 @@ fn connect_provider_machine(
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
     }
 
-    if registry
+    if closing_connections
         .lock()
-        .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?
+        .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?
         .contains_key(&key)
     {
         anyhow::bail!("provider machine connection is still closing");
@@ -2490,6 +2510,7 @@ fn connect_provider_machine(
             open,
             key,
             registry,
+            closing: closing_connections,
             close_worker,
             close_permit: Some(close_permit),
         })),
@@ -2880,6 +2901,7 @@ mod tests {
                 open: open.clone(),
                 key,
                 registry: runtime.connection_registry.clone(),
+                closing: runtime.closing_connections.clone(),
                 close_worker: runtime.close_worker.clone(),
                 close_permit: Some(runtime.close_worker.try_reserve().unwrap()),
             }) as Box<dyn crate::machine_runtime::MachineConnectionLease>
@@ -5870,6 +5892,7 @@ mod tests {
             Some("keep-first-open")
         );
         assert!(runtime.connection_registry.lock().unwrap().contains_key(&candidate_key));
+        assert!(runtime.closing_connections.lock().unwrap().contains(&candidate_key));
         let mut reconnect_machine = runtime.snapshot.machines[1].clone();
         reconnect_machine.workspace_create = protocol::WorkspaceCreatePolicy::Session;
         let reconnect_error = connect_provider_machine(
@@ -5877,6 +5900,7 @@ mod tests {
             reconnect_machine,
             candidate_key,
             runtime.connection_registry.clone(),
+            runtime.closing_connections.clone(),
             runtime.close_worker.clone(),
         )
         .err()
