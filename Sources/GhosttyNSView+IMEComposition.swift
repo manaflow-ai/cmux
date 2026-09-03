@@ -183,6 +183,36 @@ extension GhosttyNSView {
             .subtracting([.numericPad, .function, .capsLock])
     }
 
+    /// Apple's Korean input method can hand its very first keystroke after an
+    /// input-source switch straight to `insertText` as a lone compatibility jamo
+    /// instead of opening a composition, so "분리" reaches the terminal as
+    /// "ㅂㅜㄴ리". Re-interpreting that one event lets the now-initialized input
+    /// method compose it normally. Only that exact signature qualifies: the key
+    /// started with no marked text, the IME left none behind, and the whole
+    /// result is a single Hangul compatibility jamo under Apple's Korean IME.
+    func shouldReinterpretLoneJamoCommit(
+        markedTextBefore: Bool,
+        markedTextAfter: Bool,
+        accumulatedText: [String],
+        inputSourceId: String?
+    ) -> Bool {
+        guard !markedTextBefore, !markedTextAfter else { return false }
+        guard accumulatedText.count == 1 else { return false }
+        guard isAppleKoreanInputMethodSource(inputSourceId) else { return false }
+        return isSingleHangulCompatibilityJamo(accumulatedText[0])
+    }
+
+    private func isAppleKoreanInputMethodSource(_ inputSourceId: String?) -> Bool {
+        guard let inputSourceId else { return false }
+        return inputSourceId.hasPrefix("com.apple.inputmethod.Korean")
+    }
+
+    private func isSingleHangulCompatibilityJamo(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars
+        guard scalars.count == 1, let scalar = scalars.first else { return false }
+        return (0x3131...0x318E).contains(scalar.value)
+    }
+
     func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
         guard !text.isEmpty else { return false }
         guard isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id) else { return false }
@@ -201,6 +231,20 @@ extension GhosttyNSView {
     }
 
 #if DEBUG
+    func shouldReinterpretLoneJamoCommitForTesting(
+        markedTextBefore: Bool,
+        markedTextAfter: Bool,
+        accumulatedText: [String],
+        inputSourceId: String?
+    ) -> Bool {
+        shouldReinterpretLoneJamoCommit(
+            markedTextBefore: markedTextBefore,
+            markedTextAfter: markedTextAfter,
+            accumulatedText: accumulatedText,
+            inputSourceId: inputSourceId
+        )
+    }
+
     func shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
         markedTextBefore: String,
         markedSelectionBefore: NSRange,

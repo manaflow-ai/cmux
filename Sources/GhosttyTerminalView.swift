@@ -6724,6 +6724,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
+        // Apple's Korean input method can commit the first keystroke after an
+        // input-source switch as a lone jamo instead of composing it ("분리"
+        // arrives as "ㅂㅜㄴ리"). Run that one event through interpretation again
+        // so the now-initialized input method opens the composition.
+        if keyboardIdBefore == KeyboardLayout.id,
+           shouldReinterpretLoneJamoCommit(
+               markedTextBefore: markedTextBefore,
+               markedTextAfter: markedText.length > 0,
+               accumulatedText: keyTextAccumulator ?? [],
+               inputSourceId: keyboardIdBefore
+           ) {
+            keyTextAccumulator = []
+#if DEBUG
+            cmuxDebugLog("ime.reinterpretLoneJamoCommit keyCode=\(event.keyCode)")
+            if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+                if !debugTextInputEventHandler(self, textInputEvent) {
+                    interpretKeyEvents([textInputEvent])
+                }
+            } else {
+                interpretKeyEvents([textInputEvent])
+            }
+#else
+            interpretKeyEvents([textInputEvent])
+#endif
+        }
+
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
