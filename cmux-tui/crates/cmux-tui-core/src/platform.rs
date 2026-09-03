@@ -1223,9 +1223,56 @@ mod tests {
     use std::ffi::OsString;
     #[cfg(windows)]
     use std::sync::Mutex;
+    #[cfg(windows)]
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[cfg(windows)]
     static RUNTIME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn unique_session_socket_path(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("cmux-{label}-{}-{nonce}.sock", std::process::id()))
+    }
+
+    #[test]
+    fn pre_cancelled_session_connect_returns_without_touching_the_socket() {
+        let path = unique_session_socket_path("cancelled-connect");
+        let result = transport::connect_timeout_with_cancel(
+            &path,
+            std::time::Duration::from_secs(30),
+            || true,
+        );
+        let error = match result {
+            Ok(_) => panic!("pre-cancelled session connect unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(!path.exists(), "pre-cancelled connect created a socket path");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_session_connect_observes_cancellation_after_connect_starts() {
+        let path = unique_session_socket_path("windows-cancelled-connect");
+        let listener = uds_windows::UnixListener::bind(&path).expect("bind session socket");
+        let callback_count = AtomicUsize::new(0);
+        let result = transport::connect_timeout_with_cancel(
+            &path,
+            std::time::Duration::from_secs(30),
+            || callback_count.fetch_add(1, Ordering::AcqRel) > 0,
+        );
+        let error = match result {
+            Ok(_) => panic!("cancelled Windows session connect unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(callback_count.load(Ordering::Acquire) >= 2);
+        drop(listener);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]
