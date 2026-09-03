@@ -8770,6 +8770,19 @@ mod tests {
     }
 
     #[test]
+    fn bounded_admission_rejects_an_expired_deadline_after_lock_acquisition() {
+        let session = test_session(Box::new(SilentWriter));
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let error = session
+            .interactive_writer
+            .enqueue_until(json!({"cmd": "expired-probe"}).to_string(), false, deadline)
+            .expect_err("expired admission unexpectedly entered the writer queue");
+
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(session.interactive_writer.last_enqueued_sequence().unwrap(), None);
+    }
+
+    #[test]
     fn normal_input_waits_through_brief_writer_queue_contention() {
         let session = test_session(Box::new(SilentWriter));
         let queue_guard = session.interactive_writer.shared.state.lock().unwrap();
