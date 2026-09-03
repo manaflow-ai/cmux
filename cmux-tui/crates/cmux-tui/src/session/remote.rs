@@ -3633,7 +3633,13 @@ impl Drop for RemoteSession {
 }
 
 #[cfg(unix)]
-fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
+struct PrivateDumpDirectory {
+    output: fs::File,
+    temporary: fs::File,
+}
+
+#[cfg(unix)]
+fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
@@ -3691,7 +3697,45 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
         directory = unsafe { fs::File::from_raw_fd(next) };
     }
     validate_dump_directory(&directory, true)?;
-    prune_stale_dump_temps(&directory)?;
+    let temporary = open_private_child_directory(&directory, ".cmux-dump-tmp")?;
+    prune_stale_dump_temps(&temporary)?;
+    Ok(PrivateDumpDirectory { output: directory, temporary })
+}
+
+#[cfg(unix)]
+fn open_private_child_directory(parent: &fs::File, name: &str) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = CString::new(name).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let mut descriptor = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(error);
+        }
+        if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    let directory = unsafe { fs::File::from_raw_fd(descriptor) };
+    validate_dump_directory(&directory, true)?;
     Ok(directory)
 }
 
@@ -3911,7 +3955,7 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
 }
 
 #[cfg(unix)]
-fn write_private_dump<F>(directory: &fs::File, name: &str, write_contents: F) -> io::Result<()>
+fn write_private_dump<F>(directory: &PrivateDumpDirectory, name: &str, write_contents: F) -> io::Result<()>
 where
     F: FnOnce(&mut fs::File) -> io::Result<()>,
 {
@@ -3926,7 +3970,7 @@ where
     for _ in 0..16 {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let candidate = format!(".{name}.tmp-{}-{id}", unsafe { libc::getpid() });
-        match private_dump_file(directory, &candidate) {
+        match private_dump_file(&directory.temporary, &candidate) {
             Ok(candidate_file) => {
                 temp_name = Some(CString::new(candidate).expect("generated temp name is valid"));
                 file = Some(candidate_file);
@@ -3947,22 +3991,22 @@ where
     drop(file);
     if let Err(error) = result {
         unsafe {
-            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+            libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
         }
         return Err(error);
     }
     let status = unsafe {
         libc::renameat(
-            directory.as_raw_fd(),
+            directory.temporary.as_raw_fd(),
             temp_name.as_ptr(),
-            directory.as_raw_fd(),
+            directory.output.as_raw_fd(),
             final_name.as_ptr(),
         )
     };
     if status != 0 {
         let error = io::Error::last_os_error();
         unsafe {
-            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+            libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
         }
         return Err(error);
     }
@@ -4814,7 +4858,8 @@ mod tests {
         let path = root.path().join("dumps");
         let directory = private_dump_directory(&path).unwrap();
 
-        assert_eq!(directory.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(directory.output.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(directory.temporary.metadata().unwrap().permissions().mode() & 0o777, 0o700);
     }
 
     #[cfg(unix)]
@@ -4837,9 +4882,9 @@ mod tests {
     fn private_dump_directory_prunes_stale_temporary_dumps() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
-        let stale_path = dump_path.join(".mirror-1.txt.tmp-99999999-1");
         let directory = private_dump_directory(&dump_path).unwrap();
         drop(directory);
+        let stale_path = dump_path.join(".cmux-dump-tmp/.mirror-1.txt.tmp-99999999-1");
         fs::write(&stale_path, b"partial secret").unwrap();
 
         let _directory = private_dump_directory(&dump_path).unwrap();
@@ -4913,7 +4958,9 @@ mod tests {
             fs::read_dir(&dump_path)
                 .unwrap()
                 .filter_map(Result::ok)
-                .all(|entry| entry.file_name() == "mirror.txt")
+                .all(|entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                })
         );
     }
 
@@ -4946,7 +4993,7 @@ mod tests {
         fs::write(&final_path, b"previous").unwrap();
         fs::hard_link(&final_path, &linked_path).unwrap();
 
-        let error = private_dump_file(&directory, "mirror.txt").unwrap_err();
+        let error = private_dump_file(&directory.output, "mirror.txt").unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read(&final_path).unwrap(), b"previous");
@@ -4972,7 +5019,9 @@ mod tests {
             fs::read_dir(&dump_path)
                 .unwrap()
                 .filter_map(Result::ok)
-                .all(|entry| entry.file_name() == "mirror.txt")
+                .all(|entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                })
         );
     }
 
