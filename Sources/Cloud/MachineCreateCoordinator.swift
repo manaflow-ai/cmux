@@ -60,6 +60,7 @@ final class MachineCreateCoordinator {
     /// observer token without going through an isolated accessor.
     @ObservationIgnored private var launches: [UUID: Launch] = [:]
     @ObservationIgnored private var progressOutput: [UUID: String] = [:]
+    @ObservationIgnored private var attemptGeneration: [UUID: UInt64] = [:]
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let notificationCenter: NotificationCenter
@@ -107,13 +108,15 @@ final class MachineCreateCoordinator {
         operations.append(operation)
         launches[operation.id] = launch
         progressOutput[operation.id] = ""
+        attemptGeneration[operation.id] = 1
         postDidChange(finished: nil)
-        guard launch(request.arguments, progressHandler(for: operation.id), completionHandler(for: operation.id)) else {
+        guard launch(request.arguments, progressHandler(for: operation.id, generation: 1), completionHandler(for: operation.id, generation: 1)) else {
             if let index = operations.firstIndex(where: { $0.id == operation.id }) {
                 operations.remove(at: index)
             }
             launches.removeValue(forKey: operation.id)
             progressOutput.removeValue(forKey: operation.id)
+            attemptGeneration.removeValue(forKey: operation.id)
             postDidChange(finished: nil)
             return false
         }
@@ -131,14 +134,18 @@ final class MachineCreateCoordinator {
               let launch = launches[id] else { return false }
         operations[index].phase = .running
         operations[index].createdMachineID = nil
+        let generation = (attemptGeneration[id] ?? 0) &+ 1
+        attemptGeneration[id] = generation
         progressOutput[id] = ""
         postDidChange(finished: nil)
-        guard launch(operations[index].request.arguments, progressHandler(for: id), completionHandler(for: id)) else {
+        guard launch(operations[index].request.arguments, progressHandler(for: id, generation: generation), completionHandler(for: id, generation: generation)) else {
             if let failedIndex = operations.firstIndex(where: { $0.id == id }) {
                 operations[failedIndex].phase = .failed(output: String(
                     localized: "machines.new.error.launch",
                     defaultValue: "cmux could not start the create command. Sign in and try again."
                 ))
+                progressOutput.removeValue(forKey: id)
+                attemptGeneration[id] = (attemptGeneration[id] ?? generation) &+ 1
                 postDidChange(finished: nil)
             }
             return false
@@ -153,6 +160,7 @@ final class MachineCreateCoordinator {
         operations.remove(at: index)
         launches.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
+        attemptGeneration.removeValue(forKey: id)
         postDidChange(finished: nil)
     }
 
@@ -162,33 +170,21 @@ final class MachineCreateCoordinator {
         operations.removeAll()
         launches.removeAll()
         progressOutput.removeAll()
+        attemptGeneration.removeAll()
         postDidChange(finished: nil)
     }
 
-    /// Recognizes the CLI's "Created Cloud VM <id>" line in `output`. The
-    /// format is the CLI's own localized string, so the match follows the
-    /// user's language instead of a hard-coded English prefix.
+    /// Recognizes only the CLI's strict stdout protocol line.
     nonisolated static func createdMachineID(fromOutput output: String) -> String? {
-        // The stable marker is emitted before opening starts and is the
-        // authoritative correlation key. Parse it before localized display
-        // text, so partial progress can identify the machine in every locale.
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let token = String(token)
-            guard token.hasPrefix("machine=") else { continue }
-            let id = String(token.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
-        }
-        let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
-        let parts = format.components(separatedBy: "%@")
-        guard parts.count == 2 else { return nil }
-        let prefix = parts[0], suffix = parts[1]
         for rawLine in output.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
-            let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+            guard line.hasPrefix("OK machine=") else { continue }
+            let payload = line.dropFirst("OK machine=".count)
+            let id = payload.split(maxSplits: 1, whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { continue }
+            let suffix = payload.dropFirst(id.count)
+            guard suffix.isEmpty || suffix.first?.isWhitespace == true else { continue }
+            return id
         }
         return nil
     }
@@ -218,16 +214,22 @@ final class MachineCreateCoordinator {
         return "\(reason)\n\(safe)"
     }
 
-    private func completionHandler(for id: UUID) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
+    private func completionHandler(for id: UUID, generation: UInt64) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
         { [weak self] completion in
-            self?.finish(id: id, completion: completion)
+            guard let self, self.attemptGeneration[id] == generation else { return }
+            self.finish(id: id, completion: completion)
         }
     }
 
-    private func progressHandler(for id: UUID) -> @MainActor (String) -> Void {
+    private func progressHandler(for id: UUID, generation: UInt64) -> @MainActor (String) -> Void {
         { [weak self] chunk in
-            guard let self, let index = self.operations.firstIndex(where: { $0.id == id }) else { return }
-            self.progressOutput[id, default: ""].append(chunk)
+            guard let self,
+                  self.attemptGeneration[id] == generation,
+                  let index = self.operations.firstIndex(where: { $0.id == id }) else { return }
+            var bounded = Data((self.progressOutput[id, default: ""] + chunk).utf8)
+            bounded = Data(bounded.suffix(32 * 1024))
+            while !bounded.isEmpty && String(data: bounded, encoding: .utf8) == nil { bounded.removeFirst() }
+            self.progressOutput[id] = String(data: bounded, encoding: .utf8) ?? ""
             if let machineID = Self.createdMachineID(fromOutput: self.progressOutput[id] ?? "") {
                 guard self.operations[index].createdMachineID != machineID else { return }
                 self.operations[index].createdMachineID = machineID
@@ -240,12 +242,12 @@ final class MachineCreateCoordinator {
         // Dropped by a sign-out (or dismissed after a retry was refused): the
         // account this belonged to is gone, so there is nobody to tell.
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
+        progressOutput.removeValue(forKey: id)
+        attemptGeneration[id] = (attemptGeneration[id] ?? 0) &+ 1
         var operation = operations[index]
         let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The CLI's `machine=` token is the authoritative created-machine
-        // signal; the localized "Created Cloud VM" line is the fallback for
-        // older bundled CLIs.
-        let createdMachineID = completion.machineId ?? Self.createdMachineID(fromOutput: output)
+        // The launcher's machine id comes only from the strict stdout protocol.
+        let createdMachineID = completion.machineId
         if let createdMachineID {
             operation.createdMachineID = createdMachineID
             operations[index].createdMachineID = createdMachineID
@@ -255,12 +257,14 @@ final class MachineCreateCoordinator {
             outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)
             operations.remove(at: index)
             launches.removeValue(forKey: id)
+            attemptGeneration.removeValue(forKey: id)
         } else if !operation.request.isBaseSetup, let machineID = createdMachineID {
             // Base setup is idempotent (`vm base open` reopens the same slot),
             // so only `vm new` can leave a machine behind that must not be re-created.
             outcome = .createdButOpenFailed(machineID: machineID, output: Self.displayableFailureOutput(output))
             operations.remove(at: index)
             launches.removeValue(forKey: id)
+            attemptGeneration.removeValue(forKey: id)
         } else {
             let failure = Self.displayableFailureOutput(output)
             outcome = .failed(output: failure)
