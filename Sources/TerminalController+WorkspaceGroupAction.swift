@@ -220,28 +220,27 @@ extension TerminalController {
             )
             return (resolution.value, nil)
         } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
-            let messageKey: String
-            let defaultValue: String
+            let message: String
             switch error {
             case .nonString:
-                messageKey = "workspaceGroup.error.idempotencyKeyMustBeString"
-                defaultValue = "external_id and idempotency_key must be strings"
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                )
             case .empty:
-                messageKey = "workspaceGroup.error.idempotencyKeyMustNotBeEmpty"
-                defaultValue = "The group identity must not be empty"
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                )
             case .mismatchedAliases:
-                messageKey = "workspaceGroup.error.idempotencyKeysMustMatch"
-                defaultValue = "external_id and idempotency_key must match"
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                    defaultValue: "external_id and idempotency_key must match"
+                )
             }
             return (nil, .err(
                 code: "invalid_params",
-                message: String(
-                    localized: LocalizedStringResource(
-                        messageKey,
-                        defaultValue: String.LocalizationValue(defaultValue),
-                        bundle: .main
-                    )
-                ),
+                message: message,
                 data: nil
             ))
         } catch {
