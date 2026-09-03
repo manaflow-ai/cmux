@@ -2243,6 +2243,9 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Validate app bundle thinning
+        run: ./tests/test_thin_app_bundle.sh
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
