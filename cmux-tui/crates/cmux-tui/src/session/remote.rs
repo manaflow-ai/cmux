@@ -7229,6 +7229,32 @@ mod tests {
     }
 
     #[test]
+    fn completed_worker_does_not_block_when_reaper_wake_queue_is_full() {
+        let runtime = Arc::new(WorkerRuntime {
+            admission: process_worker_admission(),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        sender.try_send(()).expect("the wake queue should be full");
+        state.lock().unwrap().sender = Some(sender);
+
+        let completion = Arc::new(WorkerCompletion::with_runtime(runtime, None, true));
+        let (finished_tx, finished_rx) = channel();
+        let worker_completion = completion.clone();
+        let worker = std::thread::spawn(move || {
+            worker_completion.mark_done();
+            finished_tx.send(()).unwrap();
+        });
+
+        finished_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("worker completion must not block on a full wake queue");
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn concurrent_reaper_enqueue_starts_one_owned_worker() {
         let _reaper_guard = reaper_test_guard();
         let state = reaper_state();
