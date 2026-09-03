@@ -116,11 +116,11 @@ final class CloudVMActionLauncher {
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
             let result = outputCollector.finishResult()
-            outputDelivery?.finish()
             let output = result.output
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
+                await outputDelivery?.finishAndWait()
                 Self.shared.processes.removeValue(forKey: processIdentifier)
                 let suppressPresentation = Self.shared.authTransitionSuppressedProcessIDs.remove(processIdentifier) != nil
                 onCompletion?(
@@ -385,6 +385,8 @@ final class CloudVMActionLauncher {
 final class MainActorOutputCoalescer: @unchecked Sendable {
     private let continuation: AsyncStream<Data>.Continuation
     private let deliveryTask: Task<Void, Never>
+    private let stateLock = NSLock()
+    private var didFinish = false
 
     init(
         handler: @escaping @MainActor (String) -> Void,
@@ -412,12 +414,32 @@ final class MainActorOutputCoalescer: @unchecked Sendable {
     /// Finish the stream after the process has delivered its final output.
     /// The delivery task then drains any buffered chunks and exits.
     func finish() {
+        stateLock.lock()
+        guard !didFinish else {
+            stateLock.unlock()
+            return
+        }
+        didFinish = true
+        stateLock.unlock()
         continuation.finish()
     }
 
+    /// Finishes the stream and waits until every buffered chunk reaches the
+    /// handler. This is used before process completion is published.
+    func finishAndWait() async {
+        finish()
+        await deliveryTask.value
+    }
+
     deinit {
-        continuation.finish()
-        deliveryTask.cancel()
+        stateLock.lock()
+        let shouldCancel = !didFinish
+        didFinish = true
+        stateLock.unlock()
+        if shouldCancel {
+            continuation.finish()
+            deliveryTask.cancel()
+        }
     }
 }
 
