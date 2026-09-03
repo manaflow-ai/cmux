@@ -15,7 +15,7 @@ import AppKit
 
 #if os(iOS)
 private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
+    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing().maximumPickerWidth
 }
 
 private struct WorkspaceRootToolbarRenderContext: Equatable {
@@ -47,15 +47,20 @@ extension EnvironmentValues {
     }
 }
 
-private enum WorkspaceRootToolbarSizing {
-    static let minimumPickerWidth: CGFloat = 98
-    static let maximumPickerWidth: CGFloat = 124
-    private static let nonPickerWidth: CGFloat = 277
+private struct WorkspaceRootToolbarSizing {
+    /// Low enough that the picker survives the narrowest sidebar instead of
+    /// being culled by the bar: the label truncates, the item stays.
+    let minimumPickerWidth: CGFloat = 44
+    let maximumPickerWidth: CGFloat = 124
+    /// Horizontal air between the picker and its neighboring toolbar items,
+    /// applied outside the pill so the picker never sits flush against them.
+    let pickerBreathingRoom: CGFloat = 8
+    private let nonPickerWidth: CGFloat = 277
 
-    static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
+    func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
         min(
             maximumPickerWidth,
-            max(minimumPickerWidth, contentWidth - nonPickerWidth)
+            max(minimumPickerWidth, contentWidth - nonPickerWidth - 2 * pickerBreathingRoom)
         )
     }
 }
@@ -65,6 +70,7 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+    private let sizing = WorkspaceRootToolbarSizing()
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -92,7 +98,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     selection: selection,
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
-                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    labelWidth: sizing.pickerWidth(for: contentWidth),
                     statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
@@ -101,6 +107,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 )
             )
             .equatable()
+            .padding(.horizontal, sizing.pickerBreathingRoom)
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
@@ -265,9 +272,7 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount,
-                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                    ? nil
-                    : taskComposerAction
+                taskComposerAction: scaffoldTaskComposerAction
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -746,6 +751,19 @@ struct WorkspaceShellView: View {
         return openTaskComposer
     }
 
+    /// The scaffold's screen-corner compose button serves only the compact
+    /// stack (list root, where it floats over the workspace list). In the
+    /// split layout compose belongs exclusively to the sidebar column
+    /// (`splitLayout`), where the pre-iOS-26 list host also anchored it: it
+    /// must never float over the terminal, so a collapsed sidebar means no
+    /// compose button rather than a screen-corner one.
+    private var scaffoldTaskComposerAction: (() -> Void)? {
+        if usesCompactStack {
+            return compactNavigationPath.isEmpty ? taskComposerAction : nil
+        }
+        return nil
+    }
+
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
@@ -757,6 +775,17 @@ struct WorkspaceShellView: View {
                     searchText: searchText,
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // iOS 26 keeps the compose button over the sidebar column,
+                // matching the pre-26 list-host overlay; earlier systems
+                // still get it from WorkspaceListSearchHost.
+                if #available(iOS 26.0, *), let taskComposerAction {
+                    TaskComposerButton(action: taskComposerAction)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 12)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                }
             }
             .toolbar {
                 rootToolbarContent
@@ -770,7 +799,12 @@ struct WorkspaceShellView: View {
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
-            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            // Constant visibility: toggling the tab bar with the sidebar made
+            // the floating tab pill re-land on the toolbar row after the
+            // sidebar reappeared, overlapping the sidebar's trailing items.
+            // A tab bar that never remounts keeps its own row above the
+            // toolbar across sidebar toggles.
+            .toolbarVisibility(.visible, for: .tabBar)
             #endif
         }
         .navigationSplitViewStyle(.balanced)
