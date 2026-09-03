@@ -176,34 +176,245 @@ export function listCustomDomains(input: {
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
     return domains
       .filter((domain) => domain.kind === "custom")
-      .map((domain): CustomDomainDto => {
-        const verification = domain.verificationRecords.find(
-          (record) => record.purpose === "verification",
-        );
-        const certificate = domain.verificationRecords.find(
-          (record) => record.purpose === "certificate",
-        );
-        return {
-          id: domain.id,
-          hostname: domain.hostname,
-          verificationState: domain.verificationState,
-          certificateState: domain.certificateState,
-          createdAt: domain.createdAt.toISOString(),
-          dnsInstructions: verification && certificate
-            ? { verification, certificate }
-            : null,
-          publications: targets
-            .filter((target) =>
-              target.domain.id === domain.id && target.publication.state !== "disabled"
-            )
-            .map((target) => ({
-              id: target.publication.id,
-              hostname: target.publication.hostname,
-              state: target.publication.state,
-            })),
-        };
-      });
+      .map((domain) => customDomainDto(domain, targets));
   });
+}
+
+export type VerifyDomainResult =
+  | { readonly kind: "publication"; readonly publication: PublicationDto }
+  | { readonly kind: "domain"; readonly domain: CustomDomainDto };
+
+/**
+ * `cmux cloud domains verify <name>` works on domains, not database ids. The
+ * name resolves in order: an owned publication id or live hostname (its own
+ * verify), then an owned zone, and otherwise a new zone to start verifying.
+ */
+export function verifyDomainOrPublication(input: {
+  readonly principal: PublicationPrincipal;
+  readonly reference: string;
+  readonly generatedDomain?: string;
+  readonly forwardAuth?: PublicationForwardAuthConfig;
+  readonly now?: Date;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    const reference = input.reference.trim();
+    const hostname = normalizePublicationHostname(reference);
+    if (!hostname) {
+      if (!UUID_PATTERN.test(reference)) {
+        return yield* new PublicationInputError({ reason: "invalid_hostname", field: "hostname" });
+      }
+      const publication = yield* repository.findOwnedPublication({
+        id: reference,
+        ownerUserId: input.principal.userId,
+      });
+      if (publication) {
+        return {
+          kind: "publication",
+          publication: yield* verifyPublication({ ...input, publicationId: reference }),
+        } as const;
+      }
+      const domain = yield* repository.findOwnedDomain({
+        id: reference,
+        ownerUserId: input.principal.userId,
+      });
+      if (!domain || domain.kind !== "custom") {
+        return yield* new PublicationNotFoundError({ resource: "domain" });
+      }
+      return {
+        kind: "domain",
+        domain: yield* verifyCustomDomain({ ...input, hostname: domain.hostname }),
+      } as const;
+    }
+    const publication = yield* repository.findOwnedPublicationByHostname({
+      hostname,
+      ownerUserId: input.principal.userId,
+    });
+    if (publication) {
+      return {
+        kind: "publication",
+        publication: yield* verifyPublication({ ...input, publicationId: hostname }),
+      } as const;
+    }
+    return {
+      kind: "domain",
+      domain: yield* verifyCustomDomain({ ...input, hostname }),
+    } as const;
+  });
+}
+
+/**
+ * Verify a customer zone independently of any publication: start the
+ * Freestyle challenge the first time (returning the records to add), try to
+ * complete it afterwards, and once verified keep the wildcard certificate
+ * moving and provision every publication that was waiting on the zone.
+ */
+export function verifyCustomDomain(input: {
+  readonly principal: PublicationPrincipal;
+  readonly hostname: string;
+  readonly generatedDomain?: string;
+  readonly forwardAuth?: PublicationForwardAuthConfig;
+  readonly now?: Date;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    const provider = yield* VmPublicationProvider;
+    const now = input.now ?? new Date();
+    const generatedDomain = yield* normalizedGeneratedPublicationDomain(input.generatedDomain);
+    const hostname = yield* normalizedRequestedHostname(input.hostname, true, generatedDomain);
+    const ownerUserId = input.principal.userId;
+
+    let domain = yield* repository.findOwnedDomainByHostname({ hostname, ownerUserId });
+    if (!domain) {
+      domain = yield* repository.createDomain({
+        ownerUserId,
+        hostname,
+        kind: "custom",
+        provider: "freestyle",
+        verificationState: "pending",
+        certificateState: "missing",
+        now,
+      });
+    }
+    if (domain.kind !== "custom") {
+      return yield* new PublicationNotFoundError({ resource: "domain" });
+    }
+
+    if (domain.verificationState !== "verified") {
+      // The first call only mints the challenge and returns the records; a
+      // completion attempt is pointless before the customer has seen them.
+      const challengeExisted = domain.providerVerificationId !== null;
+      domain = yield* ensureCustomDomainVerification({
+        repository,
+        provider,
+        domain,
+        publicationHostname: domain.hostname,
+        ownerUserId,
+        now,
+      });
+      if (challengeExisted && domain.verificationState !== "verified") {
+        const verificationId = domain.providerVerificationId;
+        if (!verificationId) {
+          return yield* new PublicationInvariantError({
+            reason: "provider_verification_id_missing",
+          });
+        }
+        const ownership = yield* provider.completeDomainVerification(verificationId);
+        if (ownership) {
+          if (
+            ownership.verificationId !== verificationId ||
+            normalizePublicationHostname(ownership.domain) !== domain.hostname
+          ) {
+            return yield* new PublicationInvariantError({
+              reason: "provider_verification_mismatch",
+            });
+          }
+          domain = yield* repository.updateDomainState({
+            id: domain.id,
+            ownerUserId,
+            verificationState: "verified",
+            certificateState: "pending",
+            now,
+          });
+        }
+      }
+    }
+
+    if (domain.verificationState === "verified") {
+      yield* provider.requestWildcardCertificate(domain.hostname);
+      const wildcard = yield* provider.getWildcardCertificateStatus(domain.hostname);
+      domain = yield* repository.updateDomainState({
+        id: domain.id,
+        ownerUserId,
+        certificateState: wildcard.state,
+        now,
+      });
+      yield* provisionPublicationsWaitingOnZone({
+        repository,
+        provider,
+        domain,
+        ownerUserId,
+        forwardAuth: input.forwardAuth,
+        now,
+      });
+    }
+
+    const targets = yield* repository.listOwnedPublications(ownerUserId);
+    return customDomainDto(domain, targets);
+  });
+}
+
+/**
+ * Publications reserved before their zone was verified sit in `provisioning`
+ * with no rule. Provision each under its own lease; one that is busy or hits
+ * a provider error stays where it is and the next verify picks it up.
+ */
+function provisionPublicationsWaitingOnZone(input: {
+  readonly repository: CloudVmPublicationRepositoryShape;
+  readonly provider: VmPublicationProviderShape;
+  readonly domain: CloudVmDomainRow;
+  readonly ownerUserId: string;
+  readonly forwardAuth?: PublicationForwardAuthConfig;
+  readonly now: Date;
+}) {
+  return Effect.gen(function* () {
+    const targets = yield* input.repository.listOwnedPublications(input.ownerUserId);
+    for (const target of targets) {
+      if (
+        target.domain.id !== input.domain.id ||
+        target.publication.state !== "provisioning"
+      ) {
+        continue;
+      }
+      const attempt = yield* Effect.either(provisionReservedPublication({
+        repository: input.repository,
+        provider: input.provider,
+        target: { ...target, domain: input.domain },
+        ownerUserId: input.ownerUserId,
+        forwardAuth: input.forwardAuth,
+        now: input.now,
+      }));
+      if (
+        attempt._tag === "Left" &&
+        attempt.left._tag !== "PublicationProvisioningBusyError" &&
+        attempt.left._tag !== "VmPublicationProviderError" &&
+        attempt.left._tag !== "PublicationConflictError"
+      ) {
+        return yield* Effect.fail(attempt.left);
+      }
+    }
+  });
+}
+
+function customDomainDto(
+  domain: CloudVmDomainRow,
+  targets: readonly CloudVmPublicationTarget[],
+): CustomDomainDto {
+  const verification = domain.verificationRecords.find(
+    (record) => record.purpose === "verification",
+  );
+  const certificate = domain.verificationRecords.find(
+    (record) => record.purpose === "certificate",
+  );
+  return {
+    id: domain.id,
+    hostname: domain.hostname,
+    verificationState: domain.verificationState,
+    certificateState: domain.certificateState,
+    createdAt: domain.createdAt.toISOString(),
+    dnsInstructions: verification && certificate
+      ? { verification, certificate }
+      : null,
+    publications: targets
+      .filter((target) =>
+        target.domain.id === domain.id && target.publication.state !== "disabled"
+      )
+      .map((target) => ({
+        id: target.publication.id,
+        hostname: target.publication.hostname,
+        state: target.publication.state,
+      })),
+  };
 }
 
 export function createPublication(input: {
@@ -288,6 +499,7 @@ export function createPublication(input: {
 
 export function verifyPublication(input: {
   readonly principal: PublicationPrincipal;
+  /** The publication id, or the live hostname it serves. */
   readonly publicationId: string;
   readonly forwardAuth?: PublicationForwardAuthConfig;
   readonly now?: Date;
@@ -323,6 +535,9 @@ export function verifyPublication(input: {
       }
       if (domain.verificationState !== "verified") {
         const ownership = yield* provider.completeDomainVerification(verificationId);
+        // The proof is not visible yet: report the pending zone and its records
+        // instead of failing, so `verify` reads as "make progress and show me".
+        if (!ownership) return publicationDto({ ...target, domain });
         if (
           ownership.verificationId !== verificationId ||
           normalizePublicationHostname(ownership.domain) !== target.domain.hostname
@@ -369,6 +584,7 @@ export function verifyPublication(input: {
 
 export function updatePublicationAccess(input: {
   readonly principal: PublicationPrincipal;
+  /** The publication id, or the live hostname it serves. */
   readonly publicationId: string;
   readonly accessMode: CloudVmPublicationAccessMode;
   readonly teamId?: string | null;
@@ -515,6 +731,7 @@ export function updatePublicationAccess(input: {
 
 export function deletePublication(input: {
   readonly principal: PublicationPrincipal;
+  /** The publication id, or the live hostname it serves. */
   readonly publicationId: string;
   readonly now?: Date;
 }) {
@@ -998,13 +1215,24 @@ function ensureSharedForwardAuth(input: {
   });
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/**
+ * Every mutation addresses a publication by its live hostname or by its id.
+ * An id never parses as a hostname (it has no dots), so the two cannot collide.
+ */
 function requireOwnedPublication(
   repository: CloudVmPublicationRepositoryShape,
-  publicationId: string,
+  reference: string,
   ownerUserId: string,
 ) {
   return Effect.gen(function* () {
-    const target = yield* repository.findOwnedPublication({ id: publicationId, ownerUserId });
+    const trimmed = reference.trim();
+    const hostname = normalizePublicationHostname(trimmed);
+    const target = hostname
+      ? yield* repository.findOwnedPublicationByHostname({ hostname, ownerUserId })
+      : yield* repository.findOwnedPublication({ id: trimmed, ownerUserId });
     if (!target) {
       return yield* new PublicationNotFoundError({ resource: "publication" });
     }

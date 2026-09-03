@@ -6,6 +6,7 @@ import { parseRequiredObjectBody, stringField } from "../../../../../services/vm
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
 import {
   publicationForwardAuthConfig,
+  publicationReference,
   withAuthedPublicationApiRoute,
   type AuthedPublicationRouteContext,
 } from "../routeShared";
@@ -51,7 +52,7 @@ export async function handlePublicationUpdate(
   }
   const publication = await context.run(updatePublicationAccess({
     principal: context.principal,
-    publicationId,
+    publicationId: publicationReference(publicationId, environment),
     accessMode: accessMode as "personal" | "team" | "public",
     teamId: body ? stringField(body, "teamId") : undefined,
     forwardAuth: publicationForwardAuthConfig(environment),
@@ -62,10 +63,11 @@ export async function handlePublicationUpdate(
 export async function handlePublicationDelete(
   publicationId: string,
   context: Pick<AuthedPublicationRouteContext, "principal" | "run">,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Response> {
   const result = await context.run(deletePublication({
     principal: context.principal,
-    publicationId,
+    publicationId: publicationReference(publicationId, environment),
   }));
   return jsonResponse(result);
 }

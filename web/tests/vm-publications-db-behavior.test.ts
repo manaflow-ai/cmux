@@ -1269,4 +1269,92 @@ describe("Cloud VM publication persistence", () => {
       );
     },
   );
+
+  dbTest(
+    "addresses publications and zones by hostname within one owner",
+    async () => {
+      const repo = requiredRepository();
+      const live = await createActivePublication({ suffix: "by-hostname" });
+      const ownerUserId = live.publication.ownerUserId;
+      const byHostname = await runRepository(
+        repo.findOwnedPublicationByHostname({
+          hostname: ` ${live.publication.hostname.toUpperCase()}. `,
+          ownerUserId,
+        }),
+      );
+      expect(byHostname?.publication.id).toBe(live.publication.id);
+      expect(
+        await runRepository(
+          repo.findOwnedPublicationByHostname({
+            hostname: live.publication.hostname,
+            ownerUserId: "someone-else",
+          }),
+        ),
+      ).toBeNull();
+
+      await runRepository(
+        repo.beginDisablePublication({ id: live.publication.id, ownerUserId, now: NOW }),
+      );
+      await runRepository(
+        repo.finishDisablePublication({
+          id: live.publication.id,
+          now: new Date(NOW.getTime() + 1),
+        }),
+      );
+      expect(
+        await runRepository(
+          repo.findOwnedPublicationByHostname({
+            hostname: live.publication.hostname,
+            ownerUserId,
+          }),
+        ),
+      ).toBeNull();
+
+      // A verified zone wins over a newer pending attempt on the same hostname.
+      const pendingFirst = await runRepository(
+        repo.createDomain({
+          ownerUserId,
+          hostname: "zone.example.test",
+          kind: "custom",
+          provider: "freestyle",
+          verificationState: "pending",
+          certificateState: "missing",
+          now: NOW,
+        }),
+      );
+      const verified = await runRepository(
+        repo.updateDomainState({
+          id: pendingFirst.id,
+          ownerUserId,
+          providerVerificationId: "verification-zone-1",
+          verificationState: "verified",
+          certificateState: "pending",
+          now: new Date(NOW.getTime() + 2),
+        }),
+      );
+      await runRepository(
+        repo.createDomain({
+          ownerUserId,
+          hostname: "zone.example.test",
+          kind: "custom",
+          provider: "freestyle",
+          verificationState: "pending",
+          certificateState: "missing",
+          now: new Date(NOW.getTime() + 3),
+        }),
+      );
+      expect(
+        (
+          await runRepository(
+            repo.findOwnedDomainByHostname({ hostname: "Zone.Example.Test", ownerUserId }),
+          )
+        )?.id,
+      ).toBe(verified.id);
+      expect(
+        await runRepository(
+          repo.findOwnedDomainByHostname({ hostname: "zone.example.test", ownerUserId: "other" }),
+        ),
+      ).toBeNull();
+    },
+  );
 });

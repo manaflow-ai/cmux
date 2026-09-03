@@ -213,14 +213,16 @@ The CLI surface is:
 
 ```text
 cmux cloud domains list                # publications: hostname -> VM port
-cmux cloud domains custom              # the custom zones you own, apart from publications
+cmux cloud domains zones               # the custom zones you own, apart from publications
+cmux cloud domains verify <domain>     # start or complete verifying a zone you own
 cmux cloud domains publish <vm> <port> [--domain <hostname>]
   [--access personal|team|public] [--team <team-id>]
-cmux cloud domains verify <publication-id>
-cmux cloud domains access <publication-id> <personal|team|public>
+cmux cloud domains access <hostname> <personal|team|public>
   [--team <team-id>]
-cmux cloud domains rm <publication-id>
+cmux cloud domains rm <hostname>
 ```
+
+Every command works on domains. `verify <domain>` runs steps 2 through 6 above for a zone on its own: the first call mints the Freestyle challenge and prints the TXT proof and `_acme-challenge` delegation, later calls try to complete it, and once verified it keeps the wildcard certificate moving and provisions every publication that was reserved on that zone earlier. A name that matches one of the caller's live publications refreshes that publication instead. `access` and `rm` accept the publication's hostname (a bare generated label is completed with the generated zone) as well as its id.
 
 ## Safe state transitions
 

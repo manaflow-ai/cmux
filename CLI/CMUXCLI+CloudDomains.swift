@@ -15,13 +15,15 @@ extension CMUXCLI {
         defaultValue: """
             Usage:
               cmux cloud domains [list]
-              cmux cloud domains custom
+              cmux cloud domains zones
+              cmux cloud domains verify <domain>
               cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]
-              cmux cloud domains verify <publication-id>
-              cmux cloud domains access <publication-id> <personal|team|public> [--team <id>]
-              cmux cloud domains rm <publication-id>
+              cmux cloud domains access <hostname> <personal|team|public> [--team <id>]
+              cmux cloud domains rm <hostname>
 
-            Add `--json` to any command for stable JSON output.
+            Verify a domain you own first: `verify` prints the DNS records to add, then run it
+            again to complete. `publish --domain` then accepts that domain or any one-label child.
+            Generated names need no verification. Add `--json` to any command for stable JSON output.
             """
     )
 
@@ -54,7 +56,7 @@ extension CMUXCLI {
                 Self.printPublication(publication)
             }
 
-        case "custom", "zones":
+        case "zones", "custom":
             guard arguments.isEmpty else { throw CLIError(message: Self.cloudDomainsUsage) }
             let response = try client.sendV2(method: "vm.domain_list", responseTimeout: 60)
             let domains = (response["domains"] as? [[String: Any]]) ?? []
@@ -65,7 +67,7 @@ extension CMUXCLI {
             guard !domains.isEmpty else {
                 print(String(
                     localized: "cli.cloud.domains.custom.empty",
-                    defaultValue: "No custom Cloud VM domains. Publish one with `cmux cloud domains publish <vm> <port> --domain <hostname>`."
+                    defaultValue: "No custom Cloud VM domains. Start one with `cmux cloud domains verify <domain>`."
                 ))
                 return
             }
@@ -102,14 +104,24 @@ extension CMUXCLI {
             try printPublicationMutation(response, jsonOutput: jsonOutput)
 
         case "verify":
-            guard arguments.count == 1, let publicationID = Self.nonempty(arguments[0]) else {
+            guard arguments.count == 1, let name = Self.nonempty(arguments[0]) else {
                 throw CLIError(message: Self.cloudDomainsUsage)
             }
+            // The app resolves the name: a live publication hostname refreshes
+            // that publication; anything else starts or completes a zone.
             let response = try client.sendV2(
-                method: "vm.publication_verify",
-                params: ["id": publicationID],
+                method: "vm.domain_verify",
+                params: ["name": name],
                 responseTimeout: 120
             )
+            if let domain = response["domain"] as? [String: Any] {
+                if jsonOutput {
+                    print(jsonString(["domain": domain]))
+                } else {
+                    Self.printPublicationDomain(domain)
+                }
+                return
+            }
             try printPublicationMutation(response, jsonOutput: jsonOutput)
 
         case "access":
@@ -257,13 +269,14 @@ extension CMUXCLI {
                     localized: "cli.cloud.domains.verification.generated",
                     defaultValue: "verification: not required (cmux domain)"
                 ))
+                if state != "active" { printPublicationVerifyHint(name: hostname) }
             } else {
                 let verificationFormat = String(
                     localized: "cli.cloud.domains.verificationState",
                     defaultValue: "verification: %@"
                 )
                 print(String(format: verificationFormat, state))
-                printPublicationVerifyHint(id: id)
+                printPublicationVerifyHint(name: hostname)
             }
             return
         }
@@ -281,7 +294,14 @@ extension CMUXCLI {
                 }
             }
         }
-        printPublicationVerifyHint(id: id)
+        // Verification is a zone-level step; once the zone is verified the
+        // publication itself is what still needs to make progress.
+        let zone = (verification["domain"] as? String) ?? hostname
+        if verificationState != "verified" {
+            printPublicationVerifyHint(name: zone)
+        } else if state != "active" {
+            printPublicationVerifyHint(name: hostname)
+        }
     }
 
     /// A custom zone: its proof and certificate delegation, plus the publications
@@ -331,18 +351,15 @@ extension CMUXCLI {
                 Self.printDNSInstruction(instruction)
             }
         }
-        if let pending = publications.first(where: { ($0["state"] as? String) != "active" }),
-           let pendingID = pending["id"] as? String {
-            printPublicationVerifyHint(id: pendingID)
-        }
+        printPublicationVerifyHint(name: hostname)
     }
 
-    private static func printPublicationVerifyHint(id: String) {
+    private static func printPublicationVerifyHint(name: String) {
         let verifyFormat = String(
             localized: "cli.cloud.domains.verifyHint",
             defaultValue: "After updating DNS: cmux cloud domains verify %@"
         )
-        print(String(format: verifyFormat, id))
+        print(String(format: verifyFormat, name))
     }
 
     private static func printDNSInstruction(_ instruction: [String: Any]) {

@@ -240,9 +240,10 @@ export type VmPublicationProviderShape = {
   readonly getDomainVerification: (
     input: GetDomainVerificationInput,
   ) => Effect.Effect<PublicationDomainVerification | null, VmPublicationProviderError>;
+  /** `null` when Freestyle could not find the DNS proof yet; the challenge stays open. */
   readonly completeDomainVerification: (
     domainOrVerificationId: string,
-  ) => Effect.Effect<PublicationDomainOwnership, VmPublicationProviderError>;
+  ) => Effect.Effect<PublicationDomainOwnership | null, VmPublicationProviderError>;
   readonly requestWildcardCertificate: (
     domain: string,
   ) => Effect.Effect<PublicationCertificate, VmPublicationProviderError>;
@@ -275,6 +276,15 @@ function isNotFound(cause: unknown): boolean {
   }
   const candidate = cause as { readonly status?: unknown; readonly code?: unknown } | null;
   return candidate?.status === 404 || candidate?.code === "NOT_FOUND";
+}
+
+function isVerificationIncomplete(cause: unknown): boolean {
+  const status = cause instanceof FreestyleApiError
+    ? cause.status
+    : (cause as { readonly status?: unknown } | null)?.status;
+  return typeof status === "number" &&
+    status >= 400 && status < 500 &&
+    status !== 401 && status !== 403 && status !== 429;
 }
 
 function normalizedExactHostname(value: string): string {
@@ -753,9 +763,18 @@ export function makeVmPublicationProvider(
 
     completeDomainVerification: (domainOrVerificationId) =>
       providerEffect("completeDomainVerification", async () => {
-        const ownership = await createClient().domains.verifications.complete(
-          domainOrVerificationId,
-        );
+        let ownership: DomainVerified;
+        try {
+          ownership = await createClient().domains.verifications.complete(
+            domainOrVerificationId,
+          );
+        } catch (cause) {
+          // A rejected completion means the TXT proof is not visible yet (or
+          // the challenge was withdrawn); the caller reports "still pending"
+          // instead of a provider outage. Auth, throttling, and 5xx still fail.
+          if (isVerificationIncomplete(cause)) return null;
+          throw cause;
+        }
         return {
           domain: ownership.domain,
           createdAt: ownership.createdAt,

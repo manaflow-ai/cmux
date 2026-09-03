@@ -232,6 +232,11 @@ export type CloudVmPublicationRepositoryShape = {
     readonly id: string;
     readonly ownerUserId: string;
   }) => Effect.Effect<CloudVmDomainRow | null, PublicationDatabaseError>;
+  /** The owner's zone row for an exact hostname, preferring verified over pending over failed. */
+  readonly findOwnedDomainByHostname: (input: {
+    readonly hostname: string;
+    readonly ownerUserId: string;
+  }) => Effect.Effect<CloudVmDomainRow | null, PublicationDatabaseError>;
   readonly listOwnedDomains: (
     ownerUserId: string,
   ) => Effect.Effect<readonly CloudVmDomainRow[], PublicationDatabaseError>;
@@ -334,6 +339,14 @@ export type CloudVmPublicationRepositoryShape = {
   }) => Effect.Effect<CloudVmPublicationRow, RepositoryError>;
   readonly findOwnedPublication: (input: {
     readonly id: string;
+    readonly ownerUserId: string;
+  }) => Effect.Effect<
+    CloudVmPublicationTarget | null,
+    PublicationDatabaseError
+  >;
+  /** The owner's live (not disabled) publication on an exact hostname. */
+  readonly findOwnedPublicationByHostname: (input: {
+    readonly hostname: string;
     readonly ownerUserId: string;
   }) => Effect.Effect<
     CloudVmPublicationTarget | null,
@@ -987,6 +1000,26 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         return domain ?? null;
       }),
 
+    findOwnedDomainByHostname: (input) =>
+      databaseEffect("findOwnedDomainByHostname", async () => {
+        const rows = await cloudDb()
+          .select()
+          .from(cloudVmDomains)
+          .where(
+            and(
+              eq(cloudVmDomains.hostname, normalizedHostname(input.hostname)),
+              eq(cloudVmDomains.ownerUserId, input.ownerUserId),
+            ),
+          )
+          .orderBy(desc(cloudVmDomains.createdAt));
+        const rank = (row: CloudVmDomainRow): number =>
+          row.verificationState === "verified"
+            ? 0
+            : row.verificationState === "pending" || row.verificationState === "not_required"
+            ? 1
+            : 2;
+        return [...rows].sort((left, right) => rank(left) - rank(right))[0] ?? null;
+      }),
     listOwnedDomains: (ownerUserId) =>
       databaseEffect(
         "listOwnedDomains",
@@ -1721,6 +1754,30 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         return target ?? null;
       }),
 
+    findOwnedPublicationByHostname: (input) =>
+      databaseEffect("findOwnedPublicationByHostname", async () => {
+        const [target] = await cloudDb()
+          .select({
+            publication: cloudVmPublications,
+            domain: cloudVmDomains,
+            vm: cloudVms,
+          })
+          .from(cloudVmPublications)
+          .innerJoin(
+            cloudVmDomains,
+            eq(cloudVmPublications.domainId, cloudVmDomains.id),
+          )
+          .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
+          .where(
+            and(
+              eq(cloudVmPublications.hostname, normalizedHostname(input.hostname)),
+              eq(cloudVmPublications.ownerUserId, input.ownerUserId),
+              isNull(cloudVmPublications.disabledAt),
+            ),
+          )
+          .limit(1);
+        return target ?? null;
+      }),
     listOwnedPublications: (ownerUserId) =>
       databaseEffect(
         "listOwnedPublications",

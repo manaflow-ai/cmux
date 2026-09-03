@@ -2,6 +2,7 @@ import { verifyPublication } from "../../../../../../services/vm-publications/wo
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import {
   publicationForwardAuthConfig,
+  publicationReference,
   withAuthedPublicationApiRoute,
   type AuthedPublicationRouteContext,
 } from "../../routeShared";
@@ -25,7 +26,7 @@ export async function handlePublicationVerify(
 ): Promise<Response> {
   const publication = await context.run(verifyPublication({
     principal: context.principal,
-    publicationId,
+    publicationId: publicationReference(publicationId, environment),
     forwardAuth: publicationForwardAuthConfig(environment),
   }));
   return jsonResponse({ publication });

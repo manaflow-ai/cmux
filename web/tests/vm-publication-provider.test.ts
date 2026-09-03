@@ -603,6 +603,32 @@ describe("VM publication Freestyle provider", () => {
     expect(completed).toEqual(["verification-1"]);
   });
 
+  test("treats a rejected verification completion as still pending", async () => {
+    let status = 422;
+    const client = fakeClient({
+      verificationComplete: async () => {
+        throw new FreestyleApiError(status, {
+          code: "VERIFICATION_PENDING",
+          message: "TXT record not found",
+        });
+      },
+    });
+    const provider = makeVmPublicationProvider(() => client);
+
+    for (status of [422, 400, 409, 404]) {
+      await expect(
+        Effect.runPromise(provider.completeDomainVerification("verification-1")),
+      ).resolves.toBeNull();
+    }
+    for (status of [401, 403, 429, 503]) {
+      const error = await Effect.runPromise(
+        Effect.flip(provider.completeDomainVerification("verification-1")),
+      );
+      expect(error).toBeInstanceOf(VmPublicationProviderError);
+      expect(error.operation).toBe("completeDomainVerification");
+    }
+  });
+
   test("requests and polls the reusable wildcard certificate for a verified zone", async () => {
     const requested: string[] = [];
     let certificates: CertificateInfo[] = [];

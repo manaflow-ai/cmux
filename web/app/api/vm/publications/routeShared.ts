@@ -134,6 +134,23 @@ export function publicationGeneratedDomain(
     DEFAULT_GENERATED_PUBLICATION_DOMAIN;
 }
 
+const PUBLICATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/**
+ * Path segments name a publication by id or hostname. A bare generated label
+ * such as `prickly-lavender-minnow` is completed with the generated zone so
+ * the CLI can address generated names the way people say them.
+ */
+export function publicationReference(
+  raw: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const value = raw.trim();
+  if (!value || value.includes(".") || PUBLICATION_ID_PATTERN.test(value)) return value;
+  return `${value}.${publicationGeneratedDomain(environment)}`;
+}
+
 export function publicationErrorResponse(error: unknown): Response {
   if (error instanceof PublicationInputError) {
     const copy = inputErrorCopy(error);

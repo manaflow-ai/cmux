@@ -35,6 +35,23 @@ extension TerminalController {
                 let domains = try await VMClient.shared.listPublicationDomains()
                 return ["domains": domains.map(\.foundationObject)]
             }
+        case "vm.domain_verify":
+            guard let name = Self.socketWorkerString(
+                params["name"] ?? params["hostname"] ?? params["domain"] ?? params["id"]
+            ), !name.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.domain.nameRequired",
+                        defaultValue: "vm.domain_verify requires `name` (a domain or publication hostname)."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.verifyPublicationDomain(name: name)
+                return result.foundationObject
+            }
         case "vm.publication_create":
             guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
                   !vmID.isEmpty else {
