@@ -73,12 +73,11 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineStats, MachineUsage, Mux,
-    MuxEvent,
-    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineStats, MachineUsage,
+    Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -11227,8 +11226,7 @@ fn handle_command_with_cancellation(
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                             };
                             let value = subscribed_event_json(&event);
-                            if writer.send_stream_backpressured(&value, &outbound_stream).is_err()
-                            {
+                            if writer.send_stream_backpressured(&value, &outbound_stream).is_err() {
                                 break;
                             }
                         }
@@ -22478,8 +22476,9 @@ mod tests {
     #[test]
     fn machine_stats_answers_the_command_and_feeds_only_its_own_event() {
         let mux = test_mux();
-        let before = handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
-            .unwrap();
+        let before =
+            handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
+                .unwrap();
         assert_eq!(before["stats"], Value::Null);
 
         let sample = MachineStats {
@@ -22495,8 +22494,9 @@ mod tests {
         };
         let follower = mux.subscribe_machine_stats();
         mux.set_machine_stats(Some(sample.clone()));
-        let after = handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
-            .unwrap();
+        let after =
+            handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
+                .unwrap();
         assert_eq!(after["stats"]["cpus"], 4);
         assert_eq!(after["stats"]["cpu_percent"], 12.5);
         assert_eq!(after["stats"]["memory_used_mb"], 2210);
@@ -22520,15 +22520,18 @@ mod tests {
 
         let parsed: Command = serde_json::from_str(r#"{"cmd":"machine-stats"}"#).unwrap();
         assert!(matches!(parsed, Command::MachineStats { follow: false }));
-        let parsed: Command = serde_json::from_str(r#"{"cmd":"machine-stats","follow":true}"#).unwrap();
+        let parsed: Command =
+            serde_json::from_str(r#"{"cmd":"machine-stats","follow":true}"#).unwrap();
         assert!(matches!(parsed, Command::MachineStats { follow: true }));
 
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
-        assert!(identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|capability| capability == MACHINE_STATS_CAPABILITY));
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|capability| capability == MACHINE_STATS_CAPABILITY)
+        );
     }
 
     #[test]

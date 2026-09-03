@@ -22,13 +22,13 @@ mod layout_undo;
 mod local_owner;
 mod localization;
 mod machine;
-mod machine_stats;
 #[cfg(unix)]
 mod machine_agent;
 mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod machine_stats;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]

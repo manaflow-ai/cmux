@@ -77,9 +77,8 @@ pub(crate) fn parse_meminfo(meminfo: &str) -> Option<(u64, u64)> {
         }
     }
     let total = total?;
-    let available = available.or_else(|| {
-        Some(free?.saturating_add(buffers?).saturating_add(cached?))
-    })?;
+    let available =
+        available.or_else(|| Some(free?.saturating_add(buffers?).saturating_add(cached?)))?;
     Some((total, available.min(total)))
 }
 
@@ -197,36 +196,45 @@ mod linux {
     pub(crate) fn start_sampler(mux: Weak<Mux>) -> Option<StatsSampler> {
         let stop = Arc::new((Mutex::new(false), Condvar::new()));
         let stop_for_thread = stop.clone();
-        let spawn = std::thread::Builder::new().name("machine-stats-sample".into()).spawn(move || {
-            let mut previous: Option<CpuTicks> = None;
-            let mut delay = STARTUP_DELAY;
-            let mut reported_failure = false;
-            loop {
-                if wait_or_stop(&stop_for_thread, delay) {
-                    return;
-                }
-                delay = SAMPLE_INTERVAL;
-                let Some(mux) = mux.upgrade() else { return };
-                match read_sample(previous) {
-                    Some((stats, ticks)) => {
-                        previous = Some(ticks);
-                        mux.set_machine_stats(Some(stats));
+        let spawn =
+            std::thread::Builder::new().name("machine-stats-sample".into()).spawn(move || {
+                let mut previous: Option<CpuTicks> = None;
+                let mut delay = STARTUP_DELAY;
+                let mut reported_failure = false;
+                loop {
+                    if wait_or_stop(&stop_for_thread, delay) {
+                        return;
                     }
-                    None => {
-                        if !reported_failure {
-                            reported_failure = true;
-                            crate::client_log::log("DEBUG", LOG_AREA, "host sample unavailable");
+                    delay = SAMPLE_INTERVAL;
+                    let Some(mux) = mux.upgrade() else { return };
+                    match read_sample(previous) {
+                        Some((stats, ticks)) => {
+                            previous = Some(ticks);
+                            mux.set_machine_stats(Some(stats));
                         }
-                        previous = None;
-                        mux.set_machine_stats(None);
+                        None => {
+                            if !reported_failure {
+                                reported_failure = true;
+                                crate::client_log::log(
+                                    "DEBUG",
+                                    LOG_AREA,
+                                    "host sample unavailable",
+                                );
+                            }
+                            previous = None;
+                            mux.set_machine_stats(None);
+                        }
                     }
                 }
-            }
-        });
+            });
         match spawn {
             Ok(thread) => Some(StatsSampler { stop, thread: Some(thread) }),
             Err(error) => {
-                crate::client_log::log("DEBUG", LOG_AREA, &format!("sampler start failed: {error}"));
+                crate::client_log::log(
+                    "DEBUG",
+                    LOG_AREA,
+                    &format!("sampler start failed: {error}"),
+                );
                 None
             }
         }
