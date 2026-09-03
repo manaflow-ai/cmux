@@ -7145,7 +7145,11 @@ mod tests {
             let completion = completion.clone();
             callers.push(std::thread::spawn(move || {
                 barrier.wait();
-                enqueue_worker_reap(std::thread::spawn(|| {}), completion);
+                let worker_completion = completion.clone();
+                enqueue_worker_reap(
+                    std::thread::spawn(move || worker_completion.mark_done()),
+                    completion,
+                );
             }));
         }
         for caller in callers {
