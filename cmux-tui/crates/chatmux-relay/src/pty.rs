@@ -4774,6 +4774,50 @@ mod tests {
         assert!(!h.manager.has_attachment("p1"));
     }
 
+    #[tokio::test]
+    async fn terminal_error_drops_when_close_pending_before_gate_acquire() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let (generation, publication_gate) = {
+            let attachments = h.manager.inner.attachments.lock().expect("attach lock");
+            let attachment = attachments.get("p1").expect("opened attachment");
+            (attachment.generation, Arc::clone(&attachment.publication_gate))
+        };
+        let held = publication_gate.lock();
+        {
+            let attachments = h.manager.inner.attachments.lock().expect("attach lock");
+            attachments
+                .get("p1")
+                .expect("opened attachment")
+                .close_pending
+                .store(true, Ordering::SeqCst);
+        }
+        let manager = h.manager.clone();
+        let context = h.context("supervised", h.owner.clone());
+        let gate = Arc::clone(&publication_gate);
+        let error = std::thread::spawn(move || {
+            manager.inner.emit_error_for_generation(
+                &context,
+                "p1",
+                generation,
+                &gate,
+                "failed",
+                "stale terminal error",
+            );
+        });
+        drop(held);
+        error.join().expect("terminal callback");
+        assert!(
+            !h.sent().iter().any(|frame| frame["type"] == "pty_error"),
+            "a close-pending generation must not publish a terminal error"
+        );
+        assert!(
+            h.manager.inner.attachments.lock().expect("attach lock").contains_key("p1"),
+            "a suppressed terminal error must not retire the pending close"
+        );
+        h.manager.inner.force_retire("p1", Some(generation), Some(&publication_gate));
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn forced_retirement_waits_for_inflight_publication() {
         let h = harness(None, None);
