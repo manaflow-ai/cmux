@@ -71,11 +71,11 @@ public final class MobileMacCompatCenter {
         // floor before this build has completed a successful fetch.
         let environmentCacheKey = "\(Self.cacheKey).\(scheme).\(host).\(port).\(buildIdentity)"
         self.environmentCacheKey = environmentCacheKey
+        self.policy = .baked
+        pruneObsoleteCacheEntries()
         if let cached = defaults.data(forKey: environmentCacheKey),
            let decoded = MobileMacCompatPolicy(decoding: cached) {
             policy = decoded
-        } else {
-            policy = .baked
         }
     }
 
@@ -83,6 +83,17 @@ public final class MobileMacCompatCenter {
     /// port) plus this app's version/build identity, so an environment switch
     /// or app upgrade never consumes another policy from the cache.
     private let environmentCacheKey: String
+
+    /// Keeps the UserDefaults namespace bounded as app builds and dev origins
+    /// change. Only the current origin/build can be used by this process, so
+    /// older entries are safe to discard before loading the current cache.
+    private func pruneObsoleteCacheEntries() {
+        let prefix = Self.cacheKey + "."
+        for key in defaults.dictionaryRepresentation().keys
+            where key.hasPrefix(prefix) && key != environmentCacheKey {
+            defaults.removeObject(forKey: key)
+        }
+    }
 
     /// Fetches the remote list, replacing the device cache on success. Any
     /// failure (offline, server error, payload this build cannot fully

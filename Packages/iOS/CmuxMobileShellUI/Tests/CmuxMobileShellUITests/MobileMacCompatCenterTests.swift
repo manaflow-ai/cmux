@@ -30,6 +30,14 @@ import Testing
             appBuildIdentity: "new-build"
         )
         #expect(newBuild.policy == .baked)
+
+        let evictedOldBuild = MobileMacCompatCenter(
+            apiBaseURL: "https://cmux.test",
+            defaults: defaults,
+            loader: { _ in throw URLError(.notConnectedToInternet) },
+            appBuildIdentity: "old-build"
+        )
+        #expect(evictedOldBuild.policy == .baked)
     }
 }
 #endif
