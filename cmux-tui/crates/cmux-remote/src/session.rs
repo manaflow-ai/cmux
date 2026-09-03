@@ -1676,10 +1676,11 @@ mod tests {
 
         tokio::task::yield_now().await;
         tokio::time::advance(Duration::from_secs(3)).await;
-        let result = tokio::time::timeout(Duration::from_secs(1), close)
-            .await
-            .expect("close remained blocked on link close")
-            .unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let result = result.await.expect("close remained blocked on link close").unwrap();
         assert!(matches!(
             result,
             Err(SessionError::Link(LinkError::Transport(message)))
