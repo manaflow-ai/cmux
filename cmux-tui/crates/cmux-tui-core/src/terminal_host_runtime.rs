@@ -9289,9 +9289,11 @@ mod unix {
             let owner_token =
                 CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
             for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
                 assert_eq!(
-                    snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version),
-                    Some("/spawn".into())
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(std::path::PathBuf::from("/spawn"))
                 );
             }
         }

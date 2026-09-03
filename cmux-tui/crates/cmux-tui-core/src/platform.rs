@@ -929,7 +929,7 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     // Legacy daemons serialized the authenticated spawn path directly.
     // Snapshot data is received over the owner-token authenticated host
     // channel, so preserve that format for backward compatibility.
-    spawn_cwd_to_local_path(value)
+    terminal_pwd_to_local_path(value)
 }
 
 /// Versioned, host-authenticated provenance for a spawn CWD fallback. The
@@ -946,7 +946,7 @@ pub fn snapshot_cwd_to_local_path(value: &str, owner_token: Option<&str>) -> Opt
         }
         return (!path.is_empty() && !path.contains('\0')).then(|| PathBuf::from(path));
     }
-    terminal_pwd_to_local_path(value)
+    spawn_cwd_to_local_path(value)
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
