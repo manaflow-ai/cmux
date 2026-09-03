@@ -8807,9 +8807,13 @@ mod tests {
         let revision_before = progress.revision();
         let (notify_started_tx, notify_started_rx) = sync_channel(1);
         let (release_notify_tx, release_notify_rx) = sync_channel(1);
+        let release_notify_rx = Arc::new(Mutex::new(release_notify_rx));
+        let release_notify = release_notify_rx.clone();
         progress.set_before_notify_hook(Some(Arc::new(move || {
             notify_started_tx.send(()).unwrap();
-            release_notify_rx
+            release_notify
+                .lock()
+                .unwrap()
                 .recv_timeout(Duration::from_secs(2))
                 .expect("snapshot test did not release the notification boundary");
         })));
