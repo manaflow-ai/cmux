@@ -87,6 +87,53 @@ def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
     assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
 
 
+def valgrind_build_step() -> str:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    marker = "      - name: Build test binaries\n"
+    assert marker in job
+    return job.split(marker, 1)[1].split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[0]
+
+
+def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
+    build = valgrind_build_step()
+
+    assert re.findall(
+        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
+        r"([A-Za-z0-9_-]+) \\\s*$",
+        build,
+    ) == [
+        ("cmux-tui", "bin", "cmux-tui"),
+        ("ghostty-vt", "test", "terminal"),
+    ]
+    assert re.search(
+        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"-p ghostty-vt --test terminal \\\s+"
+        r"--locked --no-run --message-format=json",
+        build,
+    )
+    assert "cargo test --workspace" not in build
+    assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+
+    assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
+    assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
+    assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job
+    assert 'if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then' in job
+    assert 'require_exact_test()' in job
+    assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
+    for test_name in (
+        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+    ):
+        assert test_name in job
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(

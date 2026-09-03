@@ -35,6 +35,7 @@ import {
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import { context as otelContext } from "@opentelemetry/api";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -517,6 +518,27 @@ export function freestylePinCheckCommand(source: CmuxTuiSource): string {
     "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
     `test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
     `else ${cmuxTuiPinCheckCommand(source)}; fi`
+  );
+}
+
+/** How long the heal lets a baked supervisor bring the daemon up before restarting it. */
+const DAEMON_SETTLE_TIMEOUT_MS = 3_000;
+
+/**
+ * Healthy now, or healthy within the settle budget on an image whose
+ * supervisor binds the daemon to the instance id (it ships
+ * /etc/cmux/bake-instance-id) and is active. A machine attached right after
+ * create is inside the sub-second window before that supervisor has started
+ * the daemon; restarting the unit there costs a second and a half, waiting
+ * costs a few hundred milliseconds. Older images take the immediate check.
+ */
+export function freestyleDaemonSettledCommand(): string {
+  const healthy = freestyleDaemonHealthyCommand();
+  const ticks = Math.floor(DAEMON_SETTLE_TIMEOUT_MS / 100);
+  return (
+    "if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon >/dev/null 2>&1; then " +
+    `for i in $(seq 1 ${ticks}); do { ${healthy}; } && exit 0; sleep 0.1; done; exit 1; ` +
+    `else ${healthy}; fi`
   );
 }
 
@@ -1267,21 +1289,31 @@ export class FreestyleProvider implements VMProvider {
       await this.probeEdgeRules(vm, vmId, edgeRules);
       return;
     }
+    // The callback runs after the response, outside the request's active
+    // span, where a fresh root span would fall under the 2% default sampling
+    // and lose its attributes. Carry the request context so the probe span is
+    // a child of the create trace (sampled with it), and log the outcome too.
+    const requestContext = otelContext.active();
     afterResponse(() =>
-      withVmSpan(
-        "cmux.vm.provider.edge_probe",
-        { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "edge_probe", "cmux.vm.id": vmId, "cmux.vm.edge_rules": edgeRules.length },
-        async (span) => {
-          const startedAt = performance.now();
-          try {
-            await this.probeEdgeRules(vm, vmId, edgeRules);
-            setSpanAttributes(span, { "cmux.vm.edge_probe.ok": true, "cmux.vm.edge_probe.ms": Math.round(performance.now() - startedAt) });
-          } catch (err) {
-            setSpanAttributes(span, { "cmux.vm.edge_probe.ok": false, "cmux.vm.edge_probe.ms": Math.round(performance.now() - startedAt) });
-            recordSpanError(span, err);
-            console.error(`[freestyle] edge rule probe failed for ${vmId} after the response`, err);
-          }
-        },
+      otelContext.with(requestContext, () =>
+        withVmSpan(
+          "cmux.vm.provider.edge_probe",
+          { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "edge_probe", "cmux.vm.id": vmId, "cmux.vm.edge_rules": edgeRules.length },
+          async (span) => {
+            const startedAt = performance.now();
+            try {
+              await this.probeEdgeRules(vm, vmId, edgeRules);
+              const ms = Math.round(performance.now() - startedAt);
+              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": true, "cmux.vm.edge_probe.ms": ms });
+              console.info("cmux vm edge probe", JSON.stringify({ vmId, ok: true, ms }));
+            } catch (err) {
+              const ms = Math.round(performance.now() - startedAt);
+              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": false, "cmux.vm.edge_probe.ms": ms });
+              recordSpanError(span, err);
+              console.error("cmux vm edge probe", JSON.stringify({ vmId, ok: false, ms, error: errorMessage(err) }));
+            }
+          },
+        ),
       ),
     );
   }
@@ -1310,7 +1342,7 @@ export class FreestyleProvider implements VMProvider {
    * the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
-    const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
+    const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
     const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
