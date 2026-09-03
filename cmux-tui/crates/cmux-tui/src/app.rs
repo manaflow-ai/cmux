@@ -24983,7 +24983,7 @@ mod tests {
     #[test]
     fn crossterm_reader_propagates_poll_errors_without_reading() {
         let mut read_calls = 0;
-        let error = std::io::Error::new(std::io::ErrorKind::Other, "poll failed");
+        let error = std::io::Error::other("poll failed");
         let mut poll_calls = 0;
 
         let result = super::read_crossterm_event(

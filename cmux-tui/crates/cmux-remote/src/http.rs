@@ -779,7 +779,7 @@ mod tests {
         let mut file = OpenOptions::new().read(true).open(&path).unwrap();
         let metadata = file.metadata().unwrap();
         validate_workspace_http_token_metadata(&metadata).unwrap();
-        fs::OpenOptions::new()
+        OpenOptions::new()
             .append(true)
             .open(&path)
             .unwrap()
