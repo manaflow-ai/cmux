@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::panic::Location;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -311,8 +311,7 @@ pub struct JournalWriterStats {
     deadline_expiries: AtomicU64,
     terminal_queued: AtomicUsize,
     durable_queued: AtomicUsize,
-    phase: AtomicU8,
-    phase_since: Mutex<Instant>,
+    phase: Mutex<WriterPhaseState>,
 }
 
 impl Default for JournalWriterStats {
@@ -329,8 +328,7 @@ impl Default for JournalWriterStats {
             deadline_expiries: AtomicU64::new(0),
             terminal_queued: AtomicUsize::new(0),
             durable_queued: AtomicUsize::new(0),
-            phase: AtomicU8::new(WRITER_IDLE),
-            phase_since: Mutex::new(Instant::now()),
+            phase: Mutex::new(WriterPhaseState { code: WRITER_IDLE, since: Instant::now() }),
         }
     }
 }
@@ -392,20 +390,19 @@ impl JournalWriterStats {
             WriterPhase::WaitingLock => WRITER_WAITING_LOCK,
             WriterPhase::Committing => WRITER_COMMITTING,
         };
-        self.phase.store(code, Ordering::Relaxed);
-        *self.phase_since.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        let mut state = self.phase.lock().unwrap_or_else(|e| e.into_inner());
+        *state = WriterPhaseState { code, since: Instant::now() };
     }
 
     pub fn snapshot(&self) -> JournalWriterSnapshot {
-        let phase = match self.phase.load(Ordering::Relaxed) {
+        let phase_state = self.phase.lock().unwrap_or_else(|e| e.into_inner());
+        let phase = match phase_state.code {
             WRITER_WAITING_LOCK => WriterPhase::WaitingLock,
             WRITER_COMMITTING => WriterPhase::Committing,
             _ => WriterPhase::Idle,
         };
-        let phase_for_us = u64::try_from(
-            self.phase_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed().as_micros(),
-        )
-        .unwrap_or(u64::MAX);
+        let phase_for_us = u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
+        drop(phase_state);
         JournalWriterSnapshot {
             batches: self.batches.load(Ordering::Relaxed),
             terminal_events: self.terminal_events.load(Ordering::Relaxed),
@@ -422,6 +419,11 @@ impl JournalWriterStats {
             phase_for_us,
         }
     }
+}
+
+struct WriterPhaseState {
+    code: u8,
+    since: Instant,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -612,6 +614,20 @@ mod tests {
         assert_eq!(snapshot.batch_size.max, 3);
         assert!(snapshot.commit_us.p50 >= 20_000);
         assert_eq!(snapshot.phase, WriterPhase::Idle);
+    }
+
+    #[test]
+    fn writer_phase_snapshot_uses_one_timestamp_for_each_phase() {
+        let stats = JournalWriterStats::default();
+        stats.set_phase(WriterPhase::WaitingLock);
+        let waiting = stats.snapshot();
+        std::thread::sleep(Duration::from_millis(1));
+        stats.set_phase(WriterPhase::Committing);
+        let committing = stats.snapshot();
+
+        assert_eq!(waiting.phase, WriterPhase::WaitingLock);
+        assert_eq!(committing.phase, WriterPhase::Committing);
+        assert!(committing.phase_for_us < 100_000, "phase timestamp was not reset: {committing:?}");
     }
 
     #[test]

@@ -1112,6 +1112,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             for pending_batch in pending {
                                 complete_batch_error(&pending_batch, failure.clone());
                             }
+                            complete_queued_error(&receivers, &failure);
                             return;
                         } else {
                             complete_batch_error(&batch, summary);
@@ -1192,16 +1193,19 @@ fn stop_writer_after_retry_deadline(
 }
 
 fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
-    let mut drained = false;
+    let mut terminal_drained = 0;
     while let Ok(queued) = receivers.terminal.try_recv() {
-        drained = true;
+        terminal_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
+    let mut durable_drained = 0;
     while let Ok(queued) = receivers.durable.try_recv() {
-        drained = true;
+        durable_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
-    if drained {
+    receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+    receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+    if terminal_drained + durable_drained != 0 {
         receivers.state.publish_queue_space();
     }
 }
@@ -2759,12 +2763,25 @@ mod tests {
                 commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
             }),
         };
+        receivers.state.stats.enqueued(JournalLane::Terminal);
         sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
+        receivers.state.stats.enqueued(JournalLane::Durable);
+        sender
+            .durable_sender
+            .as_ref()
+            .unwrap()
+            .try_send(QueuedJournalEvent {
+                event: JournalIngressEvent::TerminalBarrier,
+                completion: None,
+            })
+            .unwrap();
 
         complete_queued_error(&receivers, "session journal stopped");
 
         let result = completion_receiver.recv_timeout(Duration::from_millis(100)).unwrap();
         assert!(result.is_err(), "shutdown must resolve queued durable receipts");
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
     }
 
     #[test]

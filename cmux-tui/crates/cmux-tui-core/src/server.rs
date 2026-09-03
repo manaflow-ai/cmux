@@ -11116,7 +11116,12 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
-        Command::ServerStats => Ok(serde_json::to_value(server_stats(mux))?),
+        Command::ServerStats => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("server stats requires a trusted local connection");
+            }
+            Ok(serde_json::to_value(server_stats(mux))?)
+        }
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -18041,6 +18046,9 @@ mod tests {
     #[test]
     fn server_stats_report_lock_writer_and_connection_metrics() {
         let mux = test_mux();
+        let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let websocket_client =
+            mux.control_clients.register(ClientTransport::WebSocket, test_writer());
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
         assert!(
             identity["capabilities"]
@@ -18051,7 +18059,7 @@ mod tests {
         );
         // Any registry use records a hold at its call site.
         let _ = mux.registry_identity();
-        let stats = handle_command(&mux, 0, Command::ServerStats, &test_writer()).unwrap();
+        let stats = handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
         assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
         assert!(stats["uptime_ms"].is_u64());
         let lock = &stats["registry_lock"];
@@ -18061,6 +18069,10 @@ mod tests {
         assert!(site.contains("mux.rs:"), "{site}");
         assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
         assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
+
+        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
+            .expect_err("remote clients must not receive internal server stats");
+        assert!(error.to_string().contains("trusted local connection"));
     }
 
     #[test]
