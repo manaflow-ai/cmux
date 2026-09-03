@@ -662,6 +662,42 @@ describe("claude proxy failover across accounts", () => {
     expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_transport" }]);
   });
 
+  test("bounds all Claude upstream header waits to one request budget", async () => {
+    const candidates = [
+      apiKeyUpstream,
+      secondApiKey,
+      { ...secondApiKey, accountId: "acct-api-3" },
+      { ...secondApiKey, accountId: "acct-api-4" },
+      { ...secondApiKey, accountId: "acct-api-5" },
+    ];
+    const selected: string[] = [];
+    let logicalNow = 0;
+    const bounded = createClaudeMessagesProxy({
+      ...dependencies,
+      select: async (_teamId, input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const candidate = candidates.find((entry) => !excluded.has(entry.accountId));
+        if (!candidate) return { kind: "exhausted", total: candidates.length, retryAfterSeconds: 1 };
+        selected.push(candidate.accountId);
+        return { kind: "selected", upstream: candidate, total: candidates.length, healthy: 1 };
+      },
+      fetch: (async () => {
+        // Advance a deterministic clock as each simulated header wait elapses.
+        logicalNow += 120;
+        return Response.json({ error: "upstream unavailable" }, { status: 503 });
+      }) as typeof fetch,
+    }, {
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+
+    const response = await bounded(messagesRequest());
+
+    expect(response.status).toBe(503);
+    expect(selected).toEqual(["acct-api-1", "acct-api-2"]);
+  });
+
   test("usage rows name the account that served the request", async () => {
     upstream = apiKeyUpstream;
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
