@@ -121,26 +121,77 @@ jobs:
           done
 
       - name: Assemble xcframework
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          headers="$(mktemp -d)/include"
-          mkdir -p "$headers"
-          cp cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h "$headers/"
-          cat > "$headers/module.modulemap" <<'MAP'
-          module CmuxTerminalClientFFI {
-              header "cmux_terminal_client.h"
+          # Each slice ships as a static framework, not a bare library. Xcode
+          # copies every bare-library slice's Headers/module.modulemap to the
+          # same Build/Products/<config>/include/module.modulemap, and the app
+          # already links GhosttyKit.xcframework that way, so two bare-library
+          # xcframeworks collide ("Multiple commands produce"). A framework
+          # carries its module map under Modules/ and nothing collides. The
+          # xcframework Info.plist is written here rather than by
+          # `xcodebuild -create-xcframework` so the layout is exactly the one
+          # the iOS app link was verified against.
+          lib=cmux-tui/target
+          header=cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h
+          xcf="$RUNNER_TEMP/xcframework/CmuxTerminalClient.xcframework"
+          rm -rf "$RUNNER_TEMP/xcframework"
+          mkdir -p "$xcf"
+          short_version="${VERSION%%+*}"
+          entries=""
+          add_slice() {
+            local target="$1" slice="$2" platform="$3" supported="$4" minos="$5" variant="$6"
+            local fw="$xcf/$slice/CmuxTerminalClientFFI.framework"
+            mkdir -p "$fw/Headers" "$fw/Modules"
+            cp "$lib/$target/release/libcmux_terminal_client.a" "$fw/CmuxTerminalClientFFI"
+            cp "$header" "$fw/Headers/"
+            cat > "$fw/Modules/module.modulemap" <<'MAP'
+          framework module CmuxTerminalClientFFI {
+              umbrella header "cmux_terminal_client.h"
               export *
+              module * { export * }
           }
           MAP
+            local variant_key=""
+            if [[ -n "$variant" ]]; then
+              variant_key="<key>SupportedPlatformVariant</key><string>$variant</string>"
+            fi
+            cat > "$fw/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>CmuxTerminalClientFFI</string>
+            <key>CFBundleIdentifier</key><string>com.cmuxterm.CmuxTerminalClientFFI</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>CmuxTerminalClientFFI</string>
+            <key>CFBundlePackageType</key><string>FMWK</string>
+            <key>CFBundleShortVersionString</key><string>$short_version</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>$supported</string></array>
+            <key>MinimumOSVersion</key><string>$minos</string>
+          </dict></plist>
+          PLIST
+            plutil -lint "$fw/Info.plist"
+            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
+          }
+          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 18.0 ""
+          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 18.0 simulator
+          add_slice aarch64-apple-darwin macos-arm64 macos MacOSX 14.0 ""
+          cat > "$xcf/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>AvailableLibraries</key><array>$entries</array>
+            <key>CFBundlePackageType</key><string>XFWK</string>
+            <key>XCFrameworkFormatVersion</key><string>1.0</string>
+          </dict></plist>
+          PLIST
+          plutil -lint "$xcf/Info.plist"
           out="$RUNNER_TEMP/xcframework"
-          mkdir -p "$out"
-          lib=cmux-tui/target
-          xcodebuild -create-xcframework \
-            -library "$lib/aarch64-apple-ios/release/libcmux_terminal_client.a" -headers "$headers" \
-            -library "$lib/aarch64-apple-ios-sim/release/libcmux_terminal_client.a" -headers "$headers" \
-            -library "$lib/aarch64-apple-darwin/release/libcmux_terminal_client.a" -headers "$headers" \
-            -output "$out/CmuxTerminalClient.xcframework"
           (cd "$out" && ditto -c -k --keepParent CmuxTerminalClient.xcframework CmuxTerminalClient.xcframework.zip)
           checksum="$(swift package compute-checksum "$out/CmuxTerminalClient.xcframework.zip")"
           printf '%s\n' "$checksum" > "$out/CmuxTerminalClient.xcframework.zip.sha256"
@@ -182,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
-          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
+          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS --clobber
           else
