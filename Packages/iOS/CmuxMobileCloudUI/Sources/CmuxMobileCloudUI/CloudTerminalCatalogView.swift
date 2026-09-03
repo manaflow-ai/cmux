@@ -92,6 +92,11 @@ struct CloudTerminalCatalogContent: View {
                 Text(CloudFailureCopy.message(for: failure))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(failure.detail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("CloudCreateFailureDetail")
             }
         }
     }
