@@ -34,7 +34,7 @@ struct LocalLinuxRuntimeTests {
             atPath: fixture.rootURL.appendingPathComponent("data").path
         ))
         #expect(try Data(contentsOf: fixture.rootURL.appendingPathComponent(".rootfs-version"))
-            == Data(LocalLinuxRuntime.rootfsSchemaVersion.utf8))
+            == LocalLinuxRuntime.rootfsMarker(digest: nil))
 
         // A new runtime instance can boot the persisted fakefs without a
         // second archive import.
@@ -47,11 +47,47 @@ struct LocalLinuxRuntimeTests {
         try await secondRuntime.bootIfNeeded()
         #expect(Self.count(at: importCountURL) == 1)
         #expect(Self.count(at: bootCountURL) == 2)
+    }
 
-        let alternateRoot = fixture.baseURL.appendingPathComponent("alternate")
-        await #expect(throws: LocalLinuxError.configurationMismatch) {
-            try await runtime.bootIfNeeded(rootURL: alternateRoot)
-        }
+    @Test("a changed bundled archive digest replaces the installed rootfs once")
+    func changedArchiveDigestReimportsOnce() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        let oldMarker = LocalLinuxRuntime.rootfsMarker(digest: "aa" + String(repeating: "0", count: 62))
+        try fixture.seedValidRootfs(marker: String(decoding: oldMarker, as: UTF8.self))
+
+        let importCountURL = fixture.baseURL.appendingPathComponent("imports")
+        let bootCountURL = fixture.baseURL.appendingPathComponent("boots")
+        let bridge = Self.bridge(importCountURL: importCountURL, bootCountURL: bootCountURL)
+        let newDigest = "BB" + String(repeating: "1", count: 62)
+
+        // A new bundled image with the same schema but a different digest is
+        // imported over the old install, then remembered by its marker.
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: fixture.archiveURL,
+            rootfsArchiveDigest: newDigest
+        )
+        try await runtime.bootIfNeeded()
+        #expect(Self.count(at: importCountURL) == 1)
+        #expect(Self.count(at: bootCountURL) == 1)
+        let markerURL = fixture.rootURL.appendingPathComponent(".rootfs-version")
+        #expect(try Data(contentsOf: markerURL)
+            == Data("\(LocalLinuxRuntime.rootfsSchemaVersion)\n\(newDigest.lowercased())".utf8))
+
+        // The same digest on a later launch boots the install without importing.
+        let secondRuntime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: fixture.archiveURL,
+            rootfsArchiveDigest: newDigest.lowercased()
+        )
+        try await secondRuntime.bootIfNeeded()
+        #expect(Self.count(at: importCountURL) == 1)
+        #expect(Self.count(at: bootCountURL) == 2)
     }
 
     @Test("a failed replacement restores the previous rootfs and remembers the error")
@@ -133,7 +169,7 @@ struct LocalLinuxRuntimeTests {
 
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
-            openSession: { command, environment, columns, rows, output in
+            openSession: { command, environment, columns, rows, output, _, _ in
                 openEvents.continuation.yield(OpenSessionEvent(
                     command: command,
                     environment: environment,
@@ -142,7 +178,6 @@ struct LocalLinuxRuntimeTests {
                 ))
                 output(Data("welcome\n".utf8))
                 return LocalLinuxTestKernelSession(
-                    processID: 42,
                     send: { data in
                         inputEvents.continuation.yield(data)
                         return data.count
@@ -171,8 +206,6 @@ struct LocalLinuxRuntimeTests {
             columns: 80,
             rows: 24
         )
-        #expect(session.processID == 42)
-
         var openIterator = openEvents.stream.makeAsyncIterator()
         #expect(await openIterator.next() == OpenSessionEvent(
             command: ["/bin/sh", "-i"],
@@ -200,8 +233,8 @@ struct LocalLinuxRuntimeTests {
         await #expect(throws: LocalLinuxError.closed) {
             try await session.send(Data("after-close".utf8))
         }
-        // Explicit close is idempotent after hangup.
-        await session.close()
+        // A repeated hangup is idempotent.
+        await session.hangup()
         #expect(await hangupIterator.next() == nil)
     }
 
@@ -214,9 +247,8 @@ struct LocalLinuxRuntimeTests {
         let hangupCount = LocalLinuxHangupCounter()
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
-            openSession: { _, _, _, _, _ in
+            openSession: { _, _, _, _, _, _, _ in
                 LocalLinuxTestKernelSession(
-                    processID: 43,
                     hangup: {
                         hangupCount.increment()
                     }
@@ -252,7 +284,7 @@ struct LocalLinuxRuntimeTests {
         // Repeated closes remain harmless after the fence has completed.
         let repeatedFence = session.beginClose()
         await repeatedFence.value
-        await session.close()
+        await session.hangup()
         #expect(hangupCount.value == 1)
     }
 
@@ -264,7 +296,7 @@ struct LocalLinuxRuntimeTests {
 
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
-            openSessionWithTermination: { _, _, _, _, output, onTermination in
+            openSession: { _, _, _, _, output, onTermination, _ in
                 output(Data("done\n".utf8))
                 // The bridge contract is one-shot. Calling the callback twice
                 // must finish the stream once, and bytes after termination
@@ -272,7 +304,7 @@ struct LocalLinuxRuntimeTests {
                 onTermination()
                 onTermination()
                 output(Data("late\n".utf8))
-                return LocalLinuxTestKernelSession(processID: 7)
+                return LocalLinuxTestKernelSession()
             }
         )
         let runtime = LocalLinuxRuntime(
@@ -305,12 +337,12 @@ struct LocalLinuxRuntimeTests {
 
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
-            openSessionWithTerminationAndInputReady: { _, _, _, _, _, _, onInputReady in
+            openSession: { _, _, _, _, _, _, onInputReady in
                 // Emit before the runtime returns so the stream's one-element
                 // buffer covers the write-to-waiter hand-off race.
                 onInputReady()
                 onInputReady()
-                return LocalLinuxTestKernelSession(processID: 11)
+                return LocalLinuxTestKernelSession()
             }
         )
         let runtime = LocalLinuxRuntime(
@@ -349,7 +381,7 @@ struct LocalLinuxRuntimeTests {
         )
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
-            openSessionWithTermination: { _, _, _, _, output, _ in
+            openSession: { _, _, _, _, output, _, _ in
                 // Do not create a consumer until openSession returns. This
                 // fills the bounded ingress before any output is drained.
                 let payload = Data(
@@ -360,7 +392,6 @@ struct LocalLinuxRuntimeTests {
                 // The overflow transition must stop later callback bytes.
                 output(Data("post-overflow\n".utf8))
                 return LocalLinuxTestKernelSession(
-                    processID: 8,
                     hangup: {
                         hangupCount.increment()
                         hangupEvents.continuation.yield(())
@@ -403,8 +434,8 @@ struct LocalLinuxRuntimeTests {
         #expect(chunks.allSatisfy { $0.count <= chunkByteLimit })
         #expect(chunks.allSatisfy { $0.allSatisfy { $0 == 0x61 } })
         #expect(chunks.reduce(0) { $0 + $1.count } == chunkByteLimit * bufferedChunkCapacity)
-        #expect(await Self.waitUntil { hangupCount.value == 1 })
-        await session.close()
+        // An explicit hangup after the overflow teardown is a no-op.
+        await session.hangup()
         #expect(hangupCount.value == 1)
     }
 
@@ -423,48 +454,6 @@ struct LocalLinuxRuntimeTests {
         await #expect(throws: LocalLinuxError.rootfsAssetMissing) {
             try await runtime.bootIfNeeded()
         }
-    }
-
-    @Test("renderer failure fences an already-running local session")
-    @MainActor
-    func rendererFailureAfterSessionStartIsRetryable() async throws {
-        let fixture = try RuntimeFixture()
-        defer { fixture.remove() }
-        try fixture.seedValidRootfs()
-
-        let hangupCount = LocalLinuxHangupCounter()
-        var hangupIterator = hangupCount.events.makeAsyncIterator()
-        let bridge = LocalLinuxTestKernelBridge(
-            boot: { _, _ in },
-            openSessionWithTermination: { _, _, _, _, output, _ in
-                output(Data("ready\n".utf8))
-                return LocalLinuxTestKernelSession(
-                    processID: 57,
-                    hangup: { hangupCount.increment() }
-                )
-            }
-        )
-        let runtime = LocalLinuxRuntime(
-            kernel: bridge,
-            fileSystem: LocalLinuxFileSystemClient(),
-            rootURL: fixture.rootURL,
-            rootfsArchiveURL: nil
-        )
-        let controller = LocalLinuxComputerController(runtime: runtime)
-
-        #expect(await controller.startIfNeeded(columns: 80, rows: 24))
-        #expect(controller.state == .running)
-
-        // A controller survives a terminal view remount. A renderer failure on
-        // that later mount must close the old pty and expose an explicit retry,
-        // rather than leaving the state as running behind a black view.
-        controller.markRendererFailure()
-
-        #expect(controller.state == .failed)
-        #expect(controller.canRetry)
-        #expect(controller.lastError == .operationFailed("terminal renderer unavailable"))
-        #expect(await hangupIterator.next() != nil)
-        #expect(hangupCount.value == 1)
     }
 
     private static func bridge(
@@ -504,17 +493,6 @@ struct LocalLinuxRuntimeTests {
         return value
     }
 
-    private static func waitUntil(
-        attempts: Int = 1_000,
-        condition: @escaping @Sendable () -> Bool
-    ) async -> Bool {
-        for _ in 0..<attempts {
-            if condition() { return true }
-            await Task.yield()
-        }
-        return condition()
-    }
-
     private struct RuntimeFixture {
         let baseURL: URL
         let rootURL: URL
@@ -533,7 +511,9 @@ struct LocalLinuxRuntimeTests {
             try Data("test archive".utf8).write(to: archiveURL)
         }
 
-        func seedValidRootfs(marker: String = LocalLinuxRuntime.rootfsSchemaVersion) throws {
+        func seedValidRootfs(
+            marker: String = String(decoding: LocalLinuxRuntime.rootfsMarker(digest: nil), as: UTF8.self)
+        ) throws {
             let dataURL = rootURL.appendingPathComponent("data", isDirectory: true)
             try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
             try Data("meta".utf8).write(to: rootURL.appendingPathComponent("meta.db"))

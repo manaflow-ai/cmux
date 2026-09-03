@@ -2,21 +2,35 @@ public import Foundation
 import Observation
 import OSLog
 
-nonisolated private let localLinuxProductionLog = Logger(
-    subsystem: "dev.cmux.ios",
-    category: "local-linux.production"
-)
-
 private nonisolated enum LocalLinuxBootResult: Sendable {
     case success(LocalLinuxSession)
     case failure(LocalLinuxError)
     case cancelled
 }
 
+/// A terminal surface's handle on the running shell.
+///
+/// The lane replays retained history and then streams live output. The
+/// generation token must accompany every input byte so a surface that was
+/// replaced during a retry cannot write into the replacement pty.
+public struct LocalLinuxAttachment: Sendable {
+    public let generation: UInt64
+    public let lane: LocalLinuxTerminalLane
+
+    fileprivate init(generation: UInt64, lane: LocalLinuxTerminalLane) {
+        self.generation = generation
+        self.lane = lane
+    }
+}
+
 /// Owns the process-wide iSH session while one or more Ghostty surfaces attach
 /// to it. A view attachment is transient; the session and bounded scrollback
 /// survive navigation and window detachment so returning to the row restores
 /// the recent shell output.
+///
+/// The controller alone decides when the shell has ended: it watches the
+/// scrollback ring's source and fences the session on EOF. Surfaces only
+/// attach, send input, resize, and detach.
 @MainActor
 @Observable
 public final class LocalLinuxComputerController {
@@ -28,7 +42,11 @@ public final class LocalLinuxComputerController {
         case failed
     }
 
-    private static let pendingInputLimit = 64 * 1024
+    /// Bytes queued for the pty before a session exists or while the
+    /// non-blocking tty is full. Beyond this, input is dropped and logged.
+    public static let inputQueueLimit = 64 * 1024
+    /// Grid used until Ghostty reports its first real size.
+    public static let fallbackGrid = (columns: 80, rows: 24)
     /// Linux `EAGAIN`, represented as the negative errno returned by iSH's
     /// non-blocking tty bridge when its line buffer is full.
     private static let wouldBlockErrno: Int32 = -11
@@ -39,14 +57,17 @@ public final class LocalLinuxComputerController {
     }
 
     /// The injected actor that owns the process-global kernel configuration.
-    /// Exposed so DEBUG harnesses can use the same instance as production.
     @ObservationIgnored public let runtime: LocalLinuxRuntime
+    /// How the shell is launched. Fixed for the controller's lifetime.
+    @ObservationIgnored public let shell: LocalLinuxShellConfiguration
     @ObservationIgnored private var session: LocalLinuxSession?
     /// A session returned by the detached open task before its ring has been
     /// installed. Teardown must fence this handle too, otherwise a retry can
     /// start a second pty while the first install is still suspended.
     @ObservationIgnored private var pendingSession: LocalLinuxSession?
     @ObservationIgnored private var ring: LocalLinuxScrollbackRing?
+    /// Awaits the ring's source EOF and records the natural session end.
+    @ObservationIgnored private var sessionEndWatcher: Task<Void, Never>?
     /// One shared startup operation per lifecycle generation. Multiple terminal
     /// surfaces can ask to start at the same time; they must all await this
     /// task instead of each installing a competing ring over one PTY stream.
@@ -64,14 +85,15 @@ public final class LocalLinuxComputerController {
     @ObservationIgnored private var closeBarrierID: UUID?
     @ObservationIgnored private var inputWorker: Task<Void, Never>?
     @ObservationIgnored private var inputWorkerID: UUID?
+    /// The single input queue. Bytes typed before the pty exists wait here
+    /// and are flushed by the worker once a session is installed.
     @ObservationIgnored private var inputQueue = LocalLinuxInputFIFO()
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     /// The latest grid reported by Ghostty, including while boot or pty open
     /// is still suspended. UIKit can report the real size before the local
     /// session exists, so dropping that report would leave the shell at the
-    /// 80x24 fallback until a later resize.
+    /// fallback grid until a later resize.
     @ObservationIgnored private var pendingGrid: PendingGrid?
-    @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
     @ObservationIgnored private var retryableFailure = false
     /// Input from an old Ghostty surface must not be queued while a session is
@@ -82,14 +104,109 @@ public final class LocalLinuxComputerController {
     public private(set) var state: State = .idle
     public private(set) var lastError: LocalLinuxError?
 
-    public init(runtime: LocalLinuxRuntime) {
+    public init(
+        runtime: LocalLinuxRuntime,
+        shell: LocalLinuxShellConfiguration = .default
+    ) {
         self.runtime = runtime
+        self.shell = shell
     }
+
+    // MARK: Surface API
+
+    /// Starts the shell if needed and returns an attachment for one surface.
+    /// Returns `nil` when the shell could not start; `state` and `lastError`
+    /// then describe why. The caller must `close()` the lane when its surface
+    /// is dismantled.
+    public func attach(columns: Int, rows: Int) async -> LocalLinuxAttachment? {
+        guard await startIfNeeded(columns: columns, rows: rows) else { return nil }
+        guard let session, let ring else { return nil }
+        let generation = lifecycleGeneration
+        let lane = LocalLinuxTerminalLane(
+            source: session,
+            ring: ring,
+            cursor: nil,
+            input: { [weak self] data in
+                Task { @MainActor [weak self] in
+                    self?.send(data, generation: generation)
+                }
+            }
+        )
+        return LocalLinuxAttachment(generation: generation, lane: lane)
+    }
+
+    /// Sends raw terminal bytes. Ghostty input includes control and escape
+    /// sequences, so it must not be lossy-converted through `String` first.
+    /// Use this before an attachment exists, for example for typeahead while
+    /// the kernel boots; attached surfaces pass their generation instead.
+    public func send(_ data: Data) {
+        send(data, generation: lifecycleGeneration)
+    }
+
+    /// Sends bytes only when they belong to the controller generation that
+    /// owns the current local pty.
+    public func send(_ data: Data, generation: UInt64) {
+        guard !data.isEmpty else { return }
+        guard generation == lifecycleGeneration else {
+            LocalLinuxLog.logger.debug(
+                "ignoring local Linux input from stale generation \(generation, privacy: .public)"
+            )
+            return
+        }
+        guard acceptsInput else {
+            LocalLinuxLog.logger.debug(
+                "ignoring local Linux input while session admission is fenced"
+            )
+            return
+        }
+        let remaining = Self.inputQueueLimit - inputQueue.byteCount
+        guard remaining > 0 else {
+            LocalLinuxLog.logger.error(
+                "local Linux input queue is full; dropping \(data.count, privacy: .public) bytes"
+            )
+            return
+        }
+        let bytes = Data(data.prefix(remaining))
+        inputQueue.append(bytes)
+        if bytes.count != data.count {
+            LocalLinuxLog.logger.error(
+                "local Linux input queue limit dropped \(data.count - bytes.count, privacy: .public) bytes"
+            )
+        }
+        startInputWorkerIfNeeded()
+    }
+
+    public func resize(columns: Int, rows: Int) {
+        guard columns > 0, rows > 0 else { return }
+        rememberGrid(columns: columns, rows: rows)
+        guard let session else { return }
+        let generation = lifecycleGeneration
+        resizeTask?.cancel()
+        resizeTask = Task { @MainActor [weak self, session] in
+            guard let self,
+                  self.lifecycleGeneration == generation,
+                  self.session === session else { return }
+            do {
+                try await session.resize(columns: columns, rows: rows)
+            } catch {
+                guard self.lifecycleGeneration == generation,
+                      self.session === session else { return }
+                LocalLinuxLog.logger.error(
+                    "local Linux resize failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+    }
+
+    // MARK: Lifecycle
 
     /// Starts the shell once and resizes an already-running shell to the latest
     /// Ghostty grid. The blocking kernel boot work runs off the main actor.
     @discardableResult
-    public func startIfNeeded(columns: Int = 80, rows: Int = 24) async -> Bool {
+    public func startIfNeeded(
+        columns: Int = fallbackGrid.columns,
+        rows: Int = fallbackGrid.rows
+    ) async -> Bool {
         let columns = max(1, columns)
         let rows = max(1, rows)
         rememberGrid(columns: columns, rows: rows)
@@ -173,10 +290,12 @@ public final class LocalLinuxComputerController {
         lastError = nil
         retryableFailure = false
         let runtime = runtime
+        let shell = shell
         let taskID = UUID()
-        let task = Task { @MainActor [weak self, runtime, generation, columns, rows, taskID] in
+        let task = Task { @MainActor [weak self, runtime, shell, generation, columns, rows, taskID] in
             let result = await Self.bootSession(
                 runtime: runtime,
+                shell: shell,
                 columns: columns,
                 rows: rows
             )
@@ -186,12 +305,7 @@ public final class LocalLinuxComputerController {
                 }
                 return false
             }
-            let installed = await self.install(
-                result,
-                columns: columns,
-                rows: rows,
-                generation: generation
-            )
+            let installed = await self.install(result, generation: generation)
             // Keep the cancellation barrier until this exact operation has
             // settled. The identity check prevents an old task from clearing
             // a replacement task if lifecycle state changed while this
@@ -207,6 +321,96 @@ public final class LocalLinuxComputerController {
         startTaskGeneration = generation
         startTaskID = taskID
         return await task.value
+    }
+
+    /// Terminates the local shell. Navigation and scene detachment should not
+    /// call this; use it only when the local computer is explicitly removed.
+    public func terminate() {
+        fenceLifecycle(into: .ended)
+        pendingGrid = nil
+    }
+
+    /// Marks a renderer setup failure so the destination does not remain on a
+    /// permanent loading overlay when Ghostty cannot create its surface.
+    ///
+    /// The controller outlives a terminal view, so this can happen after a
+    /// healthy session was already running (for example, when a new surface
+    /// cannot be created after navigation). Fence that session too. An ended
+    /// controller ignores a stale callback from a dismantled view.
+    public func markRendererFailure() {
+        guard state != .ended, state != .failed else { return }
+        // Renderer creation can fail while the detached boot/open task is
+        // still producing a session. Fence that generation before publishing
+        // the failure, otherwise its later install could resurrect a terminal
+        // behind the error overlay.
+        fenceLifecycle(into: .failed)
+        lastError = .rendererUnavailable
+        retryableFailure = true
+    }
+
+    /// Whether the current failure can be reset without rebuilding the
+    /// process-global kernel. Boot and rootfs failures stay sticky; renderer
+    /// and session-input failures can safely start a fresh pty.
+    public var canRetry: Bool {
+        state == .ended || (state == .failed && retryableFailure)
+    }
+
+    /// Fences a retryable failure before the SwiftUI surface is recreated.
+    public func prepareForRetry() {
+        guard canRetry else { return }
+        terminate()
+        state = .idle
+        lastError = nil
+    }
+
+    // MARK: Fencing
+
+    /// Ends the current lifecycle generation: stops every task, schedules the
+    /// C hangup for every session handle, discards queued input, and publishes
+    /// `nextState`. Callers set `lastError` and `retryableFailure` afterwards.
+    ///
+    /// Every teardown path shares this method so the fence semantics cannot
+    /// drift: a bumped generation rejects stale input and stale install
+    /// results, and the close barrier makes the next startup wait for the
+    /// detached hangup.
+    private func fenceLifecycle(into nextState: State) {
+        lifecycleGeneration &+= 1
+        acceptsInput = false
+        startTask?.cancel()
+        sessionEndWatcher?.cancel()
+        sessionEndWatcher = nil
+        inputWorker?.cancel()
+        inputWorker = nil
+        inputWorkerID = nil
+        resizeTask?.cancel()
+        resizeTask = nil
+        scheduleSessionClose(pendingSession)
+        pendingSession = nil
+        scheduleSessionClose(session)
+        session = nil
+        ring = nil
+        inputQueue.removeAll(keepingCapacity: false)
+        state = nextState
+        retryableFailure = false
+    }
+
+    /// Records a natural pty exit for exactly the session that produced it.
+    /// Lane detaches never reach this method, so navigating away keeps the
+    /// shell alive and a later attachment can continue from the ring.
+    private func sessionDidEnd(_ endedSession: LocalLinuxSession) {
+        guard let session, session === endedSession else { return }
+        fenceLifecycle(into: .ended)
+    }
+
+    /// Exposes an unrecoverable pty write error through the same visible
+    /// failure state as boot errors. The failed pty is not safe to reuse, so
+    /// its unsent FIFO is discarded before a retry creates a new shell. This
+    /// avoids replaying a partial command into a replacement pty.
+    private func markInputFailure(_ error: LocalLinuxError) {
+        guard state != .ended else { return }
+        fenceLifecycle(into: .failed)
+        lastError = error
+        retryableFailure = true
     }
 
     /// Waits for a startup task from an older lifecycle generation. The task
@@ -238,9 +442,8 @@ public final class LocalLinuxComputerController {
 
     /// Starts a nonblocking close and chains it behind any earlier close.
     ///
-    /// `terminate()` and renderer/input failure callbacks are synchronous
-    /// MainActor methods. They cannot await the C bridge directly, but they
-    /// still must leave a completion token for the next startup. Chaining
+    /// Synchronous MainActor teardown cannot await the C bridge directly, but
+    /// it still must leave a completion token for the next startup. Chaining
     /// keeps every released session alive until its own hangup has settled and
     /// gives `startIfNeeded()` one fence to await.
     private func scheduleSessionClose(_ candidate: LocalLinuxSession?) {
@@ -279,6 +482,8 @@ public final class LocalLinuxComputerController {
         }
     }
 
+    // MARK: Boot and install
+
     /// Runs the blocking iSH boot and pty creation off the main actor. The
     /// cancellation handler forwards controller teardown to the worker, and a
     /// session opened in the cancellation race is asynchronously fenced before
@@ -290,6 +495,7 @@ public final class LocalLinuxComputerController {
 #endif
     private nonisolated static func bootSession(
         runtime: LocalLinuxRuntime,
+        shell: LocalLinuxShellConfiguration,
         columns: Int,
         rows: Int
     ) async -> LocalLinuxBootResult {
@@ -299,6 +505,8 @@ public final class LocalLinuxComputerController {
                 try await runtime.bootIfNeeded()
                 try Task.checkCancellation()
                 let session = try await runtime.openSession(
+                    command: shell.command,
+                    environment: shell.environment,
                     columns: columns,
                     rows: rows
                 )
@@ -312,10 +520,10 @@ public final class LocalLinuxComputerController {
             } catch let error as LocalLinuxError {
                 return LocalLinuxBootResult.failure(error)
             } catch {
-                localLinuxProductionLog.error(
+                LocalLinuxLog.logger.error(
                     "unexpected local Linux boot error: \(String(describing: error), privacy: .public)"
                 )
-                return LocalLinuxBootResult.failure(.sessionOpenFailed(errno: -1))
+                return LocalLinuxBootResult.failure(.operationFailed(String(describing: error)))
             }
         }
 
@@ -326,186 +534,17 @@ public final class LocalLinuxComputerController {
         })
     }
 
-    /// Creates a lane attachment over the retained shell and output ring.
-    /// Callers must close the lane when their Ghostty surface is dismantled.
-    public func makeLane() -> LocalLinuxTerminalLane? {
-        guard let session, let ring else { return nil }
-        return LocalLinuxTerminalLane(session: session, ring: ring, cursor: nil)
-    }
-
-    /// The session paired with the most recent lane attachment. Coordinators
-    /// pass this identity back on natural EOF so a stale lane cannot clear a
-    /// newer shell that started while the old output task was unwinding.
-    public var currentSession: LocalLinuxSession? {
-        session
-    }
-
-    /// Generation token for a Ghostty attachment. A coordinator must pass it
-    /// with input so callbacks from a replaced surface cannot write to a new
-    /// pty, even after input admission reopens.
-    public var currentInputGeneration: UInt64 {
-        lifecycleGeneration
-    }
-
-    /// Sends raw terminal bytes. Ghostty input includes control and escape
-    /// sequences, so it must not be lossy-converted through `String` first.
-    public func send(_ data: Data) {
-        send(data, generation: lifecycleGeneration)
-    }
-
-    /// Sends bytes only when they belong to the controller generation that
-    /// owns the current local pty. This overload is the boundary used by
-    /// Ghostty coordinators; the unlabeled form remains for trusted callers.
-    public func send(_ data: Data, generation: UInt64) {
-        guard !data.isEmpty else { return }
-        guard generation == lifecycleGeneration else {
-            localLinuxProductionLog.debug(
-                "ignoring local Linux input from stale generation \(generation, privacy: .public)"
-            )
-            return
-        }
-        guard acceptsInput else {
-            localLinuxProductionLog.debug(
-                "ignoring local Linux input while session admission is fenced"
-            )
-            return
-        }
-        if session != nil {
-            let remaining = Self.pendingInputLimit - inputQueue.byteCount
-            guard remaining > 0 else {
-                localLinuxProductionLog.error(
-                    "local Linux input queue is full; dropping \(data.count, privacy: .public) bytes"
-                )
-                return
-            }
-            let bytes = Data(data.prefix(remaining))
-            inputQueue.append(bytes)
-            if bytes.count != data.count {
-                localLinuxProductionLog.error(
-                    "local Linux input queue limit dropped \(data.count - bytes.count, privacy: .public) bytes"
-                )
-            }
-            startInputWorkerIfNeeded()
-            return
-        }
-
-        let remaining = Self.pendingInputLimit - pendingInput.count
-        guard remaining > 0 else {
-            localLinuxProductionLog.error(
-                "local Linux pending input queue is full; dropping \(data.count, privacy: .public) bytes"
-            )
-            return
-        }
-        let bytes = Data(data.prefix(remaining))
-        pendingInput.append(bytes)
-        if bytes.count != data.count {
-            localLinuxProductionLog.error(
-                "local Linux pending input limit dropped \(data.count - bytes.count, privacy: .public) bytes"
-            )
-        }
-    }
-
-    /// Gives a blocked input write a fallback retry signal. Production iSH
-    /// sessions signal their readiness stream directly; this path remains for
-    /// older bridges that only expose output activity.
-    public func notifyOutputActivity() {
-        guard !inputQueue.isEmpty, let session else { return }
-        session.signalInputReady()
-    }
-
-    public func resize(columns: Int, rows: Int) {
-        guard columns > 0, rows > 0 else { return }
-        rememberGrid(columns: columns, rows: rows)
-        guard let session else { return }
-        let generation = lifecycleGeneration
-        resizeTask?.cancel()
-        resizeTask = Task { @MainActor [weak self, session] in
-            guard let self,
-                  self.lifecycleGeneration == generation,
-                  self.session === session else { return }
-            do {
-                try await session.resize(columns: columns, rows: rows)
-            } catch {
-                guard self.lifecycleGeneration == generation,
-                      self.session === session else { return }
-                localLinuxProductionLog.error(
-                    "local Linux resize failed: \(String(describing: error), privacy: .public)"
-                )
-            }
-        }
-    }
-
-    /// Terminates the local shell. Navigation and scene detachment should not
-    /// call this; use it only when the local computer is explicitly removed.
-    public func terminate() {
-        lifecycleGeneration &+= 1
-        acceptsInput = false
-        startTask?.cancel()
-        inputWorker?.cancel()
-        inputWorker = nil
-        inputWorkerID = nil
-        inputQueue.removeAll(keepingCapacity: false)
-        resizeTask?.cancel()
-        resizeTask = nil
-        scheduleSessionClose(pendingSession)
-        pendingSession = nil
-        scheduleSessionClose(session)
-        session = nil
-        ring = nil
-        pendingGrid = nil
-        pendingInput.removeAll(keepingCapacity: false)
-        state = .ended
-        retryableFailure = false
-    }
-
-    /// Records a natural pty exit for exactly the session that produced it.
-    /// Lane detaches do not call this method, so navigating away keeps the
-    /// shell alive and a later attachment can continue from the ring.
-    public func sessionDidEnd(_ endedSession: LocalLinuxSession) {
-        guard let session, session === endedSession else { return }
-        // Natural EOF and ingress overflow can both race a replacement boot.
-        // Start a completion fence for the exact handle before clearing
-        // ownership. The C bridge hangup is idempotent, and the next startup
-        // awaits the fence so deferred cleanup cannot survive into a new
-        // shell.
-        acceptsInput = false
-        scheduleSessionClose(endedSession)
-        lifecycleGeneration &+= 1
-        startTask?.cancel()
-        inputWorker?.cancel()
-        inputWorker = nil
-        inputWorkerID = nil
-        inputQueue.removeAll(keepingCapacity: false)
-        resizeTask?.cancel()
-        resizeTask = nil
-        self.session = nil
-        ring = nil
-        pendingInput.removeAll(keepingCapacity: false)
-        state = .ended
-        retryableFailure = false
-    }
-
-    private func install(
-        _ result: LocalLinuxBootResult,
-        columns: Int,
-        rows: Int,
-        generation: UInt64
-    ) async -> Bool {
+    private func install(_ result: LocalLinuxBootResult, generation: UInt64) async -> Bool {
         guard generation == lifecycleGeneration else {
             if case let .success(session) = result {
                 await session.hangup()
             }
             return false
         }
-        if let session {
-            resizeTask?.cancel()
-            let resizeGeneration = lifecycleGeneration
-            resizeTask = Task { @MainActor [weak self, session] in
-                guard let self,
-                      self.lifecycleGeneration == resizeGeneration,
-                      self.session === session else { return }
-                try? await session.resize(columns: columns, rows: rows)
-            }
+        if session != nil {
+            // A concurrent attachment already installed a shell for this
+            // generation. Apply the newest grid and share it.
+            applyPendingResizeIfRunning()
             state = .running
             return true
         }
@@ -520,10 +559,6 @@ public final class LocalLinuxComputerController {
                     pendingSession = nil
                 }
             }
-            guard generation == lifecycleGeneration else {
-                await session.hangup()
-                return false
-            }
             let newRing = LocalLinuxScrollbackRing()
             do {
                 // Start the sole output consumer before publishing the session.
@@ -534,16 +569,11 @@ public final class LocalLinuxComputerController {
             } catch {
                 await session.hangup()
                 guard generation == lifecycleGeneration else { return false }
-                acceptsInput = false
-                pendingInput.removeAll(keepingCapacity: false)
-                let localError = LocalLinuxError.operationFailed(
-                    "terminal output retention could not start"
-                )
-                lastError = localError
-                state = .failed
-                localLinuxProductionLog.error(
+                LocalLinuxLog.logger.error(
                     "local Linux output retention failed: \(String(describing: error), privacy: .public)"
                 )
+                fenceLifecycle(into: .failed)
+                lastError = .outputRetentionUnavailable
                 return false
             }
             // A command can exit before the synchronous bridge returns from
@@ -552,38 +582,24 @@ public final class LocalLinuxComputerController {
             guard !(await session.isEnded) else {
                 await session.hangup()
                 guard generation == lifecycleGeneration else { return false }
-                lifecycleGeneration &+= 1
-                acceptsInput = false
-                pendingInput.removeAll(keepingCapacity: false)
-                state = .ended
-                retryableFailure = false
+                fenceLifecycle(into: .ended)
                 return false
             }
-            // `isEnded` is actor-isolated and can suspend this MainActor
-            // continuation. A concurrent attachment must not replace the
-            // controller's session while this candidate is being inspected.
+            // `isEnded` and `start(source:)` cross actors and can suspend this
+            // MainActor continuation. Teardown or a concurrent attachment can
+            // win while suspended, so revalidate ownership before installing.
             guard generation == lifecycleGeneration,
                   pendingSession === session,
                   self.session == nil else {
                 await session.hangup()
                 return false
             }
-            // `start(source:)` crosses the ring actor. Teardown can win while
-            // it is suspended, so revalidate ownership before installing.
-            guard generation == lifecycleGeneration else {
-                await session.hangup()
-                return false
-            }
             self.session = session
             ring = newRing
             acceptsInput = true
-            let grid = pendingGrid ?? PendingGrid(columns: columns, rows: rows)
-            resize(columns: grid.columns, rows: grid.rows)
-            if !pendingInput.isEmpty {
-                let bytes = pendingInput
-                pendingInput.removeAll(keepingCapacity: false)
-                send(bytes)
-            }
+            watchSessionEnd(session: session, ring: newRing, generation: generation)
+            applyPendingResizeIfRunning()
+            startInputWorkerIfNeeded()
             state = .running
             retryableFailure = false
             return true
@@ -592,20 +608,47 @@ public final class LocalLinuxComputerController {
             state = .failed
             retryableFailure = Self.isRetryableSessionFailure(error)
             acceptsInput = false
-            pendingInput.removeAll(keepingCapacity: false)
-            localLinuxProductionLog.error(
+            inputQueue.removeAll(keepingCapacity: false)
+            LocalLinuxLog.logger.error(
                 "local Linux boot failed: \(String(describing: error), privacy: .public)"
             )
             return false
         }
     }
 
+    /// Learns about the shell's natural end from the ring, which is the sole
+    /// consumer of the session's output stream. Lanes come and go with
+    /// surfaces and therefore cannot tell EOF from their own detachment.
+    private func watchSessionEnd(
+        session: LocalLinuxSession,
+        ring: LocalLinuxScrollbackRing,
+        generation: UInt64
+    ) {
+        sessionEndWatcher?.cancel()
+        sessionEndWatcher = Task { @MainActor [weak self, session, ring, generation] in
+            var ended = ring.sourceEnded.makeAsyncIterator()
+            _ = await ended.next()
+            guard !Task.isCancelled, let self,
+                  self.lifecycleGeneration == generation,
+                  self.session === session else { return }
+            // The ring finishes only after the source stream ended, which the
+            // runtime does solely for a hung-up or exited pty. Confirm on the
+            // session so a cancelled pump can never be misread as an exit.
+            guard await session.isEnded else { return }
+            guard self.lifecycleGeneration == generation,
+                  self.session === session else { return }
+            self.sessionDidEnd(session)
+        }
+    }
+
+    // MARK: Input worker
+
     /// Serializes terminal input through one worker. Ghostty can emit one
     /// callback per keystroke, so a task chain per callback would retain a long
     /// linked list during a paste. This bounded FIFO preserves byte order with
     /// one cancellable task instead.
     private func startInputWorkerIfNeeded() {
-        guard inputWorker == nil else { return }
+        guard inputWorker == nil, !inputQueue.isEmpty else { return }
         guard let workerSession = session else { return }
         let workerID = UUID()
         inputWorkerID = workerID
@@ -652,19 +695,17 @@ public final class LocalLinuxComputerController {
                             // Keep the unsent remainder. A malformed bridge
                             // result is a backpressure boundary, not permission
                             // to lose terminal input.
-                            localLinuxProductionLog.error(
+                            LocalLinuxLog.logger.error(
                                 "local Linux input accepted invalid byte count \(accepted) of \(remainder.count)"
                             )
-                            self.markInputFailure(
-                                .operationFailed("terminal input returned an invalid byte count")
-                            )
+                            self.markInputFailure(.inputByteCountInvalid)
                             return
                         }
                         guard accepted > 0 else {
                             // The C shim uses zero for a full non-blocking tty
                             // buffer. Leave the remainder in place and wait
                             // for the next coalesced input-readiness edge.
-                            localLinuxProductionLog.debug(
+                            LocalLinuxLog.logger.debug(
                                 "local Linux input backpressured with \(remainder.count, privacy: .public) bytes pending"
                             )
                             waitForReadiness = true
@@ -693,17 +734,17 @@ public final class LocalLinuxComputerController {
                     // shell. Keep the FIFO head and await the readiness stream.
                     if case let LocalLinuxError.inputFailed(errno) = error,
                        errno == Self.wouldBlockErrno {
-                        localLinuxProductionLog.debug(
+                        LocalLinuxLog.logger.debug(
                             "local Linux input backpressured with \(self.inputQueue.byteCount, privacy: .public) bytes pending"
                         )
                         waitForReadiness = true
                     } else {
-                        localLinuxProductionLog.error(
+                        LocalLinuxLog.logger.error(
                             "local Linux input failed: \(String(describing: error), privacy: .public)"
                         )
                         self.markInputFailure(
                             (error as? LocalLinuxError)
-                                ?? .operationFailed("terminal input failed")
+                                ?? .operationFailed(String(describing: error))
                         )
                         return
                     }
@@ -721,73 +762,15 @@ public final class LocalLinuxComputerController {
         }
     }
 
+    // MARK: Grid
+
     private func rememberGrid(columns: Int, rows: Int) {
         pendingGrid = PendingGrid(columns: columns, rows: rows)
     }
 
     private func applyPendingResizeIfRunning() {
-        guard self.session != nil, let grid = pendingGrid else { return }
+        guard session != nil, let grid = pendingGrid else { return }
         resize(columns: grid.columns, rows: grid.rows)
-    }
-
-    /// Marks a renderer setup failure so the destination does not remain on a
-    /// permanent loading overlay when Ghostty cannot create its surface.
-    ///
-    /// The controller outlives a terminal view, so this can happen after a
-    /// healthy session was already running (for example, when a new surface
-    /// cannot be created after navigation). Fence that session too. An ended
-    /// controller ignores a stale callback from a dismantled view.
-    public func markRendererFailure() {
-        guard state != .ended, state != .failed else { return }
-        // Renderer creation can fail while the detached boot/open task is
-        // still producing a session. Fence that generation before publishing
-        // the failure, otherwise its later install could resurrect a terminal
-        // behind the error overlay.
-        lifecycleGeneration &+= 1
-        startTask?.cancel()
-        inputWorker?.cancel()
-        inputWorker = nil
-        inputWorkerID = nil
-        resizeTask?.cancel()
-        resizeTask = nil
-        acceptsInput = false
-        scheduleSessionClose(pendingSession)
-        pendingSession = nil
-        scheduleSessionClose(session)
-        session = nil
-        ring = nil
-        inputQueue.removeAll(keepingCapacity: false)
-        pendingInput.removeAll(keepingCapacity: false)
-        state = .failed
-        lastError = .operationFailed("terminal renderer unavailable")
-        retryableFailure = true
-    }
-
-    /// Exposes an unrecoverable pty write error through the same visible
-    /// failure state as boot errors. The failed pty is not safe to reuse, so
-    /// its unsent FIFO is discarded explicitly before a retry creates a new
-    /// shell. This avoids replaying a partial command into a replacement pty.
-    private func markInputFailure(_ error: LocalLinuxError) {
-        guard state != .ended else { return }
-        // A non-EAGAIN write failure invalidates the current pty. Keep no live
-        // worker or ring behind the error overlay, and block callbacks from
-        // the old surface until the user explicitly retries.
-        acceptsInput = false
-        lifecycleGeneration &+= 1
-        inputWorker?.cancel()
-        inputWorker = nil
-        inputWorkerID = nil
-        resizeTask?.cancel()
-        resizeTask = nil
-        let failedSession = session
-        scheduleSessionClose(failedSession)
-        session = nil
-        ring = nil
-        inputQueue.removeAll(keepingCapacity: false)
-        pendingInput.removeAll(keepingCapacity: false)
-        state = .failed
-        lastError = error
-        retryableFailure = true
     }
 
     private static func isRetryableSessionFailure(_ error: LocalLinuxError) -> Bool {
@@ -795,20 +778,5 @@ public final class LocalLinuxComputerController {
             return true
         }
         return false
-    }
-
-    /// Whether the current failure can be reset without rebuilding the
-    /// process-global kernel. Boot and rootfs failures stay sticky; renderer
-    /// and session-input failures can safely start a fresh pty.
-    public var canRetry: Bool {
-        state == .ended || (state == .failed && retryableFailure)
-    }
-
-    /// Fences a retryable failure before the SwiftUI surface is recreated.
-    public func prepareForRetry() {
-        guard canRetry else { return }
-        terminate()
-        state = .idle
-        lastError = nil
     }
 }
