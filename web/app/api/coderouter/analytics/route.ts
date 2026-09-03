@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { z } from "zod";
 
 import { captureCoderouterEvent } from
@@ -82,7 +83,9 @@ const batchSchema = z.object({
   events: z.array(eventSchema).min(1).max(2),
 }).strict();
 
-export async function POST(request: Request): Promise<Response> {
+export const POST = coderouterControlRoute("analytics", "/api/coderouter/analytics", handlePost);
+
+async function handlePost(request: Request): Promise<Response> {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
     return new Response(null, { status: 413 });

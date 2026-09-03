@@ -8,7 +8,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 
-import { buildCmuxTraceSampler, isVmPrioritySpan } from "../services/observability/sampler";
+import { buildCmuxTraceSampler, isPriorityPath, isVmPrioritySpan } from "../services/observability/sampler";
 import { withApiRouteSpan } from "../services/telemetry";
 
 describe("buildCmuxTraceSampler", () => {
@@ -33,6 +33,25 @@ describe("buildCmuxTraceSampler", () => {
     expect(decideRoot("anything", { "cmux.subsystem": "vm-cloud" })).toBe(
       SamplingDecision.RECORD_AND_SAMPLED,
     );
+  });
+
+  test("coderouter data-plane and control-plane routes are always kept", () => {
+    expect(decideRoot("POST /v1/responses", { "http.route": "/v1/responses" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
+    expect(decideRoot("cmux.api.POST /v1/messages", {})).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(decideRoot("GET", { "url.path": "/api/coderouter/opencode/config" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
+    expect(decideRoot("anything", { "cmux.subsystem": "coderouter" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
+    expect(decideRoot("GET /v1beta/other", { "http.route": "/v1beta/other" })).toBe(
+      SamplingDecision.NOT_RECORD,
+    );
+    expect(isPriorityPath("/v1/models?x=1")).toBe(true);
+    expect(isPriorityPath("/v10/models")).toBe(false);
+    expect(isPriorityPath("/api/coderouterx")).toBe(false);
   });
 
   test("a client-sent sampled traceparent cannot bypass the ratio", () => {

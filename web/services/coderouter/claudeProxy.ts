@@ -27,11 +27,16 @@ import {
 import { captureCoderouterEvent } from "./analytics";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 import {
-  newLedgerRequestId,
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
 import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
+import {
+  currentCoderouterRequestId,
+  recordCoderouterOutcome,
+  recordCoderouterSpan,
+} from "./requestTelemetry";
+import { fetchWithHeadersTimeout } from "./upstreamFetch";
 import { signAwsRequest } from "./awsSigV4";
 import {
   anthropicErrorFromBedrock,
@@ -162,7 +167,7 @@ export function createClaudeMessagesProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
-    const health: Health = { requestId: newLedgerRequestId(), startedAt: performance.now() };
+    const health: Health = { requestId: currentCoderouterRequestId(), startedAt: performance.now() };
     const auth = await authenticateRoute(dependencies, request, "messages", health);
     if (!auth.ok) return auth.response;
     const identity = auth.identity;
@@ -198,11 +203,14 @@ export function createClaudeMessagesProxy(
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
+    const streamed = response.body !== null;
     const observed = observeClaudeUsage(response.body, (usage) => {
       captureModelUsage(dependencies, identity, upstream, usage, {
         requestId: health.requestId,
         agent,
         status: response.status,
+        durationMs: Math.round(performance.now() - health.startedAt),
+        streamed,
       });
     });
     return new Response(observed, { status: response.status, headers: response.headers });
@@ -317,13 +325,29 @@ async function routeWithFailover(
   let attempts = 0;
   while (attempts < MAX_UPSTREAM_ATTEMPTS) {
     let selection: ClaudeSelection;
+    const selectStartedAt = performance.now();
     try {
       selection = await dependencies.select(identity.teamId, {
         stickyKey: stickyKey(identity),
         excludedAccountIds: excluded,
       });
+      recordCoderouterSpan({
+        name: "account_selection",
+        startedAt: selectStartedAt,
+        attributes: { provider: "claude", attempt: attempts + 1, outcome: selection.kind },
+      });
     } catch (error) {
-      reportCoderouterFailure("rds", error, { provider: "claude", operation: "select_claude_account" });
+      recordCoderouterSpan({
+        name: "account_selection",
+        startedAt: selectStartedAt,
+        error: error instanceof Error ? error.name : "select_failed",
+        attributes: { provider: "claude", attempt: attempts + 1 },
+      });
+      reportCoderouterFailure("rds", error, {
+        provider: "claude",
+        operation: "select_claude_account",
+        request_id: currentCoderouterRequestId(),
+      });
       return {
         kind: "exhausted",
         attempts,
@@ -383,12 +407,26 @@ async function routeWithFailover(
       total: selection.total,
     });
     let attempt: Attempt;
+    const attemptStartedAt = performance.now();
     try {
       attempt = { kind: "response", response: await send(upstream) };
     } catch (error) {
       attempt = { kind: "transport", error };
     }
     const verdict = classifyAttempt(attempt);
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: attemptStartedAt,
+      ...(verdict.kind === "failover" ? { error: verdict.failureCode } : {}),
+      attributes: {
+        provider: "claude",
+        upstream_kind: upstream.kind,
+        attempt: attempts,
+        surface,
+        status: attempt.kind === "response" ? attempt.response.status : 0,
+        ...(verdict.kind === "failover" ? { failure_code: verdict.failureCode, cooldown_ms: verdict.cooldownMs } : {}),
+      },
+    });
     if (verdict.kind === "done") {
       void dependencies.touchUsed(upstream.accountId).catch(() => undefined);
       return { kind: "response", response: verdict.response, upstream, attempts, failed: false, failureStage: "none" };
@@ -398,6 +436,7 @@ async function routeWithFailover(
         provider: "claude",
         upstream_kind: upstream.kind,
         operation: surface,
+        request_id: currentCoderouterRequestId(),
       });
     }
     addCoderouterBreadcrumb("routing", "Claude account cooled down", {
@@ -544,7 +583,9 @@ async function anthropicRequest(
   const headers = upstream.secret.kind === "anthropic_oauth"
     ? oauthHeaders(request, upstream.secret.token)
     : apiKeyHeaders(request, upstream.secret.kind === "anthropic_api_key" ? upstream.secret.apiKey : "");
-  const response = await dependencies.fetch(`${ANTHROPIC_UPSTREAM}${pathAndQuery}`, {
+  // Bounded to headers only: a hung upstream fails over to the next account
+  // instead of holding the function for the full maxDuration.
+  const response = await fetchWithHeadersTimeout(dependencies.fetch, `${ANTHROPIC_UPSTREAM}${pathAndQuery}`, {
     method: request.method,
     headers,
     ...(body ? { body } : {}),
@@ -748,7 +789,7 @@ async function bedrockFetch(
   });
   // `host` is set by the runtime from the URL; sending it explicitly is rejected by fetch.
   headers.delete("host");
-  return await dependencies.fetch(url, { method: "POST", headers, body, cache: "no-store" });
+  return await fetchWithHeadersTimeout(dependencies.fetch, url, { method: "POST", headers, body, cache: "no-store" });
 }
 
 async function bedrockErrorResponse(response: Response): Promise<Response> {
@@ -811,6 +852,18 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
+  recordCoderouterOutcome({
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    provider: "claude",
+    agent,
+    attempts: input.attemptCount,
+    refreshRetries: 0,
+    responseStreamed: input.responseStreamed,
+    upstreamKind: input.upstream?.kind,
+    upstreamAccountId: input.upstream?.accountId,
+  });
   dependencies.capture({
     event: "coderouter_route_health",
     teamId: input.identity?.teamId,
@@ -824,6 +877,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
       refresh_retry_count: 0,
       duration_ms: durationMs,
       response_streamed: input.responseStreamed,
+      request_id: input.requestId,
       ...(input.identity?.vmId ? { vm_id: input.identity.vmId } : {}),
       ...(input.upstream
         ? { upstream_kind: input.upstream.kind, upstream_account_id: input.upstream.accountId }
@@ -856,6 +910,8 @@ function captureModelUsage(
     readonly requestId: string;
     readonly agent: string;
     readonly status: number;
+    readonly durationMs?: number;
+    readonly streamed?: boolean;
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
@@ -873,6 +929,10 @@ function captureModelUsage(
       cached_input_tokens: usage.cacheReadInputTokens,
       output_tokens: usage.outputTokens,
       total_tokens: usage.totalTokens,
+      request_id: ledger.requestId,
+      duration_ms: ledger.durationMs,
+      status: ledger.status,
+      response_streamed: ledger.streamed,
       ...(identity.vmId ? { vm_id: identity.vmId } : {}),
     },
   });

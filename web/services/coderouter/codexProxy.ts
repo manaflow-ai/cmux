@@ -12,16 +12,21 @@ import {
   reportCoderouterFailure,
 } from "./observability";
 import {
-  newLedgerRequestId,
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
 import {
+  currentCoderouterRequestId,
+  recordCoderouterOutcome,
+  recordCoderouterSpan,
+} from "./requestTelemetry";
+import {
   authenticateRequestRouteToken,
   type RouteTokenAuthFailure,
   type RouteTokenIdentity,
 } from "./routeTokenAuth";
+import { fetchWithHeadersTimeout } from "./upstreamFetch";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
@@ -100,7 +105,7 @@ async function proxyCodexRequestWith(
   request: Request,
 ): Promise<Response> {
   const startedAt = performance.now();
-  const requestId = newLedgerRequestId();
+  const requestId = currentCoderouterRequestId();
   const auth = await authenticateRequestRouteToken(
     request,
     dependencies.authenticate,
@@ -147,11 +152,17 @@ async function proxyCodexRequestWith(
     "account_selection";
   let upstream: Response | null = null;
   for (let attempt = 0; attempt < 8; attempt++) {
+    const selectStartedAt = performance.now();
     const account = await dependencies.select({
       teamId: identity.teamId,
       provider: "codex",
       sessionKey,
       excludedAccountIds: attempted,
+    });
+    recordCoderouterSpan({
+      name: "account_selection",
+      startedAt: selectStartedAt,
+      attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
     });
     if (!account) break;
     attempted.push(account.id);
@@ -161,6 +172,7 @@ async function proxyCodexRequestWith(
       sticky: account.sticky,
     });
     let credential;
+    const credentialStartedAt = performance.now();
     try {
       credential = await credentialWithStickyPatience(
         dependencies,
@@ -171,23 +183,43 @@ async function proxyCodexRequestWith(
         },
         account.sticky,
       );
+      recordCoderouterSpan({ name: "credential", startedAt: credentialStartedAt, attributes: { provider: "codex", attempt: attempt + 1 } });
     } catch (error) {
       failureStage = "credential_refresh";
-      if (error && typeof error === "object" && "_tag" in error) {
-        const tag = (error as { _tag: string })._tag;
-        if (tag === "CodeRouterRefreshBusy") continue;
-        if (tag === "CodeRouterCredentialBroken") continue;
-      }
+      const tag = error && typeof error === "object" && "_tag" in error
+        ? String((error as { _tag: unknown })._tag)
+        : undefined;
+      recordCoderouterSpan({
+        name: "credential",
+        startedAt: credentialStartedAt,
+        error: tag ?? "credential_failed",
+        attributes: { provider: "codex", attempt: attempt + 1 },
+      });
+      if (tag === "CodeRouterRefreshBusy") continue;
+      if (tag === "CodeRouterCredentialBroken") continue;
       throw error;
     }
     if (credential.provider !== "codex") continue;
+    const upstreamStartedAt = performance.now();
     try {
       upstream = await sendCodex(request.clone(), forwardedHeaders, credential);
+      recordCoderouterSpan({
+        name: "upstream_attempt",
+        startedAt: upstreamStartedAt,
+        attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status },
+      });
     } catch (error) {
       failureStage = "upstream_transport";
+      recordCoderouterSpan({
+        name: "upstream_attempt",
+        startedAt: upstreamStartedAt,
+        error: error instanceof Error ? error.name : "transport",
+        attributes: { provider: "codex", attempt: attempt + 1 },
+      });
       reportCoderouterFailure("upstream_transport", error, {
         provider: "codex",
         attempt: attempt + 1,
+        request_id: requestId,
       });
       continue;
     }
@@ -202,6 +234,7 @@ async function proxyCodexRequestWith(
         },
         "warning",
       );
+      const refreshStartedAt = performance.now();
       try {
         const refreshed = await dependencies.credential({
           teamId: identity.teamId,
@@ -209,18 +242,32 @@ async function proxyCodexRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
+        recordCoderouterSpan({ name: "credential_refresh", startedAt: refreshStartedAt, attributes: { provider: "codex", forced: true } });
         if (refreshed.provider === "codex") {
+          const retryStartedAt = performance.now();
           upstream = await sendCodex(
             request.clone(),
             forwardedHeaders,
             refreshed,
           );
+          recordCoderouterSpan({
+            name: "upstream_attempt",
+            startedAt: retryStartedAt,
+            attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status, forced: true },
+          });
         }
       } catch (error) {
         failureStage = "credential_refresh";
+        recordCoderouterSpan({
+          name: "credential_refresh",
+          startedAt: refreshStartedAt,
+          error: error instanceof Error ? error.name : "refresh_failed",
+          attributes: { provider: "codex", forced: true },
+        });
         reportCoderouterFailure("provider_refresh", error, {
           provider: "codex",
           forced: true,
+          request_id: requestId,
         });
         continue;
       }
@@ -289,8 +336,15 @@ async function proxyCodexRequestWith(
     responseStreamed: upstream.body !== null,
   });
   const agent = agentFromUserAgent(request.headers.get("user-agent"));
+  const streamed = upstream.body !== null;
   const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity, usage, { requestId, agent, status });
+    captureModelUsage(identity, usage, {
+      requestId,
+      agent,
+      status,
+      durationMs: Math.round(performance.now() - startedAt),
+      streamed,
+    });
   });
   return new Response(observedBody, {
     status: upstream.status,
@@ -419,7 +473,9 @@ async function sendCodex(
   headers.set("authorization", `Bearer ${credential.accessToken}`);
   headers.set("chatgpt-account-id", credential.accountId);
   headers.set("originator", "coderouter");
-  return await fetch(CODEX_UPSTREAM, {
+  // Bounded to headers only: a hung upstream fails over instead of holding
+  // the function for the full maxDuration; the body streams unbounded.
+  return await fetchWithHeadersTimeout(fetch, CODEX_UPSTREAM, {
     method: "POST",
     headers,
     body: request.body,
@@ -532,6 +588,16 @@ function captureRouteHealth(input: {
     : input.outcome === "no_usable_account"
     ? input.failureStage ?? "account_selection"
     : "upstream_response";
+  recordCoderouterOutcome({
+    outcome: input.outcome,
+    failureStage,
+    status: input.status,
+    provider: "codex",
+    agent,
+    attempts: input.attempted,
+    refreshRetries: input.refreshRetries,
+    responseStreamed: input.responseStreamed,
+  });
   // Capture as soon as the terminal route result is known. This is deliberately
   // independent of response consumption and token parsing.
   captureCoderouterEvent({
@@ -547,6 +613,7 @@ function captureRouteHealth(input: {
       refresh_retry_count: input.refreshRetries,
       duration_ms: durationMs,
       response_streamed: input.responseStreamed,
+      request_id: input.requestId,
       ...vmIdProperty(input.identity?.vmId ?? null),
     },
   });
@@ -573,6 +640,8 @@ function captureModelUsage(
     readonly requestId: string;
     readonly agent: string;
     readonly status: number;
+    readonly durationMs?: number;
+    readonly streamed?: boolean;
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
@@ -586,6 +655,10 @@ function captureModelUsage(
       cached_input_tokens: usage.cachedInputTokens,
       output_tokens: usage.outputTokens,
       total_tokens: usage.totalTokens,
+      request_id: ledger.requestId,
+      duration_ms: ledger.durationMs,
+      status: ledger.status,
+      response_streamed: ledger.streamed,
       ...vmIdProperty(identity.vmId),
     },
   });

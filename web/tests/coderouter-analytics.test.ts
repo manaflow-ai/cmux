@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   __test as analyticsTest,
   captureCoderouterEvent,
+  captureCoderouterRawBatch,
 } from "../services/coderouter/analytics";
 import {
   coderouterTeamAnalyticsId,
@@ -389,5 +390,100 @@ describe("streaming model usage extraction", () => {
     expect(
       usageTest.usageFromTail('{"usage":{"input_tokens":"many"}}'),
     ).toBeNull();
+  });
+});
+
+describe("coderouter raw trace batch", () => {
+  test("keeps only schema keys, pseudonymizes the team, and defaults the identity", async () => {
+    const captured = collector();
+    captureCoderouterRawBatch(
+      [
+        {
+          event: "$ai_trace",
+          teamId: "team-raw",
+          timestamp: "2026-09-03T00:00:00.000Z",
+          properties: {
+            $ai_trace_id: "req-1",
+            $ai_latency: 0.5,
+            coderouter_outcome: "success",
+            trace_id: "0af7651916cd43dd8448eb211c80319c",
+            prompt: "secret prompt",
+            authorization: "Bearer crt_secret",
+            email: "buyer@example.com",
+          },
+        },
+        {
+          event: "$exception",
+          properties: { $exception_fingerprint: "coderouter.rds:codex", $exception_level: "error" },
+        },
+      ],
+      captured.dependencies,
+    );
+    await Promise.all(captured.deferred);
+    expect(captured.urls).toEqual(["https://coderouter.i.posthog.test/batch/"]);
+    const body = JSON.parse(captured.bodies[0]!) as {
+      api_key: string;
+      batch: Array<{ event: string; distinct_id: string; timestamp: string; properties: Record<string, unknown> }>;
+    };
+    expect(body.api_key).toBe("phc_coderouter_only");
+    expect(body.batch.map((entry) => entry.event)).toEqual(["$ai_trace", "$exception"]);
+    const trace = body.batch[0]!;
+    expect(trace.distinct_id).toBe(coderouterTeamAnalyticsId("team-raw", scopeSecret));
+    expect(trace.timestamp).toBe("2026-09-03T00:00:00.000Z");
+    expect(trace.properties).toMatchObject({
+      $ai_trace_id: "req-1",
+      $ai_latency: 0.5,
+      coderouter_outcome: "success",
+      trace_id: "0af7651916cd43dd8448eb211c80319c",
+      $process_person_profile: false,
+      product: "coderouter",
+    });
+    for (const leaked of ["prompt", "authorization", "email"]) {
+      expect(leaked in trace.properties).toBe(false);
+    }
+    expect(JSON.stringify(body)).not.toContain("team-raw");
+    expect(body.batch[1]!.distinct_id).toBe("coderouter-server");
+  });
+
+  test("is a no-op when disabled or unconfigured", async () => {
+    const captured = collector();
+    captureCoderouterRawBatch(
+      [{ event: "$ai_trace", properties: { $ai_trace_id: "x" } }],
+      { ...captured.dependencies, enabled: () => false },
+    );
+    captureCoderouterRawBatch(
+      [{ event: "$ai_trace", properties: { $ai_trace_id: "x" } }],
+      { ...captured.dependencies, isolatedConfig: () => null },
+    );
+    captureCoderouterRawBatch([], captured.dependencies);
+    await Promise.all(captured.deferred);
+    expect(captured.urls).toEqual([]);
+  });
+
+  test("$ai_generation carries the trace link, latency, status and stream flag", () => {
+    const properties = analyticsTest.aiUsageProperties(
+      {
+        provider: "claude",
+        model: "claude-sonnet-5",
+        input_tokens: 10,
+        cached_input_tokens: 2,
+        output_tokens: 5,
+        total_tokens: 15,
+        request_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
+        duration_ms: 2500,
+        status: 200,
+        response_streamed: true,
+      },
+      "team-scope",
+    );
+    expect(properties).toMatchObject({
+      $ai_trace_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
+      $ai_parent_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
+      coderouter_request_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
+      $ai_latency: 2.5,
+      $ai_http_status: 200,
+      $ai_is_error: false,
+      $ai_stream: true,
+    });
   });
 });

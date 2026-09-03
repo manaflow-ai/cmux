@@ -235,6 +235,13 @@ export const env = createEnv({
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
     CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
+    // Coderouter alert thresholds (per five-minute window) and the bound on
+    // time-to-headers for upstream model calls. Defaults live next to the code.
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: z.string().regex(/^\d+$/).optional(),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: z.string().regex(/^\d+$/).optional(),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: z.string().regex(/^\d+$/).optional(),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: z.string().regex(/^\d+$/).optional(),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: z.string().regex(/^\d+$/).optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -397,6 +404,11 @@ export const env = createEnv({
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: trimEnv(process.env.CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),

@@ -8,10 +8,15 @@ import {
 } from "./observability";
 import { observeModelUsage } from "./responseUsage";
 import {
-  newLedgerRequestId,
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import {
+  currentCoderouterRequestId,
+  recordCoderouterOutcome,
+  recordCoderouterSpan,
+} from "./requestTelemetry";
+import { fetchWithHeadersTimeout } from "./upstreamFetch";
 import {
   authenticateRequestRouteToken,
   VM_PLACEHOLDER_API_KEY,
@@ -85,7 +90,7 @@ export async function proxyOpenCodeRequest(
   dependencies: OpenCodeDependencies = defaultDependencies,
 ): Promise<Response> {
   const startedAt = performance.now();
-  const requestId = newLedgerRequestId();
+  const requestId = currentCoderouterRequestId();
   const authResult = await authenticateRequestRouteToken(
     request,
     dependencies.authenticate,
@@ -107,7 +112,13 @@ export async function proxyOpenCodeRequest(
     );
   }
   const auth = authResult.identity;
+  const selectStartedAt = performance.now();
   const resolved = await openCodeAccount(auth.teamId, dependencies);
+  recordCoderouterSpan({
+    name: "account_selection",
+    startedAt: selectStartedAt,
+    attributes: { provider: "opencode-go", attempts: resolved?.attempts ?? 0, healthy: resolved !== null },
+  });
   if (!resolved) {
     captureOpenCodeHealth({
       requestId,
@@ -125,12 +136,21 @@ export async function proxyOpenCodeRequest(
     );
   }
   let config: Record<string, unknown>;
+  const configStartedAt = performance.now();
   try {
     config = await dependencies.remoteConfig(resolved.credential.accessToken);
+    recordCoderouterSpan({ name: "provider_config", startedAt: configStartedAt, attributes: { provider: "opencode-go" } });
   } catch (error) {
+    recordCoderouterSpan({
+      name: "provider_config",
+      startedAt: configStartedAt,
+      error: error instanceof Error ? error.name : "config_failed",
+      attributes: { provider: "opencode-go" },
+    });
     reportCoderouterFailure("provider_usage", error, {
       provider: "opencode-go",
       operation: "config",
+      request_id: requestId,
     });
     captureOpenCodeHealth({
       requestId,
@@ -198,8 +218,9 @@ export async function proxyOpenCodeRequest(
   }
   headers.set("authorization", `Bearer ${resolved.credential.accessToken}`);
   let upstream: Response;
+  const upstreamStartedAt = performance.now();
   try {
-    upstream = await fetch(target, {
+    upstream = await fetchWithHeadersTimeout(fetch, target, {
       method: request.method,
       headers,
       body:
@@ -209,9 +230,21 @@ export async function proxyOpenCodeRequest(
       duplex: "half",
       cache: "no-store",
     } as RequestInit & { duplex: "half" });
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      attributes: { provider: "opencode-go", attempt: 1, status: upstream.status },
+    });
   } catch (error) {
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      error: error instanceof Error ? error.name : "transport",
+      attributes: { provider: "opencode-go", attempt: 1 },
+    });
     reportCoderouterFailure("upstream_transport", error, {
       provider: "opencode-go",
+      request_id: requestId,
     });
     captureOpenCodeHealth({
       requestId,
@@ -246,6 +279,7 @@ export async function proxyOpenCodeRequest(
     attempts: resolved.attempts,
     responseStreamed: upstream.body !== null,
   });
+  const streamed = upstream.body !== null;
   const body = observeModelUsage(upstream.body, (usage) => {
     if (!usage || usage.totalTokens === 0) return;
     captureCoderouterEvent({
@@ -258,6 +292,10 @@ export async function proxyOpenCodeRequest(
         cached_input_tokens: usage.cachedInputTokens,
         output_tokens: usage.outputTokens,
         total_tokens: usage.totalTokens,
+        request_id: requestId,
+        duration_ms: Math.round(performance.now() - startedAt),
+        status: upstream.status,
+        response_streamed: streamed,
         ...vmIdProperty(auth.vmId),
       },
     });
@@ -454,6 +492,16 @@ function captureOpenCodeHealth(input: {
   readonly responseStreamed?: boolean;
 }): void {
   const durationMs = Math.round(performance.now() - input.startedAt);
+  recordCoderouterOutcome({
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    provider: "opencode-go",
+    agent: "opencode",
+    attempts: input.attempts ?? 0,
+    refreshRetries: 0,
+    responseStreamed: input.responseStreamed ?? false,
+  });
   captureCoderouterEvent({
     event: "coderouter_route_health",
     ...(input.identity ? { teamId: input.identity.teamId } : {}),
@@ -467,6 +515,7 @@ function captureOpenCodeHealth(input: {
       attempt_count: input.attempts ?? 0,
       refresh_retry_count: 0,
       response_streamed: input.responseStreamed ?? false,
+      request_id: input.requestId,
       ...vmIdProperty(input.identity?.vmId ?? null),
     },
   });

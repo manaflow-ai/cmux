@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // Usage for the machine a VM-bound route token belongs to. cmux-tui inside
 // the VM calls this through the Freestyle edge, which injects the real
 // `x-coderouter-route-token` and `x-cmux-vm-id` headers; the guest itself
@@ -29,7 +30,9 @@ const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
     "This machine's coderouter credential does not match the machine it was issued to.",
 };
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("vm_usage", "/api/coderouter/vm-usage/self", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const auth = await authenticateRequestRouteToken(request);
   if (!auth.ok) {
     addCoderouterBreadcrumb("auth", "Route token rejected", {

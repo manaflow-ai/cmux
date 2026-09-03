@@ -43,6 +43,17 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_FREESTYLE_ENABLED",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
+  // Coderouter: the usage ledger (customer-facing usage, alert source), the
+  // credential vault key, and the isolated PostHog project that receives every
+  // trace and exception. Analytics fail closed without the key pair, so a
+  // missing value is a silent observability outage.
+  "CLICKHOUSE_DATABASE",
+  "CLICKHOUSE_PASSWORD",
+  "CLICKHOUSE_URL",
+  "CLICKHOUSE_USER",
+  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+  "CODEROUTER_KMS_KEY_ID",
+  "POSTHOG_CODEROUTER_PROJECT_KEY",
   "FREESTYLE_API_KEY",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",

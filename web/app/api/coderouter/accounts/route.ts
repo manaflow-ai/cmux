@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import {
   addAccount,
   parseCredential,
@@ -16,7 +17,9 @@ import {
 
 const MAX_BODY_BYTES = 128 * 1_024;
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("accounts", "/api/coderouter/accounts", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const startedAt = performance.now();
   const authStartedAt = performance.now();
   const resolved = await resolveCoderouterUsageTeam(request);
@@ -80,7 +83,7 @@ const defaultAccountsPostDependencies: AccountsPostDependencies = {
   add: addAccount,
 };
 
-export const POST = makeCoderouterAccountsPostHandler();
+export const POST = coderouterControlRoute("accounts", "/api/coderouter/accounts", makeCoderouterAccountsPostHandler());
 
 export function makeCoderouterAccountsPostHandler(
   dependencies: AccountsPostDependencies = defaultAccountsPostDependencies,

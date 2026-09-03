@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { resolveCoderouterUsageTeam } from "../../../../services/coderouter/requestContext";
 import { findTeamMachine } from "../../../../services/coderouter/teamMachines";
 import { loadCoderouterVmMetrics } from "../../../../services/coderouter/vmMetrics";
@@ -9,7 +10,9 @@ const JSON_HEADERS = {
   "content-type": "application/json",
 } as const;
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("vm_usage", "/api/coderouter/vm-usage", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
   const vmId = new URL(request.url).searchParams.get("vmId")?.trim() ?? "";

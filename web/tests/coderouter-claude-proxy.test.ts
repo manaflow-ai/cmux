@@ -266,7 +266,10 @@ describe("claude proxy direct Anthropic upstreams", () => {
     const response = await messages(messagesRequest());
     await response.text();
     const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage).toEqual({
+    const { duration_ms: usageDurationMs, request_id: usageRequestId, ...usageProperties } = usage?.properties ?? {};
+    expect(typeof usageDurationMs).toBe("number");
+    expect(String(usageRequestId)).toMatch(/^[0-9a-f-]{36}$/);
+    expect({ ...usage, properties: usageProperties }).toEqual({
       event: "coderouter_model_request_completed",
       teamId: "team-1",
       properties: {
@@ -279,9 +282,15 @@ describe("claude proxy direct Anthropic upstreams", () => {
         output_tokens: 42,
         total_tokens: 157,
         vm_id: "vm-1",
+        // Trace linkage for the PostHog `$ai_generation`: the ledger request
+        // id shared with the route-health row, latency to stream end, the
+        // upstream status and whether the body streamed.
+        status: 200,
+        response_streamed: true,
       },
     });
     const health = events.find((event) => event.event === "coderouter_route_health");
+    expect(health?.properties?.request_id).toBe(usageRequestId);
     expect(health?.properties).toMatchObject({
       provider: "claude",
       outcome: "success",

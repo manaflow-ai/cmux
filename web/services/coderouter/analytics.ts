@@ -77,6 +77,69 @@ export function deferCoderouterTask(task: Promise<unknown>): void {
   }
 }
 
+/**
+ * A PostHog event whose properties are built by a trusted caller
+ * (`requestTelemetry.ts`, `exceptionEvent.ts`): the LLM-analytics trace
+ * events and Error Tracking exceptions. Identity handling matches
+ * `captureCoderouterEvent`: the raw team id is only ever an HMAC input.
+ */
+export type CoderouterRawEvent = {
+  readonly event: "$ai_trace" | "$ai_span" | "$exception" | "coderouter_alert";
+  readonly teamId?: string;
+  /** Span start for `$ai_*` events; defaults to now. */
+  readonly timestamp?: string;
+  readonly properties: Readonly<Record<string, AnalyticsScalar>>;
+};
+
+/** Property keys a raw event may carry; anything else is dropped. */
+const RAW_EVENT_KEY = /^(\$ai_[a-z_]+|\$exception_[a-z_]+|coderouter_[a-z_]+|trace_id|vercel_request_id|upstream_kind|upstream_account_id|provider|agent|attempt|attempts|status|outcome|failure_stage|failure_code|healthy|total|sticky|cooldown_ms|forced|surface|reason|alert_key|severity|title|count|threshold|window_minutes)$/;
+
+/**
+ * Sends one batch of trace/exception events to the isolated coderouter
+ * project. Same gate, config, identity and deferred delivery as
+ * `captureCoderouterEvent`; the closed schema here is the key allow-list.
+ */
+export function captureCoderouterRawBatch(
+  events: readonly CoderouterRawEvent[],
+  dependencies: AnalyticsDependencies = defaultDependencies,
+): void {
+  if (events.length === 0 || !dependencies.enabled()) return;
+  const config = dependencies.isolatedConfig();
+  if (!config) return;
+  const now = new Date().toISOString();
+  const batch = events.map((entry) => {
+    const teamScope = entry.teamId
+      ? coderouterTeamAnalyticsId(entry.teamId, config.scopeSecret)
+      : null;
+    const properties: Record<string, AnalyticsScalar> = {};
+    for (const [key, value] of Object.entries(entry.properties)) {
+      if (RAW_EVENT_KEY.test(key)) properties[key] = value;
+    }
+    return {
+      event: entry.event,
+      distinct_id: teamScope ?? "coderouter-server",
+      properties: {
+        ...properties,
+        $process_person_profile: false,
+        $geoip_disable: true,
+        ...(teamScope ? { coderouter_team_scope: teamScope } : {}),
+        $insert_id: randomUUID(),
+        product: "coderouter",
+        schema_version: ANALYTICS_SCHEMA_VERSION,
+        service_version: ANALYTICS_SERVICE_VERSION,
+      },
+      timestamp: entry.timestamp ?? now,
+    };
+  });
+  const body = JSON.stringify({ api_key: config.projectKey, batch });
+  const task = deliver(body, dependencies.fetch, config.ingestHost).catch(
+    (error) => {
+      reportCoderouterFailure("analytics_delivery", error);
+    },
+  );
+  dependencies.defer(task);
+}
+
 const defaultDependencies: AnalyticsDependencies = {
   fetch,
   defer: deferCoderouterTask,
@@ -288,12 +351,14 @@ function eventProperties(
       if (!provider || !agent || !outcome || !failureStage) return null;
       const vmId = analyticsVmId(input.vm_id);
       const upstreamAccount = analyticsVmId(input.upstream_account_id);
+      const requestId = analyticsRequestId(input.request_id);
       return {
         provider,
         agent,
         outcome,
         failure_stage: failureStage,
         status_class: statusClass(input.status),
+        ...(requestId ? { coderouter_request_id: requestId, $ai_trace_id: requestId } : {}),
         latency_bucket: latencyBucket(input.duration_ms),
         attempt_bucket: attemptBucket(input.attempt_count),
         refresh_bucket: attemptBucket(input.refresh_retry_count),
@@ -393,7 +458,18 @@ function aiUsageProperties(
   const vmId = analyticsVmId(input.vm_id);
   const upstreamKind = claudeUpstreamKind(input.upstream_kind);
   const upstreamAccount = analyticsVmId(input.upstream_account_id);
+  const requestId = analyticsRequestId(input.request_id);
+  const latencyMs = boundedNumber(input.duration_ms, 24 * 60 * 60 * 1_000);
+  const status = boundedNumber(input.status, 599);
   return {
+    // Links the generation to its `$ai_trace` (the ledger request id), so the
+    // PostHog waterfall shows the model call under the routed request.
+    ...(requestId
+      ? { $ai_trace_id: requestId, $ai_parent_id: requestId, coderouter_request_id: requestId }
+      : {}),
+    ...(latencyMs !== null ? { $ai_latency: latencyMs / 1_000 } : {}),
+    ...(status !== null ? { $ai_http_status: status, $ai_is_error: status >= 400 } : {}),
+    ...(typeof input.response_streamed === "boolean" ? { $ai_stream: input.response_streamed } : {}),
     $ai_model: model,
     $ai_provider: provider,
     $ai_input_tokens: inputTokens,
@@ -412,6 +488,19 @@ function aiUsageProperties(
     ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
     ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
   };
+}
+
+/**
+ * The ledger request id (`newLedgerRequestId`, a UUID): the join key across
+ * the PostHog trace, the ClickHouse rows and the `x-coderouter-request-id`
+ * header. Anything that is not a UUID is a caller-provided string and is
+ * dropped by the closed schema.
+ */
+function analyticsRequestId(value: AnalyticsScalar | null | undefined): string | null {
+  return typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    ? value.toLowerCase()
+    : null;
 }
 
 /**

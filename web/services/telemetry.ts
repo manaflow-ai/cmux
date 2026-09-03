@@ -9,7 +9,7 @@ import {
   type Span,
 } from "@opentelemetry/api";
 
-import { isVmPriorityPath } from "./observability/sampler";
+import { isPriorityPath } from "./observability/sampler";
 
 /**
  * Response headers that hand the caller its Axiom lookup keys. A user who
@@ -56,13 +56,13 @@ export async function withApiRouteSpan<T extends Response>(
   fn: SpanCallback<T>,
 ): Promise<T> {
   const path = requestPath(request);
-  // Cloud VM API spans must survive head sampling even when the surrounding
-  // Next.js request trace was dropped: re-root them into their own trace
-  // (linked back to the dropped one) so the priority sampler sees the
-  // vm-cloud attributes on a root span and keeps the whole VM subtree.
+  // Cloud VM and coderouter API spans must survive head sampling even when
+  // the surrounding Next.js request trace was dropped: re-root them into
+  // their own trace (linked back to the dropped one) so the priority sampler
+  // sees the subsystem attributes on a root span and keeps the whole subtree.
   const parent = trace.getSpanContext(otelContext.active());
   const reRoot =
-    isVmPriorityPath(route) &&
+    isPriorityPath(route) &&
     parent !== undefined &&
     (parent.traceFlags & TraceFlags.SAMPLED) === 0;
   const links = reRoot && trace.isSpanContextValid(parent) ? [{ context: parent }] : undefined;

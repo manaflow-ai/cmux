@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // Team Claude upstream accounts: list, add, remove all. One account is
 // addressed under ./[accountId]. Any team member may read; `manageAccounts`
 // (every member today) may write. Secrets never leave the server: responses
@@ -152,7 +153,7 @@ export function claudeUpstreamUnavailable(message: string): Response {
 }
 
 const handlers = makeClaudeUpstreamHandlers();
-export const GET = handlers.GET;
-export const POST = handlers.POST;
-export const PUT = handlers.PUT;
-export const DELETE = handlers.DELETE;
+export const GET = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream", handlers.GET);
+export const POST = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream", handlers.POST);
+export const PUT = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream", handlers.PUT);
+export const DELETE = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream", handlers.DELETE);
