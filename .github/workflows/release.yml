@@ -512,6 +512,11 @@ jobs:
             cmux-macos.dmg
             appcast.xml
           generate_release_notes: true
+          # Explicitly claim the releases/latest pointer. Without this GitHub
+          # can leave "latest" on an older release, and the stable Sparkle feed
+          # (releases/latest/download/appcast.xml) keeps serving the previous
+          # version (https://github.com/manaflow-ai/cmux/issues/9441).
+          make_latest: true
           overwrite_files: false
 
       - name: Upload release appcast to R2
