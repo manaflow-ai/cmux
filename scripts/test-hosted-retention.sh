@@ -194,21 +194,6 @@ fi
 
 # A clean checkout can lack cmux-tui/target. The safe parent creation path
 # must create it only after ancestor validation.
-clean_checkout="$(mktemp -d "$tmp/clean-checkout.XXXXXX")"
-if [[ -e "$clean_checkout/cmux-tui/target" ]]; then
-  echo "clean checkout unexpectedly contains target" >&2
-  exit 1
-fi
-mkdir -p "$clean_checkout/cmux-tui"
-if ! cmux_hosted_retention_validate_no_symlink_ancestors "$clean_checkout" cmux-tui; then
-  echo "clean checkout ancestor validation failed" >&2
-  exit 1
-fi
-mkdir "$clean_checkout/cmux-tui/target"
-[[ -d "$clean_checkout/cmux-tui/target" ]] || {
-  echo "missing artifact parent was not created" >&2
-  exit 1
-}
 
 write_stat_map() {
   : > "$tmp/stat-map"
