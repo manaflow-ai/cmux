@@ -336,6 +336,28 @@ import Testing
         #expect(!CmxPairingQRCode().isPairingCodeURLString("not a url"))
     }
 
+    @Test func displayRevisionChangesCodeWithoutChangingDecodedTicket() throws {
+        let rawURL = "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&r=100.64.0.5:58465"
+        let revisedURL = CmxPairingQRCode.addingDisplayRevision(2, to: rawURL)
+        #expect(revisedURL != rawURL)
+        let revisedComponents = try components(revisedURL)
+        #expect(
+            revisedComponents.queryItems?.first(where: { $0.name == "n" })?.value == "2"
+        )
+
+        let decoded = try CmxPairingQRCode().decode(revisedComponents)
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.endpoint == .hostPort(host: "100.64.0.5", port: 58465))
+
+        let nextURL = CmxPairingQRCode.addingDisplayRevision(3, to: revisedURL)
+        let nextComponents = try components(nextURL)
+        #expect(
+            nextComponents.queryItems?.first(where: { $0.name == "n" })?.value == "3"
+        )
+        #expect(nextComponents.queryItems?.contains(where: { $0.name == "n" && $0.value == "2" }) == false)
+    }
+
     @Test func decodedTicketStillPairsLongAfterMint() throws {
         // The grammar has no expiry field at all, so a code that sat on the
         // Mac's screen for 10+ minutes still validates and is never expired.
