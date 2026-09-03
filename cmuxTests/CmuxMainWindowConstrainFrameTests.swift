@@ -60,7 +60,11 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 100, y: 100, width: 800, height: 600)
         XCTAssertTrue(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [visible],
+                displayFrames: [visible]
+            )
         )
     }
 
@@ -68,9 +72,14 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         // The visible area excludes a 37pt menu-bar band at the top; the window's
         // titlebar pokes into it — the placement AppKit would otherwise push down.
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 863)
+        let display = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 320, y: 263, width: 800, height: 637) // maxY 900 > 863
         XCTAssertTrue(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [visible],
+                displayFrames: [display]
+            )
         )
     }
 
@@ -82,6 +91,7 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     // not a stranded window that AppKit should pull back on-screen.
     func testPreservesFrameParkedAtBottomRightByTilingWindowManager() {
         let display = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let parked = NSRect(x: 1511, y: -909, width: 1506, height: 941)
         let overlap = parked.intersection(display)
         XCTAssertEqual(overlap.width, 1, accuracy: 0.5)
@@ -90,9 +100,28 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         XCTAssertTrue(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(
                 parked,
-                visibleFrames: [display]
+                visibleFrames: [visible],
+                displayFrames: [display]
             ),
             "AeroSpace's bottom-right parking frame must not be re-clamped by AppKit."
+        )
+    }
+
+    func testPreservesTopCornerParkingUsingPhysicalDisplayFrames() {
+        let display = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let visible = NSRect(x: 0, y: 0, width: 1512, height: 938)
+        let parked = NSRect(x: 1511, y: 950, width: 1506, height: 941)
+        let overlap = parked.intersection(display)
+        XCTAssertEqual(overlap.width, 1, accuracy: 0.5)
+        XCTAssertEqual(overlap.height, 32, accuracy: 0.5)
+
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                parked,
+                visibleFrames: [visible],
+                displayFrames: [display]
+            ),
+            "Parking detection must use the physical display edge, not visibleFrame."
         )
     }
 
@@ -104,7 +133,8 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         XCTAssertFalse(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(
                 frame,
-                visibleFrames: [display]
+                visibleFrames: [display],
+                displayFrames: [display]
             )
         )
     }
@@ -113,7 +143,11 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 3000, y: 2000, width: 800, height: 600)
         XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [visible],
+                displayFrames: [visible]
+            )
         )
     }
 
@@ -122,14 +156,22 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         // Only ~20pt of the window overlaps the bottom-left corner — not grabbable.
         let frame = NSRect(x: -780, y: -580, width: 800, height: 600)
         XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [visible],
+                displayFrames: [visible]
+            )
         )
     }
 
     func testDoesNotPreserveWhenNoScreensAvailable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [],
+                displayFrames: []
+            )
         )
     }
 
@@ -156,6 +198,7 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     // 60x60-anywhere predicate, reproducing the bug.
     func testDoesNotPreserveFrameWhoseTitlebarIsStrandedAboveTheOnlyScreen() {
         let builtInVisible = NSRect(x: 0, y: 0, width: 1512, height: 944)
+        let builtInDisplay = NSRect(x: 0, y: 0, width: 1512, height: 982)
         let strandedAbove = NSRect(x: 300, y: 884, width: 1000, height: 700)
         // The bottom 60pt overlap with the built-in display is what the current
         // predicate latches onto; verify the repro geometry is the intended one.
@@ -166,7 +209,8 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         XCTAssertFalse(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(
                 strandedAbove,
-                visibleFrames: [builtInVisible]
+                visibleFrames: [builtInVisible],
+                displayFrames: [builtInDisplay]
             ),
             "A frame whose titlebar is stranded above the only screen must not be "
                 + "preserved; AppKit needs to re-clamp it so the titlebar stays grabbable."
@@ -181,7 +225,11 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let parkedLeft = NSRect(x: -910, y: 200, width: 1000, height: 600) // 90pt on-screen
         XCTAssertTrue(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(parkedLeft, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                parkedLeft,
+                visibleFrames: [visible],
+                displayFrames: [visible]
+            )
         )
     }
 
@@ -192,9 +240,14 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     func testPreservesFlushTopFrameOnLargeMenuBarDisplay() {
         // 44pt top inset (physical height 982, visible height 938).
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 938)
+        let display = NSRect(x: 0, y: 0, width: 1512, height: 982)
         let flushTop = NSRect(x: 300, y: 382, width: 1000, height: 600) // maxY 982 == physical top
         XCTAssertTrue(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(flushTop, visibleFrames: [visible])
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                flushTop,
+                visibleFrames: [visible],
+                displayFrames: [display]
+            )
         )
     }
 }

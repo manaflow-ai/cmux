@@ -366,18 +366,20 @@ final class CmuxMainWindow: NSWindow {
     /// Delegates to the shared ``isTitlebarReachable(frame:visibleFrame:)``
     /// predicate used by the reactive titlebar-stranding safety net, with a
     /// narrow exception for external tiling-window-manager parking at a display
-    /// corner. Persisted frames and display-topology changes use the stricter
+    /// corner. `displayFrames` must contain the full physical display bounds;
+    /// parking can occupy the menu-bar or Dock inset excluded from `visibleFrames`.
+    /// Persisted frames and display-topology changes use the stricter
     /// visible-frame fit policy instead: restored windows must be fully covered
     /// by current displays unless they match that intentional parking signature.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect],
-        displayFrames: [NSRect]? = nil
+        displayFrames: [NSRect]
     ) -> Bool {
         visibleFrames.contains { isTitlebarReachable(frame: proposedFrame, visibleFrame: $0) }
             || MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
                 frame: proposedFrame,
-                displayFrames: displayFrames ?? visibleFrames
+                displayFrames: displayFrames
             )
     }
 
