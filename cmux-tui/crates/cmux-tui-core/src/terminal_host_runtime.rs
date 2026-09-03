@@ -417,6 +417,7 @@ mod unix {
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{
@@ -3141,27 +3142,45 @@ mod unix {
         queued_bytes: Mutex<usize>,
         available: Condvar,
         max_bytes: usize,
+        parser_alive: AtomicBool,
     }
 
     impl ParserBudget {
         fn new(max_bytes: usize) -> Self {
-            Self { queued_bytes: Mutex::new(0), available: Condvar::new(), max_bytes }
+            Self {
+                queued_bytes: Mutex::new(0),
+                available: Condvar::new(),
+                max_bytes,
+                parser_alive: AtomicBool::new(true),
+            }
         }
 
-        fn reserve(&self, bytes: usize) {
+        fn reserve(&self, bytes: usize) -> bool {
             debug_assert!(bytes <= self.max_bytes);
             let queued = self.queued_bytes.lock().unwrap();
             let mut queued = self
                 .available
-                .wait_while(queued, |queued| queued.saturating_add(bytes) > self.max_bytes)
+                .wait_while(queued, |queued| {
+                    self.parser_alive.load(Ordering::Acquire)
+                        && queued.saturating_add(bytes) > self.max_bytes
+                })
                 .unwrap();
+            if !self.parser_alive.load(Ordering::Acquire) {
+                return false;
+            }
             *queued += bytes;
+            true
         }
 
         fn release(&self, bytes: usize) {
             let mut queued = self.queued_bytes.lock().unwrap();
             *queued =
                 queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+            self.available.notify_all();
+        }
+
+        fn parser_stopped(&self) {
+            self.parser_alive.store(false, Ordering::Release);
             self.available.notify_all();
         }
     }
@@ -3494,6 +3513,30 @@ mod unix {
             let mut generation = self.parser_progress.0.lock().unwrap();
             *generation = generation.wrapping_add(1);
             self.parser_progress.1.notify_all();
+        }
+
+        fn parser_failed(self: &Arc<Self>) {
+            // A parser panic invalidates the authoritative snapshot. Fail the
+            // host closed instead of leaving the PTY reader or clients waiting
+            // on a worker that can no longer make progress.
+            self.dead.store(true, Ordering::Release);
+            self.mark_launch_owner_stream_ready();
+            {
+                let taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for tap in taps.values() {
+                    tap.close();
+                }
+            }
+            {
+                let taps =
+                    self.smart.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for tap in taps.values() {
+                    tap.close();
+                }
+            }
+            self.request_forced_pty_drain();
+            self.request_termination();
+            self.note_parser_progress();
         }
 
         fn terminal_at_snapshot_boundary(
@@ -5082,114 +5125,120 @@ mod unix {
 
         let parser_host = shared.clone();
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            let mut last_colors = initial_colors;
-            let mut last_pwd = None;
-            // Ghostty can answer terminal queries without producing a parser
-            // frame. Flush those answers after every parser command, not only
-            // after PTY output, so lifecycle operations (for example resize
-            // during a Pi reload) cannot leave replies queued in memory and
-            // deliver them to a later TUI write.
-            let flush_pending_responses = || {
-                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                if !responses.is_empty() {
-                    let mut writer = parser_host.writer.lock().unwrap();
-                    let _ = writer.write_all(&responses);
-                    let _ = writer.flush();
-                }
-            };
-            while let Ok(command) = parser_command_receiver.recv() {
-                match command {
-                    ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
-                        let title = {
-                            let mut term = parser_host.term.lock().unwrap();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&bytes).into_owned();
-                            let title = title_changed
-                                .swap(false, Ordering::AcqRel)
-                                .then(|| term.title().unwrap_or_default());
-                            let pwd = term.pwd();
-                            let colors = term.color_overrides();
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity")
-                                != cursor_activity;
-                            let colors = if colors != last_colors || cursor_changed {
-                                let encoded = encode_terminal_color_overrides(&colors);
-                                last_colors = colors;
-                                Some(encoded)
-                            } else {
-                                None
-                            };
-                            let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                            parser_host.broadcast_frames(output_transition_frames(
-                                normalized, colors, pwd,
-                            ));
-                            // The parser lock is also the snapshot lock. Mark
-                            // this source cursor before releasing it so a
-                            // snapshot cannot include output that its boundary
-                            // still describes as unapplied.
-                            parser_host.smart.mark_applied(source_cursor);
-                            title
-                        };
-                        parser_host.note_parser_progress();
-                        parser_host.stream_progress.notify();
-                        parser_host.parser_budget.release(accounted_bytes);
-                        if let Some(title) = title {
-                            parser_host.broadcast(MessageKind::Title, title.into_bytes());
-                        }
-                        if bell.swap(false, Ordering::AcqRel) {
-                            parser_host.broadcast(MessageKind::Bell, Vec::new());
-                        }
-                        flush_pending_responses();
+            let parser_result = catch_unwind(AssertUnwindSafe(|| {
+                let mut last_colors = initial_colors;
+                let mut last_pwd = None;
+                // Ghostty can answer terminal queries without producing a parser
+                // frame. Flush those answers after every parser command, not only
+                // after PTY output, so lifecycle operations (for example resize
+                // during a Pi reload) cannot leave replies queued in memory and
+                // deliver them to a later TUI write.
+                let flush_pending_responses = || {
+                    let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                    if !responses.is_empty() {
+                        let mut writer = parser_host.writer.lock().unwrap();
+                        let _ = writer.write_all(&responses);
+                        let _ = writer.flush();
                     }
-                    ParserCommand::Resize {
-                        cols,
-                        rows,
-                        cell_pixels,
-                        source_cursor,
-                        acknowledge_with_replay,
-                        targeted_ack,
-                        response,
-                    } => {
-                        let result = parser_host.apply_parser_resize(
+                };
+                while let Ok(command) = parser_command_receiver.recv() {
+                    match command {
+                        ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
+                            let title = {
+                                let mut term = parser_host.term.lock().unwrap();
+                                let cursor_activity = term
+                                    .cursor_activity()
+                                    .expect("valid host terminals expose cursor activity");
+                                let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                                let title = title_changed
+                                    .swap(false, Ordering::AcqRel)
+                                    .then(|| term.title().unwrap_or_default());
+                                let pwd = term.pwd();
+                                let colors = term.color_overrides();
+                                let cursor_changed = term
+                                    .cursor_activity()
+                                    .expect("valid host terminals expose cursor activity")
+                                    != cursor_activity;
+                                let colors = if colors != last_colors || cursor_changed {
+                                    let encoded = encode_terminal_color_overrides(&colors);
+                                    last_colors = colors;
+                                    Some(encoded)
+                                } else {
+                                    None
+                                };
+                                let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                                parser_host.broadcast_frames(output_transition_frames(
+                                    normalized, colors, pwd,
+                                ));
+                                // The parser lock is also the snapshot lock. Mark
+                                // this source cursor before releasing it so a
+                                // snapshot cannot include output that its boundary
+                                // still describes as unapplied.
+                                parser_host.smart.mark_applied(source_cursor);
+                                title
+                            };
+                            parser_host.note_parser_progress();
+                            parser_host.stream_progress.notify();
+                            parser_host.parser_budget.release(accounted_bytes);
+                            if let Some(title) = title {
+                                parser_host.broadcast(MessageKind::Title, title.into_bytes());
+                            }
+                            if bell.swap(false, Ordering::AcqRel) {
+                                parser_host.broadcast(MessageKind::Bell, Vec::new());
+                            }
+                            flush_pending_responses();
+                        }
+                        ParserCommand::Resize {
                             cols,
                             rows,
+                            cell_pixels,
                             source_cursor,
                             acknowledge_with_replay,
                             targeted_ack,
-                            cell_pixels,
-                        );
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
-                        let colors = *colors;
-                        last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
-                        flush_pending_responses();
-                        let _ = response.send(());
-                    }
-                    ParserCommand::ClearHistory { fallback_key, response } => {
-                        let result = parser_host
-                            .apply_parser_clear_history(fallback_key.as_ref())
-                            .map_err(|error| error.to_string());
-                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
-                            parser_host.note_parser_progress();
-                            parser_host.stream_progress.notify();
+                            response,
+                        } => {
+                            let result = parser_host.apply_parser_resize(
+                                cols,
+                                rows,
+                                source_cursor,
+                                acknowledge_with_replay,
+                                targeted_ack,
+                                cell_pixels,
+                            );
+                            flush_pending_responses();
+                            let _ = response.send(result);
                         }
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::Drain => {
-                        // FIFO reception proves every source byte published by
-                        // the PTY reader has reached the authoritative parser.
-                        parser_host.mark_pty_drained();
-                        parser_host.publish_exit_if_drained();
-                        flush_pending_responses();
-                        break;
+                        ParserCommand::SetDefaults { colors, source_cursor, response } => {
+                            let colors = *colors;
+                            last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                            flush_pending_responses();
+                            let _ = response.send(());
+                        }
+                        ParserCommand::ClearHistory { fallback_key, response } => {
+                            let result = parser_host
+                                .apply_parser_clear_history(fallback_key.as_ref())
+                                .map_err(|error| error.to_string());
+                            if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
+                                parser_host.note_parser_progress();
+                                parser_host.stream_progress.notify();
+                            }
+                            flush_pending_responses();
+                            let _ = response.send(result);
+                        }
+                        ParserCommand::Drain => {
+                            // FIFO reception proves every source byte published by
+                            // the PTY reader has reached the authoritative parser.
+                            parser_host.mark_pty_drained();
+                            parser_host.publish_exit_if_drained();
+                            flush_pending_responses();
+                            break;
+                        }
                     }
                 }
+            }));
+            parser_host.parser_budget.parser_stopped();
+            if parser_result.is_err() {
+                parser_host.parser_failed();
             }
         })?;
 
@@ -5220,7 +5269,9 @@ mod unix {
                 };
                 let bytes = buffer[..count].to_vec();
                 let _source_order = reader_host.source_order_lock.lock().unwrap();
-                reader_host.parser_budget.reserve(count);
+                if !reader_host.parser_budget.reserve(count) {
+                    break;
+                }
                 // Publication deliberately precedes parser enqueue. The
                 // bounded queue limits memory while letting a fast renderer
                 // consume source bytes independently of parser throughput.
