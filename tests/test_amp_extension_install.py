@@ -178,6 +178,15 @@ append($ENV{"FAKE_CMUX_ENV_LOG"}, sprintf(
             "CMUX_AGENT_LAUNCH_CWD",
         ):
             check_env.pop(key, None)
+        # Amp runs plugin callbacks from its system plugin directory rather than
+        # the terminal's project directory. The managed wrapper's launch
+        # capture is the authoritative cwd that hooks must persist.
+        check_env["CMUX_AGENT_LAUNCH_KIND"] = "amp"
+        check_env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/Users/example/.local/bin/amp"
+        check_env["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64.b64encode(
+            b"/Users/example/.local/bin/amp\0--mode\0geppetto\0"
+        ).decode("ascii")
+        check_env["CMUX_AGENT_LAUNCH_CWD"] = "/tmp/amp-project"
         check_source = """
 import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_AMP_EXTENSION_PATH;
@@ -742,6 +751,9 @@ for (const sessionId of [
                 return 1
         if '"session_id":"T-amp-session-test"' not in stdin_log:
             print(f"FAIL: plugin did not pass session id, got {stdin_log!r}")
+            return 1
+        if '"cwd":"/tmp/amp-project"' not in stdin_log:
+            print(f"FAIL: plugin did not preserve the managed launch cwd, got {stdin_log!r}")
             return 1
         payloads = read_json_records(fake_stdin_log)
         lifecycle = [
