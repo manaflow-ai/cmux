@@ -199,13 +199,15 @@ are the exceptions to the mutation replay guarantee above.
 `agent.report` requires a live terminal and has no session-global or default
 agent record. The registry stores one current projection row per live
 terminal. Public `agent.report` and raw `report-agent` use the same durable
-commit path, advance the public resource revision, and publish one agent
-change to `session.events`. A hook report replaces socket state. A later
-socket report retains the hook value but still commits the observed durable
-order and publishes that retained value. Restart restores agents from the
-current projection table rather than scanning report history. Tombstoning a
-terminal deletes its projection in the same transaction, so historical
-reports cannot resurrect it.
+commit path. A report that changes the effective projection advances the
+public resource revision and publishes one agent change to `session.events`.
+A semantically identical socket report is recorded as a replay-equivalent
+receipt at the current revision, without changing the projection or emitting
+another event. A hook report replaces socket state; a socket report that is
+retained by an unchanged hook therefore also takes this no-op path. Restart
+restores agents from the current projection table rather than scanning report
+history. Tombstoning a terminal deletes its projection in the same transaction,
+so historical reports cannot resurrect it.
 
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and

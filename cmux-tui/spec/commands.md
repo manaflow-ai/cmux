@@ -3633,9 +3633,11 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
+authority over socket reports. A socket report that does not change the
+effective projection is a replay-equivalent no-op at the current revision and
+does not publish another event. A socket report received after an unchanged
+hook therefore retains the hook value without advancing the resource
+revision. Restart restores the current projection. Closing the terminal
 deletes it, so historical reports cannot recreate an agent. Browser surfaces,
 surfaces without durable terminal identity, and terminal-less default reports
 are rejected.
