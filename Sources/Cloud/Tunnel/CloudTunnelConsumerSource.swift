@@ -10,13 +10,3 @@ protocol CloudTunnelConsumerSource: Sendable {
 /// The app's consumers: workspaces bound to a Cloud machine (attached panes,
 /// `cmux vm tui`/`ssh` terminals the app hosts) plus the headless cmux-tui
 /// links that back the Machines tree and remote terminals.
-struct CloudTunnelAppConsumers: CloudTunnelConsumerSource {
-    let cloudWorkspaceCount: @MainActor @Sendable () -> Int
-    let connectedLinkCount: @Sendable () async -> Int
-
-    func liveConsumerCount() async -> Int {
-        let workspaces = await cloudWorkspaceCount()
-        let links = await connectedLinkCount()
-        return workspaces + links
-    }
-}
