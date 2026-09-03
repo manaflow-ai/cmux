@@ -37,9 +37,64 @@ export type VmRequestContext = {
   traceId?: string;
   spanId?: string;
   userId?: string;
+  /**
+   * The machine a `/api/vm/[id]/...` route addresses (the provider vm id the
+   * client uses), read from the URL so every per-machine event joins to it.
+   */
+  vmId?: string;
+  /**
+   * Billing scope of the caller. Set from the authenticated user, then
+   * refined by entitlement resolution when a route resolves one.
+   */
+  billingTeamId?: string;
+  billingCustomerType?: "team" | "user";
+  planId?: string;
   /** The last error input that flowed through `vmErrorResponse`. */
   lastError?: VmErrorResponseInput;
 };
+
+/**
+ * Attach the resolved billing scope to the current request context, if any.
+ * Called by `withAuthedVmApiRoute` after auth and by entitlement resolution,
+ * so the response finalizer can stamp plan and team on the PostHog row.
+ */
+export function annotateVmRequestBilling(billing: {
+  readonly billingTeamId?: string | null;
+  readonly billingCustomerType?: "team" | "user" | null;
+  readonly planId?: string | null;
+}): void {
+  const context = storage.getStore();
+  if (!context) return;
+  if (billing.billingTeamId) context.billingTeamId = billing.billingTeamId;
+  if (billing.billingCustomerType) context.billingCustomerType = billing.billingCustomerType;
+  const planId = billing.planId?.trim().toLowerCase();
+  if (planId) context.planId = planId;
+}
+
+/**
+ * The provider vm id segment of a `/api/vm/<id>/...` path, or undefined for
+ * collection routes (`/api/vm`, `/api/vm/base/...`, `/api/vm/leases/...`).
+ */
+export function vmIdFromRequestPath(request: Request, route: string): string | undefined {
+  if (!route.startsWith("/api/vm/[id]")) return undefined;
+  let pathname: string;
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    return undefined;
+  }
+  const segments = pathname.split("/").filter((segment) => segment.length > 0);
+  // ["api", "vm", "<id>", ...]
+  const raw = segments[2];
+  if (!raw) return undefined;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return undefined;
+  }
+  return /^[A-Za-z0-9._:-]{1,128}$/.test(decoded) ? decoded : undefined;
+}
 
 const storage = new AsyncLocalStorage<VmRequestContext>();
 

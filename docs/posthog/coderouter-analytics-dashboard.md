@@ -2,6 +2,10 @@
 
 Project: **CodeRouter Analytics** (dedicated; never the general cmux project)
 
+This is the pseudonymous operations view. Person-level product analytics
+(who routes traffic, how much, conversion, retention) live in the main cmux
+project and are documented in `cloud-product-analytics.md`.
+
 Dashboard: **CodeRouter Operations & Usage**
 
 All event queries must filter `product = 'coderouter'` and current

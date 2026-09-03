@@ -91,6 +91,13 @@ the authenticated output if it contains a principal identifier.
   known team IDs would be guessable. Person-profile processing is disabled.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
   tokens, email, payment-method details, or provider-account identifiers.
+- Person-level product analytics live in the main cmux PostHog project, keyed
+  by the Stack user id with the team as the `stack_team` group
+  (`web/services/coderouter/productAnalytics.ts`): `$ai_generation` with
+  `product = coderouter`, `coderouter_request_failed`, and the account,
+  session and upstream lifecycle events. The same closed vocabularies apply;
+  see `docs/posthog/cloud-product-analytics.md`. The isolated project above
+  stays the operations view until it is retired.
 
 ### Usage ledger (ClickHouse)
 

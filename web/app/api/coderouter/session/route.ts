@@ -10,6 +10,10 @@ import {
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
+  captureCoderouterProductEvent,
+  coderouterSessionIssuedEvent,
+} from "../../../../services/coderouter/productAnalytics";
+import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
@@ -108,6 +112,10 @@ export function makeCoderouterSessionPostHandler(
       userId,
       teamId: resolved.value.team.teamId,
     });
+    captureCoderouterProductEvent(coderouterSessionIssuedEvent({
+      stackUserId: userId,
+      teamId: resolved.value.team.teamId,
+    }));
     addCoderouterBreadcrumb("session", "Route session issued");
     return Response.json(
       {
