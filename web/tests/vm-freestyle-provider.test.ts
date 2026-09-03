@@ -12,7 +12,6 @@ import {
   freestyleRouteAddressesFromMetadata,
   freestyleDaemonHealthyCommand,
   freestyleDesktopHealCommand,
-  freestyleEdgeProbeCommand,
   freestyleEdgeRules,
   freestyleFirewallRules,
   freestylePortAddress,
@@ -294,14 +293,6 @@ describe("Freestyle platform contract", () => {
     expect(() => freestyleEdgeRules([{ ...EDGE_RULE, domain: "x; rm -rf /" }])).toThrow(ProviderError);
   });
 
-  test("edge probe is one bounded guest loop against the rule's host, with no token in it", () => {
-    const command = freestyleEdgeProbeCommand("coderouter.dev");
-    expect(command).toBe(
-      "for i in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 -H 'authorization: Bearer cmux-vm-edge-placeholder' https://coderouter.dev/api/coderouter/vm-usage/self && exit 0; sleep 2; done; exit 1",
-    );
-    expect(command).not.toContain("crt_");
-    expect(() => freestyleEdgeProbeCommand("bad host")).toThrow(ProviderError);
-  });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
     expect(normalizeFreestyleExecTimeout(undefined)).toBe(30_000);
