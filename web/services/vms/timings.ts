@@ -61,6 +61,11 @@ export class VmTimingRecorder implements VmTimingSink {
     }));
   }
 
+  /** `Server-Timing` header value: one metric per recorded stage, milliseconds. */
+  serverTimingHeader(): string {
+    return [...this.durations.entries()].map(([stage, duration]) => `${stage};dur=${duration}`).join(", ");
+  }
+
   snapshot(): Record<string, number> {
     return Object.fromEntries(
       [...this.durations.entries()].map(([stage, duration]) => [stage, duration]),
