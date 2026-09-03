@@ -444,6 +444,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private var stdoutProtocolLine = Data()
     private var observedMachineID: String?
     private var isFinished = false
+    private var acceptingReads = true
+    private var activeReads = 0
 
     private let onOutput: ((Data) -> Void)?
 
@@ -455,9 +457,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
+            guard let self, self.beginRead() else { return }
+            defer { self.endRead() }
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.append(data, to: .stdout)
+                self.append(data, to: .stdout)
             case .wouldBlock:
                 return
             case .endOfFile:
@@ -465,9 +469,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
             }
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
+            guard let self, self.beginRead() else { return }
+            defer { self.endRead() }
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.append(data, to: .stderr)
+                self.append(data, to: .stderr)
             case .wouldBlock:
                 return
             case .endOfFile:
@@ -482,7 +488,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     func finishResult() -> ProcessOutputResult {
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
         lock.lock()
+        acceptingReads = false
+        while activeReads > 0 { lock.unlock(); Thread.yield(); lock.lock() }
         if isFinished {
             let output = formattedResultLocked()
             lock.unlock()
@@ -490,9 +500,6 @@ final class ProcessOutputCollector: @unchecked Sendable {
         }
         isFinished = true
         lock.unlock()
-
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
         append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
         append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
         lock.lock()
@@ -509,7 +516,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     func cancel() {
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
         lock.lock()
+        acceptingReads = false
+        while activeReads > 0 { lock.unlock(); Thread.yield(); lock.lock() }
         if isFinished {
             lock.unlock()
             return
@@ -517,8 +528,6 @@ final class ProcessOutputCollector: @unchecked Sendable {
         isFinished = true
         lock.unlock()
 
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
         lock.lock()
         finishPendingUTF8Locked()
         lock.unlock()
@@ -539,6 +548,19 @@ final class ProcessOutputCollector: @unchecked Sendable {
         case .stderr:
             appendBounded(data, to: &stderr, pending: &stderrPendingUTF8)
         }
+    }
+
+    private func beginRead() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard acceptingReads else { return false }
+        activeReads += 1
+        return true
+    }
+
+    private func endRead() {
+        lock.lock()
+        activeReads -= 1
+        lock.unlock()
     }
 
     private func appendBounded(_ data: Data, to buffer: inout Data, pending: inout Data) {
