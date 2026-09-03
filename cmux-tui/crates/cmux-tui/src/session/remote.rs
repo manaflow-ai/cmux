@@ -3530,10 +3530,6 @@ impl RemoteSession {
         self.join_reader_worker_until(deadline);
     }
 
-    fn join_reader_worker(&self) {
-        self.join_reader_worker_until(Instant::now() + remote_write_timeout());
-    }
-
     fn reap_reader_worker(&self) {
         let current = std::thread::current().id();
         let Some(handle) = self.reader_completion.take_handle() else {
