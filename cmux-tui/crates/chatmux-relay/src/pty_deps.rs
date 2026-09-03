@@ -1492,6 +1492,15 @@ mod tests {
     }
 
     #[test]
+    fn observer_error_keeps_termination_available_while_reaping() {
+        let lifecycle = ChildLifecycle::new();
+        lifecycle.mark_reap_pending();
+
+        assert!(lifecycle.begin_termination());
+        assert!(!lifecycle.begin_termination());
+    }
+
+    #[test]
     fn child_exit_observer_leaves_child_owned_for_wait() {
         let mut child = std::process::Command::new("/bin/sh")
             .args(["-c", "exit 23"])
