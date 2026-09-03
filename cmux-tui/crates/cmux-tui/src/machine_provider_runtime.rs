@@ -158,9 +158,7 @@ struct ProviderCloseCleanup {
 impl Drop for ProviderCloseCleanup {
     fn drop(&mut self) {
         if let Ok(mut registry) = self.registry.lock()
-            && registry
-                .get(&self.key)
-                .is_some_and(|open| open.connection_id == self.connection_id)
+            && registry.get(&self.key).is_some_and(|open| open.connection_id == self.connection_id)
         {
             registry.remove(&self.key);
         }
