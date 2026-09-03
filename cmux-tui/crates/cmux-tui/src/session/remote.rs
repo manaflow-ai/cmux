@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1401,6 +1401,15 @@ struct WorkerRuntime {
 }
 
 static PROCESS_WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new();
+static PROCESS_REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
+
+fn new_reaper_state() -> Arc<Mutex<ReaperState>> {
+    Arc::new(Mutex::new(ReaperState { sender: None, worker: None, pending: Vec::new() }))
+}
+
+fn process_reaper_state() -> Arc<Mutex<ReaperState>> {
+    PROCESS_REAPER.get_or_init(new_reaper_state).clone()
+}
 
 fn process_worker_admission() -> Arc<WorkerAdmission> {
     PROCESS_WORKER_ADMISSION
@@ -1412,14 +1421,7 @@ fn process_worker_admission() -> Arc<WorkerAdmission> {
 
 impl WorkerRuntime {
     fn new() -> Arc<Self> {
-        Arc::new(Self {
-            admission: process_worker_admission(),
-            reaper: Arc::new(Mutex::new(ReaperState {
-                sender: None,
-                worker: None,
-                pending: Vec::new(),
-            })),
-        })
+        Arc::new(Self { admission: process_worker_admission(), reaper: process_reaper_state() })
     }
 
     fn reserve_slot(&self) -> Option<WorkerSlot> {
@@ -1445,7 +1447,14 @@ static FAIL_NEXT_REAPER_SPAWN: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 fn test_worker_runtime() -> Arc<WorkerRuntime> {
     static RUNTIME: OnceLock<Arc<WorkerRuntime>> = OnceLock::new();
-    RUNTIME.get_or_init(WorkerRuntime::new).clone()
+    RUNTIME
+        .get_or_init(|| {
+            Arc::new(WorkerRuntime {
+                admission: process_worker_admission(),
+                reaper: new_reaper_state(),
+            })
+        })
+        .clone()
 }
 
 #[cfg(test)]
