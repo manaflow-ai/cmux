@@ -512,10 +512,34 @@ jobs:
             echo "remote_tag_state_sha256=$remote_tag_state_sha256"
           } >> "$GITHUB_OUTPUT"
 
+  credential-environment-preflight:
+    needs:
+      - revalidate-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Verify credential environment protection
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 cmux-tui/bindings/verify_github_environment_policy.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --environment sdk-release-credentials \
+            --dispatcher "$GITHUB_ACTOR"
+
   cut-tags:
     needs:
       - validate-release
       - revalidate-tags
+      - credential-environment-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions: {}
