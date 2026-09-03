@@ -143,6 +143,7 @@ export async function proxyOpenCodeRequest(
     config = await dependencies.remoteConfig(resolved.credential.accessToken);
     recordCoderouterSpan({ name: "provider_config", startedAt: configStartedAt, attributes: { provider: "opencode-go" } });
   } catch (error) {
+    if (request.signal.aborted) throw error;
     recordCoderouterSpan({
       name: "provider_config",
       startedAt: configStartedAt,
@@ -239,6 +240,7 @@ export async function proxyOpenCodeRequest(
       attributes: { provider: "opencode-go", attempt: 1, status: upstream.status },
     });
   } catch (error) {
+    if (request.signal.aborted) throw error;
     recordCoderouterSpan({
       name: "upstream_attempt",
       startedAt: upstreamStartedAt,

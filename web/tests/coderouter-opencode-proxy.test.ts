@@ -244,8 +244,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     );
     await fetchStarted;
     controller.abort(new DOMException("client disconnected", "AbortError"));
-    const response = await pending;
-    expect(response.status).toBe(502);
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(upstreamSignal?.aborted).toBe(true);
   });
 });

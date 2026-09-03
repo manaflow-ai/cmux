@@ -46,6 +46,8 @@ import {
 export const CODEROUTER_REQUEST_ID_HEADER = "x-coderouter-request-id";
 /** Marker for proxy helpers invoked outside a route context, such as tests. */
 export const UNSCOPED_CODEROUTER_REQUEST_ID = "unscoped";
+/** Nginx's conventional status for a request closed by the client. */
+const CLIENT_CLOSED_REQUEST_STATUS = 499;
 
 export type CoderouterSurface =
   | "responses"
@@ -254,6 +256,7 @@ export type CoderouterFault = "none" | "caller" | "tenant" | "upstream" | "opera
 export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterFault {
   const { status } = outcome;
   if (status < 400) return "none";
+  if (outcome.outcome === "client_cancelled") return "caller";
   if (outcome.outcome === "unauthorized" || (status < 500 && status !== 429)) return "caller";
   switch (outcome.outcome) {
     case "route_crash":
@@ -454,13 +457,25 @@ export function withCoderouterRoute<Context = unknown>(
           try {
             response = await handler(request, routeContext as Context);
           } catch (error) {
-            thrown = error;
-            reportCoderouterFailure("route_crash", error, {
-              surface: options.surface,
-              route: options.route,
-              request_id: context.requestId,
-            }, { emitPostHogException: false });
-            response = options.unavailable(request);
+            if (isCallerCancellation(request, error)) {
+              context.outcome = {
+                outcome: "client_cancelled",
+                failureStage: "request",
+                status: CLIENT_CLOSED_REQUEST_STATUS,
+              };
+              response = new Response(null, {
+                status: CLIENT_CLOSED_REQUEST_STATUS,
+                headers: { "cache-control": "no-store" },
+              });
+            } else {
+              thrown = error;
+              reportCoderouterFailure("route_crash", error, {
+                surface: options.surface,
+                route: options.route,
+                request_id: context.requestId,
+              }, { emitPostHogException: false });
+              response = options.unavailable(request);
+            }
           }
           response = withRequestIdHeader(response, context.requestId);
           finalize(context, span, response, thrown);
@@ -468,6 +483,10 @@ export function withCoderouterRoute<Context = unknown>(
         },
       ));
   };
+}
+
+function isCallerCancellation(request: Request, error: unknown): boolean {
+  return request.signal.aborted || (error instanceof Error && error.name === "AbortError");
 }
 
 function withRequestIdHeader(response: Response, requestId: string): Response {
