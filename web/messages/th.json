@@ -61,11 +61,10 @@
     "backToSignIn": "กลับไปที่การลงชื่อเข้าใช้"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "คลาวด์ cmux",
     "title": "คุณไม่มีสิทธิ์เข้าถึง",
-    "signedOutBody": "ลงชื่อเข้าใช้ cmux เพื่อดูเว็บไซต์นี้",
     "signIn": "ลงชื่อเข้าใช้ cmux",
     "signedInAs": "ลงชื่อเข้าใช้เป็น {identity}",
+    "switchAccount": "สลับบัญชี",
     "invalidTitle": "ลิงก์เข้าถึงนี้ไม่ถูกต้อง",
     "invalidBody": "กลับไปยังเว็บไซต์แล้วลองอีกครั้ง",
     "footer": "cmux เป็นผู้จัดการสิทธิ์เข้าถึง"
@@ -1876,8 +1875,6 @@
     "metaDescription": "ดาวน์โหลด cmux NIGHTLY แอปแยกที่สร้างอัตโนมัติจาก commit ล่าสุดบน main ทำงานควบคู่กับเวอร์ชันเสถียรพร้อมอัปเดตอัตโนมัติของตัวเอง",
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "languageSwitcher": {

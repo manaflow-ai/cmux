@@ -270,16 +270,30 @@ if ! awk '
   /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
   in_legacy && /^      - name:/ { in_legacy=0 }
   in_legacy && /cp cmux-nightly-macos-universal\.dmg cmux-nightly-macos\.dmg/ { saw_universal_legacy=1 }
-  in_legacy && /cp cmux-nightly-macos-x86_64\.dmg cmux-nightly-macos\.dmg/ { saw_intel_legacy=1 }
-  in_legacy && /cp appcast-x86_64\.xml appcast\.xml/ { saw_intel_feed=1 }
-  END { exit !(saw_universal_legacy && saw_intel_legacy && saw_intel_feed) }
+  in_legacy && /cmux-nightly-macos-x86_64\.dmg cmux-nightly-macos\.dmg/ { saw_intel_legacy=1 }
+  END { exit !(saw_universal_legacy && !saw_intel_legacy) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the legacy nightly DMG and feed must serve the universal build during the transition and the x86_64 build afterwards"
+  echo "FAIL: the legacy nightly DMG and feed must stay universal: browsers cannot pick an architecture, the app can"
   exit 1
 fi
 
-if ! grep -Fq 'NIGHTLY_LEGACY_UNIVERSAL_UNTIL: "20' "$WORKFLOW_FILE"; then
-  echo "FAIL: the universal legacy build must have a dated retirement"
+if ! grep -Fq "const variants = ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
+  exit 1
+fi
+
+if ! awk '
+  /^  report-nightly-failure:/ { job="report"; next }
+  /^  close-nightly-failure-issue:/ { job="close"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
+  job == "report" && /issues: write/ { saw_report_perm=1 }
+  job == "report" && /nightly-failure/ { saw_report_label=1 }
+  job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
+  job == "close" && /state: .closed./ { saw_close=1 }
+  END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
   exit 1
 fi
 

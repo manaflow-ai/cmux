@@ -614,13 +614,15 @@ describe("model-plane env reaches provider creates", () => {
   // devbox agent-config generator consumes the env. Freestyle has no VM-level
   // create env, so the driver persists the file the guest sources instead and
   // passes the rule inline on the create.
-  test("freestyle persists the model-plane env file its guests source and passes edge rules inline", () => {
+  test("the model-plane env is baked once, the guest falls back to it, and the edge rule rides inline", () => {
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
-    expect(driver).toContain("renderFreestyleModelPlaneEnvFile");
-    expect(driver).toContain("/root/.config/cmux/model-plane.env");
+    expect(driver).not.toContain("writeModelPlaneEnv");
     expect(driver).toContain("tls: { rules: tlsRules }");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv())");
+    expect(readScript("verify-devbox-image.ts")).toContain("test -s /etc/cmux/model-plane.env");
+    expect(read("agent-config.sh")).toContain("elif [ -f /etc/cmux/model-plane.env ]; then");
   });
 });
