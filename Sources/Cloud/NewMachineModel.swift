@@ -53,6 +53,10 @@ final class NewMachineModel {
     let mode: Mode
     let plan: MachinePlanSnapshot?
     let imageKinds: [VMImageKindOption]
+    /// This Mac enrolled in the private network (`cmux vpn up` ran once) but
+    /// the tunnel is down now, so the machine will be created and then fail to
+    /// open. Read once at presentation; the sheet is short-lived.
+    let tunnelEnrolledButDown: Bool
 
     var name: String = ""
     /// Defaults to a kind the backend says it can actually serve (see
@@ -75,11 +79,13 @@ final class NewMachineModel {
         mode: Mode,
         plan: MachinePlanSnapshot?,
         imageKinds: [VMImageKindOption],
+        tunnelEnrolledButDown: Bool = false,
         submit: @escaping Submit
     ) {
         self.mode = mode
         self.plan = plan
         self.imageKinds = imageKinds
+        self.tunnelEnrolledButDown = tunnelEnrolledButDown
         self.submit = submit
         self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId)
         self.kind = Self.defaultKind(imageKinds: imageKinds)
@@ -150,6 +156,16 @@ final class NewMachineModel {
             ? String(localized: "machines.new.plan.single", defaultValue: "%1$d of 1 machine in use")
             : String(localized: "machines.new.plan.multi", defaultValue: "%1$d of %2$d machines in use")
         return String(format: format, plan.activeCount, maxActiveVms)
+    }
+
+    /// Said before Create, not eleven minutes after: a machine on the private
+    /// network opens only through this Mac's tunnel, and it is down.
+    var tunnelNoticeText: String? {
+        guard tunnelEnrolledButDown else { return nil }
+        return String(
+            localized: "machines.new.tunnelDown",
+            defaultValue: "This Mac's private-network tunnel is down. The machine will be created, but it opens only after you run `cmux vpn up` in a terminal."
+        )
     }
 
     /// The free plan's access window, so nobody is surprised a week later.

@@ -305,6 +305,10 @@ extension TerminalController {
                     deviceFingerprint: deviceFingerprint,
                     clientCapabilities: clientCapabilities
                 )
+                // Same refusal the app's own links apply: a private route while this
+                // Mac's tunnel is down would make `vm new` sit in "Creating…" until
+                // the 16-minute CLI clock ran out. Fail now with the fix in the text.
+                try VMTunnelManager().preflight(route: endpoint.route)
                 var payload: [String: Any] = [
                     "transport": "cmux-remote",
                     "route": endpoint.route,

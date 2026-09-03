@@ -58,6 +58,10 @@ actor CloudMachineLinkManager {
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
     private let hostThemeColors: @Sendable () async -> (foreground: String, background: String)?
+    /// Refuses a route this Mac cannot reach (a private-network machine while the
+    /// tunnel is down) before any client is spawned or any approve poll starts.
+    /// Injected so tests can exercise the refusal without a network interface.
+    private let routePreflight: @Sendable (String) throws -> Void
     /// Theme-push coalescing: at most ONE in-flight push and ONE queued rerun per
     /// machine. A reload burst collapses to a single trailing push that reads the
     /// colors when it runs, so the machine always ends on the latest theme and the
@@ -73,11 +77,15 @@ actor CloudMachineLinkManager {
                 let app = GhosttyApp.shared
                 return (app.defaultForegroundColor.hexString(), app.defaultBackgroundColor.hexString())
             }
+        },
+        routePreflight: @escaping @Sendable (String) throws -> Void = { route in
+            try VMTunnelManager().preflight(route: route)
         }
     ) {
         self.paths = paths
         self.clientURL = clientURL
         self.hostThemeColors = hostThemeColors
+        self.routePreflight = routePreflight
     }
 
     var hasClient: Bool { clientURL != nil }
@@ -109,6 +117,9 @@ actor CloudMachineLinkManager {
                 deviceFingerprint: paths.deviceFingerprint(for: machineID),
                 clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
             )
+            // A private route with the tunnel down never connects; it only runs
+            // out the clocks. Say so now, before the link and the approve loop start.
+            try self.routePreflight(endpoint.route)
             var approval: Task<Void, Never>?
             if let invitation = endpoint.invitation {
                 approval = Task { await self.approveEnrollment(machineID: machineID, invitationID: invitation.invitationId, client: client) }

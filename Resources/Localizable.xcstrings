@@ -272259,6 +272259,40 @@
         }
       }
     },
+    "machines.new.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's private-network tunnel is down. The machine will be created, but it opens only after you run `cmux vpn up` in a terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のプライベートネットワークのトンネルが切断されています。マシンは作成されますが、ターミナルで `cmux vpn up` を実行するまで開けません。"
+          }
+        }
+      }
+    },
+    "cloud.tunnel.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is on your private network, but this Mac's tunnel is down. Run `cmux vpn up` in a terminal, then open the machine again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはプライベートネットワーク上にありますが、この Mac のトンネルが切断されています。ターミナルで `cmux vpn up` を実行してから、もう一度マシンを開いてください。"
+          }
+        }
+      }
+    },
     "machines.new.plan.freeWindow": {
       "extractionState": "manual",
       "localizations": {

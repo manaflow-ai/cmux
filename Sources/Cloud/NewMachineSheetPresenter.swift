@@ -77,6 +77,7 @@ final class NewMachineSheetPresenter {
             mode: .newMachine,
             plan: plan,
             imageKinds: imageKinds,
+            tunnelEnrolledButDown: VMTunnelManager().isEnrolledButDown,
             submit: { request in
                 coordinator.start(request) { arguments, completion in
                     MachineRowActions.openNewMachine(arguments: arguments) { result in

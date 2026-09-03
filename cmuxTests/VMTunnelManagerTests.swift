@@ -140,4 +140,92 @@ struct VMTunnelManagerTests {
         """.write(to: manager.configURL, atomically: true, encoding: .utf8)
         #expect(manager.wgQuickInterfaceUp() == true)
     }
+
+
+    // MARK: Route preflight
+
+    @Test
+    func routeHostStripsSchemeBracketsPortAndPath() {
+        #expect(VMTunnelManager.routeHost("ws://[fd7a:7570:6c6b::2]:1337/v1/link?t=abc") == "fd7a:7570:6c6b::2")
+        #expect(VMTunnelManager.routeHost("ws://[FD7A::2]/v1/link") == "fd7a::2")
+        #expect(VMTunnelManager.routeHost("ws://10.4.0.9:1337/v1/link") == "10.4.0.9")
+        #expect(VMTunnelManager.routeHost("wss://vm-abc.machines.cmux.com/v1/link?token=x") == "vm-abc.machines.cmux.com")
+        #expect(VMTunnelManager.routeHost("wss://user@Host.Example:443/x") == "host.example")
+        // Not an authority: no host to judge, so the caller must not block on it.
+        #expect(VMTunnelManager.routeHost("ws://fd7a::2:1337/v1/link") == nil)
+        #expect(VMTunnelManager.routeHost("") == nil)
+        #expect(VMTunnelManager.routeHost("ws://[") == nil)
+    }
+
+    @Test
+    func privateRoutesAreTheOnesTheTunnelCarries() {
+        // The Freestyle VPC hands out unique-local IPv6 and 10/8 addresses.
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://[fd7a:7570:6c6b:0:1::2]:1337/v1/link"))
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://[fc00::1]:1337/v1/link"))
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://10.32.0.28:1337/v1/link"))
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://172.20.0.5:1337/v1/link"))
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://192.168.1.5:1337/v1/link"))
+        #expect(VMTunnelManager.routeRequiresTunnel("ws://100.64.0.1:1337/v1/link"))
+        // Public addresses, hostnames and link-local are reachable (or not) without it.
+        #expect(!VMTunnelManager.routeRequiresTunnel("ws://[2602:f470:1::28]:1337/v1/link"))
+        #expect(!VMTunnelManager.routeRequiresTunnel("ws://[fe80::1]:1337/v1/link"))
+        #expect(!VMTunnelManager.routeRequiresTunnel("ws://172.32.0.1:1337/v1/link"))
+        #expect(!VMTunnelManager.routeRequiresTunnel("ws://100.128.0.1:1337/v1/link"))
+        #expect(!VMTunnelManager.routeRequiresTunnel("wss://vm-abc.machines.cmux.com/v1/link?token=x"))
+        #expect(!VMTunnelManager.routeRequiresTunnel("not a route"))
+    }
+
+    @Test
+    func preflightRefusesAPrivateRouteWhileTheTunnelIsDown() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        // No config at all: the tunnel is down, so a private route is unreachable.
+        let manager = VMTunnelManager(home: home)
+        #expect(throws: VMTunnelManager.TunnelError.self) {
+            try manager.preflight(route: "ws://[fd7a:7570:6c6b::2]:1337/v1/link")
+        }
+        // The error names the fix; it is what the sheet and the CLI print.
+        let text = String(describing: VMTunnelManager.TunnelError.tunnelDown)
+        #expect(text.contains("cmux vpn up"))
+        // A public route never needs the tunnel.
+        try manager.preflight(route: "wss://vm-abc.machines.cmux.com/v1/link?token=x")
+        try manager.preflight(route: "ws://[2602:f470:1::28]:1337/v1/link")
+    }
+
+    @Test
+    func preflightPassesAPrivateRouteWhenTheTunnelIsUp() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home)
+        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
+        // Loopback stands in for the live tunnel address (see interfaceUpMatchesALiveInterfaceAddress).
+        try """
+        [Interface]
+        Address = 127.0.0.1/32
+
+        [Peer]
+        PublicKey = Y
+        """.write(to: manager.configURL, atomically: true, encoding: .utf8)
+        try manager.preflight(route: "ws://[fd7a:7570:6c6b::2]:1337/v1/link")
+        #expect(manager.isEnrolledButDown == false)
+    }
+
+    @Test
+    func enrolledButDownNeedsAConfigWhoseAddressNoInterfaceHolds() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home)
+        // Never enrolled: nothing to say yet.
+        #expect(manager.isEnrolledButDown == false)
+        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
+        // A documentation-range address (RFC 5737) is never configured on a real interface.
+        try """
+        [Interface]
+        Address = 192.0.2.77/32
+
+        [Peer]
+        PublicKey = Y
+        """.write(to: manager.configURL, atomically: true, encoding: .utf8)
+        #expect(manager.isEnrolledButDown)
+    }
 }
