@@ -477,6 +477,13 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
                 PaneLifecycleText::Failed(cause),
                 app.chrome.browser_message_fg,
             );
+        } else if app.session.surface_is_exited(area.surface) {
+            draw_lifecycle_line(
+                frame,
+                rect,
+                PaneLifecycleText::Exited,
+                app.chrome.browser_message_fg,
+            );
         } else if app.tree.surface_kind(area.surface) != SurfaceKind::Browser {
             draw_lifecycle_line(
                 frame,
@@ -609,12 +616,19 @@ fn draw_lifecycle_line(frame: &mut Frame, rect: Rect, lifecycle: PaneLifecycleTe
     }
     let text = truncate(&lifecycle.message(), max_cols as usize);
     let text_w = text.width() as u16;
+    let exited = matches!(&lifecycle, PaneLifecycleText::Exited);
     let (x, y) = match lifecycle {
         PaneLifecycleText::Starting | PaneLifecycleText::Failed(_) => {
             (rect.x + max_cols.saturating_sub(text_w) / 2, rect.y + max_rows / 2)
         }
         PaneLifecycleText::Exited => (rect.x, rect.y + max_rows - 1),
     };
+    if exited {
+        let buf = frame.buffer_mut();
+        for col in 0..max_cols {
+            buf[(rect.x + col, y)].set_symbol(" ").set_style(Style::default());
+        }
+    }
     frame.buffer_mut().set_stringn(
         x,
         y,

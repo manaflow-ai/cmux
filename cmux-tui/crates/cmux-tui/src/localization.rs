@@ -115,7 +115,7 @@ pub(crate) struct TerminalMessages {
     /// One inline line under the last frame of a PTY pane whose process exited.
     pub pane_exited: &'static str,
     /// One inline line where a pane would have appeared, when its create
-    /// was refused. `{cause}` is the daemon's reason.
+    /// was refused. `{cause}` is a product-safe failure category.
     pub pane_create_failed: &'static str,
 }
 
@@ -124,9 +124,9 @@ pub(crate) struct SessionMessages {
     pub creation_reconciling: &'static str,
     pub operation_reconciling: &'static str,
     pub operation_failed: &'static str,
-    /// `{operation}` is `operation_failed`; `{cause}` is the daemon's reason
-    /// with the transport prefix removed.
+    /// `{operation}` is `operation_failed`; `{cause}` is a product-safe failure category.
     pub operation_failed_with_cause: &'static str,
+    pub operation_failed_generic_cause: &'static str,
     pub operation_canceled: &'static str,
     pub mux_subscription_recovered: &'static str,
     mux_subscription_recovery_failed: &'static str,
@@ -1283,6 +1283,7 @@ static ENGLISH: Catalog = Catalog {
         operation_reconciling: "Session operation may have completed; refreshing the layout",
         operation_failed: "Session operation failed",
         operation_failed_with_cause: "{operation}: {cause}",
+        operation_failed_generic_cause: "the operation was rejected; check the session and retry",
         operation_canceled: "Session operation was canceled",
         mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
         mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
@@ -1935,6 +1936,7 @@ static JAPANESE: Catalog = Catalog {
         operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
         operation_failed: "セッション操作に失敗しました",
         operation_failed_with_cause: "{operation}: {cause}",
+        operation_failed_generic_cause: "操作が拒否されました。セッションを確認して再試行してください",
         operation_canceled: "セッション操作はキャンセルされました",
         mux_subscription_recovered: "Mux イベントの滞留が上限を超えました。購読を復旧しました",
         mux_subscription_recovery_failed: "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: {error}",

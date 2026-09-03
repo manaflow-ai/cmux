@@ -290,17 +290,9 @@ impl TreeView {
     /// Make `pane_id` the active pane of its screen, and that screen and
     /// workspace active, wherever the pane lives. False if it is absent.
     pub(crate) fn set_active_pane_if_present(&mut self, pane_id: PaneId) -> bool {
-        let location =
-            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
-                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
-                    screen
-                        .panes
-                        .iter()
-                        .any(|pane| pane.id == pane_id)
-                        .then_some((workspace_index, screen_index))
-                })
-            });
-        let Some((workspace_index, screen_index)) = location else { return false };
+        let Some((workspace_index, screen_index, _)) = self.pane_location(pane_id) else {
+            return false;
+        };
         self.active_workspace = workspace_index;
         let workspace = &mut self.workspaces[workspace_index];
         workspace.active_screen = screen_index;

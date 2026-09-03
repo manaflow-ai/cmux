@@ -3543,7 +3543,31 @@ impl Mux {
     }
 
     fn next_id(&self) -> u64 {
-        self.next_id.fetch_add(1, Ordering::Relaxed)
+        // The TUI reserves the top 2^32 IDs for client-local placeholders.
+        // Keep daemon IDs in the disjoint low range, even if this counter is
+        // restored or wraps after an extremely long-lived process.
+        const MAX_DAEMON_ID: u64 = u64::MAX - (1 << 32);
+        loop {
+            let current = self.next_id.load(Ordering::Relaxed);
+            if current == 0 || current > MAX_DAEMON_ID {
+                if self
+                    .next_id
+                    .compare_exchange(current, 1, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    continue;
+                }
+                continue;
+            }
+            let next = if current == MAX_DAEMON_ID { 1 } else { current + 1 };
+            if self
+                .next_id
+                .compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                return current;
+            }
+        }
     }
 
     fn next_active_at(&self) -> u64 {
@@ -17568,6 +17592,16 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn resource_ids_skip_the_tui_placeholder_namespace() {
+        const MAX_DAEMON_ID: u64 = u64::MAX - (1 << 32);
+        let mux = test_mux();
+        mux.next_id.store(MAX_DAEMON_ID, Ordering::Relaxed);
+        assert_eq!(mux.next_id(), MAX_DAEMON_ID);
+        assert_eq!(mux.next_id(), 1);
+        assert!(!((MAX_DAEMON_ID + 1)..=u64::MAX).contains(&mux.next_id()));
     }
 
     /// A machine resume reconnects every hosted terminal at once. Checkpoint

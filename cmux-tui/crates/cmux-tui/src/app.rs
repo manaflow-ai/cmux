@@ -1331,20 +1331,17 @@ enum SessionCompletionAction {
     LayoutUndoStale,
 }
 
-/// True when the remote session's cached tree already reflects a committed
-/// mutation: a created surface is present, or every destroyed surface is gone,
-/// and no `tree-changed` resync is pending. Mutations with neither a created
-/// nor a destroyed surface (renames, layout) always refetch.
-fn remote_postcondition_visible(
+/// Return the cached tree snapshot that proves a remote mutation is visible.
+fn remote_postcondition_tree(
     session: &Session,
     completion: Option<&SessionCompletion>,
     destroyed_surfaces: &crate::pty_input::MutationTargets,
-) -> bool {
+) -> Option<TreeView> {
     if session.remote_tree_is_stale() {
-        return false;
+        return None;
     }
     let tree = session.tree();
-    match completion.map(|completion| &completion.action) {
+    let visible = match completion.map(|completion| &completion.action) {
         Some(
             SessionCompletionAction::SurfaceCreated { surface }
             | SessionCompletionAction::BrowserTabCreated { surface },
@@ -1354,7 +1351,8 @@ fn remote_postcondition_visible(
             destroyed_surfaces.iter().all(|surface| tree.surface(*surface).is_none())
         }
         None => false,
-    }
+    };
+    visible.then_some(tree)
 }
 
 fn layout_undo_error_completion(error: &anyhow::Error) -> Option<SessionCompletionAction> {
@@ -3053,7 +3051,7 @@ impl OrderedSession {
                     // already show the outcome; then the cached tree is the
                     // authoritative result and no refetch is needed. Any
                     // pending `tree-changed` keeps the refetch path.
-                    if remote_postcondition_visible(
+                    if let Some(tree) = remote_postcondition_tree(
                         &session,
                         completion.as_ref(),
                         &destroyed_surfaces,
@@ -3061,7 +3059,7 @@ impl OrderedSession {
                         let destination_generation =
                             destination_mutation_committed.load(Ordering::Acquire);
                         pending.defer(SessionMutationOutcome::AuthoritativeMutationSucceeded {
-                            tree: session.tree(),
+                            tree,
                             authoritative_generation: mutation_generation,
                             destination_generation,
                             completion,
@@ -5951,9 +5949,17 @@ fn split_leaf_for_placeholder(
     }
 }
 
-/// The daemon's reason for a refused mutation, without the transport prefix.
+/// Map daemon failures to product-safe user-facing causes. The complete error
+/// remains in the client log; only a small, stable category reaches the UI.
 fn mutation_failure_cause(error: &str) -> String {
-    error.strip_prefix("remote command rejected: ").unwrap_or(error).trim().to_string()
+    let cause = error.strip_prefix("remote command rejected: ").unwrap_or(error).trim();
+    if cause.to_ascii_lowercase().contains("pty capacity")
+        || cause.to_ascii_lowercase().contains("no pseudo-terminal")
+    {
+        localization::catalog().runtime.terminal_capacity_exhausted.to_string()
+    } else {
+        localization::catalog().session.operation_failed_generic_cause.to_string()
+    }
 }
 
 /// Mouse drag in progress.
@@ -16598,13 +16604,21 @@ impl App {
     }
 
     fn allocate_semantic_destination_intent(&mut self) -> u64 {
-        self.next_semantic_destination_intent =
-            self.next_semantic_destination_intent.wrapping_add(1).max(1);
-        let intent = self.next_semantic_destination_intent;
-        let previous =
+        const MAX_INTENT: u64 = u32::MAX as u64;
+        loop {
+            self.next_semantic_destination_intent =
+                if self.next_semantic_destination_intent >= MAX_INTENT {
+                    1
+                } else {
+                    self.next_semantic_destination_intent + 1
+                };
+            let intent = self.next_semantic_destination_intent;
+            if self.semantic_destination_outcomes.contains_key(&intent) {
+                continue;
+            }
             self.semantic_destination_outcomes.insert(intent, SemanticDestinationOutcome::Pending);
-        debug_assert!(previous.is_none(), "live semantic destination intent reused");
-        intent
+            return intent;
+        }
     }
 
     fn advance_pointer_focus_generation(&mut self) {
@@ -23981,25 +23995,24 @@ impl App {
             return;
         }
         let settled = !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale();
+        let authoritative = self.session.tree();
         let targets = self.pending_renames.keys().copied().collect::<Vec<_>>();
         for target in targets {
             let Some(pending) = self.pending_renames.get(&target).cloned() else { continue };
             let current: Option<Option<String>> = match target {
-                PendingRenameTarget::Workspace(id) => self
-                    .tree
+                PendingRenameTarget::Workspace(id) => authoritative
                     .workspaces()
                     .iter()
                     .find(|workspace| workspace.id == id)
                     .map(|workspace| Some(workspace.name.clone())),
-                PendingRenameTarget::Screen(id) => self
-                    .tree
+                PendingRenameTarget::Screen(id) => authoritative
                     .workspaces()
                     .iter()
                     .flat_map(|workspace| workspace.screens.iter())
                     .find(|screen| screen.id == id)
                     .map(|screen| screen.name.clone()),
                 PendingRenameTarget::Surface(id) => {
-                    self.tree.surface(id).map(|tab| tab.name.clone())
+                    authoritative.surface(id).map(|tab| tab.name.clone())
                 }
             };
             let Some(current) = current else {
@@ -30595,6 +30608,11 @@ mod tests {
         app.sync_layout((80, 20));
         assert_eq!(app.tree.surface(surface.id).unwrap().name.as_deref(), Some("logs"));
         assert_eq!(app.session.tree().surface(surface.id).unwrap().name, None);
+        // A second frame must keep the overlay while the daemon has not
+        // acknowledged the rename.
+        app.sync_layout((80, 20));
+        assert_eq!(app.tree.surface(surface.id).unwrap().name.as_deref(), Some("logs"));
+        assert!(app.pending_renames.contains_key(&PendingRenameTarget::Surface(surface.id)));
         app.session.pending_mutations.fetch_sub(1, Ordering::AcqRel);
 
         app.session.rename_surface(surface.id, "logs".to_string());
@@ -30667,7 +30685,7 @@ mod tests {
     const PTY_EXHAUSTED_REJECTION: &str = "remote command rejected: terminal launch failed: PTY capacity exhausted; close unused terminals or tmux sessions and retry: Device not configured (os error 6)";
 
     #[test]
-    fn failed_mutation_status_shows_the_daemon_cause() {
+    fn failed_mutation_status_shows_a_safe_actionable_cause() {
         let (mux, surface) = test_mux("failed-cause-status-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -30681,11 +30699,11 @@ mod tests {
         assert_eq!(
             app.status_message.as_deref(),
             Some(
-                "Session operation failed: terminal launch failed: PTY capacity exhausted; close unused terminals or tmux sessions and retry: Device not configured (os error 6)"
+                "Session operation failed: No pseudo-terminals are available. Close an unused terminal session, then retry."
             )
         );
 
-        // A narrow status line keeps the head of the cause and marks the cut.
+        // A narrow status line remains bounded and keeps the action visible.
         app.outer_size = (48, 10);
         app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
         app.handle(AppEvent::SessionMutationSettled {
@@ -30694,10 +30712,22 @@ mod tests {
         })
         .unwrap();
         let status = app.status_message.clone().unwrap();
-        assert!(status.starts_with("Session operation failed: terminal launch"), "{status}");
-        assert!(status.ends_with('…'), "{status}");
+        assert!(status.starts_with("Session operation failed: No pseudo-terminals"), "{status}");
         assert!(status.chars().count() <= 48, "{status}");
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn semantic_destination_intents_wrap_without_reusing_live_ids() {
+        let mux = Mux::new("semantic-intent-wrap-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.next_semantic_destination_intent = u32::MAX as u64;
+        let first = app.allocate_semantic_destination_intent();
+        assert_eq!(first, 1);
+        app.next_semantic_destination_intent = u32::MAX as u64;
+        let second = app.allocate_semantic_destination_intent();
+        assert_eq!(second, 2);
+        assert!(second <= u32::MAX as u64);
     }
 
     #[test]
@@ -30815,9 +30845,11 @@ mod tests {
             CreatePlaceholderState::Failed { cause, .. } => cause.clone(),
             other => panic!("placeholder should have failed, got {other:?}"),
         };
-        assert!(cause.contains("PTY capacity exhausted"), "{cause}");
+        assert_eq!(cause, localization::catalog().runtime.terminal_capacity_exhausted);
         assert!(
-            app.status_message.as_deref().is_some_and(|status| status.contains("PTY capacity")),
+            app.status_message
+                .as_deref()
+                .is_some_and(|status| status.contains("No pseudo-terminals")),
             "{:?}",
             app.status_message
         );
@@ -39010,7 +39042,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
-        // The status line names the operation and carries the daemon's cause.
+        // The status line names the operation and gives a safe next action.
         assert_eq!(
             app.status_message.as_deref(),
             Some(
@@ -39018,7 +39050,10 @@ mod tests {
                     .session
                     .operation_failed_with_cause
                     .replace("{operation}", localization::catalog().session.operation_failed)
-                    .replace("{cause}", "selection rejected")
+                    .replace(
+                        "{cause}",
+                        localization::catalog().session.operation_failed_generic_cause,
+                    )
                     .as_str()
             )
         );
@@ -43500,7 +43535,7 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
 
-        // The status line names the operation and carries the daemon's cause.
+        // The status line names the operation and gives a safe next action.
         assert_eq!(
             app.status_message.as_deref(),
             Some(
@@ -43508,7 +43543,10 @@ mod tests {
                     .session
                     .operation_failed_with_cause
                     .replace("{operation}", localization::catalog().session.operation_failed)
-                    .replace("{cause}", "workspace id and key do not identify the same workspace")
+                    .replace(
+                        "{cause}",
+                        localization::catalog().session.operation_failed_generic_cause,
+                    )
                     .as_str()
             )
         );

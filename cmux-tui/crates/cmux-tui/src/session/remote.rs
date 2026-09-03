@@ -392,17 +392,23 @@ impl RemoteTreeCache {
         let screen_id = value.get("screen").and_then(Value::as_u64);
         let pane_id = value.get("pane").and_then(Value::as_u64);
         let surface_id = value.get("surface").and_then(Value::as_u64);
-        let index = value.get("index").and_then(Value::as_u64).map(|index| index as usize);
+        let index = value
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok());
         let entity = value.get("entity").cloned().unwrap_or(Value::Null);
         let workspace_revision = value.get("workspace_revision").and_then(Value::as_u64);
         let applied = match kind {
             K::WorkspaceAdded | K::WorkspaceClosed | K::WorkspaceRenamed | K::WorkspaceMoved => {
                 let Some(revision) = workspace_revision else { return TreeDeltaApply::Resync };
-                if revision != self.view.workspace_revision.wrapping_add(1) {
+                if self.view.workspace_revision.checked_add(1) != Some(revision) {
                     return TreeDeltaApply::Resync;
                 }
                 let applied = match kind {
                     K::WorkspaceAdded => {
+                        if entity.get("id").and_then(Value::as_u64) != Some(workspace_id) {
+                            return TreeDeltaApply::Resync;
+                        }
                         let view = parse_workspace(&entity, capabilities);
                         let index = index.unwrap_or(self.view.workspaces().len());
                         let index = index.min(self.view.workspaces().len());
@@ -497,7 +503,10 @@ impl RemoteTreeCache {
                             workspace.screens.insert(index, screen);
                             if active {
                                 workspace.active_screen = index;
-                            } else if had_screens && index <= workspace.active_screen {
+                            } else if had_screens
+                                && workspace.active_screen != usize::MAX
+                                && index <= workspace.active_screen
+                            {
                                 workspace.active_screen += 1;
                             }
                             true
@@ -562,7 +571,8 @@ impl RemoteTreeCache {
                             let index = index.unwrap_or(pane.tabs.len()).min(pane.tabs.len());
                             let had_tabs = !pane.tabs.is_empty();
                             pane.tabs.insert(index, tab);
-                            if had_tabs && index <= pane.active_tab {
+                            if had_tabs && pane.active_tab != usize::MAX && index <= pane.active_tab
+                            {
                                 pane.active_tab += 1;
                             }
                             true
@@ -603,7 +613,9 @@ impl RemoteTreeCache {
         if !applied {
             return TreeDeltaApply::Resync;
         }
-        self.reindex();
+        if !matches!(kind, K::WorkspaceRenamed | K::ScreenRenamed | K::TabRenamed) {
+            self.reindex();
+        }
         self.delta_generation = self.delta_generation.wrapping_add(1);
         TreeDeltaApply::Applied(TreeDelta {
             kind,
