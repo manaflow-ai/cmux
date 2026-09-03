@@ -167,6 +167,9 @@ The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 hint `CMUX_AGENT_PLUGIN=1`. The socket is already bound before the child
 starts. A plugin that emits restart-fenced observations should copy
 `CMUX_PLUGIN_GENERATION` into its event's `normalized.plugin_generation` field.
+The reference screen detector validates this ID before entering its reconnect
+loop, so a malformed hand-written configuration fails once instead of retrying
+an impossible manifest registration.
 
 ### Lifecycle
 

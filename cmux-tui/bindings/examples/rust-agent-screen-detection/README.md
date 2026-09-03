@@ -31,10 +31,12 @@ producer, reads terminal process metadata and viewport text, and appends
 `cmux.agent-plugin.v1` events. A different implementation can use Python,
 another language, or a different ruleset without a cmux core change.
 
-The supervisor must provide a non-blank `CMUX_PLUGIN_ID`. The executable exits
-when that namespace is absent; it never invents a shared producer ID. The
-manager generates and persists this value for the installed package, while a
-hand-written configuration must set `agents.plugin.id` explicitly.
+The supervisor must provide a `CMUX_PLUGIN_ID` that matches
+`[a-z0-9][a-z0-9_-]*`, is at most 64 bytes, and is not `cmux_agent`. The
+executable exits before connecting when that namespace is absent or invalid; it
+never invents a shared producer ID. The manager generates and persists this
+value for the installed package, while a hand-written configuration must set
+`agents.plugin.id` explicitly.
 
 Process identity uses executable and wrapper arguments before reading
 `CMUX_AGENT` or `HERDR_AGENT` from the host process environment. The hint is a
