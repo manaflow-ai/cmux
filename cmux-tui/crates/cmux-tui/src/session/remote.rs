@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -1251,15 +1251,21 @@ struct InteractiveWriterShared {
 struct WorkerCompletion {
     done: Mutex<bool>,
     changed: Condvar,
+    admission: Mutex<Option<WorkerSlot>>,
     #[cfg(test)]
     joined: AtomicBool,
 }
 
 impl WorkerCompletion {
     fn new() -> Self {
+        Self::with_slot(None)
+    }
+
+    fn with_slot(slot: Option<WorkerSlot>) -> Self {
         Self {
             done: Mutex::new(false),
             changed: Condvar::new(),
+            admission: Mutex::new(slot),
             #[cfg(test)]
             joined: AtomicBool::new(false),
         }
@@ -1300,8 +1306,58 @@ impl WorkerCompletion {
     }
 
     fn mark_joined(&self) {
+        self.release_slot();
         #[cfg(test)]
         self.joined.store(true, Ordering::Release);
+    }
+
+    fn release_slot(&self) {
+        let _ = self.admission.lock().unwrap_or_else(|poison| poison.into_inner()).take();
+    }
+}
+
+const REMOTE_WORKER_SLOT_LIMIT: usize = 256;
+
+struct WorkerAdmission {
+    available: AtomicUsize,
+}
+
+struct WorkerSlot(Arc<WorkerAdmission>);
+
+static WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new();
+
+impl WorkerAdmission {
+    fn try_reserve(self: &Arc<Self>) -> Option<WorkerSlot> {
+        let mut available = self.available.load(Ordering::Acquire);
+        loop {
+            if available == 0 {
+                return None;
+            }
+            match self.available.compare_exchange_weak(
+                available,
+                available - 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(WorkerSlot(self.clone())),
+                Err(next) => available = next,
+            }
+        }
+    }
+}
+
+fn reserve_worker_slot() -> Option<WorkerSlot> {
+    let admission = WORKER_ADMISSION
+        .get_or_init(|| {
+            Arc::new(WorkerAdmission { available: AtomicUsize::new(REMOTE_WORKER_SLOT_LIMIT) })
+        })
+        .clone();
+    admission.try_reserve()
+}
+
+impl Drop for WorkerSlot {
+    fn drop(&mut self) {
+        self.0.available.fetch_add(1, Ordering::Release);
     }
 }
 
@@ -1338,8 +1394,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
                     index -= 1;
                     if pending[index].1.is_done() {
                         let (handle, completion) = pending.swap_remove(index);
-                        completion.mark_joined();
                         let _ = handle.join();
+                        completion.mark_joined();
                     }
                 }
                 {
@@ -1429,19 +1485,26 @@ impl InteractiveWriter {
         writer: Box<dyn RemoteMessageWriter>,
         abort: Arc<dyn RemoteTransportAbort>,
     ) -> io::Result<Self> {
+        let slot = reserve_worker_slot().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::WouldBlock, "remote worker slots exhausted")
+        })?;
+        let worker_completion = Arc::new(WorkerCompletion::with_slot(Some(slot)));
         let shared = Arc::new(InteractiveWriterShared {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
             metrics: InteractiveWriteMetrics::default(),
-            worker_completion: Arc::new(WorkerCompletion::new()),
+            worker_completion: worker_completion.clone(),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        let worker_completion = shared.worker_completion.clone();
         let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))?;
+            .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))
+            .map_err(|error| {
+                shared.worker_completion.release_slot();
+                error
+            })?;
         Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
     }
 
@@ -1610,6 +1673,7 @@ impl InteractiveWriter {
                 .wait(deadline.saturating_duration_since(Instant::now()))
             {
                 let _ = handle.join();
+                self.shared.worker_completion.release_slot();
             } else {
                 enqueue_worker_reap(handle, self.shared.worker_completion.clone());
             }
@@ -1634,6 +1698,7 @@ impl InteractiveWriter {
         };
         if let Some(handle) = handle {
             let _ = handle.join();
+            self.shared.worker_completion.release_slot();
         }
     }
 
@@ -2162,10 +2227,13 @@ impl RemoteSession {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
+        let reader_slot = reserve_worker_slot()
+            .ok_or_else(|| anyhow::anyhow!("remote worker slots exhausted"))?;
+        let reader_completion = Arc::new(WorkerCompletion::with_slot(Some(reader_slot)));
         let session = Arc::new(RemoteSession {
             interactive_writer,
             reader_worker: Mutex::new(None),
-            reader_completion: Arc::new(WorkerCompletion::new()),
+            reader_completion: reader_completion.clone(),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -2198,10 +2266,11 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        let reader_completion = session.reader_completion.clone();
-        let reader_worker =
-            std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-                let _completion = WorkerCompletionGuard(reader_completion);
+        let reader_completion_for_worker = reader_completion.clone();
+        let reader_worker = std::thread::Builder::new()
+            .name("remote-reader".into())
+            .spawn(move || {
+                let _completion = WorkerCompletionGuard(reader_completion_for_worker);
                 let mut report_progress = |partial: &[u8]| {
                     if let Some(session) = reader_session.upgrade() {
                         session.report_read_progress(partial);
@@ -2235,6 +2304,10 @@ impl RemoteSession {
                     session.disconnect_transport_with_reason(reason);
                     session.emit(MuxEvent::Empty);
                 }
+            })
+            .map_err(|error| {
+                reader_completion.release_slot();
+                error
             })?;
         *session.reader_worker.lock().unwrap() = Some(reader_worker);
 
@@ -3269,6 +3342,7 @@ impl RemoteSession {
         if let Some(handle) = handle {
             if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
                 let _ = handle.join();
+                self.reader_completion.release_slot();
             } else {
                 enqueue_worker_reap(handle, self.reader_completion.clone());
             }
@@ -6854,6 +6928,15 @@ mod tests {
         assert!(state.lock().unwrap().worker.is_some());
         wait_for_worker_join(&completion);
         assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn worker_admission_rejects_saturation_and_recovers_after_release() {
+        let admission = Arc::new(WorkerAdmission { available: AtomicUsize::new(1) });
+        let slot = admission.try_reserve().expect("first worker slot should be available");
+        assert!(admission.try_reserve().is_none());
+        drop(slot);
+        assert!(admission.try_reserve().is_some());
     }
 
     #[test]
