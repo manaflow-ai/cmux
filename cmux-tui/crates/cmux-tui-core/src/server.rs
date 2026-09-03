@@ -13255,10 +13255,7 @@ fn redact_remote_terminal_lifecycle(value: &mut Value, event: &MuxEvent, trusted
         return;
     }
     if let Value::Object(object) = value {
-        object.insert(
-            "registry_terminal_id".to_string(),
-            Value::String("<redacted>".to_string()),
-        );
+        object.insert("registry_terminal_id".to_string(), Value::String("<redacted>".to_string()));
     }
 }
 
