@@ -44,6 +44,7 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+socket2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 fs4.workspace = true

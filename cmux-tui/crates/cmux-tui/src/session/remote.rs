@@ -2360,31 +2360,41 @@ impl RemoteSession {
         subscribe: bool,
         deadline: Instant,
     ) -> anyhow::Result<Arc<Self>> {
-        let path_for_thread = path.to_path_buf();
-        let display = path.display().to_string();
-        let (sender, receiver) = sync_channel(1);
-        let connector =
-            std::thread::Builder::new().name("remote-probe-connect".into()).spawn(move || {
-                let _ = sender.send(transport::connect(&path_for_thread));
-            })?;
-        let stream = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        #[cfg(unix)]
         {
-            Ok(result) => {
-                let _ = connector.join();
-                result.with_context(|| format!("cannot connect to session socket {display}"))?
+            let timeout = deadline.saturating_duration_since(Instant::now());
+            if timeout.is_zero() {
+                anyhow::bail!(RemoteRequestError::Timeout);
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                let _ = connector.join();
-                anyhow::bail!("remote probe connector stopped without a result")
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                // The pipe-io process exits after classification. Dropping the
-                // connector lets that process terminate any blocked connect.
-                drop(connector);
-                anyhow::bail!(RemoteRequestError::Timeout)
-            }
-        };
-        Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
+            let address = socket2::SockAddr::unix(path)?;
+            let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+            socket.connect_timeout(&address, timeout)?;
+            let stream: std::os::unix::net::UnixStream = socket.into();
+            return Self::connect_stream_with_subscription_until(
+                Box::new(stream),
+                subscribe,
+                deadline,
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            // The Windows UDS adapter does not expose a cancellable connect
+            // primitive. Its local probe failures return promptly, while the
+            // Unix implementation above has an OS-level deadline.
+            let stream = transport::connect(path).map_err(|error| {
+                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+            })?;
+            return Self::connect_stream_with_subscription_until(stream, subscribe, deadline);
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let stream = transport::connect(path).map_err(|error| {
+                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+            })?;
+            Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
+        }
     }
 
     /// Connect over an already-established full-duplex byte stream.
