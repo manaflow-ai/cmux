@@ -38,11 +38,13 @@ export type CredentialKeyService = {
   generateDataKey(input: {
     readonly keyId: string;
     readonly encryptionContext: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
   }): Promise<{ readonly plaintext: Uint8Array; readonly encrypted: Uint8Array }>;
   decryptDataKey(input: {
     readonly keyId: string;
     readonly encrypted: Uint8Array;
     readonly encryptionContext: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
   }): Promise<Uint8Array>;
 };
 
@@ -54,8 +56,10 @@ export async function encryptCredential(input: {
   readonly credential: CodeRouterCredential;
   readonly keyId?: string;
   readonly keys?: CredentialKeyService;
+  readonly signal?: AbortSignal;
 }): Promise<EncryptedCredential> {
   assertIdentity(input);
+  throwIfAborted(input.signal);
   if (input.credential.provider !== input.provider) {
     throw new Error("credential provider does not match its account");
   }
@@ -65,6 +69,7 @@ export async function encryptCredential(input: {
     secret: input.credential,
     keyId: input.keyId,
     keys: input.keys,
+    signal: input.signal,
   });
   return {
     accountId: input.accountId,
@@ -78,12 +83,15 @@ export async function encryptCredential(input: {
 export async function decryptCredential(
   encrypted: EncryptedCredential,
   keys: CredentialKeyService = kmsKeyService(),
+  signal?: AbortSignal,
 ): Promise<CodeRouterCredential> {
   assertIdentity(encrypted);
+  throwIfAborted(signal);
   const value = await decryptSecretEnvelope(encrypted, {
     aad: credentialAad(encrypted),
     encryptionContext: credentialEncryptionContext(encrypted),
     keys,
+    signal,
   });
   const credential = parseCredential(value);
   if (!credential || credential.provider !== encrypted.provider) {
@@ -112,13 +120,17 @@ export async function encryptSecretEnvelope(input: {
   readonly secret: unknown;
   readonly keyId?: string;
   readonly keys?: CredentialKeyService;
+  readonly signal?: AbortSignal;
 }): Promise<SecretEnvelope> {
+  throwIfAborted(input.signal);
   const keyId = input.keyId ?? requiredEnv("CODEROUTER_KMS_KEY_ID");
   const keys = input.keys ?? kmsKeyService();
   const generated = await keys.generateDataKey({
     keyId,
     encryptionContext: input.encryptionContext,
+    signal: input.signal,
   });
+  throwIfAborted(input.signal);
   const plaintextKey = Buffer.from(generated.plaintext);
   if (plaintextKey.byteLength !== DATA_KEY_BYTES) {
     plaintextKey.fill(0);
@@ -155,6 +167,7 @@ export async function decryptSecretEnvelope(
     readonly aad: Buffer;
     readonly encryptionContext: Readonly<Record<string, string>>;
     readonly keys?: CredentialKeyService;
+    readonly signal?: AbortSignal;
   },
 ): Promise<unknown> {
   if (encrypted.algorithm !== ALGORITHM) {
@@ -172,7 +185,9 @@ export async function decryptSecretEnvelope(
     keyId: encrypted.kmsKeyId,
     encrypted: wrappedKey,
     encryptionContext: input.encryptionContext,
+    signal: input.signal,
   }));
+  throwIfAborted(input.signal);
   if (plaintextKey.byteLength !== DATA_KEY_BYTES) {
     plaintextKey.fill(0);
     throw new Error("KMS returned an invalid coderouter data key");
@@ -392,7 +407,7 @@ export function kmsKeyService(): CredentialKeyService {
         KeyId: input.keyId,
         KeySpec: "AES_256",
         EncryptionContext: { ...input.encryptionContext },
-      }));
+      }), input.signal ? { abortSignal: input.signal } : undefined);
       if (!output.Plaintext || !output.CiphertextBlob) {
         throw new Error("KMS did not return a coderouter data key");
       }
@@ -406,7 +421,7 @@ export function kmsKeyService(): CredentialKeyService {
         KeyId: input.keyId,
         CiphertextBlob: input.encrypted,
         EncryptionContext: { ...input.encryptionContext },
-      }));
+      }), input.signal ? { abortSignal: input.signal } : undefined);
       if (!output.Plaintext) {
         throw new Error("KMS did not decrypt the coderouter data key");
       }
@@ -420,4 +435,9 @@ function requiredEnv(key: string): string {
   const value = process.env[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
   return value;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }

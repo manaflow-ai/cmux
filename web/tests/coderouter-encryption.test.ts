@@ -67,6 +67,28 @@ describe("coderouter credential envelope encryption", () => {
     ).rejects.toThrow();
   });
 
+  test("propagates cancellation to the KMS decrypt operation", async () => {
+    const encrypted = await encrypt(fakeKeys());
+    let observedSignal: AbortSignal | undefined;
+    const keys: CredentialKeyService = {
+      async generateDataKey() {
+        throw new Error("not used");
+      },
+      async decryptDataKey({ signal }) {
+        observedSignal = signal;
+        return await new Promise<Uint8Array>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    };
+    const controller = new AbortController();
+    const pending = decryptCredential(encrypted, keys, controller.signal);
+    await Promise.resolve();
+    expect(observedSignal).toBe(controller.signal);
+    controller.abort(new DOMException("deadline", "AbortError"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   test("does not include provider secrets in KMS failures", async () => {
     for (const failure of [
       "KMS access denied",
