@@ -37,7 +37,6 @@ use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
-const PROVIDER_CLOSE_PENDING_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
 
 type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
@@ -152,12 +151,8 @@ impl ProviderCloseWorker {
             Ok(()) => Ok(()),
             Err(crossbeam_channel::TrySendError::Full(close)) => {
                 if let Ok(mut pending) = self.pending.lock() {
-                    if pending.len() < PROVIDER_CLOSE_PENDING_CAPACITY {
-                        pending.insert(key, close);
-                        Ok(())
-                    } else {
-                        Err(crossbeam_channel::TrySendError::Full(close))
-                    }
+                    pending.insert(key, close);
+                    Ok(())
                 } else {
                     Err(crossbeam_channel::TrySendError::Disconnected(close))
                 }
