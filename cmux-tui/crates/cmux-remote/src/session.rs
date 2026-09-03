@@ -930,21 +930,26 @@ impl ScheduledSender {
             .map_err(|_| ScheduleError::Unscheduled(SessionError::QueueFull(lane)))?;
         let bytes = frame.len();
         let (completion, result) = oneshot::channel();
-        if self
-            .inner
-            .queues
-            .get(lane)
-            .send(ScheduledFrame { lane, frame, completion })
-            .await
-            .is_err()
-        {
+        let queued = tokio::select! {
+            _ = self.inner.cancel.cancelled() => {
+                budget.fetch_sub(bytes, Ordering::AcqRel);
+                return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+            }
+            result = self.inner.queues.get(lane).send(ScheduledFrame { lane, frame, completion }) => result,
+        };
+        if queued.is_err() {
             budget.fetch_sub(bytes, Ordering::AcqRel);
             return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
         }
-        match result.await {
+        tokio::select! {
+            _ = self.inner.cancel.cancelled() => {
+                Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed))
+            }
+            result = result => match result {
             Ok(Ok(())) => Ok(()),
             Ok(Err(message)) => Err(ScheduleError::Ambiguous(SessionError::LinkMessage(message))),
             Err(_) => Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed)),
+            }
         }
     }
 }
