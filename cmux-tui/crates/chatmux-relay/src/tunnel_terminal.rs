@@ -1302,6 +1302,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn small_frames_pause_before_message_budget_closes_connection() {
+        let rig = rig().await;
+        let (connection, _writer_rx, flow_rx) = test_connection(&rig);
+        let pty = attach_test_pty(&rig, &connection).await;
+        let flow = spawn_flow_worker(Arc::clone(&connection), connection.frame_context(), flow_rx);
+        let output = json!({
+            "ptyId": connection.pty_id,
+            "type": "pty_output",
+            "dataB64": BASE64.encode([1_u8]),
+        });
+        while connection.writer_tx.capacity() > FLOW_PAUSE_MESSAGES {
+            connection.on_manager_frame(&output);
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if pty.state.lock().unwrap().pause_calls == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("message water mark should pause the source");
+        assert!(!connection.finished.load(Ordering::SeqCst));
+        connection.finish();
+        tokio::time::timeout(FLOW_DRAIN_TIMEOUT, flow)
+            .await
+            .expect("flow worker drain")
+            .expect("flow worker join");
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn control_frame_uses_reserved_byte_budget_and_end_stays_fifo() {
         let rig = rig().await;
         let (connection, mut writer_rx, _flow_rx) = test_connection(&rig);
