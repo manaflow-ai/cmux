@@ -175,6 +175,19 @@ final class SurfaceCatalog {
         providers[machine]
     }
 
+    /// Only the registered provider of a cloud machine (or the local provider,
+    /// registered at launch) may write about it. A provider the fleet has just
+    /// pruned can still finish an in-flight refresh and write its machine back;
+    /// accepting that write brings a machine the backend already destroyed back
+    /// as a sidebar row nothing can refresh or delete.
+    private func accepts(writeFor machine: SurfaceMachineID) -> Bool {
+        if machine.isLocal || providers[machine] != nil { return true }
+#if DEBUG
+        cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=unregistered")
+#endif
+        return false
+    }
+
     func refreshAll() async {
         for provider in providers.values {
             await provider.refresh()
@@ -187,6 +200,7 @@ final class SurfaceCatalog {
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
     func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil) {
+        guard accepts(writeFor: machine) else { return }
         for id in resources.keys where id.machine == machine {
             resources[id] = nil
         }
@@ -200,6 +214,7 @@ final class SurfaceCatalog {
     }
 
     func upsert(_ resource: SurfaceResource) {
+        guard accepts(writeFor: resource.machine) else { return }
         resources[resource.id] = resource
         resolvePendingRestoredProjections(on: resource.machine)
         notifyChange()
@@ -211,6 +226,7 @@ final class SurfaceCatalog {
     }
 
     func updateMachine(_ info: SurfaceMachineInfo) {
+        guard accepts(writeFor: info.id) else { return }
         machines[info.id] = info
         notifyChange()
     }

@@ -105,7 +105,15 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard let catalog, let client = VMClient.shared else { return }
         guard let page = try? await client.listPage() else { return }
         let seen = Set(page.vms.map(\.id))
-        for id in providers.keys where !seen.contains(id) {
+        // The catalog can outlive a provider (for example a restored session
+        // may have a machine row before the first fleet refresh). Reconcile
+        // both stores against the authoritative list, otherwise a machine
+        // deleted while cmux was closed survives as a ghost row forever.
+        let catalogMachineIDs = Set(
+            catalog.snapshot.machines.compactMap { $0.id.cloudMachineID }
+        )
+        let staleIDs = Set(providers.keys).union(catalogMachineIDs).subtracting(seen)
+        for id in staleIDs {
             providers[id]?.stop()
             providers[id] = nil
             catalog.unregister(machine: .cloud(id))
