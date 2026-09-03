@@ -660,7 +660,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         statsWatcherSocketPath = socketPath
         statsWatcherLink = link
         statsWatcher = Task { [weak self] in
-            let stream = await link.stats
+            let stream = await link.currentStatsStream()
             for await sample in stream {
                 guard !Task.isCancelled, let self else { return }
                 guard self.statsWatcherGeneration == generation, self.statsWatcherLink === link else { return }

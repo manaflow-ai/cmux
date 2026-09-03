@@ -327,8 +327,8 @@ struct VMListPage {
 /// the cmux-tui daemon on the machine samples its host and pushes `machine-stats`
 /// over the Mac's link (`CloudMachineLink.stats`). Sleeping machines are never
 /// woken for a reading: they show `asleep` with only what was last known.
-struct VMStats: Equatable {
-    enum State: String, Equatable {
+struct VMStats: Equatable, Sendable {
+    enum State: String, Equatable, Sendable {
         case awake
         case asleep
         case unknown

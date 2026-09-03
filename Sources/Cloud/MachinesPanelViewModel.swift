@@ -576,7 +576,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
             )
         }
-        guard let index = machineRowIndexes[machine.cloudMachineID] else { return }
+        guard let machineID = machine.cloudMachineID,
+              let index = machineRowIndexes[machineID] else { return }
         var snapshot = machines[index]
         snapshot.stats = MachineSnapshotBuilder.linkStats(from: info)
         machines[index] = snapshot

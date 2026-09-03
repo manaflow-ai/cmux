@@ -724,8 +724,13 @@ export class CmuxClient {
         cmd: C;
         id?: Json;
         [key: string]: unknown;
-      };
+    };
     const { cmd, id, ...rawParams } = source;
+    if (cmd === "machine-stats" && rawParams.follow === true) {
+      throw new CmuxProtocolError(
+        "machine-stats follow requests require machineStatsFollow()",
+      );
+    }
     await this.ensureCommandAvailable(cmd as C, rawParams);
     const encoded = encodeCommandParams(
       cmd as C,

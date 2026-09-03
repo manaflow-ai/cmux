@@ -282,6 +282,10 @@ actor CloudMachineLink {
         do {
             try process.run()
         } catch {
+            // End this lifecycle's stream so watchers do not wait forever after
+            // a transient launch failure. A later refresh recreates it.
+            statsContinuation.yield(nil)
+            statsContinuation.finish()
             return
         }
         statsProcess = process
@@ -307,6 +311,16 @@ actor CloudMachineLink {
 
     private func makeStatsStream() {
         (stats, statsContinuation) = AsyncStream<VMStats?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
+
+    /// Returns the active stats stream and retries its child when the previous
+    /// stream ended while the link itself stayed connected.
+    func currentStatsStream() -> AsyncStream<VMStats?> {
+        if statsProcess == nil, let socketPath = connected?.socketPath {
+            makeStatsStream()
+            startStatsFollow(socketPath: socketPath)
+        }
+        return stats
     }
 
     private func statsFollowDidEnd(generation: Int) {
