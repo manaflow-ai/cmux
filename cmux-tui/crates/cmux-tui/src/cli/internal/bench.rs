@@ -29,6 +29,9 @@ const READ_LIMIT: usize = 16 * 1024 * 1024;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long to wait for the visibility delta after a response arrives.
 const VISIBILITY_GRACE: Duration = Duration::from_secs(2);
+/// How long teardown waits for closed terminals' host processes to exit before
+/// reporting them as leaked. Bounded by the host's own SIGKILL escalation.
+const HOST_EXIT_AUDIT_WINDOW: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BenchPlan {
@@ -362,7 +365,9 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     close_created_terminals(&mut control, &initial_terminals, &report);
     if let Some(owner_pid) = guard.owner.as_ref().map(|owner| owner.pid()) {
-        let remaining = count_child_terminal_hosts(owner_pid);
+        // A close-terminal response can precede the host process's own exit
+        // by a few milliseconds, so poll briefly before calling a host leaked.
+        let remaining = wait_for_child_terminal_hosts_to_exit(owner_pid, HOST_EXIT_AUDIT_WINDOW);
         let mut report = report.lock().unwrap();
         report.hosts_remaining = remaining;
         if let Some(remaining) = remaining.filter(|count| *count > 0) {
@@ -535,6 +540,19 @@ fn count_child_terminal_hosts(owner_pid: u64) -> Option<u64> {
     }
     let listing = String::from_utf8_lossy(&output.stdout);
     Some(count_hosts_in_ps_listing(&listing, owner_pid))
+}
+
+/// Poll `count_child_terminal_hosts` until it reports zero or `window`
+/// elapses; returns the final count (`None` where the platform cannot count).
+fn wait_for_child_terminal_hosts_to_exit(owner_pid: u64, window: Duration) -> Option<u64> {
+    let deadline = Instant::now() + window;
+    loop {
+        let remaining = count_child_terminal_hosts(owner_pid)?;
+        if remaining == 0 || Instant::now() >= deadline {
+            return Some(remaining);
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn count_hosts_in_ps_listing(listing: &str, owner_pid: u64) -> u64 {
