@@ -457,7 +457,7 @@ export function withCoderouterRoute<Context = unknown>(
           try {
             response = await handler(request, routeContext as Context);
           } catch (error) {
-            if (isCallerCancellation(request, error)) {
+            if (isCallerCancellation(request)) {
               context.outcome = {
                 outcome: "client_cancelled",
                 failureStage: "request",
@@ -485,8 +485,10 @@ export function withCoderouterRoute<Context = unknown>(
   };
 }
 
-function isCallerCancellation(request: Request, error: unknown): boolean {
-  return request.signal.aborted || (error instanceof Error && error.name === "AbortError");
+function isCallerCancellation(request: Request): boolean {
+  // Only the request signal identifies a client disconnect. An AbortError from
+  // an internal timeout or provider must remain visible as a server failure.
+  return request.signal.aborted;
 }
 
 function withRequestIdHeader(response: Response, requestId: string): Response {
