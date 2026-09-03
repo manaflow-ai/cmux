@@ -2921,6 +2921,13 @@ impl Surface {
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let journal_capture_supported = attachment.supports_journal_detach_fence();
+        // Snapshot CWD values are terminal-reported metadata, including for
+        // legacy protocol versions. Reject ambiguous plain paths instead of
+        // silently inheriting them as a local spawn directory. A current host
+        // fallback carries its authenticated provenance token.
+        let snapshot_cwd = snapshot.cwd.as_deref().and_then(|cwd| {
+            platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
+        });
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
@@ -2960,7 +2967,7 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot.cwd,
+                cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
@@ -5444,11 +5451,44 @@ impl Surface {
     }
 
     pub fn local_cwd(&self) -> Option<String> {
-        self.pwd()
-            .as_deref()
-            .and_then(platform::terminal_pwd_to_local_path)
-            .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| self.spawn_cwd())
+        let hosted = match self {
+            Surface::Pty(pty) => {
+                #[cfg(unix)]
+                {
+                    matches!(
+                        &*pty.runtime.lock().unwrap(),
+                        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
+                    )
+                }
+                #[cfg(not(unix))]
+                {
+                    false
+                }
+            }
+            Surface::Browser(_) => false,
+        };
+        let terminal_pwd_to_local_path = if hosted {
+            platform::terminal_pwd_to_local_path
+        } else {
+            platform::local_terminal_pwd_to_local_path
+        };
+        let terminal_cwd = if hosted { None } else {
+            self.pwd()
+                .as_deref()
+                .and_then(terminal_pwd_to_local_path)
+                .map(|path| path.to_string_lossy().into_owned())
+        };
+        terminal_cwd.or_else(|| {
+                self.spawn_cwd()
+                    .as_deref()
+                    .and_then(platform::spawn_cwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
+        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
     }
 
     pub fn process_id(&self) -> Option<u32> {
