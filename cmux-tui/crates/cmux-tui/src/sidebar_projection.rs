@@ -105,16 +105,12 @@ pub(crate) fn rows(
             .flat_map(|pane| pane.tabs.iter())
             .enumerate()
             .filter_map(|(index, tab)| {
-                order
-                    .remove(&tab.surface)
-                    .map(|(attention, updated_at_ms)| {
-                        (u8::MAX - attention, u64::MAX - updated_at_ms, index, tab.surface)
-                    })
+                order.remove(&tab.surface).map(|(attention, updated_at_ms)| {
+                    (u8::MAX - attention, u64::MAX - updated_at_ms, index, tab.surface)
+                })
             })
             .collect::<Vec<_>>();
-        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| {
-            (attention, recency, index)
-        });
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
         indexed.into_iter().map(|(_, _, _, surface)| surface).collect::<Vec<_>>()
     } else {
         Vec::new()
@@ -502,13 +498,8 @@ mod tests {
                 updated_at_ms: 1,
             },
         ];
-        let rows = rows(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree(),
-            &agents,
-            0,
-            &HashSet::new(),
-        );
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, 0, &HashSet::new());
 
         assert_eq!(
             rows.iter().map(|row| row.target).collect::<Vec<_>>(),
