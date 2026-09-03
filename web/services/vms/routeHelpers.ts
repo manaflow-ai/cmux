@@ -24,6 +24,7 @@ import {
   isVmDatabaseError,
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
@@ -31,6 +32,7 @@ import {
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
+  type VmModelPlaneError,
   type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -474,7 +476,34 @@ export function vmCreateLikeErrorResponse(
       details: { amount: err.amount },
     });
   }
+  if (isVmModelPlaneError(err)) {
+    return vmModelPlaneErrorResponse(err, input.operation);
+  }
   return null;
+}
+
+/**
+ * The machine could not be wired to coderouter, so no provider machine was
+ * created. Every model-plane failure is a coderouter outage (retry); there
+ * is no plan gate on the model plane.
+ */
+export function vmModelPlaneErrorResponse(
+  _err: VmModelPlaneError,
+  phase: "create" | VmCreateLikeOperation = "create",
+): Response {
+  return vmErrorResponse({
+    error: "vm_model_plane_unavailable",
+    status: 503,
+    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    reason: "coderouter is unavailable.",
+    action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
+    phase,
+    retryable: true,
+    retryAfterSeconds: 30,
+    displayTitle: "coderouter is unavailable",
+    displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
+    details: { retryable: true },
+  });
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
@@ -519,6 +548,10 @@ export async function vmWorkflowErrorResponse(
         supportedTransports: [...workflowError.supported],
       },
     });
+  }
+
+  if (isVmModelPlaneError(workflowError)) {
+    return vmModelPlaneErrorResponse(workflowError);
   }
 
   if (isVmPrivateNetworkUnavailableError(workflowError)) {

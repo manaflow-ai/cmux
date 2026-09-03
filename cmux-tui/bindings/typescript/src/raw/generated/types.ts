@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -313,6 +313,18 @@ export type LivePane = {
   "name": (string) | null;
   "short_id"?: string;
   "tabs": Array<Tab>;
+};
+
+export type MachineUsage = {
+  "api_equivalent_usd": number;
+  "as_of": (string) | null;
+  "period_days": number;
+  "total_tokens": bigint;
+  "vm_id": string;
+};
+
+export type MachineUsageResult = {
+  "usage": (MachineUsage) | null;
 };
 
 export type MintTerminalRendererResult = {
