@@ -8644,7 +8644,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                        // Base open runs inside the workspace's loading pane, which shows
+                        // its own output; the coordinator's progress stream has no reader here.
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, _, completion in
                             guard let self else { return false }
                             return self.launchCloudVMBaseOpen(
                                 workspace: workspace,
