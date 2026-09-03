@@ -76,7 +76,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
         match args[index].as_str() {
             "--" => return false,
             "--socket" | "--session" | "--machine" => {
-                if !args.get(index + 1).is_some_and(|value| !value.starts_with("--")) {
+                if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
                     return false;
                 }
                 index += 2;
