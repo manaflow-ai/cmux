@@ -305,6 +305,7 @@ struct ProcessPipeReadCrashRegressionTests {
 
         let result = collector.finishResult()
         #expect(result.machineId == "calm-petrel")
+        #expect(result.stdout == "OK machine=calm-petrel")
         #expect(result.output.contains("tail from stderr"))
     }
 }
