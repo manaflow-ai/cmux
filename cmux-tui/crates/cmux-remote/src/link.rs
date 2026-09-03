@@ -1028,6 +1028,8 @@ mod tests {
         finished: Arc<Semaphore>,
     }
 
+    struct StuckCloseLink;
+
     fn controlled_receive_link(
         description: &str,
         maximum: usize,
@@ -1204,6 +1206,29 @@ mod tests {
             self.release.acquire().await.map_err(|_| LinkError::Closed)?.forget();
             self.finished.add_permits(1);
             Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for StuckCloseLink {
+        fn description(&self) -> &str {
+            "stuck-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            pending().await
         }
     }
 
@@ -1587,6 +1612,33 @@ mod tests {
             .unwrap()
             .unwrap();
         wait_for_signal(&handle.finished, "completed physical close").await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_is_bounded_when_physical_close_stalls() {
+        let physical = Arc::new(StuckCloseLink);
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical }],
+            )
+            .unwrap(),
+        );
+
+        let close = tokio::spawn({
+            let mux = mux.clone();
+            async move { mux.close().await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = tokio::time::timeout(Duration::from_secs(1), close)
+            .await
+            .expect("aggregate close remained blocked on physical close")
+            .unwrap();
+        assert!(matches!(
+            result,
+            Err(LinkError::Transport(message)) if message == "timed out closing physical link"
+        ));
     }
 
     #[tokio::test]
