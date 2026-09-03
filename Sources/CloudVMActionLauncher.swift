@@ -497,6 +497,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
         finishResult().output
     }
 
+    /// Finishes all pipe reads and returns one cached result. A synchronous
+    /// output callback may re-enter this method. That path returns a snapshot
+    /// of bytes already committed by the callback and schedules the single
+    /// finalizer, which publishes the complete result after all callbacks
+    /// return.
     func finishResult() -> ProcessOutputResult {
         if callbackDepthOnCurrentThread() > 0 {
             stdoutHandle.readabilityHandler = nil
