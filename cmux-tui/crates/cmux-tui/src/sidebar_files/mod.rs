@@ -3,6 +3,7 @@ mod navigation;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::{error::Error, fmt};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -340,29 +341,94 @@ pub fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub fn file_url(path: &Path) -> String {
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FileUrlError {
+    UnsupportedWindowsNamespace,
+}
+
+impl fmt::Display for FileUrlError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedWindowsNamespace => {
+                formatter.write_str("unsupported Windows device path namespace")
+            }
+        }
+    }
+}
+
+impl Error for FileUrlError {}
+
+pub fn file_url(path: &Path) -> Result<String, FileUrlError> {
     let text = path.to_string_lossy();
+    let (prefix, path) = windows_file_url_parts(&text)?;
     let mut url = String::from("file://");
-    #[cfg(windows)]
-    let windows_drive_path = text.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic())
-        && text.as_bytes().get(1) == Some(&b':');
-    #[cfg(not(windows))]
-    let windows_drive_path = false;
-    if windows_drive_path {
+    if let Some(authority) = prefix {
+        url.push_str(&encode_uri_component(authority));
+        url.push('/');
+    } else {
         url.push('/');
     }
+    url.push_str(&encode_uri_path(path));
+    Ok(url)
+}
+
+fn encode_uri_path(text: &str) -> String {
+    let mut encoded = String::new();
     for byte in text.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
-                url.push(char::from(byte));
+                encoded.push(char::from(byte));
             }
-            #[cfg(windows)]
-            b'\\' => url.push('/'),
-            b':' if windows_drive_path => url.push(':'),
-            _ => url.push_str(&format!("%{byte:02X}")),
+            b':' if text.as_bytes().get(1) == Some(&b':') => encoded.push(':'),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
         }
     }
-    url
+    encoded
+}
+
+fn encode_uri_component(text: &str) -> String {
+    let mut encoded = String::new();
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(char::from(byte));
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+#[cfg(windows)]
+fn windows_file_url_parts(text: &str) -> Result<(Option<&str>, String), FileUrlError> {
+    let mut text = text;
+    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        text = stripped;
+        if let Some(unc) = text.strip_prefix(r"UNC\") {
+            text = unc;
+            return Ok(split_unc_path(text));
+        }
+    }
+    if text.starts_with(r"\\.\") {
+        return Err(FileUrlError::UnsupportedWindowsNamespace);
+    }
+    if let Some(unc) = text.strip_prefix(r"\\") {
+        return Ok(split_unc_path(unc));
+    }
+    Ok((None, text.replace('\\', "/")))
+}
+
+#[cfg(windows)]
+fn split_unc_path(path: &str) -> (Option<&str>, String) {
+    match path.find(['\\', '/']) {
+        Some(index) => (Some(&path[..index]), path[index + 1..].replace('\\', "/")),
+        None => (Some(path), String::new()),
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_file_url_parts(text: &str) -> Result<(Option<&str>, String), FileUrlError> {
+    Ok((None, text.to_string()))
 }
 
 #[cfg(test)]
@@ -488,12 +554,29 @@ mod tests {
 
     #[test]
     fn creates_percent_encoded_file_url() {
-        assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
+        assert_eq!(file_url(Path::new("/tmp/a file#1.md")).unwrap(), "file:///tmp/a%20file%231.md");
     }
 
     #[cfg(windows)]
     #[test]
-    fn creates_windows_drive_file_url() {
-        assert_eq!(file_url(Path::new(r"C:\a\b")), "file:///C:/a/b");
+    fn creates_windows_file_urls() {
+        let cases = [
+            (r"C:\a\b", "file:///C:/a/b"),
+            (r"\\server\share\a.html", "file://server/share/a.html"),
+            (r"\\?\C:\long\a.html", "file:///C:/long/a.html"),
+            (r"\\?\UNC\server\share\a.html", "file://server/share/a.html"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(file_url(Path::new(path)).unwrap(), expected);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_device_paths() {
+        assert_eq!(
+            file_url(Path::new(r"\\.\PIPE\cmux")),
+            Err(FileUrlError::UnsupportedWindowsNamespace)
+        );
     }
 }
