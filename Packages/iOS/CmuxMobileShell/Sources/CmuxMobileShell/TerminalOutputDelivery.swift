@@ -4,6 +4,17 @@ import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
+    /// Selects how a byte delivery is admitted to the mounted terminal.
+    ///
+    /// `automatic` derives the verified-replay requirement from the negotiated
+    /// transport. `bestEffortCompatibility` is reserved for the bounded
+    /// retry-exhaustion replacement, whose payload is intentionally unverified
+    /// but still must be applied so the barrier can release.
+    enum ReplayVerificationPolicy: Equatable, Sendable {
+        case automatic
+        case bestEffortCompatibility
+    }
+
     enum ReplacementScope: Equatable, Sendable {
         case byteViewport
         case renderGridViewport
@@ -21,9 +32,16 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var endSequence: UInt64?
+    var replayVerificationPolicy: ReplayVerificationPolicy
 
     var replaceable: Bool {
         replacementScope != nil
+    }
+
+    /// Compatibility replacements must reset the consumer's verified replay
+    /// baseline before their bytes are applied through the legacy path.
+    var requiresVerifiedReplayReset: Bool {
+        replayVerificationPolicy == .bestEffortCompatibility
     }
 
     init(
@@ -31,12 +49,14 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        endSequence: UInt64? = nil
+        endSequence: UInt64? = nil,
+        replayVerificationPolicy: ReplayVerificationPolicy = .automatic
     ) {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = endSequence
+        self.replayVerificationPolicy = replayVerificationPolicy
     }
 
     init(theme frame: MobileTerminalRenderGridFrame) {
@@ -44,6 +64,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
         self.endSequence = nil
+        self.replayVerificationPolicy = .automatic
     }
 
     init(
@@ -56,6 +77,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = frame.stateSeq
+        self.replayVerificationPolicy = .automatic
     }
 
     var bytes: Data {
@@ -90,7 +112,20 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    enum EnqueueResult: Equatable, Sendable {
+        case immediate(TerminalOutputDelivery)
+        case queued
+        case overloaded
+    }
+
+    /// A stalled surface must not retain an unbounded sequence of
+    /// nonreplaceable deltas. Once this many applies are waiting, the caller
+    /// replaces the queue with an authoritative replay instead of adding more
+    /// work that is already becoming stale.
+    static let maximumPendingCount = 32
+
     private var inFlight = false
+    private var inFlightDelivery: TerminalOutputDelivery? = nil
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
 
@@ -102,35 +137,51 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pending.count - pendingHeadIndex
     }
 
-    mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
+    /// The delivery currently represented by the yielded chunk. The stream
+    /// token alone is shared by every queued chunk, so lifecycle code uses this
+    /// identity to wait for a particular full-frame acknowledgement.
+    var currentInFlightDelivery: TerminalOutputDelivery? {
+        inFlightDelivery
+    }
+
+    mutating func enqueue(_ delivery: TerminalOutputDelivery) -> EnqueueResult {
         guard inFlight else {
             inFlight = true
-            return delivery
+            inFlightDelivery = delivery
+            return .immediate(delivery)
         }
         appendPending(delivery)
-        return nil
+        guard pendingCount <= Self.maximumPendingCount else {
+            reset()
+            return .overloaded
+        }
+        return .queued
     }
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
         guard inFlight else {
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
         }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: true)
             pendingHeadIndex = 0
             return nil
         }
         let next = pending[pendingHeadIndex]
         pendingHeadIndex += 1
+        inFlightDelivery = next
         compactPendingStorageIfNeeded()
         return next
     }
 
     mutating func reset() {
         inFlight = false
+        inFlightDelivery = nil
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
     }

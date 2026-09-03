@@ -15584,6 +15584,8 @@ class TerminalController {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows
             payload["render_grid"] = renderGridObject
+            payload["active_screen"] = renderGrid.activeScreen.rawValue
+            payload["anchor"] = renderGrid.anchor.rawValue
         } else {
             if let expectedViewport {
                 guard let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
@@ -15635,6 +15637,12 @@ class TerminalController {
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }
+            // No `active_screen` on compatibility fallbacks: the host has no
+            // authoritative screen source when grid capture fails, and echoing
+            // a client-supplied hint can go stale while the request is in
+            // flight. Omitting the field lets the client keep its currently
+            // tracked screen, which is always at least as fresh.
+            payload["anchor"] = anchor.rawValue
             if !snapshotData.isEmpty {
                 payload["snapshot_format"] = "ghostty.active.vt"
                 payload["snapshot_data_b64"] = snapshotData.base64EncodedString()

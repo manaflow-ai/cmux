@@ -76,6 +76,27 @@ import Testing
         }
     }
 
+    @Test func activeScreenAccessorDistinguishesUnknownFromPrimary() throws {
+        let suiteName = "altscreen-unknown-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = Self.makeStore(defaults: defaults)
+        let surfaceID = "surface-a"
+
+        store.terminalActiveScreenUnknownSurfaceIDs.insert(surfaceID)
+        #expect(store.terminalActiveScreenState(surfaceID: surfaceID) == .unknown)
+        #expect(!store.isAlternateScreen(surfaceID: surfaceID))
+
+        store.recordTerminalRenderGridDelivery(try Self.renderGridFrame(
+            surfaceID: surfaceID,
+            seq: 1,
+            activeScreen: .alternate
+        ))
+        #expect(store.terminalActiveScreenState(surfaceID: surfaceID) == .alternate)
+    }
+
     private static func makeStore(defaults: UserDefaults) -> MobileShellComposite {
         return MobileShellComposite(
             clientIDRepository: MobileClientIDRepository(defaults: defaults),

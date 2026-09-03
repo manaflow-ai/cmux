@@ -161,7 +161,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // blank-space absorption (top-pin while content is short) is
         // disabled for them; reading the store property here keeps the flag
         // live across mode flips.
-        surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
+        let activeScreenState = store.terminalActiveScreenState(surfaceID: surfaceID)
+        surfaceView.hostedAltScreenKnown = activeScreenState != .unknown
+        surfaceView.hostedAltScreenActive = activeScreenState == .alternate
+        context.coordinator.setTerminalScreenRecoveryRequired(
+            store.terminalScreenRecoveryRequired(surfaceID: surfaceID),
+            surfaceView: surfaceView
+        )
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
@@ -231,6 +237,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// In-surface recovery affordance kept visible when UIKit cannot present
         /// the alert (for example while another modal is transitioning).
         var outputConsumerRecoveryOverlay: UIView?
+        /// Published by the shell when compatibility output cannot identify the
+        /// active VT screen. Uses the same bounded Retry affordance as a stalled
+        /// output consumer, but keeps the screen state explicitly unavailable.
+        var terminalScreenRecoveryRequired = false
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -547,10 +557,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    switch terminalOutputApplicationPath(
+                    var outputApplicationPath = terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
-                    ) {
+                    )
+                    if outputApplicationPath == .verifiedReplay,
+                       let frame = chunk.sourceRenderGridFrame,
+                       self.verifiedReplayState.admitCompatibilityFallbackFrame(frame) {
+                        // A best-effort compatibility replacement leaves the
+                        // verifier without a trustworthy cell baseline. Keep
+                        // subsequent deltas live through the legacy VT path
+                        // until a full frame can verify and reclaim it.
+                        outputApplicationPath = .legacy
+                        MobileDebugLog.anchormux(
+                            "verified_replay.compatibility_delta surface=\(surfaceID) " +
+                                "revision=\(frame.renderRevision)"
+                        )
+                    }
+                    switch outputApplicationPath {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else {
                             // Routing is supposed to reject this shape before
@@ -610,6 +634,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         )
                         continue
                     case .legacy:
+                        if chunk.requiresVerifiedReplayReset {
+                            // An exhausted compatibility replay is not a
+                            // render-grid baseline. Drop the verifier's old
+                            // epoch/snapshot and any retained frozen pixels
+                            // before the legacy bytes repaint the surface.
+                            self.verifiedReplayState.resetForCompatibilityFallback()
+                            surfaceView.resetVerifiedReplayPresentationForCompatibilityFallback()
+                        }
                         break
                     }
                     switch chunk.viewportPolicy {
@@ -717,6 +749,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                   surfaceView.window != nil else { return }
             outputConsumerRecoveryAlert = nil
             outputConsumerRecoveryAlertPending = false
+            terminalScreenRecoveryRequired = false
             removeOutputConsumerRecoveryOverlay()
             startMountedTasks(
                 surfaceView: surfaceView,
@@ -984,13 +1017,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
-                outputConsumerRecoveryAlertPending = outputConsumerRestartBlocked
+                outputConsumerRecoveryAlertPending =
+                    outputConsumerRestartBlocked || terminalScreenRecoveryRequired
                 stopMountedTasks()
             }
         }
 
         func detach() {
             outputConsumerRecoveryAlertPending = false
+            terminalScreenRecoveryRequired = false
             stopMountedTasks()
             surfaceView = nil
             themeApplicationScheduler.cancel()
@@ -1013,7 +1048,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
-                outputConsumerRecoveryAlertPending = false
+                outputConsumerRecoveryAlertPending = terminalScreenRecoveryRequired
                 stopMountedTasks()
             }
         }

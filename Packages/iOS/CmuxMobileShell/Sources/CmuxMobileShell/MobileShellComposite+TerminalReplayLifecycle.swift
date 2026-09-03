@@ -70,8 +70,15 @@ extension MobileShellComposite {
 
     func beginTerminalReplayBarrier(
         surfaceID: String,
-        preservingFollowUpCount: Bool = false
+        preservingFollowUpCount: Bool = false,
+        preservingOverloadReplacement: Bool = false
     ) -> UUID {
+        // The overload marker describes still-unreconciled dropped work, not a
+        // particular barrier token. Carry it when a live barrier is replaced;
+        // otherwise a superseding resync could accept a compatibility payload
+        // as though it covered the discarded queue.
+        let carryOverloadReplacement = preservingOverloadReplacement
+            || terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
         cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
@@ -92,7 +99,18 @@ extension MobileShellComposite {
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        if carryOverloadReplacement {
+            // The overload marker represents output discarded before this
+            // barrier generation, not merely a property of the old token.
+            // Preserve a nonzero owed-output floor alongside it so a
+            // compatibility fallback can never be mistaken for an
+            // authoritative full replacement on a follow-up barrier.
+            terminalReplayOverloadReplacementSurfaceIDs.insert(surfaceID)
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = 1
+        }
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -106,26 +124,95 @@ extension MobileShellComposite {
 
     /// Begin a fresh authoritative-replay generation while carrying forward
     /// any output or replay work that the new generation supersedes.
-    func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
-        let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
+    func beginTerminalReplayBarrierCarryingReplacedWork(
+        surfaceID: String,
+        forceReplacementReplay: Bool = false
+    ) -> UUID {
+        let preservingOverloadReplacement = terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
+        let owesReplacementReplay = forceReplacementReplay
+            || !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
-        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        let replayBarrierToken = beginTerminalReplayBarrier(
+            surfaceID: surfaceID,
+            preservingOverloadReplacement: preservingOverloadReplacement
+        )
         if owesReplacementReplay {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            // A forced replacement (notably an output-queue overload) has
+            // already discarded work before this barrier was created. Keep a
+            // non-zero floor so a compatibility replay fallback cannot be
+            // mistaken for covering zero dropped chunks.
+            if forceReplacementReplay {
+                terminalReplayOverloadReplacementSurfaceIDs.insert(surfaceID)
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = max(
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0,
+                    1
+                )
+            }
         }
         return replayBarrierToken
     }
 
     /// Supersede every older replay and output acknowledgement for a surface,
     /// then request one authoritative replacement owned by the new barrier.
-    func requestAuthoritativeTerminalResync(surfaceID: String, reason: String) {
-        guard hasTerminalOutputSink(surfaceID: surfaceID), remoteClient != nil else { return }
-        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+    func requestAuthoritativeTerminalResync(
+        surfaceID: String,
+        reason: String,
+        forceReplacementReplay: Bool = false
+    ) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(
+            surfaceID: surfaceID,
+            forceReplacementReplay: forceReplacementReplay
+        )
         MobileDebugLog.anchormux(
             "CMUX_REPLAY authoritative_resync reason=\(reason) surface=\(surfaceID)"
         )
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
+    /// Retry a replay whose payload cannot replace output discarded by a
+    /// recovery barrier. Raw byte tails and VT text snapshots are useful for a
+    /// blank/legacy cold attach, but neither carries the complete render-grid
+    /// state required to replace a live TUI after overload.
+    ///
+    /// - Returns: `true` when the current request's in-flight ownership was
+    ///   transferred to a replacement request.
+    @discardableResult
+    func retryTerminalReplayAfterNonAuthoritativeFallback(
+        surfaceID: String,
+        replayBarrierToken: UUID?,
+        replayRequestID: UUID,
+        coveredReplayBarrierDroppedOutputCount: UInt64?
+    ) -> Bool {
+        guard let replayBarrierToken,
+              terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
+            return false
+        }
+        guard let retryToken = prepareTerminalReplayFailureRetry(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken
+        ) else {
+            // `prepareTerminalReplayFailureRetry` fails the barrier open when
+            // the bounded retry budget is exhausted. The old local frame is
+            // preserved and live output can re-establish it without a manual
+            // disconnect/reconnect.
+            return false
+        }
+        clearTerminalReplayInFlightIfCurrent(
+            surfaceID: surfaceID,
+            requestID: replayRequestID
+        )
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            replayBarrierToken: retryToken,
+            coveredReplayBarrierDroppedOutputCount:
+                coveredReplayBarrierDroppedOutputCount
+                    ?? terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+        )
+        return true
     }
 
     func requestColdAttachTerminalReplay(surfaceID: String) {
@@ -213,6 +300,7 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -328,6 +416,7 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -599,6 +688,17 @@ extension MobileShellComposite {
     /// ``markTerminalBytesDelivered(surfaceID:endSeq:)``).
     func rebaseTerminalReplayStaleFloor(surfaceID: String) {
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    /// Starts a new byte-sequence epoch for an accepted best-effort
+    /// compatibility replacement. Retry exhaustion restores the pre-barrier
+    /// high-water mark because the old pixels remain visible, but the clearing
+    /// fallback then becomes the newest available screen state and may carry a
+    /// lower or no sequence at all. Drop both the restored mark and its stash so
+    /// subsequent live events from a restarted host are not rejected forever.
+    func rebaseTerminalSequenceForCompatibilityFallback(surfaceID: String) {
+        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
     }
 
     /// Barrier released without delivering: the surface still shows the

@@ -105,6 +105,186 @@ struct VerifiedTerminalReplayStateMachineTests {
         }
     }
 
+    @Test("a compatibility fallback retains ordering fences while requiring a fresh full frame")
+    func compatibilityFallbackResetRequiresFreshFullFrame() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let original = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "last verified"
+        )
+        commit(original, to: machine)
+
+        let generation = machine.updateExpectedViewportDimensions(
+            columns: 80,
+            rows: 3,
+            reportID: 1
+        )
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-compatibility",
+            renderRevisionFloor: 1,
+            reportID: 1,
+            negotiationGeneration: generation,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 80,
+            grantedRows: 3
+        )
+
+        let pending = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "pending verified"
+        )
+        let pendingTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: pending))
+        )
+
+        // An exhausted replay can only install a compatibility byte snapshot.
+        // The frozen layer is cleared by the surface, but the logical snapshot
+        // and producer/viewport fences remain as ordering guards until a fresh
+        // full frame verifies. This prevents a delayed old frame from becoming
+        // the first post-fallback baseline at an arbitrary grid size.
+        machine.resetForCompatibilityFallback()
+        #expect(machine.activeTransactionID == nil)
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last verified")
+        #expect(machine.isFrozen)
+
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: pending) else {
+            Issue.record("a frame from the canceled verified transaction must stay rejected")
+            return
+        }
+
+        let partial = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "partial after compatibility fallback",
+            full: false
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: partial) else {
+            Issue.record("a compatibility fallback must require a fresh full frame")
+            return
+        }
+
+        let staleGrid = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 41,
+            text: "stale grid after compatibility fallback"
+        )
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
+            Issue.record("compatibility reset must retain viewport fences for stale full frames")
+            return
+        }
+
+        let freshFull = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 5,
+            stateSeq: 5,
+            columns: 80,
+            text: "fresh verified baseline"
+        )
+        let freshTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: freshFull))
+        )
+        #expect(freshTransaction.id != pendingTransaction.id)
+        #expect(
+            machine.complete(
+                transactionID: freshTransaction.id,
+                observedFrame: freshFull
+            ) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "fresh verified baseline")
+        #expect(!machine.isFrozen)
+    }
+
+    @Test("compatibility fallback admits live deltas without starting replay churn")
+    func compatibilityFallbackAdmitsLiveDeltas() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let baseline = try frame(
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "verified baseline"
+        )
+        commit(baseline, to: machine)
+        machine.resetForCompatibilityFallback()
+
+        let delta = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "live compatibility delta",
+            full: false
+        )
+        #expect(
+            machine.admitCompatibilityFallbackFrame(delta),
+            "a persistent capture failure needs an explicit legacy escape"
+        )
+        let oversizedDelta = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: Int.max,
+            text: "oversized compatibility delta",
+            full: false
+        )
+        #expect(
+            !machine.admitCompatibilityFallbackFrame(oversizedDelta),
+            "compatibility deltas must retain bounded viewport dimensions"
+        )
+        let latestDelta = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "latest compatibility delta",
+            full: false
+        )
+        #expect(machine.admitCompatibilityFallbackFrame(latestDelta))
+        // Reset while a legacy compatibility delta is the latest admitted
+        // output. A full frame captured before that reset must be fenced even
+        // though there is no verified transaction in flight.
+        machine.resetForCompatibilityFallback()
+        let delayedFull = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 80,
+            text: "delayed full frame"
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedFull) else {
+            Issue.record("a delayed full frame must stay behind the compatibility reset fence")
+            return
+        }
+
+        let freshFull = try frame(
+            renderRevision: 5,
+            stateSeq: 5,
+            columns: 80,
+            text: "fresh verified recovery"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: freshFull)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: freshFull) == .reveal
+        )
+        let laterDelta = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 80,
+            text: "verified delta after recovery",
+            full: false
+        )
+        #expect(
+            !machine.admitCompatibilityFallbackFrame(laterDelta),
+            "a verified full frame must end compatibility escape mode"
+        )
+    }
+
     @Test("a stale completion cannot reveal over a newer replay")
     func staleCompletionCannotReveal() throws {
         let machine = VerifiedTerminalReplayStateMachine()

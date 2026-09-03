@@ -90,7 +90,16 @@ actor LivenessHostRouter {
     private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
-    private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
+    private var replayPayloads: [(
+        text: String?,
+        snapshotText: String?,
+        sequence: UInt64?,
+        renderGrid: MobileTerminalRenderGridFrame?,
+        activeScreen: MobileTerminalRenderGridFrame.Screen?,
+        anchor: MobileTerminalRenderGridFrame.Anchor?,
+        columns: Int?,
+        rows: Int?
+    )] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var replayFailureCode: String?
@@ -316,12 +325,38 @@ actor LivenessHostRouter {
         replayTexts.append(contentsOf: texts)
     }
 
-    func enqueueReplayPayload(text: String?, sequence: UInt64?) {
-        replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
+    func enqueueReplayPayload(
+        text: String?,
+        sequence: UInt64?,
+        snapshotText: String? = nil,
+        activeScreen: MobileTerminalRenderGridFrame.Screen? = nil,
+        anchor: MobileTerminalRenderGridFrame.Anchor? = nil,
+        columns: Int? = nil,
+        rows: Int? = nil
+    ) {
+        replayPayloads.append((
+            text: text,
+            snapshotText: snapshotText,
+            sequence: sequence,
+            renderGrid: nil,
+            activeScreen: activeScreen,
+            anchor: anchor,
+            columns: columns,
+            rows: rows
+        ))
     }
 
     func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
-        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+        replayPayloads.append((
+            text: nil,
+            snapshotText: nil,
+            sequence: nil,
+            renderGrid: renderGrid,
+            activeScreen: nil,
+            anchor: nil,
+            columns: nil,
+            rows: nil
+        ))
     }
 
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
@@ -655,8 +690,23 @@ actor LivenessHostRouter {
                 if let text = payload.text {
                     result["data_b64"] = Data(text.utf8).base64EncodedString()
                 }
+                if let snapshotText = payload.snapshotText {
+                    result["snapshot_data_b64"] = Data(snapshotText.utf8).base64EncodedString()
+                }
                 if let sequence = payload.sequence {
                     result["seq"] = sequence
+                }
+                if let activeScreen = payload.activeScreen {
+                    result["active_screen"] = activeScreen.rawValue
+                }
+                if let anchor = payload.anchor {
+                    result["anchor"] = anchor.rawValue
+                }
+                if let columns = payload.columns {
+                    result["columns"] = columns
+                }
+                if let rows = payload.rows {
+                    result["rows"] = rows
                 }
                 if let renderGrid = payload.renderGrid,
                    let renderGridObject = try? renderGrid.jsonObject() {
