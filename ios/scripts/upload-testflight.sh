@@ -1046,10 +1046,14 @@ if [[ "$SIGNING" == "automatic" ]]; then
   # naming a profile that isn't installed makes -exportArchive fail.
   plutil -insert signingStyle -string automatic "$EXPORT_OPTIONS"
 else
-  # Manual signing: requires the "Apple Distribution" certificate and the named
+  # Manual signing: requires the distribution certificate and the named
   # provisioning profile to already be present in the local keychain.
+  # IOS_SIGNING_CERTIFICATE selects the certificate TYPE name Xcode matches
+  # against ("Apple Distribution" default; set "iPhone Distribution" when the
+  # keychain only holds an iOS-only distribution cert, whose identity string
+  # uses the legacy prefix).
   plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
-  plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
+  plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
 fi
