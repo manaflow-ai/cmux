@@ -100,7 +100,9 @@ channel. Field-found items name the incident that motivated them.
 ## Not yet covered / future
 
 29. Direct-path upgrade (post-admission NAT traversal authorization + LAN
-    hints) once wired: path migration without session drop.
+    hints) and explicit numeric Direct/Tailscale-only allowlists: prove path
+    migration without session drop and fail-closed behavior for empty or
+    unusable pinned candidates.
 30. Radio lifecycle on physical devices: lock/unlock, background/foreground,
     LTE<->WiFi handoff -> recovery <= 3s, every transition attributed.
 31. Simulator-stream lanes over irx (currently unsupported).
