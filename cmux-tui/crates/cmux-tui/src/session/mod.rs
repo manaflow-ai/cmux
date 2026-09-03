@@ -621,14 +621,7 @@ impl Session {
                 .claim_terminal_geometry(surface, 0)
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
-            Session::Remote(remote) => remote
-                .request(json!({
-                    "cmd": "set-client-sizing",
-                    "surface": surface,
-                    "enabled": true,
-                    "exclusive": true,
-                }))
-                .map(|_| ()),
+            Session::Remote(remote) => remote.claim_terminal_geometry(surface),
         }
     }
 

@@ -601,7 +601,7 @@ fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) ->
         PipeIoControlResult::Gone => serde_json::json!({
             "cols": cols,
             "rows": rows,
-            "error": "remote session unavailable"
+            "error": RESIZE_ERROR_CODE
         }),
         PipeIoControlResult::Failed(error) => {
             log_pipe_io_error("resize", error);
@@ -614,9 +614,7 @@ fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) ->
 fn claim_diag_line(result: &PipeIoControlResult<()>) -> String {
     let details = match result {
         PipeIoControlResult::Completed(()) => serde_json::json!({"accepted": true}),
-        PipeIoControlResult::Gone => {
-            serde_json::json!({"error": "remote session unavailable"})
-        }
+        PipeIoControlResult::Gone => serde_json::json!({"error": CLAIM_ERROR_CODE}),
         PipeIoControlResult::Failed(error) => {
             log_pipe_io_error("claim geometry", error);
             serde_json::json!({"error": CLAIM_ERROR_CODE})
