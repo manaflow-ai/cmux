@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589'
+IR_SHA256 = '3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929'
 
 
 @dataclass(frozen=True)
@@ -589,6 +589,16 @@ COMMANDS = {
         'control',
         5,
         None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'machine-usage': CommandMetadata(
+        'machine-usage',
+        'control',
+        12,
+        'machine-usage-v1',
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
@@ -1395,6 +1405,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
     'overflow': EventMetadata('overflow', 7, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

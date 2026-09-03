@@ -212,6 +212,11 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
+  (default `https://coderouter.dev`); set it on a preview deployment to test against that
+  deployment. See "Model plane".
+- `CMUX_VM_CODEROUTER_ENV_ENABLED`, local-dev only. `0` creates unwired machines with no
+  coderouter env or edge rule. Never set it in production or staging.
 - `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
   Freestyle machines join their owner's VPC, open no public inbound port, and are
   attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
@@ -376,6 +381,8 @@ The Noise handshake encrypts and authenticates the session end to end, so carrie
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
 `/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
+That file carries base URLs, a placeholder key, and the VM id only; the credential is
+edge-injected (see "Model plane" below).
 
 Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
 "the account holding uid 1000, or root in an image with no such account", and the devbox image
@@ -408,6 +415,38 @@ Operational note: before rollout, verify the deployed
 env values with
 `bun run cloud-vm:env:audit -- <target> --strict`, then confirm attach and
 daemon health with `bun run cloud-vm:stress -- <target> --provider default`.
+
+## Model plane
+
+No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `modelPlane`
+provisioner (`services/vms/modelPlaneGateway.ts` adapting
+`services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
+provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
+and returns guest env (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL`,
+placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`, `CMUX_VM_ID`) plus one edge rule for the
+coderouter host with headers `x-coderouter-route-token` and `x-cmux-vm-id`. The Freestyle
+driver passes the rule inline as `tls.rules` on the create; the platform steers the host to
+its edge and installs its CA in the guest at boot, and the edge injects (and overwrites) those
+headers on every request. coderouter rejects a bound token whose request carries a different
+VM id. Rules created after boot never reach a running guest, so the rule is never added later.
+
+The guest dials the real name, `https://coderouter.dev` by default;
+`CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https origin) points guests at a preview deployment.
+Injection activates 20-30 s after boot, so the driver ends bootstrap with a guest-side probe of
+`https://<host>/v1/models` (one exec, bounded loop) and rolls the machine back if it never
+succeeds. Node harnesses (Claude Code, pi) need `NODE_EXTRA_CA_CERTS`, which
+`agent-config.sh` exports when the platform CA file exists.
+
+Provisioning is mandatory: a coderouter outage fails the create with
+`vm_model_plane_unavailable` (503, retryable), refunds the create credit, marks the row failed
+with `model_plane_unavailable` (same-key retries reach provisioning again), and creates no
+provider machine. There is no coderouter plan or entitlement gate on the model plane: access to
+coderouter and Subrouter is team membership only, so every member of the billing team gets a
+token. Rows written by the retired gate still carry `model_plane_entitlement` and stay
+retryable. Tokens never rotate; `destroyVm`, account deletion,
+the status reconcile cron, and every create rollback revoke them best-effort.
+`CMUX_VM_CODEROUTER_ENV_ENABLED=0` is a local-dev escape hatch only: it creates an unwired
+machine (no env, no rule, still no secret) and must never be set in production.
 
 ## Usage, limits, and pricing
 

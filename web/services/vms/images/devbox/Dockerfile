@@ -203,8 +203,10 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
-# configs from the machine boot env (the coderouter model-plane vars minted
-# at VM create) and persists that env 0600 for shells that boot without it.
+# configs from the machine boot env (the coderouter model-plane vars set at
+# VM create: base URLs, placeholder keys, the VM id; the route token itself
+# is injected by the provider's TLS edge and never reaches the guest) and
+# persists that env 0600 for shells that boot without it.
 # The build check generates configs under a throwaway HOME with fake env,
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
@@ -215,22 +217,26 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
   && mkdir -p /tmp/agent-config-check \
-  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
-  && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
   && grep -q '"baseUrl": "https://example.invalid/v1"' /tmp/agent-config-check/.pi/agent/models.json \
-  && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json \
-  && ! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json \
+  && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json \
   && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
-  && echo "export OPENAI_API_KEY='crt_persisted'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && echo "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \

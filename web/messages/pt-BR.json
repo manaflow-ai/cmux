@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
       "title": "coderouter",
-      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso."
+      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
+      "machines": {
+        "title": "Máquinas",
+        "description": "Uso do coderouter por máquina para {team} nos últimos {days} dias.",
+        "machineColumn": "Máquina",
+        "tokensColumn": "Total de tokens",
+        "apiEquivalentColumn": "Valor equivalente em API",
+        "unnamed": "Máquina sem nome",
+        "empty": "Nenhuma máquina usou o coderouter nos últimos {days} dias.",
+        "unavailable": "O uso por máquina está temporariamente indisponível.",
+        "estimateNote": "O valor equivalente em API é uma estimativa com base em preços de lista públicos, não o gasto real."
+      }
     },
     "accountMenu": {
       "label": "Menu da conta",
