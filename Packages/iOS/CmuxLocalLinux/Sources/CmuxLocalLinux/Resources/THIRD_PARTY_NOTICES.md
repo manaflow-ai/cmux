@@ -39,10 +39,11 @@ The iSH archive reader is built from the vendored libarchive source at
 `vendor/ish/deps/libarchive`. Its copyright and license notice is
 `libarchive-COPYING`, which is included in this package resource.
 
-## Alpine Linux fakefs
+## Alpine Linux root filesystem
 
-The bundled fakefs is generated from the Alpine Linux 3.24.1 x86 minirootfs by
-iSH's `tools/fakefsify`. The source URL, archive digest, and exact package
+The bundled archive is an Alpine Linux 3.24.1 x86 root filesystem tarball. It
+is converted into iSH's fakefs layout on the device by `cmux_ish_import_rootfs`
+(iSH's `fakefs_import`). The source URL, archive digest, and exact package
 versions are in `alpine-rootfs.json`. The package licenses reported by Alpine's
 `lib/apk/db/installed` are:
 

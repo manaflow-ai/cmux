@@ -311,10 +311,11 @@ license violation that results solely from a conflict between GPLv2 or GPLv3
 and Apple App Store terms, provided the GPL obligations are otherwise met. The
 complete notice is also shipped in the `CmuxLocalLinux` package resource.
 
-### Alpine Linux fakefs
+### Alpine Linux root filesystem
 
-The bundled `CmuxLocalLinux` fakefs archive is generated with iSH's
-`tools/fakefsify` from the Alpine Linux 3.24.1 x86 minirootfs:
+The bundled `CmuxLocalLinux` archive is an Alpine Linux 3.24.1 x86 root
+filesystem tarball, converted into iSH's fakefs layout on the device at first
+boot:
 
 - **Source:** https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86/alpine-minirootfs-3.24.1-x86.tar.gz
 - **Archive:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz`

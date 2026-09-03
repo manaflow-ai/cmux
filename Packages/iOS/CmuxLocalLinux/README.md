@@ -23,18 +23,27 @@ local shell.
 
 The verifier provisions Meson and Ninja when a build is required. It uses the
 installed Homebrew formulae when available and a private, pinned Python
-environment otherwise. `./scripts/build-ish-ios.sh` invokes the same helper for
-direct builds, so a clean checkout has one deterministic tool setup path.
+environment otherwise. It also installs LLVM `clang` and `lld` through
+Homebrew, because iSH's i386 VDSO must be cross-compiled with an ELF-capable
+toolchain that Xcode does not ship. `./scripts/build-ish-ios.sh` invokes the
+same helper for direct builds, so a clean checkout has one deterministic tool
+setup path.
 
-The Alpine fakefs archive is a checked-in product resource at
-`Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz`. Its SHA-256 and
-package manifest are recorded in `Resources/alpine-rootfs.json`; update both
-files together when changing the rootfs.
+The root filesystem resource at
+`Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz` is a plain Alpine
+Linux x86 root tarball, not an iSH fakefs. `cmux_ish_import_rootfs` converts
+it into iSH's fakefs layout (`data/` plus `meta.db`) on the device the first
+time the runtime boots. Its SHA-256 and package manifest are recorded in
+`Resources/alpine-rootfs.json`; update both files together when changing the
+rootfs. The runtime writes the schema version and that digest into the
+install's `.rootfs-version` marker, so shipping a different archive replaces
+the on-device Linux disk on the next launch.
 
 ## Tests
 
-The package tests cover the local scrollback/replay contract without booting an
-iSH kernel. After building the xcframework, run the package tests with SwiftPM:
+The package tests cover boot and rootfs replacement, session lifecycle, the
+controller, and the local scrollback/replay contract without booting an iSH
+kernel. After building the xcframework, run the package tests with SwiftPM:
 
 ```sh
 swift test --package-path Packages/iOS/CmuxLocalLinux --disable-sandbox --parallel
