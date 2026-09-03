@@ -1144,17 +1144,18 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
-    let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
+    let (mut host, needs_repair) = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
             match AgentRoster::restore(&snapshot) {
-                Some(roster) => AgentRosterHost { roster, cursor },
+                Some(roster) => (AgentRosterHost { roster, cursor }, false),
                 // The cursor is meaningful only with the snapshot that was
                 // captured at the same fold boundary. Replaying from zero
                 // is the safe recovery path for malformed persisted state.
-                None => AgentRosterHost::default(),
+                None => (AgentRosterHost::default(), true),
             }
         }
-        _ => AgentRosterHost::default(),
+        Some(_) => (AgentRosterHost::default(), true),
+        None => (AgentRosterHost::default(), false),
     };
     let started_at = host.cursor;
     loop {
@@ -1167,7 +1168,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    if host.cursor != started_at {
+    if needs_repair || host.cursor != started_at {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
