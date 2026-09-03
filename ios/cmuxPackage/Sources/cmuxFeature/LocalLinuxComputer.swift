@@ -87,7 +87,7 @@ enum LocalLinuxStrings {
         case .rendererUnavailable:
             L10n.string(
                 "mobile.localLinux.error.renderer",
-                defaultValue: "The terminal renderer is unavailable."
+                defaultValue: "The terminal renderer could not start."
             )
         case .inputFailed, .inputByteCountInvalid:
             L10n.string(
