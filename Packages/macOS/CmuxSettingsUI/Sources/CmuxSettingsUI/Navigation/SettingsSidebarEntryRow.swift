@@ -18,7 +18,7 @@ struct SettingsSidebarEntryRow: View {
         HStack(spacing: 10) {
             Image(systemName: symbolName)
                 .foregroundStyle(.secondary)
-                .frame(width: 16)
+                .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
