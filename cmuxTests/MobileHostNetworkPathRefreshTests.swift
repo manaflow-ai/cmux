@@ -305,31 +305,23 @@ import Testing
 
     @Test func resolutionRacingInvalidationCannotRepolluteCache() async {
         let resolver = MobileRouteResolver()
-        // Two-way handshake: `started` proves the resolution is genuinely in
-        // flight (its cache generation already captured) before the
-        // invalidation runs — `async let` alone does not guarantee the child
-        // has begun — and `gate` holds it there until after the invalidation.
-        let started = DispatchSemaphore(value: 0)
-        let gate = DispatchSemaphore(value: 0)
-        // Start a resolution that represents the OLD network and hold it
-        // in flight while the path changes underneath it.
-        async let staleResolution = resolver.routesResolvingTailscaleDNS(
+        // The resolver captures its cache generation before it invokes this
+        // closure. Invalidating from inside the closure therefore exercises
+        // the real in-flight race without blocking a cooperative executor
+        // thread on a semaphore.
+        let staleResolution = await resolver.routesResolvingTailscaleDNS(
             port: 51000,
             resolveHosts: {
-                started.signal()
-                gate.wait()
-                return ["stale-old-net.tail1234.ts.net"]
+                resolver.invalidateResolvedTailscaleHostCache()
+                return ["100.64.0.99"]
             }
         )
-        started.wait()
-        resolver.invalidateResolvedTailscaleHostCache()
-        gate.signal()
         // The awaiting caller still gets the hosts it resolved (it asked
         // before the change), but the cache write is discarded by the
         // generation guard, so later reads cannot see the old network.
-        _ = await staleResolution
+        #expect(tailscaleHosts(in: staleResolution) == ["100.64.0.99"])
         let afterStaleStore = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
-        #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
+        #expect(!tailscaleHosts(in: afterStaleStore).contains("100.64.0.99"))
     }
 }
 
