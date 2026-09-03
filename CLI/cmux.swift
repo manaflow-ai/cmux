@@ -6535,7 +6535,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+                    Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|workspace|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -18628,7 +18628,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|workspace|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports; run `cmux vpn up`

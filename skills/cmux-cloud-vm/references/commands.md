@@ -8,6 +8,9 @@
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
+cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
+cmux vpn down                          # take this build's tunnel down (sudo)
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first (--refresh = the sidebar's Refresh: fleet list + every provider, so a machine you just created shows up)
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
@@ -35,18 +38,19 @@ Tree line shapes:
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/                                  ← workspaces lead (what you open and drag)
+  workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-    (detached — no tab on the machine shows these)  ← terminals no workspace tab shows (e.g. `vm agent` runs)
-      ● term_9d0…  claude -p …
+    tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
+    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
+      ● term_c04…  sleep 1000
   desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
-    3000  http  http://10.0.0.12:3000  (cmux vm open vivid-newt:port/3000)   ← forwarded ports; the link needs `cmux vpn up`
+    3000  http  (cmux vm open vivid-newt:port/3000)
 ```
 
-The sidebar shows the same nodes (its order under a machine: Terminals, Displays, Workspaces, Ports; the CLI leads with `workspaces/`, then the detached pool, `desktop`, `ports/`); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). Placement flags that name nothing (`--workspace workspace:99`, `--pane pane:99`) are errors, never a silent open in the selected workspace; `--tabs`/`--tab` cannot be combined with a pane side.
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 

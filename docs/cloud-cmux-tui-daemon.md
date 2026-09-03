@@ -221,13 +221,22 @@ from the daemon's own session model rather than a cloud-specific catalog:
 
 ```
 <machine>                        status · memory · disk · link
-  workspaces/
+  workspaces/                    one machine, many cmux-tui workspaces
     <name>  ws_…  *              cmux-tui workspace (focused marked *)
       ● term_…  <title>  <cwd>  [agent claude running]  (open: surface:3)
+    <name>  ws_…                 another workspace on the same machine
+  terminals/                     the pool: terminals no workspace views
+    ● term_…  <title>            (`cmux vm tree` prints these as "(detached)" under workspaces/)
   desktop                        noVNC screen (Mac-side synthetic node)
   ports/
     3000  http                   forwarded port (Mac-side synthetic node)
 ```
+
+A machine is the big box and its workspaces are rows under it, never machines
+of their own. The sidebar's Cloud tab renders the same order: the machine's
+Workspaces group first (always its own row, with a ＋ that is
+`cmux vm workspace new`; an empty machine shows "No workspaces yet" under it),
+then Terminals (only the detached ones), Displays, Ports, Browsers.
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the

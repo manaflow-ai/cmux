@@ -9,7 +9,6 @@ import {
   type VpcData,
 } from "freestyle";
 import { randomBytes } from "node:crypto";
-import { VM_PLACEHOLDER_API_KEY } from "../../coderouter/routeTokenAuth";
 import {
   ProviderError,
   type AttachTransport,
@@ -32,7 +31,6 @@ import {
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
-import { context as otelContext } from "@opentelemetry/api";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -151,10 +149,6 @@ const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const MODEL_PLANE_ENV_PATH = "/root/.config/cmux/model-plane.env";
 /** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
-const EDGE_PROBE_ATTEMPTS = 30;
-const EDGE_PROBE_PATH = "/api/coderouter/vm-usage/self";
-const EDGE_PROBE_URL = (host: string) => `https://${host}${EDGE_PROBE_PATH}`;
-const EDGE_PROBE_TIMEOUT_MS = 240_000;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 const ROUTE_TOKEN_GRAMMAR = /\bcrt_[A-Za-z0-9._-]+/;
@@ -448,24 +442,6 @@ export function freestyleEdgeRules(edgeRules: readonly VmEdgeRule[] | undefined)
 }
 
 /**
- * Bounded guest-side loop, one exec: succeeds as soon as a request to the
- * edge-steered host returns 2xx (the injected token is live), fails after
- * ~60 s of 401s (injection not active yet) or connection errors. `-f` makes
- * curl exit non-zero on 401, and the CA the platform installed makes the
- * edge's certificate trusted without any flag.
- */
-export function freestyleEdgeProbeCommand(host: string): string {
-  if (!EDGE_DOMAIN.test(host)) {
-    throw new ProviderError("freestyle", `edge probe host ${JSON.stringify(host)} is not a bare host name`);
-  }
-  // The self-usage route answers 200 only when the edge injected a token
-  // bound to this machine together with its vm id; the placeholder bearer is
-  // ignored by the server. /v1/models is not usable here: the upstream
-  // requires a client_version query the guest does not know.
-  return `for i in $(seq 1 ${EDGE_PROBE_ATTEMPTS}); do curl -fsS -o /dev/null --max-time 5 -H 'authorization: Bearer ${VM_PLACEHOLDER_API_KEY}' ${EDGE_PROBE_URL(host)} && exit 0; sleep 2; done; exit 1`;
-}
-
-/**
  * Nothing that reaches the guest (env file, exec command) may carry a route
  * token: the token lives only in the edge rule. Throws on the `crt_` grammar.
  */
@@ -652,20 +628,26 @@ function isNotFound(err: unknown): boolean {
  * the provider match what it is asked for.
  */
 class FreestylePrivateNetworking implements VMPrivateNetworking {
-  async ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork> {
+  /**
+   * Create-first: a returning user's network id lives in our row, so this runs
+   * for an account's first machine (or a heal). The create is the one call
+   * that has to happen; a slug conflict means another create won the race or
+   * a row went missing, and the read recovers the winner. `heal` (the
+   * reconcile cron) reads by slug and re-creates the members rule instead;
+   * it is off the request path because a rule deleted out of band is an
+   * operator event, not something every create should pay to re-check.
+   */
+  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork> {
     const slug = options.slug.trim();
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
       "cmux.vm.provider.ensure_network",
-      { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug },
+      { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug, "cmux.vm.network.heal": options.heal === true },
       async (span) => {
         const fs = freestyleClient();
-        const existing = await this.readNetworkBySlug(fs, slug);
-        if (existing) {
-          // Create-time rules can be deleted out of band (dashboard, scripts),
-          // and a network without its members rule strands every machine on
-          // it. Heal on every reuse: listing is cheap, the create is
-          // conditional, and the rule is what the whole feature stands on.
+        if (options.heal) {
+          const existing = await this.readNetworkBySlug(fs, slug);
+          if (!existing) throw new ProviderError("freestyle", `ensureNetwork(${slug}): no network to heal`);
           await this.ensureMembersRule(fs, existing.id);
           setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
           return existing;
@@ -673,8 +655,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         try {
           // The CIDRs are deliberately left to the platform: a derived /24 out
           // of 10.0.0.0/8 and a unique-local /64 both sit inside a tunnel's
-          // default routes, so no cmux code has to allocate address space or
-          // keep two accounts from colliding.
+          // default routes, so no cmux code has to allocate address space.
           const { data } = await fs.vpc.create({
             slug,
             displayName: options.displayName,
@@ -683,13 +664,13 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
         } catch (err) {
-          // Two machines created at once both miss the read and both create.
-          // The slug is unique per account, so the loser is told the name is
-          // taken — and the winner's network is the right answer for both.
-          const raced = await this.readNetworkBySlug(fs, slug);
-          if (raced) {
-            setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
-            return raced;
+          // The slug is unique per account: the loser of a race, or a create
+          // for a user whose row was lost, is told the name is taken, and the
+          // existing network is the right answer.
+          const existing = await this.readNetworkBySlug(fs, slug);
+          if (existing) {
+            setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
+            return existing;
           }
           throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
         }
@@ -916,7 +897,6 @@ export class FreestyleProvider implements VMProvider {
             // The in-VM `cmux` shim (peer links, `cmux notify`) is not baked; install it
             // now so it exists before the first attach-time heal.
             await this.installGuestCli(vm);
-            await this.verifyEdgeRules(vm, vmId, options.edgeRules, options.afterResponse);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -1140,7 +1120,6 @@ export class FreestyleProvider implements VMProvider {
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
           try {
             if (options?.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            await this.verifyEdgeRules(vm, vmId, options?.edgeRules, options?.afterResponse);
           } catch (err) {
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
@@ -1373,69 +1352,6 @@ export class FreestyleProvider implements VMProvider {
    * inside the guest before handing the machine out; an inactive rule means
    * the machine can never reach a model, so the caller rolls it back.
    */
-  /**
-   * The edge rule is written inline by vms.create, but Freestyle activates it
-   * asynchronously (seconds; measured 3 to 11 s in production). Blocking the
-   * create on that activation made the whole request wait for the edge, so
-   * with a scheduler the probe runs after the response and reports on its own
-   * span (`cmux.vm.provider.edge_probe`): success as an attribute, failure as
-   * a recorded span error plus a log line. Without a scheduler the probe is
-   * awaited and a failure rolls the machine back, as before.
-   */
-  private async verifyEdgeRules(
-    vm: Vm,
-    vmId: string,
-    edgeRules: readonly VmEdgeRule[] | undefined,
-    afterResponse: CreateOptions["afterResponse"],
-  ): Promise<void> {
-    if (!edgeRules || edgeRules.length === 0) return;
-    if (!afterResponse) {
-      await this.probeEdgeRules(vm, vmId, edgeRules);
-      return;
-    }
-    // The callback runs after the response, outside the request's active
-    // span, where a fresh root span would fall under the 2% default sampling
-    // and lose its attributes. Carry the request context so the probe span is
-    // a child of the create trace (sampled with it), and log the outcome too.
-    const requestContext = otelContext.active();
-    afterResponse(() =>
-      otelContext.with(requestContext, () =>
-        withVmSpan(
-          "cmux.vm.provider.edge_probe",
-          { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "edge_probe", "cmux.vm.id": vmId, "cmux.vm.edge_rules": edgeRules.length },
-          async (span) => {
-            const startedAt = performance.now();
-            try {
-              await this.probeEdgeRules(vm, vmId, edgeRules);
-              const ms = Math.round(performance.now() - startedAt);
-              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": true, "cmux.vm.edge_probe.ms": ms });
-              console.info("cmux vm edge probe", JSON.stringify({ vmId, ok: true, ms }));
-            } catch (err) {
-              const ms = Math.round(performance.now() - startedAt);
-              setSpanAttributes(span, { "cmux.vm.edge_probe.ok": false, "cmux.vm.edge_probe.ms": ms });
-              recordSpanError(span, err);
-              console.error("cmux vm edge probe", JSON.stringify({ vmId, ok: false, ms, error: errorMessage(err) }));
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  private async probeEdgeRules(vm: Vm, vmId: string, edgeRules: readonly VmEdgeRule[] | undefined): Promise<void> {
-    if (!edgeRules || edgeRules.length === 0) return;
-    for (const rule of edgeRules) {
-      const command = freestyleEdgeProbeCommand(rule.domain);
-      assertNoRouteTokenInGuestPayload([command], "edge probe");
-      const probe = await this.execResult(vm, command, EDGE_PROBE_TIMEOUT_MS);
-      if (probe?.exitCode === 0) continue;
-      throw new ProviderError(
-        "freestyle",
-        `edge rule for ${rule.domain} in ${vmId} is inactive: the guest probe of ${EDGE_PROBE_URL(rule.domain)} did not succeed (exit ${probe?.exitCode ?? "n/a"})`,
-      );
-    }
-  }
-
   /**
    * Attach-time heal: a daemon that is running AND listening dual-stack is
    * left alone; anything else is repaired, reinstalling first when the binary

@@ -376,7 +376,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
-    func testCloudTreePoolsThenWorkspacePointerLists() {
+    func testCloudTreeWorkspacesLeadThenPools() {
         let ws0 = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
         let ws1 = SurfaceRemoteWorkspace(id: "ws_side", name: "side", index: 1, focused: false)
         let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "scratch", index: 2, focused: false)
@@ -406,16 +406,14 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
+        // One machine, many workspaces: the Workspaces group leads (every workspace the
+        // machine reports, pointer rows under each), then the pool of terminals no
+        // workspace views, then the machine's displays and ports.
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
             "resource:local/terminal/AAA",
             "machine:vivid-newt",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_1",
-            "resource:vivid-newt/terminal/term_2",
-            "machine:vivid-newt/displays",
-            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
@@ -425,6 +423,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_2",
+            "machine:vivid-newt/displays",
+            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
         ])
@@ -485,20 +487,19 @@ final class MachinesPanelModelTests: XCTestCase {
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // Pool rows carry the view badge; open markers come from the catalog's projections.
-        if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_1"]!.kind {
-            XCTAssertFalse(row.isOpen)
-            XCTAssertEqual(row.viewBadge, 2)
-            XCTAssertEqual(row.resource.agent?.source, "claude")
-        } else { XCTFail("expected term_1 pool row") }
+        // The pool lists only the zero-view terminal; open markers come from the
+        // catalog's projections, and a pointer row never repeats in the pool.
+        XCTAssertNil(byID["resource:vivid-newt/terminal/term_1"], "term_1 shows under its workspaces, not in the pool")
         if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_2"]!.kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.viewBadge, 0, "zero views = alive in the pool, in no workspace")
         } else { XCTFail("expected term_2 pool row") }
-        // Pointer rows have workspace-scoped identity and no badge.
+        // Pointer rows have workspace-scoped identity, no badge, and the terminal's own facts.
         if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {
             XCTAssertNil(row.viewBadge)
+            XCTAssertFalse(row.isOpen)
             XCTAssertEqual(row.resource.id.key, "term_1")
+            XCTAssertEqual(row.resource.agent?.source, "claude")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
         if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
@@ -506,26 +507,30 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
-            XCTAssertEqual(count, 2)
+            XCTAssertEqual(count, 1)
         } else { XCTFail("expected terminals pool") }
+        // A listening port is a row of its own (the `cmux vm open <m>:port/<n>` address).
+        if case .port(let resource, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
+            XCTAssertEqual(resource.port, 3000)
+        } else { XCTFail("expected port row") }
         if case .localMachine(let row) = flattened[0].kind {
             XCTAssertEqual(row.name, "Austin's Mac"); XCTAssertEqual(row.terminalCount, 1); XCTAssertEqual(row.browserCount, 0)
         } else { XCTFail("expected This Mac first") }
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
+            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
+            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
+            "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
             "vivid-newt/browser/port:3000",
-        ], "pool rows, then one drag resource per pointer (or implicit display) row, then the port rows")
+        ], "one drag resource per pointer (or implicit display) row, then the pool rows, then the port")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
         // Only terminals and displays leave the tree by drag; workspaces,
-        // browsers, machines, and headers do not.
+        // browsers, ports, machines, and headers do not.
         for node in flattened {
             switch node.kind {
             case .terminal, .display:
