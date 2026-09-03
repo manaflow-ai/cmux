@@ -95,14 +95,16 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902e`, image
-  `sh-e4dc9393a82e4dfaaa8f90b01b0d247c`, baked and verified on cmux's Freestyle account from
-  https://github.com/manaflow-ai/cmux/pull/11666 (`6a1243bfd7`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base). The retired beta entry stays listed for the record and is never a default; earlier
-  public entries stay for rollback.
+- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761a` ladder, baked and
+  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
+  (`f9de56d99f`, epoch `2026-09-02-r4`: the desktop session with the accessibility bus, clipboard
+  helper and published `DISPLAY`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base): `sm`
+  `sh-d7bffdc6f05c43babbb4d0ea09d0b7a5`, `md` `sh-fe9e83bddc334e3e9fe54f4f373ca94f`, `lg`
+  `sh-e1fce6fe80ed4c7baa232652bea458a7`, `xl` `sh-18c1a1a4d1234af1bc4e8259797998a5`, `2xl`
+  `sh-104cd498ec394912ac69821b825aeeaa`. The retired beta entry stays listed for the record and is
+  never a default; earlier public entries (the `edge1` ladder before it) stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
-  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
-  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
-  for that reason; re-promote it under cmux's key to make it the default.
+  `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
   with the manifest diff; merging promotes. See
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
