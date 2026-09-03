@@ -5,6 +5,8 @@
 // is dark; `down` means requests would fail.
 import { pingCloudDb } from "../../db/client";
 import { clickHouseConfig, query as clickHouseQuery } from "./clickhouse";
+import { addCoderouterBreadcrumb } from "./observability";
+import { errorSummary } from "./exceptionEvent";
 
 export type HealthStatus = "ok" | "degraded" | "down";
 
@@ -31,6 +33,20 @@ export type HealthDependencies = {
   readonly pingClickHouse: (signal: AbortSignal, timeoutMs: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
   readonly env: Record<string, string | undefined>;
   readonly timeoutMs: number;
+  /** Injectable clock keeps timeout tests deterministic without wall time. */
+  readonly scheduler?: HealthScheduler;
+};
+
+export type HealthScheduler = {
+  readonly now: () => number;
+  readonly setTimeout: (callback: () => void, timeoutMs: number) => unknown;
+  readonly clearTimeout: (handle: unknown) => void;
+};
+
+const defaultHealthScheduler: HealthScheduler = {
+  now: () => performance.now(),
+  setTimeout: (callback, timeoutMs) => setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
 export const HEALTH_CHECK_TIMEOUT_MS = 4_000;
@@ -48,17 +64,19 @@ export const defaultHealthDependencies: HealthDependencies = {
   },
   env: process.env,
   timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
+  scheduler: defaultHealthScheduler,
 };
 
 export async function coderouterHealth(
   dependencies: HealthDependencies = defaultHealthDependencies,
 ): Promise<CoderouterHealth> {
+  const scheduler = dependencies.scheduler ?? defaultHealthScheduler;
   const [postgres, clickhouse] = await Promise.all([
-    timed("postgres", true, dependencies.timeoutMs, async (signal, timeoutMs) => {
+    timed("postgres", true, dependencies.timeoutMs, scheduler, async (signal, timeoutMs) => {
       await dependencies.pingPostgres(signal, timeoutMs);
       return { ok: true as const };
     }),
-    timed("clickhouse", false, dependencies.timeoutMs, dependencies.pingClickHouse),
+    timed("clickhouse", false, dependencies.timeoutMs, scheduler, dependencies.pingClickHouse),
   ]);
   const env = dependencies.env;
   const kmsConfigured = Boolean(env.CODEROUTER_KMS_KEY_ID?.trim()) && Boolean(env.AWS_REGION?.trim());
@@ -84,14 +102,15 @@ async function timed(
   name: HealthCheck["name"],
   critical: boolean,
   timeoutMs: number,
+  scheduler: HealthScheduler,
   run: (signal: AbortSignal, timeoutMs: number) => Promise<{ ok: true } | { ok: false; reason: string }>,
 ): Promise<HealthCheck> {
-  const startedAt = performance.now();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = scheduler.now();
+  let timer: unknown;
   let didTimeout = false;
   const controller = new AbortController();
   const timeout = new Promise<{ ok: false; reason: string }>((resolve) => {
-    timer = setTimeout(() => {
+    timer = scheduler.setTimeout(() => {
       didTimeout = true;
       controller.abort();
       resolve({ ok: false, reason: "timeout" });
@@ -99,21 +118,28 @@ async function timed(
   });
   const operation = Promise.resolve()
     .then(() => run(controller.signal, timeoutMs))
-    .catch((error: unknown) => ({ ok: false as const, reason: reasonOf(error) }));
+    .catch((error: unknown) => {
+      addCoderouterBreadcrumb("health", "Dependency probe failed", {
+        dependency: name,
+        error_type: reasonOf(error),
+      }, "error");
+      return { ok: false as const, reason: "probe_failed" };
+    });
   try {
     const raced = await Promise.race([operation, timeout]);
     const result = didTimeout ? { ok: false as const, reason: "timeout" } : raced;
-    const latencyMs = Math.round(performance.now() - startedAt);
+    const latencyMs = Math.round(scheduler.now() - startedAt);
     return result.ok
       ? { name, ok: true, critical, latencyMs }
       : { name, ok: false, critical, latencyMs, reason: result.reason };
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer !== undefined) scheduler.clearTimeout(timer);
     controller.abort();
   }
 }
 
 /** Error class name only; messages can embed hosts or credentials. */
 function reasonOf(error: unknown): string {
-  return error instanceof Error && error.name ? error.name.slice(0, 80) : "error";
+  const summary = errorSummary(error);
+  return summary.slice(0, summary.indexOf(":") > 0 ? summary.indexOf(":") : summary.length);
 }

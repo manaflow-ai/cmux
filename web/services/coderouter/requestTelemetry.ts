@@ -44,6 +44,8 @@ import {
 
 /** Ledger request id, echoed on every coderouter response. */
 export const CODEROUTER_REQUEST_ID_HEADER = "x-coderouter-request-id";
+/** Marker for proxy helpers invoked outside a route context, such as tests. */
+export const UNSCOPED_CODEROUTER_REQUEST_ID = "unscoped";
 
 export type CoderouterSurface =
   | "responses"
@@ -146,9 +148,9 @@ export function newCoderouterRequestContext(input: {
   };
 }
 
-/** The ledger request id of the active request, minting one outside a route. */
+/** The ledger request id of the active request, or an explicit non-joinable marker. */
 export function currentCoderouterRequestId(): string {
-  return storage.getStore()?.requestId ?? randomUUID();
+  return storage.getStore()?.requestId ?? UNSCOPED_CODEROUTER_REQUEST_ID;
 }
 
 export function recordCoderouterIdentity(
@@ -286,7 +288,9 @@ export function traceEvents(
   context: CoderouterRequestContext,
   input: { readonly status: number; readonly durationMs: number; readonly error?: unknown },
 ): CoderouterRawEvent[] {
-  const outcome: CoderouterOutcome = context.outcome ?? derivedOutcome(context, input);
+  const outcome: CoderouterOutcome = input.error !== undefined || context.outcome === undefined
+    ? derivedOutcome(context, input)
+    : context.outcome;
   const fault = classifyCoderouterFault(outcome);
   const isError = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
@@ -477,7 +481,9 @@ function withRequestIdHeader(response: Response, requestId: string): Response {
 function finalize(context: CoderouterRequestContext, span: Span, response: Response, thrown: unknown): void {
   const durationMs = Math.round((performance.now() - context.startedAt) * 100) / 100;
   const status = response.status;
-  const outcome = context.outcome ?? derivedOutcome(context, { status, error: thrown });
+  const outcome = thrown !== undefined || context.outcome === undefined
+    ? derivedOutcome(context, { status, error: thrown })
+    : context.outcome;
   const fault = classifyCoderouterFault(outcome);
   setSpanAttributes(span, {
     "cmux.coderouter.surface": context.surface,
@@ -512,6 +518,9 @@ function scheduleTraceFlush(): void {
   const flush = async () => {
     try {
       await forceFlushTraces();
+    } catch {
+      // Exporter failure must never become an unhandled rejection or alter the
+      // response path. Sentry records the request failure separately.
     } finally {
       traceFlushScheduled = false;
     }

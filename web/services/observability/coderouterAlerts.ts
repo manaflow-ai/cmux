@@ -32,6 +32,7 @@ export type CoderouterAlertSummary = {
     readonly configured: boolean;
     readonly droppedAlerts: number;
     readonly sent: number;
+    readonly deliveryFailures: number;
   };
 };
 
@@ -53,6 +54,9 @@ export type CoderouterAlertDependencies = {
     | { ok: false; reason: string }
   >;
   readonly clickHouse?: ClickHouseDependencies;
+  /** Injectable sinks make the unconfigured-alert path observable in tests. */
+  readonly captureRawBatch?: typeof captureCoderouterRawBatch;
+  readonly reportFailure?: typeof reportCoderouterFailure;
 };
 
 const ROUTE_EVENTS_SQL = `
@@ -85,10 +89,18 @@ export async function runCoderouterAlertChecks(
   const configured = Boolean(env.CMUX_ALERTS_SLACK_WEBHOOK_URL?.trim());
   const dropped: AlertInput[] = [];
   let sent = 0;
+  let deliveryFailures = 0;
   const send = async (input: AlertInput) => {
-    const result = await rawSend(input);
-    if (result.configured === false) dropped.push(input);
-    else if (result.sent) sent += 1;
+    try {
+      const result = await rawSend(input);
+      if (result.configured === false) dropped.push(input);
+      else if (result.sent) sent += 1;
+      else deliveryFailures += 1;
+    } catch {
+      // A custom sender is allowed to throw. Keep the cron result truthful and
+      // prevent one failed webhook from suppressing the remaining checks.
+      deliveryFailures += 1;
+    }
   };
 
   const thresholds = {
@@ -142,64 +154,65 @@ export async function runCoderouterAlertChecks(
       row.outcome === "no_usable_account" &&
       (row.failure_stage === "account_selection" || row.failure_stage === "provider_config"));
     const authRows = rows.filter((row) => row.outcome === "unauthorized");
+    const evaluate = async (
+      key: string,
+      count: number,
+      threshold: number,
+      alert: () => Omit<AlertInput, "key">,
+    ): Promise<void> => {
+      const triggered = count >= threshold;
+      checks.push({ key, triggered, count, threshold });
+      if (triggered) await send({ key, ...alert() });
+    };
 
     const operatorCount = sum(operatorRows);
-    checks.push({ key: "coderouter-operator-failures", triggered: operatorCount >= thresholds.operatorFailures, count: operatorCount, threshold: thresholds.operatorFailures });
-    if (operatorCount >= thresholds.operatorFailures) {
-      await send({
-        key: "coderouter-operator-failures",
-        title: "coderouter failed requests on our side",
-        body: [
-          `${operatorCount} of ${total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider`,
-          `(${describe(operatorRows)}).`,
-          "Check RDS, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter_provider_unavailable.",
-        ].join(" "),
-        severity: "critical",
-      });
-    }
+    await evaluate("coderouter-operator-failures", operatorCount, thresholds.operatorFailures, () => ({
+      title: "coderouter failed requests on our side",
+      body: [
+        `${operatorCount} of ${total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider`,
+        `(${describe(operatorRows)}).`,
+        "Check RDS, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter_provider_unavailable.",
+      ].join(" "),
+      severity: "critical",
+    }));
 
     const upstreamCount = sum(upstreamRows);
-    checks.push({ key: "coderouter-upstream-failures", triggered: upstreamCount >= thresholds.upstreamFailures, count: upstreamCount, threshold: thresholds.upstreamFailures });
-    if (upstreamCount >= thresholds.upstreamFailures) {
-      await send({
-        key: "coderouter-upstream-failures",
-        title: "coderouter upstream providers are failing",
-        body: `${upstreamCount} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover (${describe(upstreamRows)}).`,
-        severity: "warning",
-      });
-    }
+    await evaluate("coderouter-upstream-failures", upstreamCount, thresholds.upstreamFailures, () => ({
+      title: "coderouter upstream providers are failing",
+      body: `${upstreamCount} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover (${describe(upstreamRows)}).`,
+      severity: "warning",
+    }));
 
     const noAccountCount = sum(noAccountRows);
-    checks.push({ key: "coderouter-no-usable-account", triggered: noAccountCount >= thresholds.noUsableAccount, count: noAccountCount, threshold: thresholds.noUsableAccount });
-    if (noAccountCount >= thresholds.noUsableAccount) {
+    await evaluate("coderouter-no-usable-account", noAccountCount, thresholds.noUsableAccount, () => {
       const teams = [...new Set(noAccountRows.map((row) => row.team_id).filter(Boolean))].slice(0, 10);
-      await send({
-        key: "coderouter-no-usable-account",
+      return {
         title: "coderouter teams have no usable account",
         body: `${noAccountCount} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes found no healthy account across ${teams.length} team(s): ${teams.join(", ") || "unknown"}.`,
         severity: "warning",
-      });
-    }
+      };
+    });
 
     const authCount = sum(authRows);
-    checks.push({ key: "coderouter-auth-rejected", triggered: authCount >= thresholds.authRejected, count: authCount, threshold: thresholds.authRejected });
-    if (authCount >= thresholds.authRejected) {
-      await send({
-        key: "coderouter-auth-rejected",
-        title: "coderouter route tokens are being rejected",
-        body: `${authCount} unauthorized requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes. A revoked edge token, a broken \`cr login\`, or a scan.`,
-        severity: "warning",
-      });
-    }
+    await evaluate("coderouter-auth-rejected", authCount, thresholds.authRejected, () => ({
+      title: "coderouter route tokens are being rejected",
+      body: `${authCount} unauthorized requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes. A revoked edge token, a broken \`cr login\`, or a scan.`,
+      severity: "warning",
+    }));
   }
 
-  if (dropped.length > 0) reportDroppedCoderouterAlerts(dropped, env);
+  if (dropped.length > 0) {
+    reportDroppedCoderouterAlerts(dropped, env, {
+      captureRawBatch: dependencies.captureRawBatch,
+      reportFailure: dependencies.reportFailure,
+    });
+  }
 
   return {
     health: health.status,
     ledgerReachable: events.ok,
     checks,
-    alertSink: { configured, droppedAlerts: dropped.length, sent },
+    alertSink: { configured, droppedAlerts: dropped.length, sent, deliveryFailures },
   };
 }
 
@@ -241,15 +254,19 @@ function describe(rows: readonly RouteEventRow[]): string {
  * PostHog `coderouter_alert` event per key so an unconfigured production
  * deployment is visible in the tools that ARE configured.
  */
-function reportDroppedCoderouterAlerts(alerts: readonly AlertInput[], env: Record<string, string | undefined>): void {
+function reportDroppedCoderouterAlerts(
+  alerts: readonly AlertInput[],
+  env: Record<string, string | undefined>,
+  dependencies: Pick<CoderouterAlertDependencies, "captureRawBatch" | "reportFailure"> = {},
+): void {
   if (env.VERCEL_ENV !== "production" && env.CMUX_ALERTS_REPORT_FORCE !== "1") return;
   const keys = [...new Set(alerts.map((alert) => alert.key))];
-  reportCoderouterFailure(
+  (dependencies.reportFailure ?? reportCoderouterFailure)(
     "alerts",
     new Error(`coderouter alerts fired with no Slack sink configured: ${keys.join(", ")}`),
     { dropped: keys.length },
   );
-  captureCoderouterRawBatch(alerts.map((alert) => ({
+  (dependencies.captureRawBatch ?? captureCoderouterRawBatch)(alerts.map((alert) => ({
     event: "coderouter_alert" as const,
     properties: {
       alert_key: alert.key,

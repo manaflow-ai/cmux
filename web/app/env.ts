@@ -142,6 +142,21 @@ const stackEnv = (
   if (trimmed) return trimmed;
   return allowPreviewStackPlaceholders ? fallback : undefined;
 };
+const positiveSafeIntegerEnv = (name: string) =>
+  z.string()
+    .regex(/^\d+$/)
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0;
+    }, { message: `${name} must be a positive safe integer` });
+const coderouterHeadersTimeoutEnv = z.string()
+  .regex(/^\d+$/)
+  .refine((value) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1_000 && parsed <= 30 * 60_000;
+  }, {
+    message: "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS must be between 1000 and 1800000",
+  });
 
 export const env = createEnv({
   server: {
@@ -233,15 +248,15 @@ export const env = createEnv({
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
-    CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
-    CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
+    CMUX_VM_ALERT_CREATE_FAILURES_15M: positiveSafeIntegerEnv("CMUX_VM_ALERT_CREATE_FAILURES_15M").optional(),
+    CMUX_VM_ALERT_EXPIRED_LEASES: positiveSafeIntegerEnv("CMUX_VM_ALERT_EXPIRED_LEASES").optional(),
     // Coderouter alert thresholds (per five-minute window) and the bound on
     // time-to-headers for upstream model calls. Defaults live next to the code.
-    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: z.string().regex(/^\d+$/).optional(),
-    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: z.string().regex(/^\d+$/).optional(),
-    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: z.string().regex(/^\d+$/).optional(),
-    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: z.string().regex(/^\d+$/).optional(),
-    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: z.string().regex(/^\d+$/).optional(),
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M").optional(),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M").optional(),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: coderouterHeadersTimeoutEnv.optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
