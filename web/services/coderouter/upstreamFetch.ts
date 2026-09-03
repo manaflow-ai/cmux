@@ -1,3 +1,5 @@
+import { runWithCloudDbQuerySignal } from "../../db/queryScope";
+
 // Upstream fetch with a bound on the time to response headers.
 //
 // The Codex and Claude data planes stream model output for up to the route's
@@ -79,16 +81,18 @@ export async function withCoderouterOperationDeadline<T>(
       reject(error);
     }, timeoutMs);
   });
-  try {
-    return await Promise.race([
-      Promise.resolve().then(() => operation(signal)),
-      timeout,
-      outerAbort,
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    removeOuterAbortListener();
-  }
+  return await runWithCloudDbQuerySignal(signal, async () => {
+    try {
+      return await Promise.race([
+        Promise.resolve().then(() => operation(signal)),
+        timeout,
+        outerAbort,
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      removeOuterAbortListener();
+    }
+  });
 }
 
 export function upstreamHeadersTimeoutMs(
