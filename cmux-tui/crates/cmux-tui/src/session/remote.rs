@@ -7091,7 +7091,8 @@ mod tests {
         let state = reaper_state().clone();
         state.lock().unwrap().sender = None;
         let completion = Arc::new(WorkerCompletion::new());
-        let handle = std::thread::spawn(|| {});
+        let worker_completion = completion.clone();
+        let handle = std::thread::spawn(move || worker_completion.mark_done());
         enqueue_worker_reap(handle, completion.clone());
         assert!(state.lock().unwrap().worker.is_some());
         wait_for_worker_join(&completion);
