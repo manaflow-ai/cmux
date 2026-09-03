@@ -622,9 +622,9 @@ impl JournalIngressSender {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
         let space_epoch = self.state.queue_space_epoch();
+        self.state.stats.enqueued(JournalLane::Terminal);
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
-                self.state.stats.enqueued(JournalLane::Terminal);
                 if let Some(wake) = &self.wake_sender {
                     match wake.try_send(()) {
                         Ok(()) | Err(TrySendError::Full(())) => {}
@@ -634,12 +634,16 @@ impl JournalIngressSender {
                 Ok(())
             }
             Err(TrySendError::Full(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
                 Err(JournalIngressTrySendError::Full { event: Box::new(queued.event), space_epoch })
             }
-            Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
-                event: Box::new(queued.event),
-                error: self.writer_error(),
-            }),
+            Err(TrySendError::Disconnected(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
+                Err(JournalIngressTrySendError::Failed {
+                    event: Box::new(queued.event),
+                    error: self.writer_error(),
+                })
+            }
         }
     }
 
@@ -852,11 +856,13 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
                 Ok(()) => {
-                    self.state.stats.enqueued(lane);
                     if let Some(wake) = &self.wake_sender {
                         match wake.try_send(()) {
                             Ok(()) | Err(TrySendError::Full(())) => {}
@@ -865,8 +871,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             #[cfg(test)]
             self.state.notify_enqueue_full_for_test();
@@ -901,11 +913,13 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
                 Ok(()) => {
-                    self.state.stats.enqueued(lane);
                     if let Some(wake) = &self.wake_sender {
                         match wake.try_send(()) {
                             Ok(()) | Err(TrySendError::Full(())) => {}
@@ -914,8 +928,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }

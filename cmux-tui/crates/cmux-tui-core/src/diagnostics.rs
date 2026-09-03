@@ -338,12 +338,23 @@ impl JournalWriterStats {
         }
     }
 
+    /// Call before the event becomes visible to the writer, so a drain can
+    /// never observe a depth below the events it removes.
     pub(crate) fn enqueued(&self, lane: JournalLane) {
         self.queued(lane).fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Undo [`Self::enqueued`] when the channel refused the event.
+    pub(crate) fn enqueue_failed(&self, lane: JournalLane) {
+        self.drained(lane, 1);
+    }
+
     pub(crate) fn drained(&self, lane: JournalLane, count: usize) {
-        self.queued(lane).fetch_sub(count, Ordering::Relaxed);
+        // Saturate so a miscounted path degrades to a wrong gauge, never a
+        // wrapped one.
+        let _ = self.queued(lane).fetch_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
+            Some(depth.saturating_sub(count))
+        });
     }
 
     pub fn batch_committed(&self, terminal_events: usize, durable_events: usize) {
@@ -567,8 +578,11 @@ mod tests {
         stats.enqueued(JournalLane::Durable);
         stats.enqueued(JournalLane::Terminal);
         assert_eq!(stats.snapshot().durable_queued, 2);
+        stats.enqueue_failed(JournalLane::Durable);
+        assert_eq!(stats.snapshot().durable_queued, 1);
+        stats.enqueued(JournalLane::Durable);
         stats.drained(JournalLane::Durable, 2);
-        stats.drained(JournalLane::Terminal, 1);
+        stats.drained(JournalLane::Terminal, 5);
         stats.set_phase(WriterPhase::Committing);
         stats.batch_committed(1, 2);
         stats.commit_finished(Duration::from_micros(5), Duration::from_millis(20));

@@ -209,8 +209,11 @@ impl<T> DerefMut for SignaledMutexGuard<'_, T> {
 
 impl<T> Drop for SignaledMutexGuard<'_, T> {
     fn drop(&mut self) {
-        drop(self.value.take());
+        // Clear holder attribution before the inner mutex is released, so a
+        // waiter that acquires next can never have its holder record erased
+        // by this older unlock.
         self.owner.stats.released(self.site, self.acquired_at.elapsed());
+        drop(self.value.take());
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.owner.released.notify_all();
