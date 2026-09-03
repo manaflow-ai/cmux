@@ -10267,7 +10267,7 @@
    "constraints": []
   },
   "server-stats": {
-   "authority": "control",
+   "authority": "local-admin",
    "since": 12,
    "capability": "server-stats-v1",
    "request": {

@@ -632,6 +632,18 @@ class InventoryContractTests(unittest.TestCase):
         }
         self.assertEqual(private_domains, expected)
 
+    def test_server_stats_uses_local_admin_profile_at_runtime_and_in_schema(self) -> None:
+        inventory = self.inventory()
+        self.assertIn("server-stats", inventory["commands"]["local-admin"])
+        self.assertNotIn("server-stats", inventory["commands"]["control"])
+
+        schema = json.loads((CHECKER.SPEC / "sdk-schema.json").read_text())
+        self.assertEqual(schema["commands"]["server-stats"]["authority"], "local-admin")
+
+        profiles = CHECKER.command_profiles()
+        self.assertIn("server-stats", profiles["local-admin"])
+        self.assertNotIn("server-stats", profiles["control"])
+
     def test_merged_terminal_shortcuts_head_is_not_pending(self) -> None:
         inventory = self.inventory()
         pending_urls = {head["url"] for head in inventory["pending_heads"]}

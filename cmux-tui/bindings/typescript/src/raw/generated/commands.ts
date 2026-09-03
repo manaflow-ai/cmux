@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4290221c3bb5f4e1f06ca937458d64a2e01a02c3f30e43f68e8ded386b3a9883. */
+/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
 
 
 import type * as T from "./types.js";
@@ -776,7 +776,7 @@ export interface SendKeyRequest extends CmuxRequestBase {
 }
 export type SendKeyResult = T.EmptyResult;
 
-/** Protocol v12; authority: control. */
+/** Protocol v12; authority: local-admin. */
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
 }
@@ -1735,7 +1735,7 @@ export interface CmuxCommandDefinitionMap {
   "server-stats": {
     request: ServerStatsRequest;
     result: T.ServerStatsResult;
-    authority: "control";
+    authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
     stream: null;

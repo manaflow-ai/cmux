@@ -196,7 +196,6 @@
       "select-workspace",
       "send",
       "send-key",
-      "server-stats",
       "set-client-info",
       "set-client-sizing",
       "set-default-colors",
@@ -238,6 +237,7 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "server-stats",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",

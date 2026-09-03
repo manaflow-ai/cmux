@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4290221c3bb5f4e1f06ca937458d64a2e01a02c3f30e43f68e8ded386b3a9883";
+pub const ir_sha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3774,7 +3774,7 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
         ServerStatsResult,
         .{
             .name = "server-stats",
-            .authority = "control",
+            .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
         },
@@ -5192,7 +5192,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "select-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "server-stats", .authority = "control", .since = 12, .capability = "server-stats-v1", .stream = null },
+    .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
