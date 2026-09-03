@@ -1015,11 +1015,28 @@ fn run_stdin_pump_with_handlers(
         }
         match parse_request(&line) {
             Ok(PipeIoRequest::Input(bytes)) => {
-                if !matches!(write_input(&bytes), PipeIoControlResult::Completed(())) {
-                    // The transport owns loss reporting; input can only stop
-                    // early.
-                    stop_event = Some(PipeIoEvent::TransportLost);
-                    break;
+                match write_input(&bytes) {
+                    PipeIoControlResult::Completed(()) => {}
+                    PipeIoControlResult::Gone => {
+                        // A dropped remote session cannot accept more input;
+                        // reconnecting is the only way to recover it.
+                        stop_event = Some(PipeIoEvent::TransportLost);
+                        break;
+                    }
+                    PipeIoControlResult::Failed(error) => {
+                        // Keep protocol or setup rejections non-retryable.
+                        // The full cause belongs in the internal client log;
+                        // the machine-readable exit record carries only the
+                        // stable setup-failed token.
+                        let retryable = crate::session::is_pipe_io_retryable_error(&error);
+                        log_pipe_io_error("input", &error);
+                        stop_event = Some(if retryable {
+                            PipeIoEvent::TransportLost
+                        } else {
+                            PipeIoEvent::StdinError
+                        });
+                        break;
+                    }
                 }
             }
             Ok(PipeIoRequest::Resize { cols, rows }) => {
