@@ -311,7 +311,7 @@ describe("Freestyle platform contract", () => {
 });
 
 describe("FreestyleProvider create with edge rules", () => {
-  test("passes the rule inline, writes placeholder env only, probes, and returns the machine", async () => {
+  test("passes the rule inline, writes placeholder env only, runs no probe, and returns the machine", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
@@ -336,7 +336,7 @@ describe("FreestyleProvider create with edge rules", () => {
         content: renderFreestyleModelPlaneEnvFile(PLACEHOLDER_ENVS)!,
       },
     ]);
-    expect(fake.execs.some((command) => command.includes("https://coderouter.dev/api/coderouter/vm-usage/self"))).toBe(true);
+    expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.deletes).toEqual([]);
   });
 
@@ -365,16 +365,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toEqual([]);
   });
 
-  test("rolls the machine back when the edge probe never succeeds", async () => {
-    const fake = fakeFreestyle({ probeExit: 1 });
-    const failure = await providerWith(fake)
-      .create({ image: "sh-devbox", envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] })
-      .catch((err: unknown) => err);
-    expect(failure).toBeInstanceOf(ProviderError);
-    expect((failure as ProviderError).message).toContain("edge rule for coderouter.dev");
-    expect((failure as ProviderError).message).toContain("inactive");
-    expect(fake.deletes).toEqual([VM_ID]);
-  });
 
   test("refuses to create when an env value is a route token", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
@@ -389,7 +379,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.deletes).toEqual([VM_ID]);
   });
 
-  test("restore passes the rule inline, writes the new env, probes, and rolls back on failure", async () => {
+  test("restore passes the rule inline and writes the new env", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
@@ -397,12 +387,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(ok.writes.map((write) => write.path)).toEqual(["/root/.config/cmux/model-plane.env"]);
     expect(JSON.stringify(ok.writes)).not.toContain("crt_");
     expect(ok.deletes).toEqual([]);
-
-    const bad = fakeFreestyle({ probeExit: 1 });
-    await expect(
-      providerWith(bad).restore("snap-1", { envs: PLACEHOLDER_ENVS, edgeRules: [EDGE_RULE] }),
-    ).rejects.toThrow("inactive");
-    expect(bad.deletes).toEqual([VM_ID]);
   });
 });
 
