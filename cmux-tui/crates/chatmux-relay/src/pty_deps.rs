@@ -481,7 +481,7 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChildLifecycleState {
     Running,
     ReapPending,
