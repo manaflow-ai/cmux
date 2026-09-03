@@ -638,6 +638,13 @@ final class ProcessOutputCollector: @unchecked Sendable {
         finishCondition.unlock()
 
         if shouldStartOwner {
+            // Close admission before dispatching the owner. A readability
+            // callback may already be queued on another thread, but no new
+            // callback can begin after this point. The owner still waits for
+            // callbacks admitted before this lock transition.
+            readCondition.lock()
+            acceptingReads = false
+            readCondition.unlock()
             DispatchQueue.global().async { [self] in
                 // The callback cannot wait for itself. This owner waits on a
                 // separate thread until every read callback has returned.
