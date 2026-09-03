@@ -445,6 +445,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         shutdown: stopped.clone(),
         upgrades: Mutex::new(Vec::new()),
     });
+    let connection_slots = Arc::new(tokio::sync::Semaphore::new(PREVIEW_PROXY_CONNECTION_CAP));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
@@ -464,8 +465,15 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
                 _ = stopped.changed() => break,
                 accepted = listener.accept() => {
                     let Ok((stream, _peer)) = accepted else { break };
+                    let Ok(connection_slot) = connection_slots.clone().try_acquire_owned() else {
+                        // This listener is local-only. Drop excess clients before
+                        // creating a task, so a connection flood cannot grow the
+                        // Tokio task set or consume all file descriptors.
+                        continue;
+                    };
                     let shared = Arc::clone(&shared);
                     connections.spawn(async move {
+                        let _connection_slot = connection_slot;
                         let io = hyper_util::rt::TokioIo::new(stream);
                         let service = hyper::service::service_fn(move |request| {
                             let shared = Arc::clone(&shared);
