@@ -12,12 +12,12 @@ Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, C
 | Term | Meaning |
 |------|---------|
 | **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (`brave-otter`) is its id everywhere, a `vm rename` label is cosmetic. Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is the persistent volume; the rest of the filesystem is disposable compute. |
-| **Kind** | `base` (shell-only, the default for `vm new`) or `desktop` — but **no provider ships a desktop image today**, so `--desktop` fails closed with an image config error and there is no VNC screen to open until one lands. Ubuntu (shared devbox image) with node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool; **Claude Code, Codex, OpenCode, and Pi preinstalled** under `/root/.npm-global/bin`. Provisioning runs in the background on first boot (`cat /tmp/cmux/provision.log` if a tool is missing). |
+| **Kind** | `base` (shell-only, what a bare `vm new` asks for today) or `desktop` (`vm new --desktop`) — a machine with a screen: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty), and noVNC on 6901, shown by the sidebar's **Desktop** row / `vm open <m>:desktop`. Shells on a desktop machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool`, and `cua-driver mcp` act on that screen. One Ubuntu 24.04 devbox image serves both kinds: node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`; **Claude Code, Codex, OpenCode, and Pi preinstalled** under `/root/.npm-global/bin`. Provisioning runs in the background on first boot (`cat /tmp/cmux/provision.log` if a tool is missing). |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces (`ws_…`) → terminals (`term_…`), visible in `cmux vm tree`. A terminal started there keeps running when the Mac disconnects or a pane closes. |
 | **Surface** | A terminal, VNC screen, or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one or lands it at a pane edge; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine per user (`cmux vm base open`; `base reset` mints a new generation and keeps the old VM) — the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (labeled `agent-pool` in `vm ls`, membership persisted in `~/.cmuxterm/vm-run-pool.json`). `vm run`/`vm agent` only draft these; any other machine needs `--machine <id>`. |
-| **Plan meter** | `cmux vm ls` prints the meter; the cap is whatever the backend sends (`vm ls --json` → `limits.maxActiveVms`; absent = uncapped, printed as `no limit`). Plan tiers change — read `limits`, not memory. **Provisioning requires a paid plan**: `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans. Never delete machines to make room without asking. |
+| **Plan meter** | `cmux vm ls` prints the meter; the cap is whatever the backend sends (`vm ls --json` → `limits.maxActiveVms`; absent = uncapped, printed as `no limit`). Plan tiers change — read `limits`, not memory. Where the deployment gates provisioning to paid plans, `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans; a free plan that can provision gets the same full-size machine inside a 7-day access window (`limits.freeAccessExpiresAt` — after it, access verbs need a paid plan while list/status/delete keep working). Never delete machines to make room without asking. |
 | **Checkpoint / fork** | `vm snapshot` mints a restorable checkpoint, `vm fork` clones a machine for a parallel experiment, `vm restore` brings a snapshot back — where the provider supports it (`vm ls --json` → `capabilities`). |
 
 ## Decide: cloud or local?
@@ -49,7 +49,7 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 
 1. `cmux vm route` — the router's answer for this directory. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first (`--provision` creates it now).
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (shell-only; `--desktop` fails closed until a desktop image ships); add `--size 8g` / `--name <label>`. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
+3. Isolation → `cmux vm new --detach --json` (shell-only; `--desktop` for a machine with a screen); add `--size 8g` / `--name <label>`. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
 4. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Running work
@@ -73,7 +73,7 @@ cmux vm terminal read <id> <term>       # the screen of any machine terminal, wi
 cmux vm open <id>                       # the machine's shell
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
-cmux vm open <id>:desktop               # the noVNC screen (desktop-image machines only — none ship today)
+cmux vm open <id>:desktop               # the noVNC screen (desktop-kind machines; base machines have no screen)
 cmux vm open <id>:port/3000 [--print]   # tokened URL for an HTTP port (--print: URL only; dormant — no deployment implements open-port yet)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
 cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them

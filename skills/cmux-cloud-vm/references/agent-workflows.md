@@ -98,7 +98,7 @@ cmux vm rm "$fork_a"; cmux vm rm "$fork_b"             # only the forks you crea
 
 ## 6. Desktop and browser tasks
 
-No provider ships a desktop image today, so every machine is shell-only and these verbs answer with an error until one lands. When a desktop image exists, drive it from inside the machine (`vm agent` with a computer-use-capable agent) and show the human the screen:
+Desktop-kind machines (`cmux vm new --desktop`) boot TigerVNC with an openbox session and noVNC on 6901; shells there get `DISPLAY=:1` while the desktop is up. Drive it from inside the machine (`vm agent` with a computer-use-capable agent — `cua-driver` is preinstalled) and show the human the screen; on a `--base` machine these verbs exit 1 (no screen):
 
 ```bash
 cmux vm open <id>:desktop              # the screen as a browser pane beside the shell
