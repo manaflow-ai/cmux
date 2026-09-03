@@ -36,6 +36,7 @@ const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
 const PIPE_READ_POLL_MS: i32 = 100;
+const PTY_REAP_RETRY: Duration = Duration::from_millis(100);
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -558,6 +559,66 @@ enum PtyChildCommand {
 
 const PTY_OBSERVER_MAX_FAILURES: usize = 8;
 
+/// Own the PTY child and serialize commands with the final reap. If exit
+/// observation becomes unavailable, poll `try_wait` while still receiving
+/// kill requests. A successful poll always falls through to `wait`, so the
+/// child cannot remain an unreaped zombie merely because the observer failed.
+fn run_pty_wait_owner(
+    mut child: Box<dyn cmux_pty::Child + Send + Sync>,
+    pid: libc::pid_t,
+    process_group: libc::pid_t,
+    command_rx: mpsc::Receiver<PtyChildCommand>,
+    lifecycle: Arc<ChildLifecycle>,
+) -> i64 {
+    let mut observer_unavailable = false;
+    loop {
+        let command = if observer_unavailable {
+            match command_rx.recv_timeout(PTY_REAP_RETRY) {
+                Ok(command) => command,
+                Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) | Err(_) => continue,
+                },
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match command_rx.recv() {
+                Ok(command) => command,
+                Err(_) => {
+                    if lifecycle.begin_termination() {
+                        force_kill_process_group(pid, process_group);
+                        let _ = child.kill();
+                    }
+                    break;
+                }
+            }
+        };
+
+        match command {
+            PtyChildCommand::ExitReady => break,
+            PtyChildCommand::ObserveFailed => lifecycle.mark_reap_pending(),
+            PtyChildCommand::ObserveUnavailable => {
+                if lifecycle.termination_requested() {
+                    force_kill_process_group(pid, process_group);
+                    let _ = child.kill();
+                    break;
+                }
+                lifecycle.mark_reap_pending();
+                observer_unavailable = true;
+            }
+            PtyChildCommand::Kill => {
+                force_kill_process_group(pid, process_group);
+                let _ = child.kill();
+                break;
+            }
+        }
+    }
+
+    let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+    lifecycle.mark_exited();
+    code
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -745,44 +806,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         }
     });
     std::thread::spawn(move || {
-        // The wait owner alone may call the blocking Child methods. WNOWAIT
-        // fences normal reaping; a kill command remains available when
-        // observation fails.
-        loop {
-            match command_rx.recv() {
-                Ok(PtyChildCommand::ExitReady) => {
-                    wait_lifecycle.mark_exited();
-                    break;
-                }
-                Ok(PtyChildCommand::ObserveFailed) => {
-                    wait_lifecycle.mark_reap_pending();
-                }
-                Ok(PtyChildCommand::ObserveUnavailable) => {
-                    if wait_lifecycle.termination_requested() {
-                        force_kill_process_group(pid, process_group);
-                        let _ = child.kill();
-                    } else {
-                        wait_lifecycle.mark_reap_pending();
-                        continue;
-                    }
-                    break;
-                }
-                Ok(PtyChildCommand::Kill) => {
-                    force_kill_process_group(pid, process_group);
-                    let _ = child.kill();
-                    break;
-                }
-                Err(_) => {
-                    if wait_lifecycle.begin_termination() {
-                        force_kill_process_group(pid, process_group);
-                        let _ = child.kill();
-                    }
-                    break;
-                }
-            }
-        }
-        let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
-        wait_lifecycle.mark_exited();
+        let code = run_pty_wait_owner(child, pid, process_group, command_rx, wait_lifecycle);
         exit_completion.child_exited(code);
     });
 
@@ -1626,7 +1650,6 @@ mod tests {
         let lifecycle = ChildLifecycle::new();
         let (command_tx, command_rx) = mpsc::channel();
         command_tx.send(PtyChildCommand::ObserveUnavailable).expect("observer event");
-        drop(command_tx);
 
         let code = run_pty_wait_owner(child, 0, 0, command_rx, Arc::clone(&lifecycle));
 
