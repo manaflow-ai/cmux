@@ -128,7 +128,7 @@ final class CloudVMActionLauncher {
                         terminationStatus: terminationStatus,
                         output: output,
                         workspaceId: Self.createdWorkspaceId(from: output),
-                        machineId: Self.createdMachineId(from: result.stdout)
+                        machineId: result.machineId
                     )
                 )
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
@@ -426,6 +426,7 @@ final class MainActorOutputCoalescer: @unchecked Sendable {
 struct ProcessOutputResult: Sendable, Equatable {
     let output: String
     let stdout: String
+    let machineId: String?
 }
 
 final class ProcessOutputCollector: @unchecked Sendable {
@@ -440,6 +441,10 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private let byteLimit = 32 * 1024
     private var stdout = Data()
     private var stderr = Data()
+    private var stdoutPendingUTF8 = Data()
+    private var stderrPendingUTF8 = Data()
+    private var stdoutProtocolLine = Data()
+    private var observedMachineID: String?
     private var isFinished = false
 
     private let onOutput: ((Data) -> Void)?
@@ -492,10 +497,12 @@ final class ProcessOutputCollector: @unchecked Sendable {
         stderrHandle.readabilityHandler = nil
         append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
         append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
+        finishPendingUTF8()
         try? stdoutHandle.close()
         try? stderrHandle.close()
 
         lock.lock()
+        finishProtocolObservation()
         let output = formattedResultLocked()
         lock.unlock()
         return output
@@ -512,6 +519,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        finishPendingUTF8()
         try? stdoutHandle.close()
         try? stderrHandle.close()
     }
@@ -524,25 +532,64 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         switch stream {
         case .stdout:
-            appendBounded(data, to: &stdout)
+            observeMachineID(in: data)
+            appendBounded(data, to: &stdout, pending: &stdoutPendingUTF8)
         case .stderr:
-            appendBounded(data, to: &stderr)
+            appendBounded(data, to: &stderr, pending: &stderrPendingUTF8)
         }
     }
 
-    private func appendBounded(_ data: Data, to buffer: inout Data) {
-        if data.count >= byteLimit {
-            buffer = Data(data.suffix(byteLimit))
-            while !buffer.isEmpty && String(data: buffer, encoding: .utf8) == nil { buffer.removeFirst() }
-            return
+    private func appendBounded(_ data: Data, to buffer: inout Data, pending: inout Data) {
+        var combined = pending
+        combined.append(data)
+        var validCount = combined.count
+        while validCount > 0,
+              String(data: combined.prefix(validCount), encoding: .utf8) == nil {
+            validCount -= 1
         }
-        let overflow = buffer.count + data.count - byteLimit
+        pending = Data(combined.dropFirst(validCount).prefix(3))
+        buffer.append(combined.prefix(validCount))
+        let overflow = buffer.count - byteLimit
         if overflow > 0 {
             buffer.removeSubrange(0..<min(overflow, buffer.count))
         }
-        buffer.append(data)
-        while !buffer.isEmpty && String(data: buffer, encoding: .utf8) == nil { buffer.removeLast() }
         while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
+    }
+
+    private func finishPendingUTF8() {
+        lock.lock()
+        defer { lock.unlock() }
+        if !stdoutPendingUTF8.isEmpty {
+            stdout.append(String(decoding: stdoutPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
+            stdoutPendingUTF8.removeAll(keepingCapacity: false)
+        }
+        if !stderrPendingUTF8.isEmpty {
+            stderr.append(String(decoding: stderrPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
+            stderrPendingUTF8.removeAll(keepingCapacity: false)
+        }
+    }
+
+    private func finishProtocolObservation() {
+        guard observedMachineID == nil,
+              let text = String(data: stdoutProtocolLine, encoding: .utf8) else { return }
+        observedMachineID = CloudVMActionLauncher.createdMachineId(from: text)
+    }
+
+    private func observeMachineID(in data: Data) {
+        guard observedMachineID == nil else { return }
+        stdoutProtocolLine.append(data)
+        if stdoutProtocolLine.count > 4096 {
+            stdoutProtocolLine.removeSubrange(0..<(stdoutProtocolLine.count - 4096))
+        }
+        while let newline = stdoutProtocolLine.firstIndex(of: 0x0A) {
+            let line = stdoutProtocolLine.prefix(upTo: newline)
+            stdoutProtocolLine.removeSubrange(...newline)
+            if let text = String(data: line, encoding: .utf8),
+               let machineID = CloudVMActionLauncher.createdMachineId(from: text) {
+                observedMachineID = machineID
+                return
+            }
+        }
     }
 
     private func formattedResultLocked() -> ProcessOutputResult {
@@ -553,7 +600,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n"),
-            stdout: output
+            stdout: output,
+            machineId: observedMachineID
         )
     }
 }
