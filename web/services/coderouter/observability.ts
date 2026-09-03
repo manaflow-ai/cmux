@@ -19,6 +19,11 @@ type CodeRouterFailure =
   | "health_check"
   | "alerts";
 
+export type CoderouterFailureOptions = {
+  /** Set false when the active request finalizer emits the trace-linked exception. */
+  readonly emitPostHogException?: boolean;
+};
+
 /**
  * Failures a deploy or an operator caused. PostHog files these as `error`
  * issues; everything else (provider transport, rate limits) is `warning`.
@@ -74,6 +79,7 @@ export function reportCoderouterFailure(
   failure: CodeRouterFailure,
   error: unknown,
   context: Readonly<Record<string, string | number | boolean>> = {},
+  options: CoderouterFailureOptions = {},
 ): void {
   const errorType = error instanceof Error ? error.name : typeof error;
   const safeContext = Object.fromEntries(
@@ -93,7 +99,7 @@ export function reportCoderouterFailure(
   });
   const provider = typeof context.provider === "string" ? context.provider : "unknown";
   const requestId = typeof context.request_id === "string" ? context.request_id : undefined;
-  if (failure !== "analytics_delivery") {
+  if (options.emitPostHogException !== false && failure !== "analytics_delivery") {
     analytics.captureCoderouterRawBatch?.([
       exceptionEvent({
         type: `coderouter.${failure}`,

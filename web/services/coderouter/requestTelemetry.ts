@@ -456,7 +456,7 @@ export function withCoderouterRoute<Context = unknown>(
               surface: options.surface,
               route: options.route,
               request_id: context.requestId,
-            });
+            }, { emitPostHogException: false });
             response = options.unavailable(request);
           }
           response = withRequestIdHeader(response, context.requestId);
