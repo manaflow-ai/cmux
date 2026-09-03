@@ -42,6 +42,7 @@ import {
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
+/** A TCP port as the 4-hex-digit form /proc/net/tcp prints. */
 const hexPort = (port: number): string => port.toString(16).toUpperCase().padStart(4, "0");
 
 // Every file the image bakes from this checkout must ship byte-identical.
@@ -130,13 +131,17 @@ const DAEMON_CHECKS: readonly string[] = [
 const desktopFilePinChecks = (): string[] =>
   DEVBOX_DESKTOP_INSTALLS.map((install) => `echo '${sha256File(path.join(devboxDir, install.source))}  ${install.target}' | sha256sum -c -`);
 
+/** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
 const loginAs = (user: string, home: string, command: string): string =>
   `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
+/** One root login shell with a clean environment running `command`. */
 const rootLogin = (command: string): string =>
   `env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
 
 const desktopChecks = (): readonly string[] => [
   `systemctl is-active ${DEVBOX_DESKTOP_UNIT} >/dev/null && echo desktop-unit-active`,
+  // Readiness is the unit's own signal: Type=notify, READY sent by start-vnc.sh.
+  `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ] && echo desktop-unit-notify-ready`,
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-listening`,
   // 5901 must be loopback-only: every listener on it is bound to 127.0.0.1 (0100007F) or ::1.
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,

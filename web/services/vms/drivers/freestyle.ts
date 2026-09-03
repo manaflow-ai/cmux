@@ -123,7 +123,9 @@ import {
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
 /** The lease ledger's record of a port open; the private address itself never expires. */
-const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
+const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 
 /**
@@ -333,17 +335,20 @@ export function freestylePortUrls(addresses: FreestyleRouteAddresses, vmId: stri
 }
 
 /**
- * Bounded guest-side desktop heal, one exec: succeeds as soon as noVNC
- * listens on 6901; on the first miss it (re)starts the cmux-desktop unit
- * (the baked supervisor has Restart=always, so this only matters right after
- * a cold boot or an operator stop). Exit 3 means the image carries no desktop
- * layer at all; exit 1 means the desktop did not come up in time.
+ * Guest-side desktop heal, one exec, no polling: `systemctl start` on the
+ * cmux-desktop unit returns when the unit is active, and the unit is
+ * Type=notify, so "active" means start-vnc.sh has reported READY (the display
+ * accepts connections, noVNC is bound on 6901, the session env is published).
+ * On a healthy machine the start is a no-op; after a cold boot or an operator
+ * stop it blocks on the owner's signal, bounded by the unit's start timeout
+ * and the exec's own. Exit 3 means the image carries no desktop layer at all
+ * (a base machine); any other failure means the desktop did not come up.
  */
 export function freestyleDesktopHealCommand(): string {
   return (
-    `for i in $(seq 1 30); do ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} ' && exit 0; ` +
-    `if [ "$i" = 1 ]; then [ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
-    `[ -d /run/systemd/system ] && systemctl start ${DEVBOX_DESKTOP_UNIT} >/dev/null 2>&1; fi; sleep 1; done; exit 1`
+    `[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
+    `if [ -d /run/systemd/system ]; then systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1; fi; ` +
+    `ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`
   );
 }
 
@@ -1177,7 +1182,7 @@ export class FreestyleProvider implements VMProvider {
           const desktop = port === DEVBOX_DESKTOP_NOVNC_PORT;
           span.setAttribute("cmux.vm.port.desktop", desktop);
           if (desktop) {
-            const healed = await this.execResult(vm, freestyleDesktopHealCommand(), 60_000);
+            const healed = await this.execResult(vm, freestyleDesktopHealCommand(), DESKTOP_HEAL_TIMEOUT_MS);
             if (healed?.exitCode === 3) {
               throw new ProviderError("freestyle", `VM ${vmId} has no desktop: its image carries no desktop layer (a base machine)`);
             }

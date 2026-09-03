@@ -61,6 +61,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   the screen a person can watch. The session's own user also inherits its
   D-Bus session bus; root does not (the bus admits only its owner). Root
   can reach the display itself (`cmux` sessions run as root).
+- Readiness is signalled by its owners, never inferred from elapsed time:
+  Xvnc reports its display on `-displayfd` once it accepts connections, the
+  accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
+  resize watcher reacts to RandR events (`xev`), and the unit is
+  `Type=notify`: `start-vnc.sh` sends READY once the display, noVNC and the
+  published env are up, so `systemctl start cmux-desktop` (the driver's
+  port-open heal, the bake) returns exactly when the screen is usable.
+  websockify has no readiness signal of its own, so its 6901 bind is the one
+  bounded connect wait (`wait_listening`).
 - The `cmux-desktop` systemd unit runs `cmux-desktop-boot` as `ubuntu`,
   which re-asserts Chrome's pre-accepted first run and re-runs the
   idempotent `start-vnc.sh` every 30 s. In a container (no systemd) the
@@ -72,8 +81,9 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   runs the cmux-tui daemon as root; moving sessions to `ubuntu` is a driver
   change.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
-  (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile); the apt list is
-  `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads both.
+  (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
+  `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
+  `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
 A desktop image is a superset of a base one, so one Freestyle snapshot is
 registered under both kinds (`desktop` and `base`). `--no-desktop` bakes a
@@ -83,8 +93,8 @@ Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
 Displays row, `cmux vm open <m>:desktop`) returns
 `http://<private VPC IPv4>:6901/vnc.html?path=websockify`, reachable only
 over the owner's WireGuard tunnel, exactly the path the daemon route takes,
-after a guest-side heal that (re)starts the `cmux-desktop` unit when noVNC
-is not listening. No public ingress is ever opened for it: noVNC has no
+after a guest-side heal that is one blocking `systemctl start cmux-desktop`
+(the unit's READY is the signal). No public ingress is ever opened for it: noVNC has no
 auth of its own, so a machine outside a private network gets an error, not
 a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
 edge. The daemon still runs as root, so root shells get `DISPLAY` but not

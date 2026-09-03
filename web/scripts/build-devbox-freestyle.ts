@@ -85,6 +85,7 @@ import {
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
+  devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
   devboxParkDaemonCommand,
   emitBakeResult,
@@ -313,11 +314,12 @@ try {
     );
 
     // Ghostty: the Dockerfile's pinned community .deb for Ubuntu 24.04 (no
-    // upstream .deb exists). libgl1-mesa-dri above is the software GL its
+    // upstream .deb exists), verified against the Dockerfile's SHA-256 before
+    // dpkg runs as root. libgl1-mesa-dri above is the software GL its
     // renderer uses.
     await step(
       "ghostty",
-      `curl -fsSL -o /tmp/ghostty.deb ${devboxGhosttyDebUrl()} && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
+      `curl -fsSL -o /tmp/ghostty.deb ${devboxGhosttyDebUrl()} && echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
     );
 
     // Every desktop file, at the path the Dockerfile COPYs it to
@@ -334,17 +336,21 @@ try {
     );
 
     // Bring the desktop up under systemd as the work user and prove the
-    // contract: both ports answer (RFB loopback-only), noVNC serves its
-    // client, the window manager, dock, clipboard helper and accessibility
-    // bus run, the wallpaper is on the root window, root can reach the
-    // display too (cmux sessions run as root), exactly one desktop
-    // supervisor exists (systemd's; cmux-devbox-boot must not start a second
-    // one under systemd), login shells of both accounts inherit DISPLAY from
-    // the published env, the work user's also the accessibility and session
-    // buses, and cua-driver's doctor sees the display and the accessibility
-    // bus. The "First Run" marker pre-accepts Chrome's first-run/ToS dialog
-    // (cmux-desktop-boot re-asserts it on every boot).
+    // contract. `systemctl enable --now` returns only once the Type=notify
+    // unit has reported READY (start-vnc.sh: display accepting connections,
+    // noVNC bound, session env published), so nothing here polls. Then: both
+    // ports answer (RFB loopback-only), noVNC serves its client, the window
+    // manager, dock, clipboard helper and accessibility bus run, the
+    // wallpaper is on the root window, root can reach the display too (cmux
+    // sessions run as root), exactly one desktop supervisor exists (systemd's;
+    // cmux-devbox-boot must not start a second one under systemd), login
+    // shells of both accounts inherit DISPLAY from the published env, the
+    // work user's also the accessibility and session buses, and cua-driver's
+    // doctor sees the display and the accessibility bus. The "First Run"
+    // marker pre-accepts Chrome's first-run/ToS dialog (cmux-desktop-boot
+    // re-asserts it on every boot).
     const desktopEnvLine = `'[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh'`;
+    /** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
     const loginAs = (user: string, home: string, command: string): string =>
       `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
     await step(
@@ -353,11 +359,13 @@ try {
         `bash -n ${DEVBOX_DESKTOP_START_SCRIPT} && sh -n ${DEVBOX_DESKTOP_SUPERVISOR} && sh -n /etc/cmux/desktop-env.sh`,
         `grep -q '^User=${WORK_USER}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
         `grep -q '^RuntimeDirectory=${DEVBOX_DESKTOP_RUNTIME_DIR.replace("/run/", "")}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
+        `grep -q '^Type=notify$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service && grep -q '^NotifyAccess=all$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
         `echo ${desktopEnvLine} > /etc/profile.d/cmux-desktop.sh`,
         ...rcFiles.map((rc) => `echo ${desktopEnvLine} >> ${rc}`),
         `mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config`,
-        `systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT}`,
-        `for i in $(seq 1 90); do ss -tln | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} ' && ss -tln | grep -q ':${DEVBOX_DESKTOP_RFB_PORT} ' && test -s ${DEVBOX_DESKTOP_ENV_FILE} && grep -q AT_SPI_BUS_ADDRESS ${DEVBOX_DESKTOP_ENV_FILE} && break; sleep 1; done`,
+        `systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT} && systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
+        `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ]`,
+        `test -s ${DEVBOX_DESKTOP_ENV_FILE}`,
         `ss -tln | grep -q ':${DEVBOX_DESKTOP_RFB_PORT} ' && ss -tln | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`,
         `ss -tln | grep ':${DEVBOX_DESKTOP_RFB_PORT} ' | grep -q '127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}'`,
         `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc`,

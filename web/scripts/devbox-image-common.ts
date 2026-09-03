@@ -110,6 +110,17 @@ export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string
   return url;
 }
 
+/**
+ * The SHA-256 of that .deb (`ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=`): both
+ * recipes verify the downloaded bytes against it before dpkg runs as root, so
+ * a moved or tampered release asset fails the bake instead of installing.
+ */
+export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
+  return sha;
+}
+
 const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
   { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },

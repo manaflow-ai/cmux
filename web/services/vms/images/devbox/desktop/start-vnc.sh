@@ -23,10 +23,27 @@
 # $CMUX_DESKTOP_RUNTIME_DIR/env (/run/cmux-desktop/env) for
 # /etc/cmux/desktop-env.sh, which every login and pane shell sources.
 #
+# Readiness is signalled by its owners, never inferred from elapsed time:
+#   - Xvnc reports its display on -displayfd once it accepts connections;
+#   - the accessibility bus is waited for by its bus name (gdbus wait);
+#   - the resize watcher reacts to RandR screen-change events (xev);
+#   - the whole desktop reports READY to systemd (sd_notify; the cmux-desktop
+#     unit is Type=notify) once the display, noVNC and the published env are
+#     up, so `systemctl start cmux-desktop` (the driver's heal, the bake)
+#     returns exactly when the screen is usable.
+# The one third-party listener with no readiness signal, websockify, is
+# waited for through wait_listening, a bounded connect probe.
+#
 # Idempotent: every component is guarded by a liveness probe, so re-running
 # against a healthy desktop starts nothing. Starts everything in the background
 # and exits; the supervisor loop re-invokes it.
 set -u
+
+# The systemd notification socket is for this script's READY at the very end
+# and for nothing else: dbus-daemon (and anything else sd_notify-aware)
+# would otherwise report READY=1 for the whole unit the moment it starts.
+CMUX_NOTIFY_SOCKET="${NOTIFY_SOCKET:-}"
+unset NOTIFY_SOCKET
 
 DISPLAY="${DISPLAY:-:1}"
 export DISPLAY
@@ -51,18 +68,49 @@ VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
 mine() { pgrep -u "$(id -u)" "$@" >/dev/null 2>&1; }
+# Bounded wait for a listener that has no readiness signal of its own
+# (websockify): probes the socket table until the port is bound or the
+# deadline (seconds) passes. Returns the port's state at the deadline.
+wait_listening() {
+  port=$1; deadline=$(( $(date +%s) + $2 ))
+  until listening "$port"; do
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 0.1
+  done
+}
 
-# TigerVNC on :1, RFB on 5901, loopback only.
+# TigerVNC on :1, RFB on 5901, loopback only. -displayfd is the X server's
+# own readiness signal: it writes the display number to that descriptor the
+# moment it accepts connections, so nothing below talks to X too early. The
+# descriptor is a FIFO opened read/write here (so neither side blocks on the
+# open) and read with a deadline.
 if ! listening 5901; then
-  "$VNC_BIN" "$DISPLAY" \
-    -geometry "$GEOMETRY" \
-    -depth 24 \
-    -rfbport 5901 \
-    -localhost \
-    -SecurityTypes None \
-    -AlwaysShared \
-    >>"$LOG_DIR/xvnc.log" 2>&1 &
-  for _ in $(seq 1 50); do listening 5901 && break; sleep 0.2; done
+  ready_fifo="$STATE_DIR/xvnc-ready.fifo"
+  rm -f "$ready_fifo"
+  if mkfifo -m 600 "$ready_fifo" 2>/dev/null && exec {ready_fd}<>"$ready_fifo"; then
+    "$VNC_BIN" "$DISPLAY" \
+      -geometry "$GEOMETRY" \
+      -depth 24 \
+      -rfbport 5901 \
+      -localhost \
+      -SecurityTypes None \
+      -AlwaysShared \
+      -displayfd 3 3>"$ready_fifo" \
+      >>"$LOG_DIR/xvnc.log" 2>&1 &
+    read -r -t 20 -u "$ready_fd" _ || echo "Xvnc did not report readiness on -displayfd within 20 s" >>"$LOG_DIR/xvnc.log"
+    exec {ready_fd}>&-
+    rm -f "$ready_fifo"
+  else
+    "$VNC_BIN" "$DISPLAY" \
+      -geometry "$GEOMETRY" \
+      -depth 24 \
+      -rfbport 5901 \
+      -localhost \
+      -SecurityTypes None \
+      -AlwaysShared \
+      >>"$LOG_DIR/xvnc.log" 2>&1 &
+    wait_listening 5901 20 || true
+  fi
 fi
 
 # One D-Bus session bus for the whole desktop: openbox, the dock and every app
@@ -122,22 +170,20 @@ fi
 
 # noVNC's remote resize grows the display live, but the root pixmap keeps its
 # old size (X tiles it: the doubled-wallpaper bug) and tint2 keeps its old
-# strut. Re-fill the wallpaper and nudge tint2 whenever the geometry changes.
-# `bash -c '…' cmux-desktop-resize-watch` puts the marker in $0 so the pgrep
-# guard finds the loop on the next idempotent pass.
+# strut. Re-fill the wallpaper and nudge tint2 on every RandR screen change,
+# delivered as events by xev; the watcher exits with the display and the next
+# supervisor pass restarts it. `bash -c '…' cmux-desktop-resize-watch` puts
+# the marker in $0 so the pgrep guard finds the loop on the next idempotent
+# pass.
 if ! mine -f cmux-desktop-resize-watch; then
   bash -c '
-    last=""
-    while :; do
-      now=$(xdpyinfo 2>/dev/null | awk "/dimensions:/ {print \$2}")
-      if [ -n "$now" ] && [ "$now" != "$last" ]; then
-        if [ -n "$last" ]; then
+    xev -root -event randr 2>/dev/null | while read -r line; do
+      case $line in
+        *RRScreenChangeNotify*)
           feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 || true
           pkill -USR1 -U "$(id -u)" -x tint2 >/dev/null 2>&1 || true
-        fi
-        last="$now"
-      fi
-      sleep 2
+          ;;
+      esac
     done
   ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
@@ -149,20 +195,20 @@ if ! listening 6901; then
 fi
 
 # Publish the session for other shells (/etc/cmux/desktop-env.sh): the
-# display, and the accessibility bus once the launcher has registered it,
-# under both names clients use (AT_SPI_BUS_ADDRESS is what the atspi
-# library connects to; AT_SPI_BUS is the launcher's X property name, what
-# cua-driver's doctor checks). Written atomically; a runtime dir that does
-# not exist or is not ours (no systemd RuntimeDirectory=, no supervisor)
-# simply gets no file.
+# display, and the accessibility bus once its name is owned on the session
+# bus (gdbus wait is the owner's signal), under both names clients use
+# (AT_SPI_BUS_ADDRESS is what the atspi library connects to; AT_SPI_BUS is
+# the launcher's X property name, what cua-driver's doctor checks). Written
+# atomically; a runtime dir that does not exist or is not ours (no systemd
+# RuntimeDirectory=, no supervisor) simply gets no file.
+published=0
 if [ -d "$RUNTIME_DIR" ] && [ -w "$RUNTIME_DIR" ]; then
   a11y_bus=""
   if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    for _ in $(seq 1 25); do
-      a11y_bus=$(dbus-send --session --print-reply=literal --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null | tr -d ' \n')
-      [ -n "$a11y_bus" ] && break
-      sleep 0.2
-    done
+    if command -v gdbus >/dev/null 2>&1; then
+      gdbus wait --session --timeout 10 org.a11y.Bus >>"$LOG_DIR/at-spi.log" 2>&1 || true
+    fi
+    a11y_bus=$(dbus-send --session --print-reply=literal --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null | tr -d ' \n')
   fi
   {
     echo "# generated by start-vnc.sh; the desktop session other shells attach to"
@@ -171,7 +217,17 @@ if [ -d "$RUNTIME_DIR" ] && [ -w "$RUNTIME_DIR" ]; then
     [ -n "$a11y_bus" ] && echo "export AT_SPI_BUS='$a11y_bus'"
     echo "CMUX_DESKTOP_UID=$(id -u)"
     [ -n "$DBUS_SESSION_BUS_ADDRESS" ] && echo "CMUX_DESKTOP_SESSION_BUS='$DBUS_SESSION_BUS_ADDRESS'"
-  } > "$RUNTIME_DIR/env.tmp" 2>/dev/null && chmod 0644 "$RUNTIME_DIR/env.tmp" && mv -f "$RUNTIME_DIR/env.tmp" "$RUNTIME_DIR/env"
+  } > "$RUNTIME_DIR/env.tmp" 2>/dev/null && chmod 0644 "$RUNTIME_DIR/env.tmp" && mv -f "$RUNTIME_DIR/env.tmp" "$RUNTIME_DIR/env" && published=1
+fi
+
+# READY for systemd (cmux-desktop is Type=notify, NotifyAccess=all): the
+# display accepts connections, noVNC is bound, and the env is published.
+# Repeating it on later passes is harmless; a pass that finds something
+# down leaves the unit's state to systemd (Restart=always) and this loop.
+if [ -n "$CMUX_NOTIFY_SOCKET" ] && command -v systemd-notify >/dev/null 2>&1; then
+  if listening 5901 && wait_listening 6901 10 && [ "$published" = 1 ]; then
+    NOTIFY_SOCKET="$CMUX_NOTIFY_SOCKET" systemd-notify --ready --status="desktop up on $DISPLAY: RFB 5901 (loopback), noVNC 6901" 2>>"$LOG_DIR/notify.log" || true
+  fi
 fi
 
 exit 0

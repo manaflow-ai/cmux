@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import type { Freestyle } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FreestyleProvider,
+  PORT_OPEN_LEASE_TTL_SECONDS,
   assertNoRouteTokenInGuestPayload,
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
@@ -490,13 +491,14 @@ describe("Freestyle machine sizing", () => {
 describe("Freestyle port open: the private address, the desktop healed", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
 
+  /** A fake SDK client for one machine: `data()` answers `input.data`, the desktop heal exec exits `input.healExit`. */
   function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
     const execs: string[] = [];
     const vm = {
       data: async () => input.data,
       exec: async ({ command }: { command: string }) => {
         execs.push(command);
-        const exit = command.includes(`':${DEVBOX_DESKTOP_NOVNC_PORT} '`) ? (input.healExit ?? 0) : 0;
+        const exit = command.includes(`systemctl start`) ? (input.healExit ?? 0) : 0;
         return { statusCode: exit, stdout: "", stderr: exit === 0 ? "" : "desktop down" };
       },
     };
@@ -523,23 +525,29 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
     expect(freestylePortUrls({ vpcs: [{ ipv6: "fd00:4::7" }] }, VM_ID, 3000).url).toBe("http://[fd00:4::7]:3000/");
   });
 
-  test("the desktop heal is one bounded guest loop that starts the unit once and tells a base image apart", () => {
+  test("the desktop heal blocks on the unit's readiness signal, never a sleep loop, and tells a base image apart", () => {
     const command = freestyleDesktopHealCommand();
-    expect(command).toContain("seq 1 30");
-    expect(command).toContain("grep -q ':6901 ' && exit 0");
-    expect(command).toContain("[ -x /usr/local/bin/start-vnc.sh ] || exit 3");
-    expect(command).toContain("systemctl start cmux-desktop");
-    expect(command.endsWith("exit 1")).toBe(true);
+    expect(command).toBe(
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':6901 '",
+    );
+    expect(command).not.toContain("sleep");
+    expect(command).not.toContain("seq ");
   });
 
-  test("openPort(6901) heals the desktop, returns the private noVNC URL and a ledger-only token", async () => {
+  test("openPort(6901) heals the desktop, returns the private noVNC URL and a ledger-only token with the lease TTL", async () => {
     const fake = portFake({ data: PRIVATE });
-    const endpoint = await fake.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT);
-    expect(endpoint.url).toBe("http://10.4.0.7:6901/");
-    expect(endpoint.openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
-    expect(endpoint.token).toMatch(/^cmux-freestyle-port-[0-9a-f]{64}$/);
-    expect(endpoint.expiresAtMs).toBeGreaterThan(Date.now());
-    expect(fake.execs).toEqual([freestyleDesktopHealCommand()]);
+    const now = new Date("2026-09-03T00:00:00.000Z");
+    setSystemTime(now);
+    try {
+      const endpoint = await fake.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT);
+      expect(endpoint.url).toBe("http://10.4.0.7:6901/");
+      expect(endpoint.openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+      expect(endpoint.token).toMatch(/^cmux-freestyle-port-[0-9a-f]{64}$/);
+      expect(endpoint.expiresAtMs).toBe(now.getTime() + PORT_OPEN_LEASE_TTL_SECONDS * 1000);
+      expect(fake.execs).toEqual([freestyleDesktopHealCommand()]);
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("openPort for a dev server port runs no guest command at all", async () => {

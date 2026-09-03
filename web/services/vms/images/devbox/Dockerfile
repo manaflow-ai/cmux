@@ -151,9 +151,10 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
 # build-devbox-freestyle.ts reads them from this file (devbox-image-common.ts),
 # never a second copy. GL/Vulkan/xkb libraries are what Ghostty and Chrome
 # render with under Xvnc. Ghostty ships no upstream .deb; the community build
-# for Ubuntu 24.04 is pinned by release tag.
+# for Ubuntu 24.04 is pinned by release tag and by the SHA-256 of its bytes.
 ARG CMUX_IMAGE_DESKTOP_PACKAGES="tigervnc-standalone-server tigervnc-tools openbox tint2 thunar feh novnc websockify at-spi2-core dbus-x11 libglib2.0-bin x11-xserver-utils xdg-utils adwaita-icon-theme libgl1-mesa-dri mesa-vulkan-drivers libvulkan1 libxkbcommon0 libxkbcommon-x11-0 netcat-openbsd"
 ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_24.04.deb
+ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=478d440153ef544426418efc7d6d8901715359f452c46be29071901a94b8cd47
 RUN apt-get update && apt-get install -y --no-install-recommends $CMUX_IMAGE_DESKTOP_PACKAGES \
   && rm -rf /var/lib/apt/lists/* \
   && { [ -e /usr/share/novnc/index.html ] || ln -s vnc.html /usr/share/novnc/index.html; } \
@@ -161,6 +162,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends $CMUX_IMAGE_DES
   && command -v dbus-launch && command -v dbus-send && command -v gdbus && command -v feh && command -v thunar \
   && { test -x /usr/libexec/at-spi-bus-launcher || test -x /usr/lib/at-spi2-core/at-spi-bus-launcher; }
 RUN curl -fsSL -o /tmp/ghostty.deb "$CMUX_IMAGE_GHOSTTY_DEB_URL" \
+  && echo "$CMUX_IMAGE_GHOSTTY_DEB_SHA256  /tmp/ghostty.deb" | sha256sum -c - \
   && apt-get update && apt-get install -y --no-install-recommends /tmp/ghostty.deb \
   && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb \
   && ghostty +version | head -1

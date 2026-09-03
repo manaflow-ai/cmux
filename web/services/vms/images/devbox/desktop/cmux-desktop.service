@@ -3,7 +3,15 @@ Description=cmux devbox desktop (TigerVNC + openbox + tint2 dock + noVNC on 6901
 After=network.target
 
 [Service]
-Type=simple
+# Type=notify: the unit is "active" only once start-vnc.sh has reported READY
+# (the display accepts connections, noVNC is bound, /run/cmux-desktop/env is
+# published), so `systemctl start cmux-desktop` returns exactly when the
+# screen is usable. That is what the Freestyle driver's port-open heal and
+# the bake wait on. NotifyAccess=all because the notification comes from
+# start-vnc.sh, a child of the supervisor loop.
+Type=notify
+NotifyAccess=all
+TimeoutStartSec=120
 User=ubuntu
 Environment=HOME=/home/ubuntu
 Environment=USER=ubuntu

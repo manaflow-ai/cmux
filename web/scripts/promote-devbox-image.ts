@@ -30,9 +30,10 @@
  *               disables). A human/dashboard convenience: production boots
  *               from the immutable id in the manifest, never from the slug.
  *               With sizes, it is the prefix the derived snapshots are
- *               slugged under (`<prefix>-<size>`, bare for md); "none" keeps
- *               the shared pointer untouched and prefixes them with the
- *               bake's own slug instead.
+ *               slugged under (`<prefix>-<size>`; md takes the bare prefix
+ *               unless the bake itself already holds that slug, then
+ *               `<prefix>-md`); "none" keeps the shared pointer untouched
+ *               and prefixes them with the bake's own slug instead.
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.

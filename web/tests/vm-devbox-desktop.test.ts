@@ -7,6 +7,7 @@ import {
   DEVBOX_DESKTOP_INSTALLS,
   devboxDesktopDir,
   devboxDesktopPackages,
+  devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
 } from "../scripts/devbox-image-common";
 import {
@@ -129,6 +130,11 @@ describe("devbox desktop layer", () => {
     expect(dockerfile).toContain('curl -fsSL -o /tmp/ghostty.deb "$CMUX_IMAGE_GHOSTTY_DEB_URL"');
     expect(freestyleBake).toContain("${devboxGhosttyDebUrl()}");
     expect(freestyleBake).toContain("ghostty +version");
+    // Both recipes verify the downloaded bytes against the checked-in digest before dpkg runs as root.
+    expect(devboxGhosttyDebSha256(dockerfile)).toMatch(/^[0-9a-f]{64}$/);
+    expect(dockerfile).toContain('echo "$CMUX_IMAGE_GHOSTTY_DEB_SHA256  /tmp/ghostty.deb" | sha256sum -c -');
+    expect(dockerfile.indexOf("sha256sum -c -")).toBeLessThan(dockerfile.indexOf("apt-get install -y --no-install-recommends /tmp/ghostty.deb"));
+    expect(freestyleBake).toContain("echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb");
   });
 
   test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", () => {
@@ -157,13 +163,27 @@ describe("devbox desktop layer", () => {
     expect(unit).toContain(`Environment=CMUX_DESKTOP_RUNTIME_DIR=${DEVBOX_DESKTOP_RUNTIME_DIR}`);
     expect(unit).toContain("RuntimeDirectory=cmux-desktop");
     expect(unit).toContain("RuntimeDirectoryMode=0755");
+    // Readiness is the unit's own signal (Type=notify, READY from start-vnc.sh,
+    // a child of the supervisor), what the driver's heal and the bake block on.
+    expect(unit).toContain("Type=notify");
+    expect(unit).toContain("NotifyAccess=all");
+    expect(unit).toMatch(/^TimeoutStartSec=\d+$/m);
+    expect(startVnc).toContain('NOTIFY_SOCKET="$CMUX_NOTIFY_SOCKET" systemd-notify --ready');
+    // Only the final notify may see the socket: dbus-daemon and other
+    // sd_notify-aware children would report READY for the whole unit early.
+    expect(startVnc).toContain("unset NOTIFY_SOCKET");
+    expect(startVnc.indexOf("unset NOTIFY_SOCKET")).toBeLessThan(startVnc.indexOf("dbus-launch"));
+    expect(freestyleBake).toContain("systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value");
+    expect(verify).toContain("desktop-unit-notify-ready");
     expect(unit).toContain(`ExecStart=${DEVBOX_DESKTOP_SUPERVISOR}`);
     expect(unit).toContain("Restart=always");
     expect(boot).toContain(`bash ${DEVBOX_DESKTOP_START_SCRIPT}`);
     expect(boot).toContain(`CMUX_DESKTOP_RUNTIME_DIR="${"${CMUX_DESKTOP_RUNTIME_DIR:-"}${DEVBOX_DESKTOP_RUNTIME_DIR}}"`);
     // Chrome's first run is pre-accepted for the desktop user on every boot.
     expect(boot).toContain('touch "$HOME/.config/google-chrome/First Run"');
-    expect(freestyleBake).toContain("systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT}");
+    expect(freestyleBake).toContain("systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT} && systemctl is-active ${DEVBOX_DESKTOP_UNIT}");
+    // No readiness polling in the bake: the blocking start IS the wait.
+    expect(freestyleBake).not.toContain("for i in $(seq 1 90)");
     expect(freestyleBake).toContain("grep -q '^User=${WORK_USER}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service");
     expect(freestyleBake).toContain("grep -q '^RuntimeDirectory=");
     expect(verify).toContain("pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc'");
@@ -193,8 +213,18 @@ describe("devbox desktop layer", () => {
   });
 
   test("the session publishes DISPLAY and the accessibility bus, and every shell family picks them up", () => {
-    // start-vnc.sh: one D-Bus session (reused across supervisor passes), the
-    // accessibility bus launched immediately, the env published atomically.
+    // start-vnc.sh: owner-signalled readiness everywhere a signal exists
+    // (X on -displayfd, the accessibility bus by name, RandR events for the
+    // resize watcher), one D-Bus session (reused across supervisor passes),
+    // the env published atomically; websockify's bind is the one bounded wait.
+    expect(startVnc).toContain('-displayfd 3 3>"$ready_fifo"');
+    expect(startVnc).toContain('read -r -t 20 -u "$ready_fd" _');
+    expect(startVnc).toContain("gdbus wait --session --timeout 10 org.a11y.Bus");
+    expect(startVnc).toContain("xev -root -event randr");
+    expect(startVnc).toContain("*RRScreenChangeNotify*");
+    expect(startVnc).not.toContain("sleep 2");
+    expect(startVnc).not.toContain("sleep 0.2");
+    expect(startVnc).toContain("wait_listening 6901 10");
     expect(startVnc).toContain('eval "$(dbus-launch --sh-syntax');
     expect(startVnc).toContain('kill -0 "$DBUS_SESSION_BUS_PID"');
     expect(startVnc).toContain("/usr/libexec/at-spi-bus-launcher");
@@ -236,12 +266,13 @@ describe("devbox desktop layer", () => {
     expect(verify).toContain("org.a11y.atspi.Registry");
   });
 
-  test("the driver opens the desktop through the same heal contract", () => {
-    // openPort(6901) waits for noVNC, (re)starting the unit once, and reads
-    // "no desktop layer" from the start script's absence.
+  test("the driver opens the desktop through the same readiness contract", () => {
+    // openPort(6901) blocks on the unit's READY (one systemctl start, no
+    // polling) and reads "no desktop layer" from the start script's absence.
     expect(driver).toContain("freestyleDesktopHealCommand");
-    expect(driver).toContain("systemctl start ${DEVBOX_DESKTOP_UNIT}");
+    expect(driver).toContain("systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1");
     expect(driver).toContain("[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3");
+    expect(driver).not.toContain("sleep 1; done");
     expect(driver).toContain("devboxDesktopOpenUrl(address)");
   });
 
