@@ -1829,25 +1829,32 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
 struct ServedMuxCleanup {
     mux: Option<Arc<Mux>>,
-    socket_path: PathBuf,
+    socket: Option<cmux_tui_core::server::ServedSocketLease>,
 }
 
 impl ServedMuxCleanup {
-    fn new(mux: Arc<Mux>, socket_path: PathBuf) -> Self {
-        Self { mux: Some(mux), socket_path }
+    fn new(mux: Arc<Mux>, socket: cmux_tui_core::server::ServedSocketLease) -> Self {
+        Self { mux: Some(mux), socket: Some(socket) }
     }
 
     fn disarm(&mut self) {
         self.mux = None;
+        self.socket = None;
+    }
+
+    fn cleanup(&mut self) {
+        if let Some(mux) = self.mux.take() {
+            mux.shutdown();
+        }
+        if let Some(socket) = self.socket.take() {
+            socket.cleanup();
+        }
     }
 }
 
 impl Drop for ServedMuxCleanup {
     fn drop(&mut self) {
-        if let Some(mux) = self.mux.take() {
-            mux.shutdown();
-            cmux_tui_core::server::cleanup(&self.socket_path);
-        }
+        self.cleanup();
     }
 }
 
@@ -2136,7 +2143,7 @@ fn run_server(
             server.local_addr()
         );
     }
-    let served_socket = pending_server.into_bound_path();
+    let served_socket = pending_server.into_bound_socket();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
     // Cloud VMs carry coderouter identity in their model-plane env; every
     // other host resolves no source and gets no poller.
@@ -2194,8 +2201,7 @@ fn run_server(
     {
         let shutdown_result = finish_server_shutdown(
             websocket_server,
-            &mux,
-            &socket_path,
+            &mut served_mux_cleanup,
             remote_shutdown,
             result.and(owner_event_result),
         );
@@ -2206,8 +2212,7 @@ fn run_server(
     #[cfg(not(unix))]
     {
         drop(websocket_server);
-        mux.shutdown();
-        cmux_tui_core::server::cleanup(&socket_path);
+        served_mux_cleanup.cleanup();
         served_mux_cleanup.disarm();
         drop(served_mux_cleanup);
         result.and(owner_event_result)
@@ -2264,14 +2269,12 @@ fn start_local_owner_event_loop_with_completion(
 #[cfg(unix)]
 fn finish_server_shutdown<W, R>(
     websocket_server: Option<W>,
-    mux: &Arc<Mux>,
-    socket_path: &Path,
+    served_mux_cleanup: &mut ServedMuxCleanup,
     remote_shutdown: anyhow::Result<Option<R>>,
     result: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     drop(websocket_server);
-    mux.shutdown();
-    cmux_tui_core::server::cleanup(socket_path);
+    served_mux_cleanup.cleanup();
     remote_shutdown.map(|_| ())?;
     result
 }
@@ -3110,18 +3113,23 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
-        let socket_path = std::env::temp_dir().join(format!(
-            "cmux-remote-shutdown-{}-{}.sock",
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-remote-shutdown-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        std::fs::create_dir(&directory).unwrap();
+        let socket_path = directory.join("server.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
         let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+        let mut cleanup = ServedMuxCleanup::new(
+            mux.clone(),
+            cmux_tui_core::server::ServedSocketLease::claim(socket_path.clone()).unwrap(),
+        );
 
         let error = finish_server_shutdown(
             Some(()),
-            &mux,
-            &socket_path,
+            &mut cleanup,
             Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
             Ok(()),
         )
@@ -3131,24 +3139,32 @@ mod tests {
         assert!(error.contains("injected remote shutdown failure"), "{error}");
         assert!(mux.daemon_shutdown_requested());
         assert!(!socket_path.exists());
+        cleanup.disarm();
+        drop(listener);
+        let _ = std::fs::remove_file(directory.join("server.sock.spawn-lock"));
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn normal_server_cleanup_disarms_the_fallback_guard() {
-        let socket_path = std::env::temp_dir().join(format!(
-            "cmux-normal-shutdown-{}-{}.sock",
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-normal-shutdown-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        std::fs::create_dir(&directory).unwrap();
+        let socket_path = directory.join("server.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
         let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
-        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
+        let mut cleanup = ServedMuxCleanup::new(
+            mux.clone(),
+            cmux_tui_core::server::ServedSocketLease::claim(socket_path.clone()).unwrap(),
+        );
 
         finish_server_shutdown(
             Some(()),
-            &mux,
-            &socket_path,
+            &mut cleanup,
             Ok::<Option<()>, anyhow::Error>(None),
             Ok(()),
         )
@@ -3158,6 +3174,9 @@ mod tests {
         assert!(cleanup.mux.is_none());
         assert!(mux.daemon_shutdown_requested());
         assert!(!socket_path.exists());
+        drop(listener);
+        let _ = std::fs::remove_file(directory.join("server.sock.spawn-lock"));
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[cfg(unix)]

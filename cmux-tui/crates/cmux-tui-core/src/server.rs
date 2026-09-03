@@ -30,6 +30,42 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
+    // A queued client can terminate before accept completes. Keep serving
+    // after the resulting connection reset instead of abandoning the listener.
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::NetworkDown
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::ResourceBusy
+    )
+}
+
+fn retry_accept_os_error(error: &std::io::Error) -> bool {
+    if retry_accept_error(error.kind()) {
+        return true;
+    }
+
+    match error.raw_os_error() {
+        #[cfg(unix)]
+        Some(code) => matches!(code, libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM),
+        #[cfg(windows)]
+        Some(code) => {
+            use windows_sys::Win32::Networking::WinSock::{
+                WSA_NOT_ENOUGH_MEMORY, WSAEMFILE, WSAENOBUFS,
+            };
+
+            matches!(code, WSAEMFILE | WSAENOBUFS | WSA_NOT_ENOUGH_MEMORY)
+        }
+        #[cfg(all(not(unix), not(windows)))]
+        Some(_) => false,
+        None => false,
+    }
+}
+
 use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
@@ -4737,32 +4773,306 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SocketPathIdentity {
+    #[cfg(unix)]
+    Unix { device: u64, inode: u64 },
+    #[cfg(windows)]
+    Windows { volume_serial: u32, file_index: u64 },
+    #[cfg(all(not(unix), not(windows)))]
+    Unavailable,
+}
+
+impl SocketPathIdentity {
+    fn capture(path: &Path) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = std::fs::symlink_metadata(path)?;
+            if !metadata.file_type().is_socket() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session socket path is not a Unix socket",
+                ));
+            }
+            Ok(Self::Unix { device: metadata.dev(), inode: metadata.ino() })
+        }
+        #[cfg(windows)]
+        {
+            let (volume_serial, file_index) = windows_socket_identity(path)?;
+            Ok(Self::Windows { volume_serial, file_index })
+        }
+        #[cfg(all(not(unix), not(windows)))]
+        {
+            let _ = path;
+            Ok(Self::Unavailable)
+        }
+    }
+
+    fn matches_path(self, path: &Path) -> std::io::Result<bool> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = match std::fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            Ok(metadata.file_type().is_socket()
+                && matches!(
+                    self,
+                    Self::Unix { device, inode }
+                        if metadata.dev() == device && metadata.ino() == inode
+                ))
+        }
+        #[cfg(windows)]
+        {
+            let current = match windows_socket_identity(path) {
+                Ok(identity) => identity,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            Ok(matches!(
+                self,
+                Self::Windows { volume_serial, file_index }
+                    if file_index != 0
+                        && current.0 != 0
+                        && current.1 != 0
+                        && current == (volume_serial, file_index)
+            ))
+        }
+        #[cfg(all(not(unix), not(windows)))]
+        {
+            let _ = (self, path);
+            // This platform has no stable path identity in the supported
+            // standard-library API. Never remove an unverified successor.
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_INFO_BY_HANDLE_CLASS, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo,
+        GetFileInformationByHandle, GetFileInformationByHandleEx,
+    };
+    use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_AF_UNIX;
+
+    // AF_UNIX pathname sockets are NTFS reparse points. Open the reparse
+    // point itself, not a target selected by normal reparse traversal, then
+    // read the volume serial and file index that identify this publication.
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    // `windows-sys` exposes this FFI struct without a `Default` impl.
+    // Zero-initialization is the documented Windows API input pattern.
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` owns a valid Windows handle and `information` points to
+    // writable storage for the fixed-size API result.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut tag_info = FILE_ATTRIBUTE_TAG_INFO::default();
+    // SAFETY: `file` owns a valid handle and `tag_info` points to writable
+    // storage of the exact size required by `FileAttributeTagInfo`.
+    let tag_info_result = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileAttributeTagInfo as FILE_INFO_BY_HANDLE_CLASS,
+            (&mut tag_info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    if tag_info_result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0
+        || tag_info.ReparseTag != IO_REPARSE_TAG_AF_UNIX
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "session socket path is not an AF_UNIX socket",
+        ));
+    }
+    let file_index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Ok((information.dwVolumeSerialNumber, file_index))
+}
+
+/// Close a listener whose lease could not capture an identity, then remove its
+/// unreachable publication when the path still names a socket. The caller
+/// holds the per-path start lock, so cooperative replacements cannot race the
+/// probe. The second identity check avoids removing a replacement that appears
+/// after the initial probe.
+fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
+    drop(listener);
+
+    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
+    if transport::connect(path).is_ok() || !identity.matches_path(path).unwrap_or(false) {
+        return;
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+struct ListenerControl {
+    shutdown: Arc<AtomicBool>,
+    wake: transport::ListenerWake,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl ListenerControl {
+    fn stop(mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        let _ = self.wake.wake();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Identity-fenced ownership of one bound local server socket.
+///
+/// Cleanup removes the path only when it still names the socket identity
+/// captured after this server bound it. The start lock serializes that check
+/// and removal with other cmux server starts.
+pub struct ServedSocketLease {
+    path: PathBuf,
+    identity: SocketPathIdentity,
+    linked: bool,
+    listener: Option<ListenerControl>,
+}
+
+impl ServedSocketLease {
+    /// Capture the identity of a successfully bound socket path.
+    pub fn claim(path: PathBuf) -> std::io::Result<Self> {
+        let identity = SocketPathIdentity::capture(&path)?;
+        Ok(Self { path, identity, linked: true, listener: None })
+    }
+
+    /// Return the public path owned by this lease.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn stop_listener(&mut self) {
+        if let Some(listener) = self.listener.take() {
+            listener.stop();
+        }
+    }
+
+    /// Remove this publication only while it still belongs to this lease.
+    pub fn unlink(&mut self) -> std::io::Result<()> {
+        if !self.linked {
+            self.stop_listener();
+            return Ok(());
+        }
+
+        // A lease performs at most one bounded cleanup attempt. Mark it as
+        // handled before waiting so Drop cannot repeat the deadline after an
+        // acquisition or identity error.
+        self.linked = false;
+
+        let _start_lock =
+            match SocketStartLock::acquire(&self.path, Instant::now() + SOCKET_CLEANUP_DEADLINE) {
+                Ok(lock) => lock,
+                Err(error) => {
+                    // A failed lock acquisition cannot safely remove the path, but
+                    // the listener must still be stopped before the lease drops.
+                    self.stop_listener();
+                    return Err(error);
+                }
+            };
+        // Keep the start lock while closing this listener. A successor cannot
+        // bind and reuse its identity between shutdown and the fenced check.
+        self.stop_listener();
+        if self.identity.matches_path(&self.path)? {
+            match std::fs::remove_file(&self.path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove this lease and ignore cleanup errors, as required by `Drop`.
+    pub fn cleanup(mut self) {
+        let _ = self.unlink();
+        // `unlink` stops the listener even when lock or identity checks fail.
+        // Do not make Drop wait for a second cleanup attempt after the caller
+        // has already consumed this lease's explicit cleanup result.
+        self.linked = false;
+    }
+
+    fn into_unfenced_path(mut self) -> PathBuf {
+        self.linked = false;
+        // The legacy path-only API keeps the process-lifetime listener
+        // detached, matching its behavior before listener ownership existed.
+        self.listener.take();
+        self.path.clone()
+    }
+
+    fn with_listener(mut self, listener: ListenerControl) -> Self {
+        self.listener = Some(listener);
+        self
+    }
+}
+
+impl Drop for ServedSocketLease {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
 /// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
-    path: Option<PathBuf>,
+    lease: Option<ServedSocketLease>,
     mux: Arc<Mux>,
-    shutdown: Arc<AtomicBool>,
 }
 
 impl PendingServer {
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
-        Ok(self.path.take().expect("pending server path is available"))
+        Ok(self
+            .lease
+            .take()
+            .expect("pending server socket lease is available")
+            .into_unfenced_path())
     }
 
-    /// Transfer socket cleanup while another startup owner publishes readiness.
+    /// Publish lifecycle readiness and retain identity-fenced socket ownership.
+    pub fn mark_ready_owned(mut self) -> anyhow::Result<ServedSocketLease> {
+        self.mux.mark_server_lifecycle_ready();
+        Ok(self.lease.take().expect("pending server socket lease is available"))
+    }
+
+    /// Transfer identity-fenced socket cleanup while another startup owner
+    /// publishes readiness.
+    pub fn into_bound_socket(mut self) -> ServedSocketLease {
+        self.lease.take().expect("pending server socket lease is available")
+    }
+
+    /// Transfer legacy path cleanup while another startup owner publishes
+    /// readiness. New owners should use [`Self::into_bound_socket`].
     pub fn into_bound_path(mut self) -> PathBuf {
-        self.path.take().expect("pending server path is available")
+        self.lease.take().expect("pending server socket lease is available").into_unfenced_path()
     }
 }
 
 impl Drop for PendingServer {
     fn drop(&mut self) {
-        if let Some(path) = self.path.take() {
-            self.shutdown.store(true, Ordering::Release);
-            let _ = transport::connect(&path);
-            cleanup(&path);
+        if let Some(lease) = self.lease.take() {
+            lease.cleanup();
         }
     }
 }
@@ -4867,15 +5177,16 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
     Ok(())
 }
 
-/// Exclusive lock serializing every local server start for one socket path:
-/// foreground `server start`, in-process TUI hosting, and detached-owner
-/// spawns. The stale-socket recovery below (probe, unlink, bind) is not
-/// atomic, so two unserialized starts can both classify a socket as stale,
-/// and the second unlink disconnects the first starter's freshly bound
-/// socket while its process keeps running unreachably. The lock file lives
-/// next to the socket and is left in place: unlinking it would reopen the
-/// very race it exists to close. The OS releases the lock when the holder
-/// exits, so a crashed starter never wedges the session.
+/// Exclusive lock serializing every local server start and identity-fenced
+/// cleanup for one socket path: foreground `server start`, in-process TUI
+/// hosting, and detached-owner spawns. The stale-socket recovery below
+/// (probe, unlink, bind) is not atomic, so two unserialized starts can both
+/// classify a socket as stale, and the second unlink disconnects the first
+/// starter's freshly bound socket while its process keeps running
+/// unreachably. The lock file lives next to the socket and is left in place:
+/// unlinking it would reopen the very race it exists to close. The OS releases
+/// the lock when the holder exits, so a crashed starter never wedges the
+/// session.
 pub struct SocketStartLock {
     _file: std::fs::File,
 }
@@ -4948,6 +5259,16 @@ impl SocketStartLock {
 /// healthy contender clears in milliseconds; the bound exists to surface a
 /// wedged holder as an error instead of a hang.
 const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
+/// Bound cleanup waits so a shutdown path cannot hang on a wedged starter.
+const SOCKET_CLEANUP_DEADLINE: Duration = Duration::from_secs(2);
+/// Bound retries after a transient listener error without spinning the thread.
+const ACCEPT_RETRY_BACKOFF: Duration = Duration::from_millis(100);
+/// Stop retrying persistent resource errors after a bounded recovery window.
+const ACCEPT_RETRY_LIMIT: u32 = 50;
+
+fn accept_retry_allowed(retries: u32) -> bool {
+    retries < ACCEPT_RETRY_LIMIT
+}
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
@@ -4971,9 +5292,23 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
+    let lease = match ServedSocketLease::claim(path.clone()) {
+        Ok(lease) => lease,
+        Err(error) => {
+            cleanup_unclaimed_listener(listener, &path);
+            return Err(error.into());
+        }
+    };
     drop(start_lock);
+    let listener_wake = match listener.wake_handle() {
+        Ok(wake) => wake,
+        Err(error) => {
+            lease.cleanup();
+            return Err(error.into());
+        }
+    };
     if let Err(error) = platform::restrict_file(&path) {
-        cleanup(&path);
+        lease.cleanup();
         return Err(error.into());
     }
     let active_connections = Arc::new(AtomicU64::new(0));
@@ -4981,10 +5316,40 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let shutdown = Arc::new(AtomicBool::new(false));
     let server_shutdown = shutdown.clone();
     let server_mux = mux.clone();
+    let server_wake = listener_wake.clone();
 
-    let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    let server = match std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        let mut transient_accept_failures = 0;
         loop {
-            let Ok(stream) = listener.accept() else { continue };
+            let stream = match listener.accept_with_wake(&server_wake) {
+                Ok(Some(stream)) => {
+                    transient_accept_failures = 0;
+                    stream
+                }
+                Ok(None) => break,
+                Err(_) if server_shutdown.load(Ordering::Acquire) => break,
+                Err(error) if retry_accept_os_error(&error) => {
+                    if !accept_retry_allowed(transient_accept_failures) {
+                        eprintln!(
+                            "cmux-tui: listener accept retry limit exceeded after {transient_accept_failures} failures: {error}"
+                        );
+                        break;
+                    }
+                    transient_accept_failures = transient_accept_failures.saturating_add(1);
+                    match server_wake.wait(ACCEPT_RETRY_BACKOFF) {
+                        Ok(true) => break,
+                        Ok(false) => continue,
+                        Err(wait_error) => {
+                            eprintln!("cmux-tui: listener wake wait failed: {wait_error}");
+                            break;
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("cmux-tui: listener accept failed: {error}");
+                    break;
+                }
+            };
             if server_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -4995,12 +5360,19 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
+    }) {
+        Ok(server) => server,
+        Err(error) => {
+            lease.cleanup();
+            return Err(error.into());
+        }
+    };
+    let lease = lease.with_listener(ListenerControl {
+        shutdown,
+        wake: listener_wake,
+        thread: Some(server),
     });
-    if let Err(error) = server {
-        cleanup(&path);
-        return Err(error.into());
-    }
-    Ok(PendingServer { path: Some(path), mux, shutdown })
+    Ok(PendingServer { lease: Some(lease), mux })
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -13235,6 +13607,34 @@ mod tests {
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
     }
 
+    #[test]
+    fn listener_accept_retries_a_connection_reset() {
+        assert!(retry_accept_error(std::io::ErrorKind::ConnectionReset));
+    }
+
+    #[test]
+    fn listener_accept_retry_budget_stops_persistent_resource_errors() {
+        assert!(accept_retry_allowed(0));
+        assert!(accept_retry_allowed(ACCEPT_RETRY_LIMIT - 1));
+        assert!(!accept_retry_allowed(ACCEPT_RETRY_LIMIT));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn listener_accept_retries_descriptor_exhaustion() {
+        let error = std::io::Error::from_raw_os_error(libc::EMFILE);
+        assert!(retry_accept_os_error(&error));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn listener_accept_retries_windows_descriptor_exhaustion() {
+        use windows_sys::Win32::Networking::WinSock::WSAEMFILE;
+
+        let error = std::io::Error::from_raw_os_error(WSAEMFILE);
+        assert!(retry_accept_os_error(&error));
+    }
+
     struct TestSocketDir(PathBuf);
 
     impl TestSocketDir {
@@ -13540,6 +13940,110 @@ mod tests {
         assert_eq!(winners, 1, "exactly one concurrent starter may bind a stale socket");
         assert!(transport::connect(&socket).is_ok(), "the winner must stay reachable");
         drop(results);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_a_stale_pending_server_preserves_a_replacement_socket() {
+        let dir = TestSocketDir::create("pending-server-replacement");
+        let path = dir.path().join("mux.sock");
+        let first_mux = test_mux();
+        let first = serve_paused(first_mux.clone(), Some(path.clone())).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let second = serve_paused(test_mux(), Some(path.clone())).unwrap();
+        drop(first);
+
+        assert_eq!(
+            Arc::strong_count(&first_mux),
+            1,
+            "stale pending server did not exit its old listener thread"
+        );
+        assert!(path.exists(), "stale pending-server cleanup removed the replacement socket");
+        assert!(transport::connect(&path).is_ok());
+        drop(second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_server_cleanup_waits_for_the_start_lock() {
+        let dir = TestSocketDir::create("pending-server-cleanup-lock");
+        let path = dir.path().join("mux.sock");
+        let mux = test_mux();
+        let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
+        let listener_refs = Arc::strong_count(&mux);
+        let start_lock = SocketStartLock::acquire(&path, Instant::now()).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            drop(pending);
+            observed_tx.send(()).unwrap();
+        });
+
+        assert!(
+            observed_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "pending-server cleanup bypassed the concurrent start lock"
+        );
+        assert_eq!(
+            Arc::strong_count(&mux),
+            listener_refs,
+            "pending-server cleanup stopped its listener before acquiring the start lock"
+        );
+        drop(start_lock);
+        observed_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pending-server cleanup did not resume after the start lock was released");
+        cleanup.join().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
+    #[test]
+    fn socket_cleanup_without_identity_fails_closed() {
+        assert!(
+            !SocketPathIdentity::Unavailable.matches_path(Path::new("replacement.sock")).unwrap()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn socket_cleanup_matches_the_bound_windows_socket_identity() {
+        let dir = TestSocketDir::create("windows-socket-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+        let lease = ServedSocketLease::claim(path.clone()).unwrap();
+
+        assert!(lease.identity.matches_path(&path).unwrap());
+        drop(listener);
+        lease.cleanup();
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_socket_claim_cleans_an_unreachable_bound_listener_path() {
+        let dir = TestSocketDir::create("failed-socket-claim");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        cleanup_unclaimed_listener(listener, &path);
+
+        assert!(!path.exists(), "failed socket claim left a dead publication behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_socket_claim_preserves_a_live_replacement_listener() {
+        let dir = TestSocketDir::create("failed-socket-claim-replacement");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+        cleanup_unclaimed_listener(listener, &path);
+
+        assert!(transport::connect(&path).is_ok(), "failed claim removed a live replacement");
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[cfg(unix)]
