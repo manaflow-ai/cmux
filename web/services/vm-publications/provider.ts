@@ -279,12 +279,10 @@ function isNotFound(cause: unknown): boolean {
 }
 
 function isVerificationIncomplete(cause: unknown): boolean {
-  const status = cause instanceof FreestyleApiError
-    ? cause.status
-    : (cause as { readonly status?: unknown } | null)?.status;
-  return typeof status === "number" &&
-    status >= 400 && status < 500 &&
-    status !== 401 && status !== 403 && status !== 429;
+  const candidate = cause instanceof FreestyleApiError
+    ? cause
+    : (cause as { readonly status?: unknown; readonly code?: unknown } | null);
+  return candidate?.code === "VERIFICATION_FAILED" || candidate?.status === 404;
 }
 
 function normalizedExactHostname(value: string): string {
@@ -805,9 +803,10 @@ export function makeVmPublicationProvider(
             domainOrVerificationId,
           );
         } catch (cause) {
-          // A rejected completion means the TXT proof is not visible yet (or
-          // the challenge was withdrawn); the caller reports "still pending"
-          // instead of a provider outage. Auth, throttling, and 5xx still fail.
+          // Observed live: Freestyle answers `400 VERIFICATION_FAILED` while
+          // the TXT proof is not visible yet, and 404 once a challenge is
+          // withdrawn. The caller reports "still pending" for those; anything
+          // else is a real provider failure.
           if (isVerificationIncomplete(cause)) return null;
           throw cause;
         }

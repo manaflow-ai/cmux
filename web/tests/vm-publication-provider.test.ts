@@ -655,23 +655,33 @@ describe("VM publication Freestyle provider", () => {
   });
 
   test("treats a rejected verification completion as still pending", async () => {
-    let status = 422;
+    // Observed live from Freestyle: a missing TXT proof is `400 VERIFICATION_FAILED`.
+    let failure: { status: number; code: string } = { status: 400, code: "VERIFICATION_FAILED" };
     const client = fakeClient({
       verificationComplete: async () => {
-        throw new FreestyleApiError(status, {
-          code: "VERIFICATION_PENDING",
-          message: "TXT record not found",
+        throw new FreestyleApiError(failure.status, {
+          code: failure.code,
+          message: "TXT lookup failed: no records found",
         });
       },
     });
     const provider = makeVmPublicationProvider(() => client);
 
-    for (status of [422, 400, 409, 404]) {
+    for (failure of [
+      { status: 400, code: "VERIFICATION_FAILED" },
+      { status: 404, code: "NOT_FOUND" },
+    ]) {
       await expect(
         Effect.runPromise(provider.completeDomainVerification("verification-1")),
       ).resolves.toBeNull();
     }
-    for (status of [401, 403, 429, 503]) {
+    for (failure of [
+      { status: 400, code: "BAD_REQUEST" },
+      { status: 401, code: "UNAUTHORIZED" },
+      { status: 409, code: "CONFLICT" },
+      { status: 429, code: "RATE_LIMITED" },
+      { status: 503, code: "UNAVAILABLE" },
+    ]) {
       const error = await Effect.runPromise(
         Effect.flip(provider.completeDomainVerification("verification-1")),
       );
