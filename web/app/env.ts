@@ -198,6 +198,8 @@ export const env = createEnv({
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
+    // Deliberately opt in only after Stripe tax registrations are configured.
+    STRIPE_AUTOMATIC_TAX: z.enum(["0", "1"]).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
     // Price-id overrides carry the amount in their name, and every retired
     // name fails env validation instead of silently pinning checkout to a
@@ -393,6 +395,7 @@ export const env = createEnv({
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
+    STRIPE_AUTOMATIC_TAX: trimEnv(process.env.STRIPE_AUTOMATIC_TAX),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),

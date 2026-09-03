@@ -10,6 +10,7 @@ const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const originalStripeAutomaticTax = process.env.STRIPE_AUTOMATIC_TAX;
 
 const SIGNED_IN_USER_ID = "7f5e4e80-3d96-4f6a-8f2e-3c1e4a4d0d01";
 const ANONYMOUS_USER_ID = "5a0f6f7a-7d9f-4bc5-a3be-2d11f7a6c902";
@@ -159,6 +160,11 @@ beforeAll(() => {
 
 afterAll(() => {
   useStubDb = false;
+  if (originalStripeAutomaticTax === undefined) {
+    delete process.env.STRIPE_AUTOMATIC_TAX;
+  } else {
+    process.env.STRIPE_AUTOMATIC_TAX = originalStripeAutomaticTax;
+  }
 });
 
 describe("billing checkout route", () => {
@@ -174,6 +180,7 @@ describe("billing checkout route", () => {
     userResponses = [];
     stackAuthUnavailable = false;
     stripeConfigured = false;
+    delete process.env.STRIPE_AUTOMATIC_TAX;
     createdStripeSessions.length = 0;
     createdStripeCustomers.length = 0;
     insertedStripeCustomers.length = 0;
@@ -481,12 +488,30 @@ describe("billing checkout route", () => {
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
     });
+    expect(createdStripeSessions[0]).not.toHaveProperty("automatic_tax");
+    expect(createdStripeSessions[0]).not.toHaveProperty("tax_id_collection");
     expect(captureBillingCheckoutStarted).toHaveBeenCalledTimes(1);
     expect(captureBillingCheckoutStarted).toHaveBeenCalledWith({
       sessionId: CHECKOUT_SESSION_ID,
       subject: { scope: "user", stackUserId: ANONYMOUS_USER_ID },
       plan: "pro",
       billingInterval: "month",
+    });
+  });
+
+  test("enables Stripe Tax and tax-id collection only when opted in", async () => {
+    process.env.STRIPE_AUTOMATIC_TAX = "1";
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(createdStripeSessions[0]).toMatchObject({
+      automatic_tax: { enabled: true },
+      tax_id_collection: { enabled: true },
     });
   });
 
