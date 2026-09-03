@@ -389,6 +389,69 @@ struct MachineCreateCoordinatorTests {
     }
 }
 
+private actor CoalescerTerminationProbe {
+    private(set) var didTerminate = false
+
+    func markTerminated() {
+        didTerminate = true
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct MainActorOutputCoalescerTests {
+    @Test func processCompletionFinishesStreamAfterDeliveringBufferedOutput() async throws {
+        let termination = CoalescerTerminationProbe()
+        let handler = OutputHandlerProbe()
+        let coalescer = MainActorOutputCoalescer(
+            handler: { text in handler.values.append(text) },
+            onTermination: {
+                Task { await termination.markTerminated() }
+            }
+        )
+
+        coalescer.enqueue(Data("progress".utf8))
+        coalescer.finish()
+
+        try await Self.waitForTermination(termination)
+        #expect(handler.values == ["progress"])
+    }
+
+    @Test func cancellationReleasesTaskAndHandlerAfterStreamTermination() async throws {
+        let termination = CoalescerTerminationProbe()
+        weak var weakHandler: OutputHandlerProbe?
+
+        do {
+            let handler = OutputHandlerProbe()
+            weakHandler = handler
+            var coalescer: MainActorOutputCoalescer? = MainActorOutputCoalescer(
+                handler: { _ in handler.values.append("received") },
+                onTermination: {
+                    Task { await termination.markTerminated() }
+                }
+            )
+            coalescer?.enqueue(Data("cancelled".utf8))
+            coalescer = nil
+        }
+
+        try await Self.waitForTermination(termination)
+        #expect(weakHandler == nil)
+    }
+
+    private static func waitForTermination(_ probe: CoalescerTerminationProbe) async throws {
+        for _ in 0..<100 {
+            if await probe.didTerminate { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        Issue.record("coalescer stream did not terminate")
+    }
+
+    @MainActor
+    private final class OutputHandlerProbe {
+        var values: [String] = []
+    }
+}
+
 /// The Machines panel mirrors the coordinator: pending rows above the fleet,
 /// a completion re-reads the fleet, and a created-but-unopened machine's
 /// reason lands in the control bar.
