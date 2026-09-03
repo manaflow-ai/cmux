@@ -57,8 +57,8 @@ extension AppDelegate {
         guard let notificationStore else { return }
         let managers = paneMemoryGuardrailTabManagers()
         guard let tabId = tabManager?.selectedTabId
-            ?? managers.compactMap(\.selectedTabId).first
-            ?? managers.flatMap(\.tabs).first?.id
+            ?? managers.compactMap({ $0.selectedTabId }).first
+            ?? managers.flatMap({ $0.tabs }).first?.id
         else { return }
 
         notificationStore.addNotification(
