@@ -33,6 +33,14 @@ enum HeaderChromeIconStyle {
         )
     }
 
+    /// Mirrors the titlebar sidebar glyph with its divider on the trailing edge.
+    static func sidebarGlyph() -> some View {
+        SidebarGlyph(
+            iconSize: RightSidebarChromeMetrics.headerIconSize,
+            side: .trailing
+        )
+    }
+
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return disabledOpacity }
         if isPressed {

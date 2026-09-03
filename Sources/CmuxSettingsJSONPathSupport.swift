@@ -537,6 +537,8 @@ extension CmuxSettingsFileStore {
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
+        "rightSidebar.showTitlebarToggle",
+        "rightSidebar.showOpenAsPaneButton",
         "shortcuts.bindings",
     ]
 }

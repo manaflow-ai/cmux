@@ -149,6 +149,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarChromeSettings.showOpenAsPaneButtonKey)
+    private var showOpenAsPaneButton = RightSidebarChromeSettings.defaultShowOpenAsPaneButton
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -276,7 +278,7 @@ struct RightSidebarPanelView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane {
+                if showOpenAsPaneButton && fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 closeButton
@@ -333,7 +335,7 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                HeaderChromeIconStyle.symbol("xmark")
+                HeaderChromeIconStyle.sidebarGlyph()
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
@@ -349,7 +351,7 @@ struct RightSidebarPanelView: View {
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
             )
-            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+            .accessibilityLabel(KeyboardShortcutSettings.Action.toggleRightSidebar.label)
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
         .frame(
