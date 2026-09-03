@@ -1252,6 +1252,7 @@ struct WorkerCompletion {
     done: Mutex<bool>,
     changed: Condvar,
     admission: Mutex<Option<WorkerSlot>>,
+    wake_reaper: bool,
     #[cfg(test)]
     joined: AtomicBool,
 }
@@ -1259,14 +1260,19 @@ struct WorkerCompletion {
 impl WorkerCompletion {
     #[cfg(test)]
     fn new() -> Self {
-        Self::with_slot(None)
+        Self::with_slot_and_reaper(None, false)
     }
 
     fn with_slot(slot: Option<WorkerSlot>) -> Self {
+        Self::with_slot_and_reaper(slot, true)
+    }
+
+    fn with_slot_and_reaper(slot: Option<WorkerSlot>, wake_reaper: bool) -> Self {
         Self {
             done: Mutex::new(false),
             changed: Condvar::new(),
             admission: Mutex::new(slot),
+            wake_reaper,
             #[cfg(test)]
             joined: AtomicBool::new(false),
         }
@@ -1275,6 +1281,9 @@ impl WorkerCompletion {
     fn mark_done(&self) {
         *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
         self.changed.notify_all();
+        if self.wake_reaper {
+            wake_reaper_after_completion();
+        }
     }
 
     fn wait(&self, timeout: Duration) -> bool {
@@ -1372,6 +1381,9 @@ struct ReaperState {
 
 static REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
 
+#[cfg(test)]
+static FAIL_NEXT_REAPER_SPAWN: AtomicBool = AtomicBool::new(false);
+
 fn reaper_state() -> &'static Arc<Mutex<ReaperState>> {
     REAPER.get_or_init(|| {
         Arc::new(Mutex::new(ReaperState { sender: None, worker: None, pending: Vec::new() }))
@@ -1388,6 +1400,12 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     }
     let (sender, receiver) = channel::<()>();
     let worker_state = state.clone();
+    #[cfg(test)]
+    if FAIL_NEXT_REAPER_SPAWN.swap(false, Ordering::AcqRel) {
+        drop(current);
+        reap_completed_workers(state);
+        return;
+    }
     let Ok(reaper_worker) =
         std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
             let mut pending = Vec::new();
@@ -1477,6 +1495,26 @@ fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<Work
         if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
             reap_completed_workers(&state);
         }
+    }
+}
+
+fn wake_reaper_after_completion() {
+    let Some(state) = REAPER.get().cloned() else {
+        return;
+    };
+    let needs_start = {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        match current.sender.as_ref() {
+            Some(sender) if sender.send(()).is_ok() => false,
+            Some(_) => {
+                current.sender = None;
+                true
+            }
+            None => true,
+        }
+    };
+    if needs_start {
+        try_start_reaper(&state);
     }
 }
 
@@ -6977,6 +7015,36 @@ mod tests {
         let handle = std::thread::spawn(|| {});
         enqueue_worker_reap(handle, completion.clone());
         assert!(state.lock().unwrap().worker.is_some());
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn completed_worker_retries_reaper_after_spawn_failure() {
+        let _reaper_guard = reaper_test_guard();
+        let state = reaper_state().clone();
+        state.lock().unwrap().sender = None;
+
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let completion = Arc::new(WorkerCompletion::with_slot_and_reaper(None, true));
+        let worker_release = release.clone();
+        let worker_completion = completion.clone();
+        let handle = std::thread::spawn(move || {
+            let (released, changed) = &*worker_release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            worker_completion.mark_done();
+        });
+
+        FAIL_NEXT_REAPER_SPAWN.store(true, Ordering::Release);
+        enqueue_worker_reap(handle, completion.clone());
+        assert!(!completion.was_joined(), "failed reaper spawn must retain the handle");
+
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
         wait_for_worker_join(&completion);
         assert!(completion.was_joined());
     }
