@@ -1270,6 +1270,102 @@ mod tests {
         drop(reader);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn stdout_writer_drains_committed_bytes_after_surface_exit() {
+        use std::io::Read;
+        use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+
+        let mut fds = [0 as RawFd; 2];
+        // SAFETY: `fds` points to two writable integers owned by this test;
+        // `pipe` initializes both descriptors on success.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { File::from_raw_fd(fds[0]) };
+        let writer_file = unsafe { File::from_raw_fd(fds[1]) };
+        set_nonblocking(writer_file.as_raw_fd()).unwrap();
+
+        let fill = [0_u8; 4096];
+        loop {
+            // SAFETY: `writer_file` owns the descriptor and `fill` remains
+            // alive and readable for the duration of each call.
+            let written =
+                unsafe { libc::write(writer_file.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            let error = io::Error::last_os_error();
+            assert!(
+                error.raw_os_error() == Some(libc::EAGAIN)
+                    || error.raw_os_error() == Some(libc::EWOULDBLOCK),
+                "unexpected pipe fill error: {error}"
+            );
+            break;
+        }
+
+        let cancellation = PipeIoOutputCancellation::new().unwrap();
+        cancellation.request(PipeIoExitReason::TerminalEnded);
+        let mut stdout = PipeIoStdout { file: writer_file, cancellation };
+        let (started_sender, started_receiver) = sync_channel(0);
+        let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            started_sender.send(()).unwrap();
+            finished_sender.send(stdout.write_bytes(b"final")).unwrap();
+        });
+        started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        // A terminal-exit drain is bounded, but it must not reject committed
+        // bytes while the embedder is still able to resume reading.
+        assert!(finished_receiver.recv_timeout(Duration::from_millis(50)).is_err());
+
+        let reader = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).unwrap();
+            bytes
+        });
+        let result = finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(result.is_ok(), "terminal-exit drain failed: {result:?}");
+        let bytes = reader.join().unwrap();
+        assert!(bytes.ends_with(b"final"), "final bytes were not drained");
+        writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stderr_writer_bounds_a_stalled_pipe() {
+        use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+
+        let mut fds = [0 as RawFd; 2];
+        // SAFETY: `fds` points to two writable integers owned by this test;
+        // `pipe` initializes both descriptors on success.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { File::from_raw_fd(fds[0]) };
+        let writer = unsafe { File::from_raw_fd(fds[1]) };
+        set_nonblocking(writer.as_raw_fd()).unwrap();
+
+        let fill = [0_u8; 4096];
+        loop {
+            // SAFETY: `writer` owns the descriptor and `fill` remains alive
+            // and readable for the duration of each call.
+            let written =
+                unsafe { libc::write(writer.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            let error = io::Error::last_os_error();
+            assert!(
+                error.raw_os_error() == Some(libc::EAGAIN)
+                    || error.raw_os_error() == Some(libc::EWOULDBLOCK),
+                "unexpected pipe fill error: {error}"
+            );
+            break;
+        }
+
+        let started = Instant::now();
+        assert!(!write_fd_line_bounded(writer.as_raw_fd(), "blocked"));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(reader);
+        drop(writer);
+    }
+
     #[test]
     fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);

@@ -7410,6 +7410,42 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_budget_allows_live_output_alongside_oversized_replay() {
+        let budget = PipeIoByteBudget::new(8);
+        let mut replay = PipeIoEvent::replay(vec![b'R'; 16]);
+        let mut output = PipeIoEvent::Output(vec![b'O'; 8]);
+        let mut overflow = PipeIoEvent::Output(vec![b'X']);
+
+        assert!(budget.try_reserve_event(&mut replay));
+        assert!(budget.try_reserve_event(&mut output));
+        assert!(!budget.try_reserve_event(&mut overflow));
+
+        budget.release_event(&replay);
+        budget.release_event(&output);
+    }
+
+    #[test]
+    fn surface_exit_signal_survives_byte_sender_shutdown() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        assert!(session.signal_pipe_io_event(Some(7), Some(&token), PipeIoEvent::SurfaceExited));
+        drop(token);
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::SurfaceExited);
+        assert!(receiver.try_recv().is_err());
+        assert!(session.pipe_io_tap.lock().unwrap().is_none());
+    }
+
+    #[test]
     fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
