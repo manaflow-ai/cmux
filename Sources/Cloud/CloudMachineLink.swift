@@ -67,6 +67,7 @@ actor CloudMachineLink {
     private var process: Process?
     private var eventsProcess: Process?
     private var statsProcess: Process?
+    private var statsReaderTask: Task<Void, Never>?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
@@ -179,6 +180,8 @@ actor CloudMachineLink {
         eventsProcess = nil
         statsProcess?.terminate()
         statsProcess = nil
+        statsReaderTask?.cancel()
+        statsReaderTask = nil
         statsContinuation.finish()
         process?.terminate()
         process = nil
@@ -276,7 +279,7 @@ actor CloudMachineLink {
         statsProcess = process
         let continuation = statsContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        Task.detached {
+        statsReaderTask = Task.detached {
             for await line in lines where !line.isEmpty {
                 switch CmuxTuiSnapshotParser.machineStats(fromLine: line) {
                 case .sample(let sample): continuation.yield(sample)
@@ -284,6 +287,10 @@ actor CloudMachineLink {
                 case .unrelated: continue
                 }
             }
+            // A daemon can close this child stream while the link process stays
+            // alive (for example when it predates machine-stats). Clear the
+            // last sample so the UI fails closed instead of showing stale data.
+            continuation.yield(nil)
         }
     }
 
@@ -306,6 +313,8 @@ actor CloudMachineLink {
         eventsProcess = nil
         statsProcess?.terminate()
         statsProcess = nil
+        statsReaderTask?.cancel()
+        statsReaderTask = nil
         statsContinuation.finish()
         process = nil
         connected = nil

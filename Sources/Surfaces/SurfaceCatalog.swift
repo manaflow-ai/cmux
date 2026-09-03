@@ -175,6 +175,12 @@ final class SurfaceCatalog {
         providers[machine]
     }
 
+    /// O(1) lookup for live machine state. Callers that only need one machine
+    /// must not build and sort the full catalog snapshot on every sample.
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
+    }
+
     func refreshAll() async {
         for provider in providers.values {
             await provider.refresh()

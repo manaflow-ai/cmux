@@ -6,7 +6,14 @@ import Foundation
 struct VMStatsUnavailableError: Error, CustomStringConvertible {
     let vmID: String
     var description: String {
-        "No live reading for \(vmID): machines report CPU, memory, and disk over their cmux-tui link. Open the machine in the Machines panel or run `cmux vm shell \(vmID)`, then retry."
+        String(
+            format: String(
+                localized: "socket.cloudVM.statsUnavailable",
+                defaultValue: "No live statistics for %@. Open the machine in the Machines panel or run `cmux vm shell %@`, then retry."
+            ),
+            vmID,
+            vmID
+        )
     }
 }
 
@@ -229,7 +236,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 // The reading comes from the machine's own daemon over its link, never
                 // from the web tier, so it exists only while the Mac holds a link.
-                let info = await MainActor.run { SurfaceCatalog.shared.snapshot.machines.first { $0.id == .cloud(vmId) } }
+                let info = await MainActor.run { SurfaceCatalog.shared.machineInfo(for: .cloud(vmId)) }
                 guard let info, let stats = MachineSnapshotBuilder.linkStats(from: info) else {
                     throw VMStatsUnavailableError(vmID: vmId)
                 }

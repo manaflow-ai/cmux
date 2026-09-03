@@ -515,7 +515,7 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
                     "    }",
                 ]
             )
-        elif command["stream"] is not None:
+        elif command["stream"] is not None and command["stream"].get("mode_field") != "follow":
             lines.extend(
                 [
                     f"    pub fn {method}(&mut self, request: {request_name}) -> Result<CmuxStream> {{",

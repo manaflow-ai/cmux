@@ -18409,7 +18409,7 @@ constexpr std::array<CommandMetadata, 105> kCommands{{
     {"list-clients", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-terminals", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"machine-stats", "control", 12U, "machine-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"machine-stats", "control", 12U, "machine-stats-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"machine-usage", "control", 12U, "machine-usage-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

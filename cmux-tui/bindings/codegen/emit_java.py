@@ -835,7 +835,7 @@ class JavaEmitter:
         return "\n".join(lines) + "\n"
 
     def _render_support(self) -> dict[str, str]:
-        return {
+        files = {
             "Authority.java": self._authority_source(),
             "StreamKind.java": self._stream_kind_source(),
             "CommandMetadata.java": self._command_metadata_source(),
@@ -853,6 +853,26 @@ class JavaEmitter:
             "UnknownEvent.java": self._unknown_event_source(),
             "GeneratedCmuxClient.java": self._client_source(),
         }
+        for wire_name, command in self.document["commands"].items():
+            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                stream_type = _pascal(wire_name) + "Stream"
+                result_type = self._type(command["result"])
+                files[stream_type + ".java"] = (
+                    _HEADER
+                    + f"/** Initial {wire_name} response and its follow events. */\n"
+                    + f"public final class {stream_type} implements AutoCloseable {{\n"
+                    + f"    private final {result_type} initialResult;\n"
+                    + "    private final CmuxStream<ProtocolEvent> events;\n\n"
+                    + f"    {stream_type}({result_type} initialResult, CmuxStream<ProtocolEvent> events) {{\n"
+                    + "        this.initialResult = initialResult;\n"
+                    + "        this.events = events;\n"
+                    + "    }\n\n"
+                    + f"    public {result_type} initialResult() {{ return initialResult; }}\n"
+                    + "    public ProtocolEvent next() throws CmuxException { return events.next(); }\n"
+                    + "    public void close() { events.close(); }\n"
+                    + "}\n"
+                )
+        return files
 
     @staticmethod
     def _marker_source(name: str, parent: str | None) -> str:
@@ -1115,6 +1135,7 @@ class JavaEmitter:
     def _client_source(self) -> str:
         lines = [
             _HEADER,
+            "import java.util.LinkedHashMap;\n"
             "import java.util.List;\n"
             "import java.util.Map;\n\n",
             "/** Canonical typed method surface for every implemented protocol command. */",
@@ -1135,7 +1156,9 @@ class JavaEmitter:
             parameter = f"{request_name} request" if has_fields else ""
             params = "request.toWire()" if has_fields else "Map.of()"
             result_type = self._type(command["result"])
-            if command["stream"] is not None:
+            conditional_stream = command["stream"] is not None and command["stream"].get("mode_field") == "follow"
+            stream_type = _pascal(wire_name) + "Stream"
+            if command["stream"] is not None and not conditional_stream:
                 lines.append(
                     f"    public final CmuxStream<ProtocolEvent> {method}({parameter}) "
                     "throws CmuxException {"
@@ -1145,10 +1168,29 @@ class JavaEmitter:
                 lines.append(
                     f"    public final {result_type} {method}({parameter}) throws CmuxException {{"
                 )
+                if conditional_stream:
+                    lines.append(
+                        "        if (request.follow().isPresent() && Boolean.TRUE.equals(request.follow().value())) {"
+                    )
+                    lines.append(f"            {stream_type} stream = {method}Follow(request);")
+                    lines.append("            try { return stream.initialResult(); } finally { stream.close(); }")
+                    lines.append("        }")
                 lines.append(f"        Object result = execute({metadata}, {params});")
                 lines.append(
                     f"        return {self._decode(command['result'], 'result', wire_name + ' result')};"
                 )
+                if conditional_stream:
+                    lines.append("    }")
+                    lines.append("")
+                    lines.append(
+                        f"    public final {stream_type} {method}Follow({parameter}) throws CmuxException {{"
+                    )
+                    lines.append(f"        LinkedHashMap<String, Object> params = new LinkedHashMap<>({params});")
+                    lines.append("        params.put(\"follow\", true);")
+                    lines.append(f"        CmuxStream<ProtocolEvent> stream = openStream({metadata}, params);")
+                    lines.append(
+                        f"        return new {stream_type}({result_type}.fromWire(stream.initialData()), stream);"
+                    )
             lines.append("    }")
             lines.append("")
         lines.append("}")

@@ -662,7 +662,8 @@ class CppEmitter:
             result = self.result_names[wire_name]
             method = _cpp_field(wire_name)
             default_request = " = {}" if not self._request_has_required_fields(request) else ""
-            if command["stream"] is None:
+            streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
+            if not streaming:
                 lines.append(
                     f"    [[nodiscard]] Result<{result}> {method}("
                     f"const {request}& request{default_request}, RequestOptions options = {{}});"
@@ -1113,7 +1114,8 @@ class CppEmitter:
         request = self.request_names[wire_name]
         result = self.result_names[wire_name]
         method = _cpp_field(wire_name)
-        if command["stream"] is None:
+        streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
+        if not streaming:
             return [
                 f"Result<{result}> Client::{method}(",
                 f"    const {request}& request, RequestOptions options) {{",

@@ -2,6 +2,7 @@
 package com.cmux.raw;
 
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -229,8 +230,19 @@ public abstract class GeneratedCmuxClient {
     }
 
     public final MachineStatsResult machineStats(MachineStatsRequest request) throws CmuxException {
+        if (request.follow().isPresent() && Boolean.TRUE.equals(request.follow().value())) {
+            MachineStatsStream stream = machineStatsFollow(request);
+            try { return stream.initialResult(); } finally { stream.close(); }
+        }
         Object result = execute(Commands.MACHINE_STATS, request.toWire());
         return MachineStatsResult.fromWire(result);
+    }
+
+    public final MachineStatsStream machineStatsFollow(MachineStatsRequest request) throws CmuxException {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>(request.toWire());
+        params.put("follow", true);
+        CmuxStream<ProtocolEvent> stream = openStream(Commands.MACHINE_STATS, params);
+        return new MachineStatsStream(MachineStatsResult.fromWire(stream.initialData()), stream);
     }
 
     public final MachineUsageResult machineUsage() throws CmuxException {

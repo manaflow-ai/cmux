@@ -1010,7 +1010,8 @@ __all__ = [
                     annotation = f"Union[{annotation}, bytes]"
                 parameters.append(f"{_snake(name)}: {annotation} = MISSING")
             result = self.annotation(command["result"], f"commands/{wire_name}/result")
-            if command.get("stream") is not None:
+            streaming = command.get("stream") is not None and command["stream"].get("mode_field") != "follow"
+            if streaming:
                 result = "Any"
             lines.extend(
                 [
@@ -1030,7 +1031,7 @@ __all__ = [
                     )
                 arguments.append(f"{python_name}={value}")
             constructed = f"{request_name}({', '.join(arguments)})"
-            if command.get("stream") is not None:
+            if streaming:
                 lines.append(
                     f"        return self._open_command_stream({_quote(wire_name)}, {constructed})"
                 )

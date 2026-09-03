@@ -480,7 +480,7 @@ class ZigEmitter:
 
             function = _camel(wire_name)
             stream = command["stream"]
-            if stream is None:
+            if stream is None or stream.get("mode_field") == "follow":
                 lines.append(
                     f"pub fn {function}(client: anytype, request: {request_name}) "
                     f"!wire.Decoded({result_name}) {{"

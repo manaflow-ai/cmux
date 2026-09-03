@@ -308,7 +308,9 @@ enum MachineSnapshotBuilder {
                 loadAverage1m: nil, memoryTotalMb: info.memoryMb, memoryUsedMb: nil, diskTotalMb: info.diskMb, diskUsedMb: nil
             )
         }
-        guard let sampledAt = info.statsSampledAt else { return nil }
+        guard info.status == "running",
+              info.linkState == .connected,
+              let sampledAt = info.statsSampledAt else { return nil }
         return VMStats(
             state: .awake, sampledAt: sampledAt, cpus: info.cpus, cpuPercent: info.cpuPercent,
             loadAverage1m: info.loadAverage1m, memoryTotalMb: info.memoryMb, memoryUsedMb: info.memoryUsedMb,

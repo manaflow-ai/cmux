@@ -9767,6 +9767,7 @@
      "empty",
      "frontend-projection-changed",
      "layout-changed",
+     "machine-stats-changed",
      "notification",
      "overflow",
      "pairing-requested",
@@ -10279,7 +10280,21 @@
     "kind": "ref",
     "name": "ServerStatsResult"
    },
-   "stream": null,
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "machine-stats-changed"
+    ],
+    "mode_field": "follow",
+    "modes": {
+     "false": [],
+     "true": [
+      "machine-stats-changed"
+     ]
+    },
+    "ordering": "The initial response precedes machine-stats-changed events. Events preserve enqueue order until the connection closes.",
+    "terminal_event": null
+   },
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
    ]

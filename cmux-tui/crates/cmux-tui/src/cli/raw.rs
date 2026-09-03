@@ -4,12 +4,14 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::MAX_MESSAGE_BYTES;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::{GlobalArgs, OutputMode};
 
@@ -56,6 +58,10 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut reader = BufReader::new(stream);
+    #[cfg(unix)]
+    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    #[cfg(not(unix))]
+    let signal_interrupt_armed = false;
     if let Err(error) = reader
         .get_mut()
         .write_all(&encoded)
@@ -103,7 +109,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             if code != 0 || !plan.stream {
                 return code;
             }
-            return follow_events(&mut reader, global.output);
+            return follow_events(&mut reader, global.output, signal_interrupt_armed);
         }
         let error = json!({
             "code": value
@@ -124,8 +130,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
 /// After a successful response, relay event lines until the daemon closes the
 /// connection or the process is asked to shut down. Idle gaps are expected on
 /// a follow stream, so the read timeout used for the response is lifted.
-fn follow_events(reader: &mut BufReader<Box<dyn transport::Stream>>, output: OutputMode) -> i32 {
-    let _ = reader.get_mut().set_read_timeout(None);
+fn follow_events(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    output: OutputMode,
+    signal_interrupt_armed: bool,
+) -> i32 {
+    if signal_interrupt_armed {
+        let _ = reader.get_mut().set_read_timeout(None);
+    }
     loop {
         if crate::shutdown_requested() {
             return 0;
@@ -134,6 +146,9 @@ fn follow_events(reader: &mut BufReader<Box<dyn transport::Stream>>, output: Out
             Ok(None) => return 0,
             Ok(Some(line)) => line,
             Err(error) => {
+                if crate::shutdown_requested() {
+                    return 0;
+                }
                 eprintln!("{error}");
                 return 3;
             }
@@ -148,12 +163,22 @@ fn follow_events(reader: &mut BufReader<Box<dyn transport::Stream>>, output: Out
         if value.get("event").is_none() {
             continue;
         }
-        if matches!(output, OutputMode::Json | OutputMode::JsonLines)
-            && super::wire::print_local_success(&value, output) != 0
-        {
+        if super::wire::print_local_success(&value, output) != 0 {
             return 3;
         }
     }
+}
+
+#[cfg(unix)]
+fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+    let Ok(stream) = stream.try_clone_box() else { return false };
+    std::thread::Builder::new()
+        .name("cmux-cli-signal-interrupt".into())
+        .spawn(move || {
+            crate::wait_for_shutdown_signal();
+            let _ = stream.shutdown(Shutdown::Both);
+        })
+        .is_ok()
 }
 
 fn read_line_limited(

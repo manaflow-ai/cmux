@@ -654,7 +654,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     private func applyStats(_ sample: VMStats?) {
         latestStats = sample
-        var current = catalog.snapshot.machines.first { $0.id == machine } ?? info
+        var current = catalog.machineInfo(for: machine) ?? info
         Self.apply(stats: sample, to: &current)
         info = current
         catalog.updateMachine(current)
