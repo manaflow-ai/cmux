@@ -559,15 +559,12 @@ struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     lifecycle: Arc<ChildLifecycle>,
-    process_id: libc::pid_t,
-    process_group: libc::pid_t,
     command_tx: mpsc::Sender<PtyChildCommand>,
 }
 
 impl Drop for MasterControl {
     fn drop(&mut self) {
         if self.lifecycle.begin_termination() {
-            force_kill_process_group(self.process_id, self.process_group);
             let _ = self.command_tx.send(PtyChildCommand::Kill);
         }
     }
@@ -589,7 +586,6 @@ impl PtyControl for MasterControl {
     fn resume(&self) {}
     fn kill(&self) {
         if self.lifecycle.begin_termination() {
-            force_kill_process_group(self.process_id, self.process_group);
             let _ = self.command_tx.send(PtyChildCommand::Kill);
         }
     }
@@ -702,8 +698,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         lifecycle: Arc::clone(&lifecycle),
-        process_id: pid,
-        process_group,
         command_tx: command_tx.clone(),
     });
     output.set_overflow_control(&control);
@@ -765,11 +759,13 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                     break;
                 }
                 Ok(PtyChildCommand::Kill) => {
+                    force_kill_process_group(pid, process_group);
                     let _ = child.kill();
                     break;
                 }
                 Err(_) => {
                     if wait_lifecycle.begin_termination() {
+                        force_kill_process_group(pid, process_group);
                         let _ = child.kill();
                     }
                     break;
@@ -1494,13 +1490,17 @@ mod tests {
             });
         }
         let mut child = child.spawn().expect("test child");
-        let (command_tx, _command_rx) = mpsc::channel();
+        let pid = child.id() as libc::pid_t;
+        let (command_tx, command_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if matches!(command_rx.recv(), Ok(PtyChildCommand::Kill)) {
+                force_kill_process_group(pid, pid);
+            }
+        });
         let control = TestArc::new(MasterControl {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
-            process_id: child.id() as libc::pid_t,
-            process_group: child.id() as libc::pid_t,
             command_tx,
         });
         let (done_tx, done_rx) = mpsc::channel();
@@ -1537,13 +1537,17 @@ mod tests {
             });
         }
         let mut child = child.spawn().expect("test child");
-        let (command_tx, _command_rx) = mpsc::channel();
+        let pid = child.id() as libc::pid_t;
+        let (command_tx, command_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if matches!(command_rx.recv(), Ok(PtyChildCommand::Kill)) {
+                force_kill_process_group(pid, pid);
+            }
+        });
         let control = MasterControl {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
-            process_id: child.id() as libc::pid_t,
-            process_group: child.id() as libc::pid_t,
             command_tx,
         };
         drop(control);
