@@ -8682,13 +8682,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, onOutput, completion in
                             guard let self else { return false }
                             return self.launchCloudVMBaseOpen(
                                 workspace: workspace,
                                 socketPath: socketPath,
                                 preferredWindow: launchWindow,
                                 arguments: arguments,
+                                onOutput: onOutput,
                                 onCompletion: { result in
                                     completion(result)
                                     onCompletion?(result)
@@ -8731,6 +8732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         preferredWindow: NSWindow?,
         arguments: [String],
+        onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
     ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -8745,6 +8747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
                 "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
             ],
+            onOutput: onOutput,
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
