@@ -330,7 +330,7 @@ extension TerminalController {
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let workspaceID: UUID
             let projections: [SurfaceProjection]
-            if resources.isEmpty {
+            if members.isEmpty {
                 // D9: open never creates. An empty workspace opens nothing — the sidebar
                 // row does the same — and says so instead of failing as "not found".
                 return [
@@ -344,7 +344,6 @@ extension TerminalController {
                     "here": destination != nil,
                 ]
             }
-            let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
             if let destination {
                 projections = try await catalog.projectGroup(group.resources, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
@@ -554,9 +553,9 @@ extension TerminalController {
     /// `vm.workspace_open`'s workspace resolution — the sidebar row's own
     /// (`CloudTreeNodeBuilder.lookupRemoteWorkspace`), so `cmux vm workspace open`
     /// and a click on the row open the same set. A `ws_…` id or an unambiguous
-    /// name; an existing workspace with nothing in it is an error that says so
-    /// (the row opens nothing for it either, D9) and names the verb that starts
-    /// a terminal there.
+    /// name; an existing workspace with nothing in it returns empty members so
+    /// the caller can surface the D9 "nothing to open" result without treating
+    /// the workspace as missing.
     nonisolated static func resolveRemoteWorkspaceForOpen(
         _ selector: String,
         machine: SurfaceMachineID,
@@ -566,11 +565,6 @@ extension TerminalController {
         let machineID = machine.rawValue
         switch CloudTreeNodeBuilder.lookupRemoteWorkspace(selector, on: machine, snapshot: snapshot) {
         case .found(let workspace, let members):
-            guard !members.isEmpty else {
-                throw SurfaceCatalogError.nothingToOpen(
-                    "workspace \(workspace.name) (\(workspace.id)) on \(machineID) is empty; `cmux vm open \(machineID)/\(workspace.id)` starts a terminal there"
-                )
-            }
             return (workspace, members)
         case .ambiguous(let matches):
             throw SurfaceCatalogError.destinationNotFound(

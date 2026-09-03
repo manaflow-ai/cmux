@@ -22,6 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
+import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
@@ -89,7 +90,7 @@ const CHECKS: readonly string[] = [
   // header: the edge injects it) and persists every var 0600; the
   // unreachable config endpoint writes no opencode config; the image ships
   // no pre-generated config for root.
-  "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='cmux-vm-edge-placeholder'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q \"export CMUX_VM_ID='vm-check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && grep -qF '\"apiKey\": \"e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok",
+  `rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
   "grep -q cleanupPeriodDays /etc/claude-code/managed-settings.json && echo claude-retention-ok",
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
@@ -112,7 +113,8 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
-  "test -d /root/.config/cmux && echo model-plane-env-dir-baked",
+  // The static model-plane env is baked; a shell with no boot env sources it.
+  `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
 ];
 

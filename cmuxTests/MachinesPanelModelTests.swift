@@ -407,8 +407,8 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
         // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then the pool of terminals no
-        // workspace views, then the machine's displays and ports.
+        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
+        // per screen), and last, its own section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
@@ -423,12 +423,13 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_2",
-            "machine:vivid-newt/displays",
-            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
+            "machine:vivid-newt/displays",
+            "resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_1",
+            "resource:vivid-newt/terminal/term_2",
         ])
         // Port rows: the sidebar side of `cmux vm open <m>:port/<n>` — the same
         // `<m>/browser/port:<n>` resource, so click and CLI open one catalog entry.
@@ -487,12 +488,16 @@ final class MachinesPanelModelTests: XCTestCase {
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // The pool lists only the zero-view terminal; open markers come from the
-        // catalog's projections, and a pointer row never repeats in the pool.
-        XCTAssertNil(byID["resource:vivid-newt/terminal/term_1"], "term_1 shows under its workspaces, not in the pool")
+        // Terminals lists every terminal once (the workspace rows point into it), badged
+        // with its daemon-tab count; open markers come from the catalog's projections.
+        if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_1"]!.kind {
+            XCTAssertFalse(row.isOpen)
+            XCTAssertEqual(row.viewBadge, 2, "a tab in each of two workspaces")
+        } else { XCTFail("expected term_1 pool row") }
         if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_2"]!.kind {
             XCTAssertTrue(row.isOpen)
-            XCTAssertEqual(row.viewBadge, 0, "zero views = alive in the pool, in no workspace")
+            XCTAssertEqual(row.viewBadge, 0, "zero views = still alive on the machine, no tab shows it")
+            XCTAssertFalse(row.isDetached, "an exited terminal with unresolved zero views is not a live detached terminal")
         } else { XCTFail("expected term_2 pool row") }
         // Pointer rows have workspace-scoped identity, no badge, and the terminal's own facts.
         if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {
@@ -507,7 +512,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
-            XCTAssertEqual(count, 1)
+            XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
         // A listening port is a row of its own (the `cmux vm open <m>:port/<n>` address).
         if case .port(let resource, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
@@ -522,10 +527,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_2",
-            "vivid-newt/display/display:1",
             "vivid-newt/browser/port:3000",
-        ], "one drag resource per pointer (or implicit display) row, then the pool rows, then the port")
+            "vivid-newt/display/display:1",
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
+        ], "one drag resource per pointer (or implicit display) row, then the port, the screen, then the Terminals rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
@@ -1047,6 +1052,9 @@ struct VMCapabilitiesDecodingTests {
         #expect(caps.attachTransports == ["cmux-remote"])
         #expect(caps.cmuxRemote)
         #expect(!caps.ssh)
+
+        let socketCaps = VMCapabilities(json: ["attach_transports": ["cmux-remote"]])
+        #expect(socketCaps.attachTransports == ["cmux-remote"])
     }
 
     @Test func missingFlagsReadAsSupported() {

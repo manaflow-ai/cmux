@@ -11,10 +11,10 @@ cmux vm ls --json                      # {vms: [{id, status, image, createdAt, f
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
 cmux vpn down                          # take this build's tunnel down (sudo)
-cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
-cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first (--refresh = the sidebar's Refresh: fleet list + every provider, so a machine you just created shows up)
+cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
+cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first (fleet + provider refresh)
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
-cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row); an EMPTY workspace answers opened=0 and opens nothing (D9)
+cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
 cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
 cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
 cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
@@ -25,7 +25,7 @@ cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the si
 cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type into the terminal headlessly (as-is, no newline), then press named keys (chords join with +); no pane, no focus
 cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
-cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, remote_workspaces, …}], workspaces: [{id, title, ref, selected}] (this Mac), resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
+cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
@@ -43,14 +43,17 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
     tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
-    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
-      ● term_c04…  sleep 1000
-  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
     3000  http  (cmux vm open vivid-newt:port/3000)
+  VNC Displays/
+    ● display:1  Desktop  noVNC  (cmux surface open vivid-newt/display/display:1)
+  terminals/                                  ← every terminal resource the machine owns
+    ● term_2f9…  bun test  ~/work/app             ← shown in a workspace
+    (detached — no tab on the machine shows these)
+      ● term_c04…  sleep 1000                   ← live, but in no workspace's layout
 ```
 
-The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`; each workspace lists exactly its layout — a terminal whose tab closed is gone from the folder), then **Ports**, **VNC Displays** (one row per screen), and last, its own section, **Terminals** (every terminal resource the machine owns, detached ones greyed; always present, ＋ = `surface new-terminal`). Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 
@@ -73,14 +76,14 @@ cmux vm route --cwd ~/src/app --json   # {machine, created, reason, would_provis
 cmux vm route --new --provision        # actually create the fresh pool machine the router would use
 ```
 
-Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted.
+Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines clear the provider idle timeout; a sleeping entry is an older/provider-managed or explicitly paused machine and is woken before an open operation.
 
 ## Lifecycle
 
 ```bash
 cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
 cmux vm new --base --detach            # shell-only machine
-cmux vm new --size 20g --detach        # memory preset: 20g (the plan machine) or raw MB; the backend resolves other sizes to the plan machine
+cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
 cmux vm new --name "build box" --detach # display label; the id stays the address
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
@@ -105,7 +108,7 @@ cmux vm run -- <command...>
 cmux vm run --sync -- bun test                 # push cwd to work/<basename>, run there
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm run --machine <id> -- <command...>     # pin; --new forces a fresh pool machine
-cmux vm run --size 20g --new -- <command...>   # size applies to machines this run creates
+cmux vm run --size 16g --new -- <command...>   # size applies to machines this run creates
 
 # a coding agent as a detached terminal in the machine's cmux-tui session
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"        # bare prompt → claude -p …
@@ -160,10 +163,14 @@ cmux vm promote-template <id>          # template-named snapshot for reuse
 ## Machine-to-machine links (`vm link`)
 
 ```bash
-cmux vm link <src> <dst>               # grant machine <src> a cmux-remote link to <dst>
+cmux vm link <src> <dst>               # grant <src> a cmux-remote link to <dst>
 ```
 
-After linking, the in-VM `cmux` on `<src>` can drive `<dst>` directly — `cmux vm exec <dst> -- <cmd>`, `cmux vm tree <dst>`, `cmux vm terminal <dst> …` — over the same transport the Mac uses. Grants are brokered by the Mac (route + single-use enrollment invitation, approved by the Mac); no control-plane credential ever enters a VM, and a machine reaches only peers you linked it to. Inside any machine, `cmux vm help` lists the peer verbs and `cmux vm ls` shows the granted links.
+The Mac brokers the destination route and a single-use enrollment invitation,
+then writes only that scoped peer grant into `<src>`. From inside the source
+machine, the installed `cmux` shim can run `cmux vm exec <dst> -- <command>`,
+`cmux vm tree <dst>`, and other peer verbs; no control-plane credential enters a
+machine.
 
 ## SSH (provider-dependent)
 
@@ -172,4 +179,4 @@ cmux vm ssh <id>                       # cmux-managed SSH workspace (not on ever
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
-Every machine advertises its transports in `cmux vm ls --json` → `capabilities.attach_transports`. The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when a machine has no `ssh` transport, the CLI says so up front; use `exec`, `agent`, or `open` instead.
+The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when `ssh` errors, use `exec`, `agent`, or `open` instead.

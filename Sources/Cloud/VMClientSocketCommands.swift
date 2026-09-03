@@ -25,6 +25,134 @@ extension TerminalController {
                 }
                 return payload
             }
+        case "vm.publication_list":
+            return v2VmCall(id: id) {
+                let publications = try await VMClient.shared.listPublications()
+                return ["publications": publications.map(\.foundationObject)]
+            }
+        case "vm.domain_list":
+            return v2VmCall(id: id) {
+                let domains = try await VMClient.shared.listPublicationDomains()
+                return ["domains": domains.map(\.foundationObject)]
+            }
+        case "vm.domain_verify":
+            guard let name = Self.socketWorkerString(
+                params["name"] ?? params["hostname"] ?? params["domain"] ?? params["id"]
+            ), !name.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.domain.nameRequired",
+                        defaultValue: "vm.domain_verify requires `name` (a domain)."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let domain = try await VMClient.shared.verifyPublicationDomain(name: name)
+                return ["domain": domain.foundationObject]
+            }
+        case "vm.publication_create":
+            guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
+                  !vmID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.missingVM",
+                        defaultValue: "vm.publication_create requires `vmId`."
+                    )
+                )
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65_535).contains(port) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.invalidPort",
+                        defaultValue: "vm.publication_create requires `port` between 1 and 65535."
+                    )
+                )
+            }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: params,
+                method: "vm.publication_create"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            let hostname = Self.socketWorkerString(params["hostname"] ?? params["domain"])
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.createPublication(
+                    vmID: vmID,
+                    port: port,
+                    hostname: hostname,
+                    accessMode: access.mode,
+                    teamID: access.teamID
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_verify":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.verifyPublication(id: publicationID)
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_update":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: params,
+                method: "vm.publication_update"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.updatePublicationAccess(
+                    id: publicationID,
+                    accessMode: access.mode,
+                    teamID: access.teamID
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_delete":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                try await VMClient.shared.deletePublication(id: publicationID)
+                return ["deleted": true, "id": publicationID]
+            }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
             let kind: VMMachineKind?
@@ -297,9 +425,9 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
-                // Transport-gate before dialing: on a provider without SSH the
-                // server has no ssh-endpoint route at all, so calling it would
-                // surface a raw 404 instead of an actionable answer.
+                // Refuse an unsupported transport before asking the gateway for
+                // an endpoint; this keeps the CLI error actionable and avoids a
+                // provider-specific 404/502.
                 try await Self.socketWorkerRequireTransport("ssh", vmId: vmId, verb: "vm ssh")
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
@@ -502,7 +630,8 @@ extension TerminalController {
             "provider": vm.provider,
             "image": vm.image,
             "kind": vm.resolvedKind.rawValue,
-            // What the provider can honor; agents gate verbs on this the way the menus do.
+            // What the provider can honor; agents gate every optional verb on
+            // this same object as the menus do.
             "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
@@ -533,6 +662,35 @@ extension TerminalController {
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { socketWorkerString($0) }
+    }
+
+    /// Fails a transport-specific command before dialing when the provider's
+    /// capability contract explicitly excludes that transport. A missing list
+    /// preserves skew compatibility with older servers: the attempt is the
+    /// authority in that case.
+    private nonisolated static func socketWorkerRequireTransport(
+        _ transport: String,
+        vmId: String,
+        verb: String
+    ) async throws {
+        let summary = try await VMClient.shared.status(id: vmId)
+        guard let transports = summary.capabilities.attachTransports else { return }
+        guard transports.contains(transport) == false else { return }
+        let alternative = transports.contains("cmux-remote")
+            ? String(
+                localized: "socket.cloudVM.transportUnsupported.useShell",
+                defaultValue: "Use `cmux vm shell \(vmId)` or `cmux vm exec \(vmId) -- <command>` instead."
+            )
+            : String(
+                localized: "socket.cloudVM.transportUnsupported.noAlternative",
+                defaultValue: "This machine offers no interactive transport."
+            )
+        throw SocketWorkerTransportUnsupportedError(
+            message: String(
+                localized: "socket.cloudVM.transportUnsupported",
+                defaultValue: "`cmux \(verb)` needs the `\(transport)` transport, which \(summary.provider) machines do not offer. \(alternative)"
+            )
+        )
     }
 
     /// Handles `aiAccounts.*` socket methods backing `cmux ai-accounts`.
@@ -589,28 +747,6 @@ extension TerminalController {
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
-    }
-
-    /// Fails a transport-specific verb before dialing when the machine's provider
-    /// does not offer that transport. An old server that reports no transport list
-    /// passes the gate: the attempt itself is then the authority.
-    private nonisolated static func socketWorkerRequireTransport(
-        _ transport: String, vmId: String, verb: String
-    ) async throws {
-        let summary = try await VMClient.shared.status(id: vmId)
-        guard let transports = summary.capabilities.attachTransports else { return }
-        guard !transports.contains(transport) else { return }
-        let alternative = transports.contains("cmux-remote")
-            ? String(
-                localized: "socket.cloudVM.transportUnsupported.useShell",
-                defaultValue: "Use `cmux vm shell \(vmId)` or `cmux vm exec \(vmId) -- <command>` instead.")
-            : String(
-                localized: "socket.cloudVM.transportUnsupported.noAlternative",
-                defaultValue: "This machine offers no interactive transport.")
-        throw SocketWorkerTransportUnsupportedError(
-            message: String(
-                localized: "socket.cloudVM.transportUnsupported",
-                defaultValue: "`cmux \(verb)` needs the `\(transport)` transport, which \(summary.provider) machines do not offer. \(alternative)"))
     }
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
@@ -719,6 +855,38 @@ extension TerminalController {
         if let string = raw as? String { return Int(string) }
         return nil
     }
+
+    private nonisolated static func socketWorkerPublicationAccess(
+        params: [String: Any],
+        method: String
+    ) -> Result<SocketWorkerPublicationAccess, SocketWorkerPublicationAccessError> {
+        let rawAccess = socketWorkerString(params["accessMode"] ?? params["access_mode"])?
+            .lowercased()
+        guard let rawAccess,
+              let mode = VMPublicationAccessMode(rawValue: rawAccess) else {
+            let format = String(
+                localized: "socket.cloudVM.publication.invalidAccess",
+                defaultValue: "%@ requires `accessMode` to be personal, team, or public."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        let teamID = socketWorkerString(params["teamId"] ?? params["team_id"])
+        if mode == .team, teamID == nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamRequired",
+                defaultValue: "%@ requires `teamId` when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        if mode != .team, teamID != nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamOnly",
+                defaultValue: "%@ accepts `teamId` only when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        return .success(.init(mode: mode, teamID: teamID))
+    }
 }
 
 /// A rejected `kind` parameter on a machine-creating socket command.
@@ -729,4 +897,13 @@ private struct SocketWorkerKindError: Error {
 private struct SocketWorkerTransportUnsupportedError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
+}
+
+private struct SocketWorkerPublicationAccess {
+    let mode: VMPublicationAccessMode
+    let teamID: String?
+}
+
+private struct SocketWorkerPublicationAccessError: Error {
+    let message: String
 }

@@ -20,7 +20,8 @@ export const VM_ID_HEADER = "x-cmux-vm-id";
  * token the edge injects. Never matches the `crt_` token grammar, so it can
  * never be mistaken for a token by any verifier.
  */
-export const VM_PLACEHOLDER_API_KEY = "cmux-vm-edge-placeholder";
+import { VM_PLACEHOLDER_API_KEY } from "./vmGuestEnv";
+export { VM_PLACEHOLDER_API_KEY };
 
 export type RouteTokenIdentity = {
   readonly teamId: string;

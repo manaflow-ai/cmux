@@ -82,6 +82,10 @@ import {
   runVmWorkflow,
   type VmModelPlaneRevoker,
 } from "../../../services/vms/workflows";
+import {
+  deleteVmPublicationRowsForAccountDeletion,
+  deleteVmPublicationsForAccountDeletion,
+} from "../../../services/vm-publications/accountDeletion";
 import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
 
 
@@ -277,6 +281,24 @@ export async function DELETE(request: Request): Promise<Response> {
       if (revokedIdentityLeases > 0) destructiveCleanupStarted = true;
     } catch (error) {
       if (isVmAccountDeletionIdentityRevocationError(error)) destructiveCleanupStarted = true;
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
+    try {
+      const publications = await deleteVmPublicationsForAccountDeletion({
+        ownerUserId: userId,
+        beforePublicationTeardown: () => {
+          destructiveCleanupStarted = true;
+        },
+        afterPublicationTeardown: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
+      });
+      if (publications.publications > 0 || publications.providerRules > 0) {
+        destructiveCleanupStarted = true;
+      }
+    } catch (error) {
+      logAccountDeleteError("account.delete.vm_publication_cleanup_failed", error);
       throw error;
     }
     await refreshAccountDeletionTombstoneLease(userId);
@@ -1071,6 +1093,7 @@ async function finishPostStackAccountCleanup(
   if (options.deletePostHogPerson !== false) {
     await deletePostHogPersonForAccountDeletion(userId);
   }
+  await deleteVmPublicationsForAccountDeletion({ ownerUserId: userId });
   await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
 }
 
@@ -1557,6 +1580,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         ? or(eq(cloudVmSessions.userId, userId), inArray(cloudVmSessions.vmId, personalVmIds))
         : eq(cloudVmSessions.userId, userId),
     );
+    await deleteVmPublicationRowsForAccountDeletion(tx, userId);
     if (personalVmRows.length > 0) {
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }

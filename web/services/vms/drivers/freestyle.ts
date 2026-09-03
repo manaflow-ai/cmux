@@ -66,12 +66,9 @@ import {
 // machine does.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
-// docs/cloud-cmux-tui-daemon.md). The daemon route addresses the daemon
-// directly rather than riding an ingress proxy. Arbitrary HTTP ports, though,
-// ARE published through the platform's TLS edge: `openPort` mints a
-// `{ public } -> { vmId, port }` TLS rule on an unguessable free style.dev
-// subdomain (certificate-ready, no verification). The model plane rides the
-// same edge (see the edge-injection note below).
+// docs/cloud-cmux-tui-daemon.md). The API has
+// no HTTP ingress proxy to arbitrary VM ports (TLS edge rules need a
+// customer-verified domain), so the route addresses the daemon directly.
 //
 // Every machine joins the one VPC that belongs to its owner, and the owner's
 // Mac joins the same VPC over a WireGuard tunnel, so the route is the VM's
@@ -143,13 +140,13 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
 const SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+/** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
+export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
-const MODEL_PLANE_ENV_PATH = "/root/.config/cmux/model-plane.env";
 /** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 const ROUTE_TOKEN_GRAMMAR = /\bcrt_[A-Za-z0-9._-]+/;
 
@@ -179,7 +176,8 @@ export function preconnectFreestyle(): void {
   fetch(`${baseUrl}/`, { method: "HEAD", signal: AbortSignal.timeout(3_000) }).catch(() => undefined);
 }
 
-function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
+/** Exported for the publication provider, which shares this account-wide client. */
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
     fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
@@ -431,11 +429,14 @@ export function freestyleEdgeRules(edgeRules: readonly VmEdgeRule[] | undefined)
     if (!EDGE_DOMAIN.test(rule.domain)) {
       throw new ProviderError("freestyle", `edge rule domain ${JSON.stringify(rule.domain)} is not a bare host name`);
     }
+    if (rule.destinationHost !== undefined && !EDGE_DOMAIN.test(rule.destinationHost)) {
+      throw new ProviderError("freestyle", `edge rule destination ${JSON.stringify(rule.destinationHost)} is not a bare host name`);
+    }
     return {
       action: "allow" as const,
       domain: rule.domain,
       source: {},
-      destination: { public: true as const },
+      destination: rule.destinationHost ? { host: rule.destinationHost, port: 443 } : { public: true as const },
       transform: [{ headers: { ...rule.headers } }],
     };
   });
@@ -454,6 +455,30 @@ export function assertNoRouteTokenInGuestPayload(values: Iterable<string>, what:
 }
 
 /**
+ * Generated capability-domain suffixes retained for legacy preview leases.
+ * Public VM publications use the account-managed publication workflow; these
+ * helpers only recognize the older driver-minted capability URL format.
+ */
+export const FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES = ["cmux.sh", "style.dev"] as const;
+
+/** Matches a driver-minted, 96-bit capability-domain preview hostname. */
+export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.((?:cmux\.sh)|(?:cmux\.site)|(?:style\.dev))$/;
+
+/** Returns the configured legacy preview suffix first, then the safe fallback. */
+export function freestylePortRuleDomainSuffixes(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const pinned = env.CMUX_VM_PORT_PREVIEW_DOMAIN?.trim().toLowerCase();
+  if (pinned && FREESTYLE_PORT_RULE_DOMAIN_RE.test(`cmux-${"0".repeat(24)}.${pinned}`)) {
+    return [pinned, ...FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES.filter((suffix) => suffix !== pinned)];
+  }
+  return FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES;
+}
+
+/** Mints a fresh legacy capability-domain hostname. */
+export function mintFreestylePortRuleDomain(suffix: string = FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES[0]): string {
+  return `cmux-${randomBytes(12).toString("hex")}.${suffix}`;
+}
+
+/**
  * The persisted model-plane env file, byte-compatible with what
  * /etc/cmux/agent-config.sh itself writes from a boot env: shells that see no
  * boot env source this copy and then materialize the codex/pi/opencode
@@ -461,49 +486,6 @@ export function assertNoRouteTokenInGuestPayload(values: Iterable<string>, what:
  * Every key is rendered; OPENAI_BASE_URL is the anchor the generator keys on,
  * so its absence means "no model plane" and nothing is written.
  */
-export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, string>>): string | null {
-  const baseUrl = envs.OPENAI_BASE_URL?.trim();
-  if (!baseUrl) return null;
-  assertNoRouteTokenInGuestPayload(Object.values(envs), MODEL_PLANE_ENV_PATH);
-  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
-  const lines = ["# generated by cmux from machine boot env; managed, do not edit"];
-  for (const [key, value] of Object.entries(envs)) {
-    if (!ENV_NAME.test(key)) {
-      throw new ProviderError("freestyle", `model-plane env key ${JSON.stringify(key)} is not a shell identifier`);
-    }
-    if (value === "") continue;
-    lines.push(`export ${key}=${quote(value)}`);
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-/**
- * cmux port-preview domains are capability URLs: an unguessable subdomain whose
- * random suffix is the preview token. 96 bits of entropy — possession of the
- * URL is the grant, exactly the trust model of the old tokened proxy URLs.
- *
- * The preferred suffix is the cmux-owned wildcard (`cmux.sh`, verified on the
- * Freestyle edge with wildcard TLS); `style.dev` (free, no verification) is
- * the fallback when a cmux-owned rule is refused — e.g. a deployment whose
- * provider account has not verified the domain. CMUX_VM_PORT_PREVIEW_DOMAIN
- * pins the first choice explicitly.
- */
-export const FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES = ["cmux.sh", "style.dev"] as const;
-
-export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.((?:cmux\.sh)|(?:cmux\.site)|(?:style\.dev))$/;
-
-export function freestylePortRuleDomainSuffixes(env: NodeJS.ProcessEnv = process.env): readonly string[] {
-  const pinned = env.CMUX_VM_PORT_PREVIEW_DOMAIN?.trim().toLowerCase();
-  if (pinned && FREESTYLE_PORT_RULE_DOMAIN_RE.test(`cmux-${"0".repeat(24)}.${pinned}`)) {
-    return [pinned, ...FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES.filter((s) => s !== pinned)];
-  }
-  return FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES;
-}
-
-export function mintFreestylePortRuleDomain(suffix: string = FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES[0]): string {
-  return `cmux-${randomBytes(12).toString("hex")}.${suffix}`;
-}
-
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return EXEC_DEFAULT_TIMEOUT_MS;
@@ -827,11 +809,7 @@ export class FreestyleProvider implements VMProvider {
   /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
-  /**
-   * `sizing` is declared because it has no structural signal: create honors
-   * `memoryMb` through the per-size snapshot ladder (the plan's memory picks
-   * the snapshot), so a machine ends with the requested memory.
-   */
+  /** ``create`` honors requested memory through the grow-only size ladder. */
   readonly capabilities = { sizing: true } as const;
 
   constructor(
@@ -865,6 +843,9 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
+            // Do not let an account/provider idle default turn a persistent
+            // machine into a one-shot box. Explicit pause/stop still works.
+            idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -893,9 +874,8 @@ export class FreestyleProvider implements VMProvider {
             }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
-            if (options.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
-            // The in-VM `cmux` shim (peer links, `cmux notify`) is not baked; install it
-            // now so it exists before the first attach-time heal.
+            // The in-VM shim is a separate convenience layer over the baked
+            // daemon and is installed idempotently for agents and peer links.
             await this.installGuestCli(vm);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
@@ -1013,6 +993,19 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.start();
+          // Older cmux machines were created while the provider's account
+          // default supplied a finite idle timeout. Clear that legacy policy
+          // the first time the user wakes one so the box stays available after
+          // this explicit wake. A provider rejection is non-fatal: the VM is
+          // still awake and the next attach can retry the policy update.
+          if (typeof data.idleTimeoutSeconds === "number" && data.idleTimeoutSeconds >= 0) {
+            try {
+              await vm.update({ idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS });
+              span.setAttribute("cmux.vm.idle_timeout_seconds", FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS);
+            } catch (policyError) {
+              recordSpanError(span, policyError);
+            }
+          }
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
@@ -1102,6 +1095,7 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
+            idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1119,7 +1113,6 @@ export class FreestyleProvider implements VMProvider {
           // machine is unusable until its own injection is live.
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
           try {
-            if (options?.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
           } catch (err) {
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
@@ -1244,30 +1237,6 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * Sign-out revocation: preview URLs are capability URLs (the style.dev
-   * subdomain is the token), so revoking them means deleting the TLS rules.
-   * Only cmux-minted, unmanaged port rules are touched; the next openPort
-   * mints a fresh subdomain, invalidating anything the signed-out client saw.
-   */
-  async revokeEndpointLeases(vmId: string): Promise<void> {
-    return withVmSpan(
-      "cmux.vm.provider.revoke_endpoint_leases",
-      spanAttributes(vmId, "revoke_endpoint_leases"),
-      async () => {
-        const fs = freestyleClient();
-        const existing = await fs.tls.rules.list({ vmId });
-        for (const rule of existing.rules) {
-          if (rule.managed) continue;
-          if (!FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain)) continue;
-          await fs.tls.rules.delete(rule.id).catch((err: unknown) => {
-            console.error(`[freestyle] revoking port rule ${rule.id} for ${vmId} failed`, err);
-          });
-        }
-      },
-    );
-  }
-
-  /**
    * A machine's HTTP port as a URL the owner's Mac can open: the private VPC
    * address over the WireGuard tunnel, the same path the daemon route takes
    * (see the header). Nothing is minted at the platform and nothing public is
@@ -1316,34 +1285,24 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * The in-VM `cmux` shim (guestCli.ts): local verbs over this machine's own
-   * cmux-tui daemon, `cmux vm …` verbs over linked peer machines. Best-effort:
-   * a machine without the shim still serves every Mac-driven verb.
+   * Sign-out cleanup for legacy driver-minted preview leases. Publication
+   * rules are owned by the VM-publications workflow and are not touched here.
    */
-  private async installGuestCli(vm: Vm): Promise<void> {
-    await this.execResult(vm, guestCliInstallCommand(), 30_000);
-  }
-
-  /**
-   * There is no create-time env. The coderouter model-plane vars are delivered
-   * by writing the persisted file /etc/cmux/agent-config.sh already reads
-   * (0600, root); every shell the daemon spawns sources it through the
-   * profile/bashrc chain and materializes the harness configs from it. The
-   * bake creates the directory, so this is a single fs write, no exec.
-   *
-   * With CMUX_VM_MODEL_PLANE_EDGE_INJECTION=1, the credential moves to the
-   * provider's TLS edge instead: a per-VM egress rule injects the token into
-   * the guest's calls to the coderouter origin, the env file carries only a
-   * placeholder key, and a compromised guest has nothing to exfiltrate.
-   */
-  private async writeModelPlaneEnv(vm: Vm, vmId: string, envs: Readonly<Record<string, string>>): Promise<void> {
-    const content = renderFreestyleModelPlaneEnvFile(envs);
-    if (!content) return;
-    try {
-      await vm.fs.writeTextFile(MODEL_PLANE_ENV_PATH, content, { mode: 0o600 });
-    } catch (err) {
-      throw new ProviderError("freestyle", `model-plane env write in ${vmId} failed`, err);
-    }
+  async revokeEndpointLeases(vmId: string): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.revoke_endpoint_leases",
+      spanAttributes(vmId, "revoke_endpoint_leases"),
+      async () => {
+        const fs = this.deps.client();
+        const existing = await fs.tls.rules.list({ vmId });
+        for (const rule of existing.rules) {
+          if (rule.managed || !FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain)) continue;
+          await fs.tls.rules.delete(rule.id).catch((err: unknown) => {
+            console.error(`[freestyle] revoking legacy port rule ${rule.id} for ${vmId} failed`, err);
+          });
+        }
+      },
+    );
   }
 
   /**
@@ -1362,9 +1321,11 @@ export class FreestyleProvider implements VMProvider {
    * the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
+    // Keep the shim present even when the baked daemon is already healthy.
+    await this.installGuestCli(vm);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) return;
-    const source = await resolveCmuxTuiSource("freestyle");
+    const source = await this.deps.resolveDaemonSource("freestyle");
     const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
     if (pinned?.exitCode !== 0) {
       await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
@@ -1372,9 +1333,13 @@ export class FreestyleProvider implements VMProvider {
           throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
         });
     }
-    await this.installGuestCli(vm);
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+  }
+
+  /** Installs the in-VM `cmux` shim atomically; failures remain attach-best-effort. */
+  private async installGuestCli(vm: Vm): Promise<void> {
+    await this.execResult(vm, guestCliInstallCommand(), 30_000);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
