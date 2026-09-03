@@ -107,13 +107,17 @@ impl Drop for ProviderClosePermit {
 impl Drop for ProviderCloseWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(thread) = self.thread.take()
-            && thread.join().is_err()
-        {
-            crate::client_log::stderr_log!(
-                "provider",
-                "cmux-tui: provider machine close worker panicked"
-            );
+        if let Some(thread) = self.thread.take() {
+            // A close RPC has its own request deadline, but dropping the
+            // runtime must not wait for that remote deadline. Reap a worker
+            // that already finished; otherwise dropping the handle detaches
+            // the bounded worker while its in-flight close completes.
+            if thread.is_finished() && thread.join().is_err() {
+                crate::client_log::stderr_log!(
+                    "provider",
+                    "cmux-tui: provider machine close worker panicked"
+                );
+            }
         }
     }
 }
@@ -135,18 +139,14 @@ struct ProviderMachineConnectionLease {
 
 impl Drop for ProviderMachineConnectionLease {
     fn drop(&mut self) {
-        if let Ok(mut registry) = self.registry.lock()
-            && registry
-                .get(&self.key)
-                .is_some_and(|open| open.connection_id == self.open.connection_id)
-        {
-            registry.remove(&self.key);
-        }
         // Provider close is an RPC and may block on a remote provider. Keep
         // session teardown non-blocking and bound both queued work and worker
         // threads through the runtime-owned close worker.
         let client = Arc::clone(&self.open.client);
         let connection_id = self.open.connection_id.clone();
+        let registry_connection_id = connection_id.clone();
+        let key = self.key;
+        let registry = Arc::clone(&self.registry);
         let permit = self.close_permit.take().expect("provider connection owns a close permit");
         if let Err(error) = self.close_worker.schedule_reserved(
             permit,
@@ -156,6 +156,13 @@ impl Drop for ProviderMachineConnectionLease {
                         "provider",
                         "cmux-tui: failed to close provider machine connection: {error}"
                     );
+                }
+                if let Ok(mut registry) = registry.lock()
+                    && registry
+                        .get(&key)
+                        .is_some_and(|open| open.connection_id == registry_connection_id)
+                {
+                    registry.remove(&key);
                 }
             }),
         ) {
@@ -167,6 +174,13 @@ impl Drop for ProviderMachineConnectionLease {
                 "provider",
                 "cmux-tui: failed to schedule provider machine close: {reason}"
             );
+            if let Ok(mut registry) = self.registry.lock()
+                && registry
+                    .get(&self.key)
+                    .is_some_and(|open| open.connection_id == self.open.connection_id)
+            {
+                registry.remove(&self.key);
+            }
         }
     }
 }
@@ -2401,6 +2415,14 @@ fn connect_provider_machine(
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
     }
 
+    if registry
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?
+        .contains_key(&key)
+    {
+        anyhow::bail!("provider machine connection is still closing");
+    }
+
     // Reserve teardown capacity before the provider creates a connection.
     // Every successful open can therefore enqueue exactly one close without
     // blocking a session drop or losing the close request under load.
@@ -2795,6 +2817,33 @@ mod tests {
         }
         assert_eq!(*worker.available.lock().unwrap(), 2);
         drop(worker);
+    }
+
+    #[test]
+    fn provider_close_worker_drop_does_not_join_a_blocked_close() {
+        let worker = Arc::new(ProviderCloseWorker::with_capacity(1).unwrap());
+        let permit = worker.try_reserve().unwrap();
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
+        worker
+            .schedule_reserved(
+                permit,
+                Box::new(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    finished.send(()).unwrap();
+                }),
+            )
+            .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let drop_started = std::time::Instant::now();
+        drop(worker);
+        assert!(drop_started.elapsed() < Duration::from_secs(1));
+
+        release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
     fn cache_test_connection(
@@ -5791,6 +5840,7 @@ mod tests {
             default_mode: protocol::WorkspaceCreateMode::Isolated,
             modes: vec![protocol::WorkspaceCreateMode::Isolated],
         };
+        let candidate_key = key_for_id(&runtime.keys, &id("machine-2")).unwrap();
         let candidate_open =
             cache_test_connection(&mut runtime, "reject-second", "machine-2", true);
         runtime.stage_connection(Some(candidate_open), Some(rollback)).unwrap();
@@ -5807,6 +5857,19 @@ mod tests {
             runtime.open.as_ref().map(|open| open.connection_id.as_str()),
             Some("keep-first-open")
         );
+        assert!(runtime.connection_registry.lock().unwrap().contains_key(&candidate_key));
+        let mut reconnect_machine = runtime.snapshot.machines[1].clone();
+        reconnect_machine.workspace_create = protocol::WorkspaceCreatePolicy::Session;
+        let reconnect_error = connect_provider_machine(
+            runtime.client.clone(),
+            reconnect_machine,
+            candidate_key,
+            runtime.connection_registry.clone(),
+            runtime.close_worker.clone(),
+        )
+        .err()
+        .expect("reconnect must wait for the previous provider close");
+        assert!(reconnect_error.to_string().contains("still closing"));
         wait_for_close.recv_timeout(Duration::from_secs(2)).unwrap();
         runtime.refresh().expect("provider control connection remains usable");
         drop(runtime);
