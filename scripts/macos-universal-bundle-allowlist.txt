@@ -1,0 +1,5 @@
+# Deliberate single-architecture Mach-O exceptions for packaged cmux.app files.
+#
+# Each non-comment line is a shell-glob pattern relative to the app bundle
+# root (for example: Contents/Resources/vendor/foo-*). Keep this file empty
+# unless a reviewed release requirement makes an exception unavoidable.

@@ -232,6 +232,20 @@ if ! awk '
 fi
 
 if ! awk '
+  /^  build-sign-notarize-nightly:/ { in_publish=1; next }
+  in_publish && /^  [a-zA-Z0-9_-]+:/ { in_publish=0 }
+  in_publish && /^      - name: Verify universal Mach-O bundle before thinning/ { verify_line=NR; in_verify=1; next }
+  in_verify && /^      - name:/ { in_verify=0 }
+  in_verify && /verify-macos-bundle-architectures\.sh/ { saw_script=1 }
+  in_verify && /macos-universal-bundle-allowlist\.txt/ { saw_allowlist=1 }
+  in_publish && /^      - name: Thin bundle to the variant architecture/ { thin_line=NR }
+  END { exit !(verify_line && thin_line && verify_line < thin_line && saw_script && saw_allowlist) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must sweep the universal bundle before intentional per-architecture thinning"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Run CLI version memory guard regression/ { guard_line=NR }
   /^      - name: Thin bundle to the variant architecture/ { thin_line=NR }
   END { exit !(guard_line && thin_line && guard_line < thin_line) }

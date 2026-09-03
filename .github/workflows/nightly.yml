@@ -522,6 +522,16 @@ jobs:
           CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      # Validate the universal source bundle before any per-architecture
+      # thinning. The arm64 and x86_64 matrix artifacts are intentionally thin;
+      # the universal invariant belongs at this pre-transformation boundary.
+      - name: Verify universal Mach-O bundle before thinning
+        run: |
+          set -euo pipefail
+          ./scripts/verify-macos-bundle-architectures.sh \
+            --allowlist scripts/macos-universal-bundle-allowlist.txt \
+            "build-universal/Build/Products/Release/cmux.app"
+
       - name: Run CLI version memory guard regression
         run: |
           set -euo pipefail

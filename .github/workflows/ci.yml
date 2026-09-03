@@ -12,6 +12,15 @@ on:
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
+      # Keep the bundle-wide architecture guard and its workflow contracts
+      # runnable when any of their inputs change.
+      - scripts/verify-macos-bundle-architectures.sh
+      - scripts/macos-universal-bundle-allowlist.txt
+      - tests/test_verify_macos_bundle_architectures.sh
+      - tests/test_nightly_universal_build.sh
+      - .github/workflows/nightly.yml
+      - .github/workflows/release.yml
+      - scripts/build-sign-upload.sh
       - .github/workflows/ci.yml
   workflow_dispatch:
 
@@ -316,6 +325,9 @@ jobs:
 
       - name: Validate release bundle stripping
         run: ./tests/test_strip_release_bundle.sh
+
+      - name: Validate bundle-wide Mach-O architecture verifier
+        run: ./tests/test_verify_macos_bundle_architectures.sh
 
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh

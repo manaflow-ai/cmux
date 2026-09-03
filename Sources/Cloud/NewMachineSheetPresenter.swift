@@ -67,8 +67,11 @@ final class NewMachineSheetPresenter {
         plan: MachinePlanSnapshot?,
         imageKinds: [VMImageKindOption],
         preferredWindow: NSWindow?,
-        coordinator: MachineCreateCoordinator = .shared
+        coordinator: MachineCreateCoordinator? = nil
     ) {
+        // Resolve the shared coordinator in the main-actor body rather than in
+        // the default argument expression (which is evaluated at the caller).
+        let resolvedCoordinator = coordinator ?? MachineCreateCoordinator.shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return
@@ -78,7 +81,7 @@ final class NewMachineSheetPresenter {
             plan: plan,
             imageKinds: imageKinds,
             submit: { request in
-                coordinator.start(request) { arguments, completion in
+                resolvedCoordinator.start(request) { arguments, completion in
                     MachineRowActions.openNewMachine(arguments: arguments) { result in
                         completion(result)
                     }
