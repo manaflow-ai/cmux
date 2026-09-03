@@ -201,7 +201,9 @@ struct DirectorySnapshot: Sendable {
 @MainActor
 final class SessionIndexStore: ObservableObject {
     private let snapshotLoader: SessionIndexSnapshotLoader
-    private let ampSessionRepository: any AmpHookSessionReading
+    // Shared with the search extension so every Vault path uses the same
+    // injected repository and its actor-backed source cache.
+    let ampSessionRepository: any AmpHookSessionReading
 
     @Published private(set) var entries: [SessionEntry] = [] {
         didSet {
