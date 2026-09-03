@@ -153,6 +153,7 @@ describe("coderouter alert checks", () => {
     const second = harness({ reason: "request_failed" }, degraded, webhook);
     await second.run();
     expect(second.sent.map((alert) => alert.key)).toEqual(["coderouter-health"]);
+    expect(second.sent[0]!.severity).toBe("critical");
   });
 
   test("with no Slack sink the triggered alerts are counted as dropped", async () => {

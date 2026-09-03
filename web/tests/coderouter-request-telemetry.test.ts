@@ -323,6 +323,19 @@ describe("withCoderouterRoute", () => {
     expect(events.find((entry) => entry.event === "$ai_trace")!.properties.coderouter_outcome).toBe("route_crash");
   });
 
+  test("samples a high-volume route's telemetry at the configured interval", async () => {
+    const options = {
+      surface: "health" as const,
+      route: "/api/coderouter/health",
+      unavailable: () => new Response(null, { status: 503 }),
+      telemetry: { sampleEveryMs: 60_000, priority: false },
+    };
+    const route = withCoderouterRoute(options, async () => new Response("ok", { status: 200 }));
+    await route(new Request("https://coderouter.dev/api/coderouter/health"), undefined);
+    await route(new Request("https://coderouter.dev/api/coderouter/health"), undefined);
+    expect(rawBatch).toHaveBeenCalledTimes(1);
+  });
+
   test("control-plane routes derive the outcome from the status", async () => {
     const route = coderouterControlRoute("accounts", "/api/coderouter/accounts", async () => new Response(null, { status: 500 }));
     const response = await route(new Request("https://cmux.com/api/coderouter/accounts"), undefined);
