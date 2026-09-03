@@ -66,6 +66,10 @@ actor CloudMachineLink {
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
     private var eventsProcess: Process?
+    private var statsProcess: Process?
+    private var statsGeneration = 0
+    private var statsUnsupported = false
+    private var statsReaderTask: Task<Void, Never>?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
@@ -74,11 +78,18 @@ actor CloudMachineLink {
     let changes: AsyncStream<Void>
     private let changesContinuation: AsyncStream<Void>.Continuation
 
+    /// The machine's own host samples (`machine-stats` follow feed), newest wins; `nil`
+    /// when the daemon reports no sampler. Ends with the link. A daemon too old for the
+    /// command ends the feed at once and the machine simply shows no reading.
+    private(set) var stats: AsyncStream<VMStats?>
+    private var statsContinuation: AsyncStream<VMStats?>.Continuation
+
     init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
         (changes, changesContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        (stats, statsContinuation) = AsyncStream<VMStats?>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
     var isConnected: Bool { connected != nil && state == .connected }
@@ -160,7 +171,16 @@ actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
+        // A new link lifecycle may support a command that an earlier daemon did not.
+        statsUnsupported = false
+        // A prior link lifecycle may have finished the continuation during a
+        // route drop. The stream belongs to the lifecycle, not the actor, so a
+        // reconnect gets a new continuation for its watcher.
+        if statsProcess == nil {
+            makeStatsStream()
+        }
         startEventsSubscription(socketPath: socketPath)
+        startStatsFollow(socketPath: socketPath)
         changesContinuation.yield()
         return connected
     }
@@ -168,6 +188,12 @@ actor CloudMachineLink {
     func disconnect() {
         eventsProcess?.terminate()
         eventsProcess = nil
+        statsProcess?.terminate()
+        statsProcess = nil
+        statsReaderTask?.cancel()
+        statsReaderTask = nil
+        statsContinuation.finish()
+        statsProcess = nil
         process?.terminate()
         process = nil
         connected = nil
@@ -244,6 +270,74 @@ actor CloudMachineLink {
         }
     }
 
+    /// Follows the daemon's host sample on its own child process, like the events
+    /// subscription: the first line is the `machine-stats` response, later lines are
+    /// `machine-stats-changed` events. The child exits with the link or when the daemon
+    /// predates the command; either way the stream just stops delivering.
+    private func startStatsFollow(socketPath: String) {
+        let process = Process()
+        process.executableURL = clientURL
+        process.arguments = CloudTuiCommandLine.machineStatsFollowArguments(socketPath: socketPath)
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        do {
+            try process.run()
+        } catch {
+            // End this lifecycle's stream so watchers do not wait forever after
+            // a transient launch failure. A later refresh recreates it.
+            statsContinuation.yield(nil)
+            statsContinuation.finish()
+            return
+        }
+        statsProcess = process
+        statsGeneration += 1
+        let generation = statsGeneration
+        let continuation = statsContinuation
+        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        statsReaderTask = Task.detached { [weak self] in
+            var sawResponse = false
+            for await line in lines where !line.isEmpty {
+                switch CmuxTuiSnapshotParser.machineStats(fromLine: line) {
+                case .sample(let sample):
+                    sawResponse = true
+                    continuation.yield(sample)
+                case .unavailable:
+                    sawResponse = true
+                    continuation.yield(nil)
+                case .unrelated: continue
+                }
+            }
+            // A daemon can close this child stream while the link process stays
+            // alive (for example when it predates machine-stats). Clear the
+            // last sample so the UI fails closed instead of showing stale data.
+            continuation.yield(nil)
+            await self?.statsFollowDidEnd(generation: generation, sawResponse: sawResponse)
+        }
+    }
+
+    private func makeStatsStream() {
+        (stats, statsContinuation) = AsyncStream<VMStats?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
+
+    /// Returns the active stats stream and retries its child when the previous
+    /// stream ended while the link itself stayed connected.
+    func currentStatsStream() -> (stream: AsyncStream<VMStats?>, generation: Int) {
+        if statsProcess == nil, !statsUnsupported, let socketPath = connected?.socketPath {
+            makeStatsStream()
+            startStatsFollow(socketPath: socketPath)
+        }
+        return (stats, statsGeneration)
+    }
+
+    private func statsFollowDidEnd(generation: Int, sawResponse: Bool) {
+        guard statsProcess != nil, statsGeneration == generation else { return }
+        statsProcess = nil
+        statsUnsupported = !sawResponse
+        statsContinuation.finish()
+    }
+
     private func drainStderr(_ handle: FileHandle) {
         let lines = CloudLinkPipe.lines(from: handle)
         Task.detached { [weak self] in
@@ -261,6 +355,12 @@ actor CloudMachineLink {
     private func linkProcessDidExit(status: Int32) {
         eventsProcess?.terminate()
         eventsProcess = nil
+        statsProcess?.terminate()
+        statsProcess = nil
+        statsReaderTask?.cancel()
+        statsReaderTask = nil
+        statsContinuation.finish()
+        statsProcess = nil
         process = nil
         connected = nil
         removeInviteFile()

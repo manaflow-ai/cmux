@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -313,6 +313,22 @@ export type LivePane = {
   "name": (string) | null;
   "short_id"?: string;
   "tabs": Array<Tab>;
+};
+
+export type MachineStats = {
+  "cpu_percent": (number) | null;
+  "cpus": number;
+  "disk_path": string;
+  "disk_total_mb": (bigint) | null;
+  "disk_used_mb": (bigint) | null;
+  "load_average_1m": number;
+  "memory_total_mb": bigint;
+  "memory_used_mb": bigint;
+  "sampled_at_ms": bigint;
+};
+
+export type MachineStatsResult = {
+  "stats": (MachineStats) | null;
 };
 
 export type MachineUsage = {

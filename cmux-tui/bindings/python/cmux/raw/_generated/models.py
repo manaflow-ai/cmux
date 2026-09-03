@@ -622,6 +622,26 @@ class LivePane:
 
 
 @dataclass(frozen=True)
+class MachineStats:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineStats'
+    cpu_percent: Union[float, None]
+    cpus: int
+    disk_path: str
+    disk_total_mb: Union[int, None]
+    disk_used_mb: Union[int, None]
+    load_average_1m: float
+    memory_total_mb: int
+    memory_used_mb: int
+    sampled_at_ms: int
+
+
+@dataclass(frozen=True)
+class MachineStatsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineStatsResult'
+    stats: Union[MachineStats, None]
+
+
+@dataclass(frozen=True)
 class MachineUsage:
     __cmux_schema_path__: ClassVar[str] = 'types/MachineUsage'
     api_equivalent_usd: float
@@ -1579,6 +1599,12 @@ class ListWorkspacesRequest:
 
 
 @dataclass(frozen=True)
+class MachineStatsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-stats/request'
+    follow: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MachineUsageRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/machine-usage/request'
     pass
@@ -2242,6 +2268,14 @@ class LayoutChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class MachineStatsChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/machine-stats-changed/payload'
+    event: Literal['machine-stats-changed']
+    stats: Union[MachineStats, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class MachineUsageChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
     event: Literal['machine-usage-changed']
@@ -2620,7 +2654,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineStatsChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2689,6 +2723,8 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'MachineStats',
+    'MachineStatsResult',
     'MachineUsage',
     'MachineUsageResult',
     'MintTerminalRendererResult',
@@ -2790,6 +2826,7 @@ __all__ = [
     'ListClientsRequest',
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
+    'MachineStatsRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
@@ -2868,6 +2905,7 @@ __all__ = [
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'LayoutChangedEvent',
+    'MachineStatsChangedEvent',
     'MachineUsageChangedEvent',
     'NotificationEvent',
     'OutputEvent',

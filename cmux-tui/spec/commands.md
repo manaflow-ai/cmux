@@ -490,6 +490,51 @@ Example:
 {"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
 ```
 
+### machine-stats
+
+| Field | Value |
+| --- | --- |
+| name | `machine-stats` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-stats-v1` |
+
+Returns the latest host resource sample for the machine this daemon runs on: logical CPUs, busy CPU over the previous sampling interval, one-minute load, memory, and the filesystem holding the daemon's home. The daemon samples its own host every 10 seconds, so every client that reaches the daemon reads the same numbers without a second channel into the machine and without new authority. Only Linux hosts sample today; elsewhere `stats` is null and frontends hide the readout. Servers advertise `machine-stats-v1` in `identify.capabilities`.
+
+`follow:true` keeps the connection open after the response, like `subscribe`, and delivers a `machine-stats-changed` line on this connection for every later sample until the connection closes. Only that event reaches a follower, so following never carries terminal output. The CLI exposes it as `cmux --jsonl raw command --request-json '{"id":1,"cmd":"machine-stats","follow":true}' --stream`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `follow` | `boolean` | default `false` | Open a follow stream on this connection |
+
+Result:
+
+```text
+object{
+  stats:object{
+    sampled_at_ms:uint64,
+    cpus:uint32,
+    cpu_percent:float64|null,
+    load_average_1m:float64,
+    memory_total_mb:uint64,
+    memory_used_mb:uint64,
+    disk_total_mb:uint64|null,
+    disk_used_mb:uint64|null,
+    disk_path:string
+  }|null
+}
+```
+
+`cpu_percent` is null on the first sample after daemon start (no previous reading to diff). `memory_used_mb` is `MemTotal - MemAvailable`. `disk_*` describe the filesystem holding `disk_path`, the daemon's home, where a cmux Cloud machine mounts its persistent volume.
+
+Example:
+
+```json
+{"id":9,"cmd":"machine-stats"}
+{"id":9,"ok":true,"data":{"stats":{"sampled_at_ms":1756800000000,"cpus":4,"cpu_percent":12.5,"load_average_1m":0.42,"memory_total_mb":7937,"memory_used_mb":2210,"disk_total_mb":65536,"disk_used_mb":18342,"disk_path":"/home/cmux"}}}
+```
+
 ### register-browser-provider / get-browser-provider
 
 | Field | Value |

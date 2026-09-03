@@ -11,6 +11,22 @@ from support import schema_document
 
 
 class CppEmitterTests(unittest.TestCase):
+    def test_conditional_follow_stream_preserves_unary_and_stream_methods(self) -> None:
+        document = copy.deepcopy(schema_document())
+        document["types"]["StatsResult"] = {"kind": "object", "fields": {}, "additional_properties": False}
+        document["commands"]["machine-stats"] = {
+            "authority": "control", "since": 10, "capability": "stats-v1",
+            "request": {"kind": "object", "fields": {"follow": {"type": {"kind": "scalar", "name": "boolean"}, "presence": "optional", "nullable": False, "default": False}}, "additional_properties": False},
+            "result": {"kind": "ref", "name": "StatsResult"},
+            "stream": {"kind": "subscribe", "event_names": ["workspace-created"], "mode_field": "follow", "modes": {"false": [], "true": ["workspace-created"]}, "ordering": "response then events", "terminal_event": None},
+            "constraints": [],
+        }
+        generated = emit(load_ir_document(document))
+        header = generated[PurePosixPath("include/cmux/raw/generated/commands.hpp")]
+        self.assertIn("Result<StatsResult> machine_stats(", header)
+        self.assertIn("struct MachineStatsStream {", header)
+        self.assertIn("Result<MachineStatsStream> machine_stats_follow(", header)
+
     def test_predefined_macro_enum_values_use_safe_identifiers(self) -> None:
         document = copy.deepcopy(schema_document())
         document["types"]["Transport"] = {

@@ -14,18 +14,21 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
     private final Duration defaultTimeout;
     private final Class<E> eventType;
     private final ArrayDeque<ProtocolEvent> buffered;
+    private final Object initialData;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private CmuxStream(
         JsonLineConnection connection,
         Duration defaultTimeout,
         Class<E> eventType,
-        ArrayDeque<ProtocolEvent> buffered
+        ArrayDeque<ProtocolEvent> buffered,
+        Object initialData
     ) {
         this.connection = connection;
         this.defaultTimeout = defaultTimeout;
         this.eventType = eventType;
         this.buffered = buffered;
+        this.initialData = initialData;
     }
 
     static <E extends ProtocolEvent> CmuxStream<E> open(
@@ -54,7 +57,7 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
                     }
                     buffered.addLast(event);
                     if (attach && isInitialAttachEvent(event.event())) {
-                        return new CmuxStream<>(connection, timeout, eventType, buffered);
+                        return new CmuxStream<>(connection, timeout, eventType, buffered, null);
                     }
                     continue;
                 }
@@ -62,7 +65,7 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
                     continue;
                 }
                 if (Boolean.TRUE.equals(message.get("ok"))) {
-                    return new CmuxStream<>(connection, timeout, eventType, buffered);
+                    return new CmuxStream<>(connection, timeout, eventType, buffered, message.get("data"));
                 }
                 throw new CmuxCommandException(
                     String.valueOf(message.getOrDefault("error", "unknown error")),
@@ -115,6 +118,11 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
 
     public boolean isClosed() {
         return closed.get();
+    }
+
+    /** Initial response data received while opening a conditional stream. */
+    Object initialData() {
+        return initialData;
     }
 
     @Override

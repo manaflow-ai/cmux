@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8.
+// cmux-tui mux protocol 12, IR 4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -580,6 +580,13 @@ pub struct ListWorkspacesRequest {
 
 #[rustfmt::skip]
 pub type ListWorkspacesResult = T::Tree;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineStatsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub follow: Option<bool>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1319,6 +1326,11 @@ pub struct ZoomPaneRequest {
     pub pane: Optional<T::Id>,
 }
 
+pub struct MachineStatsFollowResult {
+    pub initial_result: T::MachineStatsResult,
+    pub stream: CmuxStream,
+}
+
 #[rustfmt::skip]
 impl CmuxClient {
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
@@ -1526,6 +1538,18 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
         self.execute(&LIST_WORKSPACES_METADATA, &request)
+    }
+
+    pub fn machine_stats(&mut self, request: MachineStatsRequest) -> Result<T::MachineStatsResult> {
+        let mut request = request;
+        request.follow = Some(false);
+        self.execute(&MACHINE_STATS_METADATA, &request)
+    }
+
+    pub fn machine_stats_follow(&mut self, mut request: MachineStatsRequest) -> Result<MachineStatsFollowResult> {
+        request.follow = Some(true);
+        let (initial_result, stream) = self.execute_stream_with_result(&MACHINE_STATS_METADATA, &request)?;
+        Ok(MachineStatsFollowResult { initial_result, stream })
     }
 
     pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {

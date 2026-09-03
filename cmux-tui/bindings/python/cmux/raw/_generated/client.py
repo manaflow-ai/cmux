@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, List, Literal, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
+
+if TYPE_CHECKING:
+    from ..client import EventStream
 
 from .metadata import COMMANDS
 from .models import *
@@ -140,6 +143,13 @@ class GeneratedClientMixin:
 
     def list_workspaces(self) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
+
+    def machine_stats(self, *, follow: Union[bool, MissingType] = MISSING) -> MachineStatsResult:
+        return self._invoke_command('machine-stats', MachineStatsRequest(follow=MISSING))
+
+    def machine_stats_follow(self, *, follow: Union[bool, MissingType] = MISSING) -> Tuple[MachineStatsResult, EventStream]:
+        """Open the machine-stats follow stream with typed events."""
+        return self._open_command_stream_with_result('machine-stats', MachineStatsRequest(follow=True))
 
     def machine_usage(self) -> MachineUsageResult:
         return self._invoke_command('machine-usage', MachineUsageRequest())
@@ -371,6 +381,7 @@ GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.machine_stats.__cmux_command__ = COMMANDS['machine-stats']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']

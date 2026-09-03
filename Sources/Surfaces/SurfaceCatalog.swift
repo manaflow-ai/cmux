@@ -175,6 +175,12 @@ final class SurfaceCatalog {
         providers[machine]
     }
 
+    /// O(1) lookup for live machine state. Callers that only need one machine
+    /// must not build and sort the full catalog snapshot on every sample.
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
+    }
+
     func refreshAll() async {
         for provider in providers.values {
             await provider.refresh()
@@ -212,7 +218,7 @@ final class SurfaceCatalog {
 
     func updateMachine(_ info: SurfaceMachineInfo) {
         machines[info.id] = info
-        notifyChange()
+        notifyChange(machine: info.id)
     }
 
     // MARK: Projections
@@ -756,14 +762,29 @@ final class SurfaceCatalog {
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     private var changeNotificationPending = false
+    private var pendingMachineChanges: Set<SurfaceMachineID> = []
+    private var pendingBroadChange = false
 
     private func notifyChange() {
+        pendingBroadChange = true
+        notifyChange(machine: nil)
+    }
+
+    private func notifyChange(machine: SurfaceMachineID?) {
+        if let machine { pendingMachineChanges.insert(machine) }
         guard !changeNotificationPending else { return }
         changeNotificationPending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.changeNotificationPending = false
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+            let machineChanges = self.pendingMachineChanges
+            self.pendingMachineChanges.removeAll()
+            let broadChange = self.pendingBroadChange
+            self.pendingBroadChange = false
+            let userInfo: [AnyHashable: Any]? = !broadChange && !machineChanges.isEmpty
+                ? ["machines": Array(machineChanges)]
+                : nil
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
         }
     }
 }

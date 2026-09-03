@@ -1351,6 +1351,16 @@ def _render_method(
     ]
     if not empty:
         lines.append(f"\tvar result {result_name}")
+    conditional_stream = command.get("stream") is not None and command["stream"].get("mode_field") == "follow"
+    if conditional_stream:
+        lines.extend([
+            "\tif options.Follow != nil && *options.Follow {",
+            "\t\tstreamed, err := c.MachineStatsFollow(ctx, options)",
+            "\t\tif err != nil { return result, err }",
+            "\t\tdefer streamed.Close()",
+            "\t\treturn streamed.Result, nil",
+            "\t}",
+        ])
     if shape == "shaped":
         for field_name, field in _request_expr(command)["fields"].items():
             if (
@@ -1412,6 +1422,22 @@ def _render_method(
     else:
         lines.append("\treturn result, err")
     lines.append("}")
+    if conditional_stream:
+        lines.extend([
+            "",
+            "// MachineStatsFollow opens the machine-stats follow stream and returns the",
+            "// initial sample together with the subsequent machine-stats-changed events.",
+            "func (c *Client) MachineStatsFollow(ctx context.Context, options MachineStatsOptions) (*MachineStatsStream, error) {",
+            "\tfollow := true",
+            "\toptions.Follow = &follow",
+            "\tparams, err := commandMap(options)",
+            "\tif err != nil { return nil, fmt.Errorf(\"%w: encode machine-stats parameters: %v\", ErrInvalidArgument, err) }",
+            "\tvar result MachineStatsResult",
+            "\tstream, err := c.openGeneratedStreamWithResult(ctx, commandMetadata[\"machine-stats\"], params, &result)",
+            "\tif err != nil { return nil, err }",
+            "\treturn &MachineStatsStream{Result: result, Stream: stream}, nil",
+            "}",
+        ])
     return lines
 
 
@@ -1439,6 +1465,28 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
         lines.extend(_render_method(wire_name, command, document["types"]))
         if wire_name not in _SPECIAL_METHODS:
             lines.append("")
+    if any(
+        command.get("stream") is not None and command["stream"].get("mode_field") == "follow"
+        for command in document["commands"].values()
+    ):
+        lines.extend([
+            "// MachineStatsStream combines the initial machine-stats response with",
+            "// the event stream opened by MachineStatsFollow.",
+            "type MachineStatsStream struct {",
+            "\tResult MachineStatsResult",
+            "\tStream *Stream",
+            "}",
+            "",
+            "func (stream *MachineStatsStream) Recv(ctx context.Context) (Event, error) {",
+            "\treturn stream.Stream.Recv(ctx)",
+            "}",
+            "",
+            "func (stream *MachineStatsStream) RecvSubscribe(ctx context.Context) (SubscribeEvent, error) {",
+            "\treturn stream.Stream.RecvSubscribe(ctx)",
+            "}",
+            "",
+            "func (stream *MachineStatsStream) Close() { stream.Stream.Close() }",
+        ])
     return "\n".join(lines).rstrip() + "\n"
 
 

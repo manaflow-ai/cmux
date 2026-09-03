@@ -34,6 +34,7 @@ import type {
   ListAgentsResult,
   ListClientsResult,
   ListTerminalsResult,
+  MachineStatsChangedEvent,
   MoveTerminalResult,
   NotificationLevel,
   NotifyResult,
@@ -723,8 +724,13 @@ export class CmuxClient {
         cmd: C;
         id?: Json;
         [key: string]: unknown;
-      };
+    };
     const { cmd, id, ...rawParams } = source;
+    if (cmd === "machine-stats" && rawParams.follow === true) {
+      throw new CmuxProtocolError(
+        "machine-stats follow requests require machineStatsFollow()",
+      );
+    }
     await this.ensureCommandAvailable(cmd as C, rawParams);
     const encoded = encodeCommandParams(
       cmd as C,
@@ -1026,6 +1032,26 @@ export class CmuxClient {
     params: CmuxRequestParams<"rename-provider-managed-workspace">,
   ): Promise<CmuxResponseDataFor<"rename-provider-managed-workspace">> {
     return this.request("rename-provider-managed-workspace", params);
+  }
+
+  /** Opens the conditional machine-stats follow stream with typed change events. */
+  async machineStatsFollow(
+    options: StreamOpenOptions = {},
+  ): Promise<CmuxStream<MachineStatsChangedEvent>> {
+    return this.openStream(
+      { cmd: "machine-stats", follow: true },
+      (event) => {
+        if (event.event !== "machine-stats-changed") {
+          throw new CmuxProtocolError(`unexpected machine-stats event: ${event.event}`);
+        }
+        return event as MachineStatsChangedEvent;
+      },
+      (event) => event.event === "machine-stats-changed",
+      undefined,
+      false,
+      undefined,
+      options,
+    );
   }
 
   async subscribe(options: SubscribeOptions = {}): Promise<CmuxStream<SubscribeEvent>> {

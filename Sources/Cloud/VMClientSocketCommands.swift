@@ -1,6 +1,22 @@
 import CmuxControlSocket
 import Foundation
 
+/// `cmux vm stats` when this Mac holds no live reading for the machine. The
+/// reading only exists while the Mac has a link to the machine's daemon.
+struct VMStatsUnavailableError: Error, CustomStringConvertible {
+    let vmID: String
+    var description: String {
+        String(
+            format: String(
+                localized: "socket.cloudVM.statsUnavailable",
+                defaultValue: "No live statistics for %@. Open the machine in the Machines panel or run `cmux vm shell %@`, then retry."
+            ),
+            vmID,
+            vmID
+        )
+    }
+}
+
 extension TerminalController {
     nonisolated func socketWorkerCloudVMResponse(
         method: String,
@@ -218,7 +234,12 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.stats requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
-                let stats = try await VMClient.shared.stats(id: vmId)
+                // The reading comes from the machine's own daemon over its link, never
+                // from the web tier, so it exists only while the Mac holds a link.
+                let info = await MainActor.run { SurfaceCatalog.shared.machineInfo(for: .cloud(vmId)) }
+                guard let info, let stats = MachineSnapshotBuilder.linkStats(from: info) else {
+                    throw VMStatsUnavailableError(vmID: vmId)
+                }
                 var payload: [String: Any] = [
                     "id": vmId,
                     "state": stats.state.rawValue,

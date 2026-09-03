@@ -480,11 +480,17 @@ class ZigEmitter:
 
             function = _camel(wire_name)
             stream = command["stream"]
-            if stream is None:
+            if stream is None or stream.get("mode_field") == "follow":
+                conditional_stream = stream is not None and stream.get("mode_field") == "follow"
                 lines.append(
                     f"pub fn {function}(client: anytype, request: {request_name}) "
                     f"!wire.Decoded({result_name}) {{"
                 )
+                if conditional_stream:
+                    lines.extend([
+                        "    var unary_request = request;",
+                        "    unary_request.follow = false;",
+                    ])
                 lines.extend(
                     [
                         "    return client.callTyped(",
@@ -498,7 +504,41 @@ class ZigEmitter:
                         indent="        ",
                     )
                 )
-                lines.extend(["        request,", "    );", "}", ""])
+                lines.extend(["        unary_request," if conditional_stream else "        request,", "    );", "}", ""])
+                if stream is not None and stream.get("mode_field") == "follow":
+                    terminal_event = stream.get("terminal_event")
+                    terminal = "null" if terminal_event is None else _quote(str(terminal_event))
+                    lines.extend(
+                        [
+                            f"pub const {function}FollowResult = struct {{",
+                            f"    initial_result: wire.Decoded({result_name}),",
+                            "    stream: client_runtime.Stream,",
+                            "};",
+                            f"pub fn {function}Follow(client: anytype, request: {request_name}) "
+                            f"!{function}FollowResult {{",
+                            "    var follow_request = request;",
+                            "    follow_request.follow = true;",
+                            "    var stream = try client.openStream(",
+                        ]
+                    )
+                    lines.extend(
+                        self.render_command_requirements(
+                            wire_name,
+                            command,
+                            indent="        ",
+                        )
+                    )
+                    lines.extend(
+                        [
+                            "        follow_request,",
+                            f"        {terminal},",
+                            "    );",
+                            f"    const initial_result = try stream.initialResult({result_name});",
+                            "    return .{ .initial_result = initial_result, .stream = stream };",
+                            "}",
+                            "",
+                        ]
+                    )
             else:
                 terminal_event = stream.get("terminal_event")
                 terminal = (

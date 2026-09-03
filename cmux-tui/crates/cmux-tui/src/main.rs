@@ -28,6 +28,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod machine_stats;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -2142,6 +2143,8 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Host resource sample for `machine-stats`; Linux hosts only, others report null.
+    let machine_stats_sampler = machine_stats::start_sampler(Arc::downgrade(&mux));
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2187,6 +2190,9 @@ fn run_server(
     #[cfg(unix)]
     if let Some(poller) = machine_usage_poller {
         poller.stop();
+    }
+    if let Some(sampler) = machine_stats_sampler {
+        sampler.stop();
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();

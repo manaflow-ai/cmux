@@ -331,6 +331,77 @@ struct CmuxTuiSnapshotParser: Sendable {
         return socket
     }
 
+    /// One line of the `machine-stats … --stream` feed. The response data (`{"stats":…}`)
+    /// and every `machine-stats-changed` event carry the same `stats` object; `null`
+    /// means the daemon runs no sampler. Any other line on the feed is `unrelated`.
+    enum MachineStatsLine: Equatable {
+        case sample(VMStats)
+        case unavailable
+        case unrelated
+    }
+
+    static func machineStats(fromLine line: String) -> MachineStatsLine {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .unrelated
+        }
+        if let event = object["event"] as? String, event != "machine-stats-changed" {
+            return .unrelated
+        }
+        // The follow command's initial sample is carried inside the response
+        // envelope. Later updates put the same payload at the event top level.
+        let raw = object["stats"] ?? (object["data"] as? [String: Any])?["stats"]
+        guard let raw else { return .unrelated }
+        guard let stats = raw as? [String: Any], let sample = machineStats(fromObject: stats) else {
+            return .unavailable
+        }
+        return .sample(sample)
+    }
+
+    /// Strict decode of one `MachineStats` object (spec `commands.md` §machine-stats). The
+    /// machine runs untrusted agent code, so every field must be a JSON number of the
+    /// documented kind and range or the whole sample is dropped: no booleans, strings,
+    /// negatives, or non-finite values, and used never exceeds total. Absent or null
+    /// optional fields decode as unknown.
+    static func machineStats(fromObject stats: [String: Any]) -> VMStats? {
+        func number(_ key: String) -> Double? {
+            guard let value = stats[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
+            let double = value.doubleValue
+            return double.isFinite && double >= 0 ? double : nil
+        }
+        func whole(_ key: String) -> Int? {
+            guard let value = number(key), value == value.rounded(.towardZero), value < 9_007_199_254_740_992 else { return nil }
+            return Int(value)
+        }
+        // `.some(nil)` = absent or null (unknown); `nil` = present but malformed (reject).
+        func optional<T>(_ key: String, _ read: (String) -> T?) -> T?? {
+            guard let raw = stats[key], !(raw is NSNull) else { return .some(nil) }
+            guard let value = read(key) else { return nil }
+            return .some(value)
+        }
+        guard let sampledAtMs = whole("sampled_at_ms"),
+              let cpus = whole("cpus"), cpus >= 1,
+              let loadAverage1m = number("load_average_1m"),
+              let memoryTotalMb = whole("memory_total_mb"),
+              let memoryUsedMb = whole("memory_used_mb"),
+              case let .some(cpuPercent) = optional("cpu_percent", number),
+              case let .some(diskTotalMb) = optional("disk_total_mb", whole),
+              case let .some(diskUsedMb) = optional("disk_used_mb", whole) else {
+            return nil
+        }
+        return VMStats(
+            state: .awake,
+            sampledAt: Date(timeIntervalSince1970: Double(sampledAtMs) / 1000),
+            cpus: cpus,
+            cpuPercent: cpuPercent.map { min($0, 100) },
+            loadAverage1m: loadAverage1m,
+            memoryTotalMb: memoryTotalMb,
+            memoryUsedMb: min(memoryUsedMb, memoryTotalMb),
+            diskTotalMb: diskTotalMb,
+            diskUsedMb: diskTotalMb.flatMap { total in diskUsedMb.map { min($0, total) } }
+        )
+    }
+
     /// Listening TCP ports from `ss -ltn` / `netstat -ltn` output (what `cmux vm ports` runs).
     static func listeningPorts(fromSocketListing text: String) -> [Int] {
         var seen = Set<Int>()

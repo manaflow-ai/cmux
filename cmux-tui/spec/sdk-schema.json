@@ -5201,6 +5201,107 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
+  },
+  "MachineStats": {
+   "kind": "object",
+   "fields": {
+    "sampled_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cpus": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cpu_percent": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "load_average_1m": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "memory_total_mb": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "memory_used_mb": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "disk_total_mb": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "disk_used_mb": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "disk_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "sampled_at_ms is the host clock (Unix epoch milliseconds) when the sample was taken.",
+    "cpu_percent is whole-machine busy CPU over the previous sampling interval (0..=100) and is null on the first sample.",
+    "memory_used_mb is MemTotal minus MemAvailable.",
+    "disk_total_mb and disk_used_mb describe the filesystem holding disk_path (the daemon's home) and are null when it could not be read."
+   ]
+  },
+  "MachineStatsResult": {
+   "kind": "object",
+   "fields": {
+    "stats": {
+     "type": {
+      "kind": "ref",
+      "name": "MachineStats"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "stats is null when this daemon runs no host sampler (non-Linux hosts, or the sample could not be read)."
+   ]
   }
  },
  "commands": {
@@ -9767,6 +9868,7 @@
      "empty",
      "frontend-projection-changed",
      "layout-changed",
+     "machine-stats-changed",
      "notification",
      "overflow",
      "pairing-requested",
@@ -10282,6 +10384,48 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
+   ]
+  },
+  "machine-stats": {
+   "authority": "control",
+   "since": 12,
+   "capability": "machine-stats-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "follow": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineStatsResult"
+   },
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "machine-stats-changed"
+    ],
+    "mode_field": "follow",
+    "modes": {
+     "false": [],
+     "true": [
+      "machine-stats-changed"
+     ]
+    },
+    "ordering": "The initial response precedes machine-stats-changed events. Events preserve enqueue order until the connection closes.",
+    "terminal_event": null
+   },
+   "constraints": [
+    "follow:true keeps the connection open after the response and delivers machine-stats-changed event lines on it until the connection closes."
    ]
   }
  },
@@ -12958,6 +13102,36 @@
       "type": {
        "kind": "ref",
        "name": "MachineUsage"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "machine-stats-changed": {
+   "since": 12,
+   "capability": "machine-stats-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "machine-stats-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stats": {
+      "type": {
+       "kind": "ref",
+       "name": "MachineStats"
       },
       "presence": "required",
       "nullable": true

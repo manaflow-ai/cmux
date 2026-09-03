@@ -29,6 +29,19 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--jsonl", "session", "current", "events"]
     }
 
+    /// `raw command --request-json {"id":1,"cmd":"machine-stats","follow":true} --stream`
+    /// (`--jsonl`, spec `commands.md` §machine-stats): the daemon's own host sample now,
+    /// then one `machine-stats-changed` line per later sample on the same connection.
+    /// The daemon samples /proc on the machine every 10 s and the Mac only listens, so
+    /// a machine without a live link has no reading and nothing here can wake one.
+    static func machineStatsFollowArguments(socketPath: String) -> [String] {
+        [
+            "--socket", socketPath, "--jsonl", "raw", "command",
+            "--request-json", #"{"id":1,"cmd":"machine-stats","follow":true}"#,
+            "--stream",
+        ]
+    }
+
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
