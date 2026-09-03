@@ -238,11 +238,19 @@ enum ClaudeHookLiveDeliveryHarness {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
 
+        // Keep the blocking Process wait off the shared GCD pool. The app-host
+        // shard runs many GUI and socket tests concurrently; its global worker
+        // threads can all be occupied while this short-lived child is waiting
+        // to exit, which turns a completed process into a false timeout.
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        let exitWaiter = Thread { [process] in
             process.waitUntilExit()
             exitSignal.signal()
         }
+        exitWaiter.name = "cmux-claude-hook-test-process-waiter"
+        exitWaiter.stackSize = 1 << 20
+        exitWaiter.qualityOfService = .userInteractive
+        exitWaiter.start()
         let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
         if timedOut {
             process.terminate()
