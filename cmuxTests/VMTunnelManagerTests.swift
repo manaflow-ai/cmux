@@ -182,7 +182,9 @@ struct VMTunnelManagerTests {
         let devKeys = try dev.keypair()
         #expect(nightlyKeys.privateKey != devKeys.privateKey)
         #expect(nightlyKeys.publicKey != devKeys.publicKey)
-        #expect(try nightly.deviceFingerprint() != dev.deviceFingerprint())
+        let nightlyFingerprint = try nightly.deviceFingerprint()
+        let devFingerprint = try dev.deviceFingerprint()
+        #expect(nightlyFingerprint != devFingerprint)
 
         // Reconstructing the same build identity keeps its enrollment material.
         let nightlyRestart = VMTunnelManager(
@@ -191,7 +193,7 @@ struct VMTunnelManagerTests {
             apiBaseURL: productionURL
         )
         #expect(try nightlyRestart.keypair().privateKey == nightlyKeys.privateKey)
-        #expect(try nightlyRestart.deviceFingerprint() == nightly.deviceFingerprint())
+        #expect(try nightlyRestart.deviceFingerprint() == nightlyFingerprint)
     }
 
     @Test

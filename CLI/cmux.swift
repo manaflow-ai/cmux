@@ -18623,8 +18623,11 @@ struct CMUXCLI {
                     `up` already runs this; call it again after `cmux vm new`
                     to pick up a machine created since.
 
-            The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
-            with the private key generated on this Mac; the key never leaves it.
+            The cmux app writes a build-scoped config to
+            ~/.cmuxterm/wireguard/<interface>.conf with the private key generated
+            on this Mac; the key never leaves it. Stable production keeps the
+            legacy cmux.conf name, while nightly and tagged DEV builds use their
+            own interface and credential files so they can run together.
             """
         case "auth":
             return """

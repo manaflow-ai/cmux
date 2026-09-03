@@ -30,7 +30,11 @@ struct VMTunnelStalenessTests {
             .appendingPathComponent("cmux-tunnel-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: URL(string: "https://cmux.com")!
+        )
         #expect(manager.configDigest() == nil)
         #expect(manager.appliedDigest() == nil)
         #expect(throws: VMTunnelManager.TunnelError.self) { try manager.recordApplied(true) }
@@ -99,11 +103,22 @@ struct VMTunnelStalenessTests {
             bundleIdentifier: "com.cmuxterm.app.debug.cloud-tree-agent-parity",
             apiBaseURL: production
         )
+        let taggedDevOnLocalAPI = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-notify",
+            apiBaseURL: URL(string: "http://localhost:9180")!
+        )
+        let taggedDevWithStaleLaunchEnvironment = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-notify",
+            environment: ["CMUX_BUNDLE_ID": "com.cmuxterm.app"],
+            apiBaseURL: production
+        )
 
         #expect(nightly == "cmux-nightly")
         #expect(taggedDev != "cmux")
         #expect(taggedDev != nightly)
         #expect(taggedDev != otherTaggedDev)
+        #expect(taggedDev == taggedDevOnLocalAPI)
+        #expect(taggedDev == taggedDevWithStaleLaunchEnvironment)
         for name in [nightly, taggedDev, otherTaggedDev] {
             #expect(name.count <= 15, "wg-quick interface names are at most 15 characters")
             #expect(name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })

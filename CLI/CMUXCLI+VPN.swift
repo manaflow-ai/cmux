@@ -7,8 +7,9 @@ import Foundation
 ///
 /// Cloud machines live on one private network per account and open no public
 /// inbound port, so their session daemons are reachable only through this
-/// tunnel. The cmux app owns enrollment (keypair, device identity, the config
-/// file at `~/.cmuxterm/wireguard/cmux.conf`); this command owns the
+/// tunnel. The cmux app owns enrollment (keypair, device identity, the
+/// build-scoped config file at `~/.cmuxterm/wireguard/<interface>.conf`); this
+/// command owns the
 /// privileged bring-up, because creating a utun and installing routes needs
 /// root and `sudo` in the user's own terminal is the honest way to ask.
 ///
@@ -266,7 +267,7 @@ extension CMUXCLI {
             print(String(localized: "cli.vpn.status.notSetUp", defaultValue: "Tunnel: not set up (run `cmux vpn up`)"))
         }
         if let name = response["interface_name"] as? String, !name.isEmpty {
-            // One tunnel per deployment: says which one this build owns.
+            // The interface identifies the build-scoped tunnel this CLI owns.
             let format = String(localized: "cli.vpn.status.interface", defaultValue: "Interface: %@")
             print(String(format: format, name))
         }
