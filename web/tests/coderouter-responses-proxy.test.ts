@@ -32,7 +32,7 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
-const { createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
+const { createCodexModelsProxy, createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
 
 const proxy = createCodexResponsesProxy({
   authenticate: async (token) => {
@@ -257,6 +257,39 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(503);
     const body = await response.json() as { error: string };
     expect(body.error).toBe("no_usable_account");
+  });
+});
+
+describe("codex models proxy outcomes", () => {
+  test("reports provider unavailable when upstream headers time out", async () => {
+    let selected = false;
+    const modelsProxy = createCodexModelsProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        if (selected) return null;
+        selected = true;
+        return { id: "acct-1", vaultRevision: 1, credentialExpiresAt: null };
+      },
+      credential: async () => ({
+        provider: "codex" as const,
+        accessToken: "access",
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+      providerRead: async () => {
+        throw new Error("upstream headers timed out");
+      },
+    });
+    const response = await modelsProxy(new Request("https://coderouter.dev/v1/models", {
+      headers: { authorization: "Bearer crt_token", "anthropic-version": "2023-06-01" },
+    }));
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("provider_unavailable");
   });
 });
 
