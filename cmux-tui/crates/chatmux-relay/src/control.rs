@@ -254,7 +254,13 @@ mod unix {
                         handler
                     };
                     if let Some(handler) = handler {
-                        handler();
+                        // `end()` can begin after the first deliberate-close
+                        // check while this worker waits for the handler lock.
+                        // Recheck at the callback boundary so an intentional
+                        // detach does not emit an unexpected-close signal.
+                        if !shared.deliberate.load(Ordering::SeqCst) {
+                            handler();
+                        }
                     }
                 };
                 loop {
