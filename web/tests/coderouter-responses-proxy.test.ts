@@ -142,6 +142,51 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs[1]?.sessionKey).toBe("session-move");
   });
 
+  test("bounds all upstream header waits to one request budget", async () => {
+    const selected: string[] = [];
+    let logicalNow = 0;
+    const rateLimitedFetch = (async () => {
+      // Advance a deterministic clock as each simulated header wait elapses.
+      logicalNow += 120;
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, {
+      fetch: rateLimitedFetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(429);
+    expect(selected).toEqual(["acct-1", "acct-2"]);
+  });
+
   test("a sticky session waits out an in-flight refresh instead of moving", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     credentialBusyBudgets.set("acct-1", 2);
