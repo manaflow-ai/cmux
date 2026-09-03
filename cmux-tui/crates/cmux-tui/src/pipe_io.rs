@@ -93,7 +93,7 @@ impl StderrGate {
 
     fn diag(&self, line: String) {
         self.emit_with(line, |line| {
-            let mut stderr = std::io::stderr().lock();
+            let mut stderr = io::stderr().lock();
             let _ = writeln!(stderr, "{line}");
             let _ = stderr.flush();
         });
@@ -194,7 +194,7 @@ struct PipeIoStdout {
 
 #[cfg(unix)]
 fn pipe_io_stdout(cancellation: PipeIoOutputCancellation) -> io::Result<PipeIoStdout> {
-    let stdout = std::io::stdout();
+    let stdout = io::stdout();
     let stdout_fd = stdout.as_fd().try_clone_to_owned()?;
     let file = File::from(stdout_fd);
     set_nonblocking(file.as_raw_fd())?;
@@ -724,7 +724,7 @@ fn classify_daemon_loss(
     }
 }
 
-fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
+fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> io::Result<usize> {
     line.clear();
     let mut bytes = Vec::new();
     loop {
@@ -734,7 +734,7 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
                 return Ok(0);
             }
             *line = String::from_utf8(bytes)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
             return Ok(line.len());
         }
         let (chunk_len, has_newline) = match available.iter().position(|byte| *byte == b'\n') {
@@ -742,8 +742,8 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
             None => (available.len(), false),
         };
         if bytes.len().saturating_add(chunk_len) > MAX_PIPE_IO_LINE_BYTES {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
                 format!("pipe-io request line exceeds {MAX_PIPE_IO_LINE_BYTES} bytes"),
             ));
         }
@@ -752,7 +752,7 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
         reader.consume(chunk_len);
         if has_newline {
             *line = String::from_utf8(bytes)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
             return Ok(line.len());
         }
     }
@@ -764,17 +764,17 @@ fn spawn_stdin_pump(
     handle: PipeIoSurfaceHandle,
     lifecycle_sender: Sender<PipeIoEvent>,
     stderr_gate: Arc<StderrGate>,
-) -> std::io::Result<std::thread::JoinHandle<()>> {
+) -> io::Result<std::thread::JoinHandle<()>> {
     let remote = Arc::downgrade(&handle.remote);
     let surface = handle.surface;
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
-            let stdin = std::io::stdin();
+            let stdin = io::stdin();
             let mut reader = stdin.lock();
             run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender, &stderr_gate);
         })
-        .map_err(|error| std::io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
+        .map_err(|error| io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
 
 enum PipeIoControlResult<T> {
@@ -1027,7 +1027,7 @@ fn write_pipe_io_data(
     event: &PipeIoEvent,
     emitted_output: &mut bool,
     stdout: &mut impl PipeIoOutput,
-) -> std::io::Result<()> {
+) -> io::Result<()> {
     match event {
         PipeIoEvent::Replay { bytes, .. } => {
             if *emitted_output {
@@ -1218,8 +1218,8 @@ mod tests {
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
         // Keep the read side open but never consume it. This models an
         // embedder that stopped reading while its process remains alive.
-        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
-        let writer_file = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        let reader = unsafe { File::from_raw_fd(fds[0]) };
+        let writer_file = unsafe { File::from_raw_fd(fds[1]) };
         set_nonblocking(writer_file.as_raw_fd()).unwrap();
 
         // Fill the kernel pipe so the first relay write must wait for
