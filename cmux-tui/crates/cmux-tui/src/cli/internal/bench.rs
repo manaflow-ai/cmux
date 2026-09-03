@@ -1076,6 +1076,40 @@ mod tests {
     }
 
     #[test]
+    fn indexed_visibility_matches_recursive_scan() {
+        let base = Instant::now();
+        let events = vec![
+            TimedEvent {
+                at: base,
+                value: json!({"event":"workspace-added","entity":{"surface":7}}),
+            },
+            TimedEvent {
+                at: base + Duration::from_millis(5),
+                value: json!({"event":"tab-added","surface":42,"index":1}),
+            },
+            TimedEvent {
+                at: base + Duration::from_millis(9),
+                value: json!({"event":"tab-added","surface":42,"index":2}),
+            },
+        ];
+        let mut index = VisibilityIndex::default();
+        for event in events.iter().cloned() {
+            index.push(event);
+        }
+
+        let sent = base + Duration::from_millis(4);
+        assert_eq!(
+            index.visibility_delay(sent, 42),
+            visibility_delay(&events, sent, 42)
+        );
+        assert_eq!(
+            index.visibility_delay(base + Duration::from_millis(6), 7),
+            visibility_delay(&events, base + Duration::from_millis(6), 7)
+        );
+        assert!(index.visibility_delay(sent, 999).is_none());
+    }
+
+    #[test]
     fn same_connection_probe_is_submitted_before_response_drain() {
         let submissions = same_connection_submission_plan(3, 2);
         assert_eq!(
