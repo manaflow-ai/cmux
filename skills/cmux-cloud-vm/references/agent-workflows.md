@@ -105,6 +105,24 @@ cmux vm open <id>:desktop              # the screen as a browser pane beside the
 cmux vm exec <id> -- sh -c 'DISPLAY=:1 xdotool key ctrl+l'   # quick desktop pokes
 ```
 
+## 6b. Stage a workspace the user opens later ("it just appears")
+
+Group one task's terminals into a named machine workspace, so the whole thing opens with one click of its sidebar row (or one `vm workspace open`) — on this Mac now, or any signed-in Mac after the laptop was closed:
+
+```bash
+ws=$(cmux vm workspace new <id> --name pr-4123 --json | jq -r '.remote_workspace_id')
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name dev   --cwd /root/work/app -- bun run dev
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name tests --cwd /root/work/app -- bun test --watch
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name agent --cwd /root/work/app -- sh -lc 'claude -p "fix the failing tests"'
+cmux vm tree <id> --json                          # verify the composition headlessly: terminals, lifecycle, agent state
+cmux notify --title "Cloud workspace staged: pr-4123" --body "Open: click the pr-4123 row, or cmux vm workspace open <id> $ws"
+```
+
+- The staged workspace lives on the machine. Its terminals keep running with every pane closed and the Mac asleep; opening it later shows one pane per live terminal.
+- `vm workspace new` also opens a new **local** workspace as a side effect; when staging for later, close that local workspace — the machine workspace and its terminals stay (closing panes never kills machine terminals).
+- `vm agent` cannot target a workspace; when the agent's terminal should live in the staged workspace, start it with `surface new-terminal --remote-workspace` and a login shell (`sh -lc '…'`) as above. A plain `vm agent --machine <id> --no-open` works too — its terminal just lands outside the staged group.
+- Watch progress without opening anything: `cmux vm terminal read <id> <term>`, or block on a result with `terminal wait --pattern`.
+
 ## 7. Showing the human
 
 ```bash

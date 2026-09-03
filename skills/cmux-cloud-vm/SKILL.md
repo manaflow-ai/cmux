@@ -7,6 +7,8 @@ description: Drive cmux Cloud machines (persistent cloud VMs) from the plain `cm
 
 Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or any open-source-model harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. Requires the cmux app running, a signed-in account (`cmux auth status`, `cmux auth login`), and — since machines live on a private per-user network with no public ports — the WireGuard tunnel up once per boot (`cmux vpn up`; `cmux vpn status` to check). `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
 
+**The mission is delegation.** A local agent (you, on the user's Mac) sends work to machines that outlive the laptop: every terminal and agent session lives in the machine's own cmux-tui daemon, so work keeps running with every pane closed and the lid shut, and any signed-in Mac reattaches later through the same addresses. Compose machine workspaces headlessly (as many as the task needs), watch them with `vm tree --json` and `vm terminal read` without opening anything, and surface panes or a `cmux notify` only when the user should look.
+
 ## What a machine is
 
 | Term | Meaning |
