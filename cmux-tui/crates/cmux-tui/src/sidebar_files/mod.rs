@@ -402,20 +402,38 @@ fn encode_uri_component(text: &str) -> String {
 #[cfg(windows)]
 fn windows_file_url_parts(text: &str) -> Result<(Option<&str>, String), FileUrlError> {
     let mut text = text;
-    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+    if let Some(stripped) = strip_ascii_prefix(text, r"\\?\") {
         text = stripped;
-        if let Some(unc) = text.strip_prefix(r"UNC\") {
+        if let Some(unc) =
+            strip_ascii_prefix(text, r"UNC\").or_else(|| strip_ascii_prefix(text, "UNC/"))
+        {
             text = unc;
             return Ok(split_unc_path(text));
         }
+        if !is_windows_drive_path(text) {
+            return Err(FileUrlError::UnsupportedWindowsNamespace);
+        }
     }
-    if text.starts_with(r"\\.\") {
+    if strip_ascii_prefix(text, r"\\.\").is_some() {
         return Err(FileUrlError::UnsupportedWindowsNamespace);
     }
     if let Some(unc) = text.strip_prefix(r"\\") {
         return Ok(split_unc_path(unc));
     }
     Ok((None, text.replace('\\', "/")))
+}
+
+#[cfg(windows)]
+fn strip_ascii_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(prefix))
+        .map(|_| &text[prefix.len()..])
+}
+
+#[cfg(windows)]
+fn is_windows_drive_path(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.get(1) == Some(&b':') && bytes.first().is_some_and(u8::is_ascii_alphabetic)
 }
 
 #[cfg(windows)]
