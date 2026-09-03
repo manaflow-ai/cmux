@@ -18471,9 +18471,13 @@ struct CMUXCLI {
             return """
             Usage: cmux vpn <up|down|status|revoke|hosts>
 
-            The WireGuard tunnel between this Mac and your private Cloud VM
-            network. Cloud machines have no public ports, so `cmux vm` attach,
-            exec, and port verbs need this tunnel up.
+            The system WireGuard tunnel between this Mac and your private Cloud VM
+            network. Cloud machines have no public ports. The cmux app reaches
+            their terminals through its own in-process tunnel (`cmux vpn status`
+            shows it under app_tunnel), so `cmux vm` attach and terminal verbs
+            work without this. Bring this system tunnel up when other tools on
+            this Mac (browser, ssh, curl, port links) must reach a machine or its
+            <name>.internal hostnames.
 
             up      Enroll this Mac (first run), bring the tunnel up, and sync
                     internal hostnames. Uses wg-quick and prompts for sudo;
@@ -18517,8 +18521,10 @@ struct CMUXCLI {
             Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
-            Machines live on your private network with no public ports; run `cmux vpn up`
-            once per boot so this Mac can reach them (see `cmux help vpn`).
+            Machines live on your private network with no public ports. The cmux app
+            reaches them through its own in-process WireGuard tunnel, so attach and
+            terminal verbs need no setup. `cmux vpn up` is only for other tools on this
+            Mac (browser, ssh, curl) that must reach a machine (see `cmux help vpn`).
 
             Subcommands:
               ls                        List your cloud VMs.

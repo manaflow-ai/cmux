@@ -8,7 +8,7 @@ import Foundation
 /// One WireGuard key supports one live session, and the app spawns one link
 /// process per machine, so those processes cannot each own a tunnel: the hub is
 /// the single owner and the links are its clients. Its identity is
-/// ``VMTunnelManager/Identity/app``, distinct from the `cmux vpn up` system
+/// ``VMTunnelManager/Identity/app(instanceTag:)``, distinct from the `cmux vpn up` system
 /// interface, so the two never fight over the server-side endpoint.
 ///
 /// Lifecycle: the first ``acquire()`` enrolls the app identity, writes the
@@ -125,7 +125,7 @@ actor CloudWireGuardHub {
 
     /// The production hub for the bundled client, writing under `~/.cmuxterm/wireguard`.
     static func production(clientURL: URL, home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) -> CloudWireGuardHub {
-        let manager = VMTunnelManager(home: home, identity: .app)
+        let manager = VMTunnelManager(home: home, identity: .forThisApp())
         let configuration = Configuration(
             enroll: {
                 let client = await MainActor.run { VMClient.shared }

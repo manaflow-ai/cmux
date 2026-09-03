@@ -18,6 +18,11 @@ import {
 } from "../services/vms/drivers/freestyle";
 import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError } from "../services/vms/drivers/types";
+import {
+  createFreestylePrivateNetworkingForTests,
+  isSlugInUse,
+} from "../services/vms/drivers/freestyle";
+import { FreestyleApiError, type Freestyle, type TunnelData } from "freestyle";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 
@@ -258,5 +263,126 @@ describe("Freestyle machine sizing", () => {
       { cpu: 5, memory: 20480, storage: 16384 },
       { cpu: 5, memory: 20480, storage: 204800 },
     )).toEqual({ storage: 204800 });
+  });
+});
+
+
+/**
+ * The provider account is shared by every cmux control plane while a computer's
+ * WireGuard identity dir is not, so the same Mac enrolling against a second
+ * backend hits "tunnel slug already in use". The driver must adopt that tunnel
+ * (attach the network, rotate the key to the caller's) instead of failing.
+ */
+describe("FreestylePrivateNetworking createTunnel slug conflict", () => {
+  const NETWORK_ID = "vpc-second-backend";
+  const OTHER_NETWORK_ID = "vpc-first-backend";
+  const CALLER_KEY = "Y2FsbGVyLWtleS1jYWxsZXIta2V5LWNhbGxlci1rZXk=";
+
+  function tunnelData(overrides: Partial<TunnelData> = {}): TunnelData {
+    return {
+      id: "tun-1",
+      tunnelId: "tun-1",
+      slug: "cmux-dev-abc",
+      clientConfig: "[Interface]\nPrivateKey =\n",
+      clientPublicKey: "b2xkLWtleS1vbGQta2V5LW9sZC1rZXktb2xkLWtleS1vbGQ=",
+      serverPublicKey: "server",
+      endpointHost: "vpn.example",
+      endpointPort: 51820,
+      routes: ["10.0.0.0/8", "fd00::/8"],
+      attachments: [{ vpcId: OTHER_NETWORK_ID, ipv4: "10.1.0.2", ipv6: "fd00:1::2" }],
+      ...overrides,
+    } as TunnelData;
+  }
+
+  function fakeClient(options: { createError: unknown; attached?: boolean }) {
+    const calls: string[] = [];
+    let state = tunnelData(options.attached
+      ? { attachments: [{ vpcId: NETWORK_ID, ipv4: "10.2.0.2", ipv6: "fd00:2::2" }] } as Partial<TunnelData>
+      : {});
+    const client = {
+      tunnels: {
+        create: async () => {
+          calls.push("create");
+          throw options.createError;
+        },
+        get: async (idOrSlug: string) => {
+          calls.push(`get:${idOrSlug}`);
+          return state;
+        },
+        attachVpc: async (id: string, vpcId: string) => {
+          calls.push(`attachVpc:${id}:${vpcId}`);
+          state = tunnelData({
+            attachments: [...state.attachments, { vpcId, ipv4: "10.2.0.2", ipv6: "fd00:2::2" }],
+          } as Partial<TunnelData>);
+          return state;
+        },
+        rotateKey: async (id: string, opts: { clientPublicKey?: string }) => {
+          calls.push(`rotateKey:${id}:${opts.clientPublicKey ?? ""}`);
+          state = { ...state, clientPublicKey: opts.clientPublicKey ?? state.clientPublicKey } as TunnelData;
+          return state;
+        },
+      },
+    };
+    return { client: client as unknown as Freestyle, calls };
+  }
+
+  const slugConflict = new FreestyleApiError(
+    409,
+    { code: "CONFLICT", message: "tunnel slug already in use" },
+    "/v5/tunnels",
+  );
+
+  test("isSlugInUse matches the conflict by status, code, or message", () => {
+    expect(isSlugInUse(slugConflict)).toBe(true);
+    expect(isSlugInUse(new FreestyleApiError(400, { code: "SLUG_IN_USE", message: "x" }))).toBe(true);
+    expect(isSlugInUse(new FreestyleApiError(400, { code: "BAD", message: "tunnel slug already in use" }))).toBe(true);
+    expect(isSlugInUse(new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such vpc" }))).toBe(false);
+    expect(isSlugInUse(new Error("tunnel slug already in use"))).toBe(false);
+  });
+
+  test("adopts the existing tunnel: looks it up by slug, attaches the missing network, rotates to the caller's key", async () => {
+    const { client, calls } = fakeClient({ createError: slugConflict });
+    const networking = createFreestylePrivateNetworkingForTests(() => client);
+    const tunnel = await networking.createTunnel({
+      slug: "cmux-dev-abc",
+      displayName: "Mac",
+      clientPublicKey: CALLER_KEY,
+      networkId: NETWORK_ID,
+    });
+    expect(calls).toEqual([
+      "create",
+      "get:cmux-dev-abc",
+      `attachVpc:tun-1:${NETWORK_ID}`,
+      `rotateKey:tun-1:${CALLER_KEY}`,
+    ]);
+    expect(tunnel.adopted).toBe(true);
+    expect(tunnel.id).toBe("tun-1");
+    expect(tunnel.clientPublicKey).toBe(CALLER_KEY);
+    // The address reported is the one inside the network that was just attached.
+    expect(tunnel.addressV4).toBe("10.2.0.2");
+    expect(tunnel.addressV6).toBe("fd00:2::2");
+  });
+
+  test("an already-attached tunnel is not re-attached, only re-keyed", async () => {
+    const { client, calls } = fakeClient({ createError: slugConflict, attached: true });
+    const networking = createFreestylePrivateNetworkingForTests(() => client);
+    const tunnel = await networking.createTunnel({
+      slug: "cmux-dev-abc",
+      clientPublicKey: CALLER_KEY,
+      networkId: NETWORK_ID,
+    });
+    expect(calls).toEqual(["create", "get:cmux-dev-abc", `rotateKey:tun-1:${CALLER_KEY}`]);
+    expect(tunnel.adopted).toBe(true);
+  });
+
+  test("a non-conflict create failure still surfaces as a ProviderError", async () => {
+    const { client, calls } = fakeClient({
+      createError: new FreestyleApiError(500, { code: "UNKNOWN_ERROR", message: "boom" }),
+    });
+    const networking = createFreestylePrivateNetworkingForTests(() => client);
+    await expect(
+      networking.createTunnel({ slug: "cmux-dev-abc", clientPublicKey: CALLER_KEY, networkId: NETWORK_ID }),
+    ).rejects.toBeInstanceOf(ProviderError);
+    expect(calls).toEqual(["create"]);
   });
 });

@@ -60,14 +60,52 @@ struct VMTunnelManager: Sendable {
     enum Identity: Sendable, Equatable {
         /// The wg-quick system interface: `cmux.conf`, `private.key`, `mac-<uuid>`.
         case system
-        /// The app hub: `cmux-app.conf`, `app.key`, `mac-<uuid>-app`.
-        case app
+        /// The app hub of one app instance, scoped by the canonical instance tag
+        /// (``MobileHostIdentity/instanceTag()``, the same tag that owns the debug
+        /// socket and cmuxd paths). The stable release (`default`) keeps
+        /// `cmux-app.conf`, `app.key`, `mac-<uuid>-app`; every other instance
+        /// (`nightly`, `rc`, a tagged DEV build) is suffixed by its tag, so two
+        /// builds on one Mac never run two hubs on one WireGuard key, which would
+        /// fight over the server-side endpoint and re-key each other on enroll.
+        case app(instanceTag: String)
+
+        /// The stable channel's instance tag, which keeps the unscoped names.
+        static let releaseInstanceTag = "default"
+
+        /// The app identity of the running instance.
+        static func forThisApp() -> Identity {
+            .app(instanceTag: MobileHostIdentity.instanceTag())
+        }
+
+        /// The scope an instance tag adds: empty for the stable release, else the
+        /// tag lowercased with anything outside `[a-z0-9-]` folded to `-`.
+        static func appScope(instanceTag: String) -> String {
+            let trimmed = instanceTag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if trimmed.isEmpty || trimmed == releaseInstanceTag { return "" }
+            let folded = trimmed.map { ch -> Character in
+                (ch.isASCII && (ch.isLetter || ch.isNumber)) ? ch : "-"
+            }
+            var scope = String(folded)
+            while scope.contains("--") { scope = scope.replacingOccurrences(of: "--", with: "-") }
+            scope = scope.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            return scope.isEmpty ? "unknown" : String(scope.prefix(48))
+        }
+
+        /// `-<scope>` for a scoped app identity, empty otherwise.
+        var scopeSuffix: String {
+            switch self {
+            case .system: return ""
+            case .app(let instanceTag):
+                let scope = Self.appScope(instanceTag: instanceTag)
+                return scope.isEmpty ? "" : "-" + scope
+            }
+        }
 
         /// The device fingerprint suffix appended to the system fingerprint.
         var fingerprintSuffix: String {
             switch self {
             case .system: return ""
-            case .app: return "-app"
+            case .app: return "-app" + scopeSuffix
             }
         }
     }
@@ -93,7 +131,7 @@ struct VMTunnelManager: Sendable {
     var privateKeyURL: URL {
         switch identity {
         case .system: return stateDir.appendingPathComponent("private.key", isDirectory: false)
-        case .app: return stateDir.appendingPathComponent("app.key", isDirectory: false)
+        case .app: return stateDir.appendingPathComponent("app\(identity.scopeSuffix).key", isDirectory: false)
         }
     }
     /// The one per-installation device id both identities derive from; a
@@ -102,7 +140,7 @@ struct VMTunnelManager: Sendable {
     var configURL: URL {
         switch identity {
         case .system: return stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false)
-        case .app: return stateDir.appendingPathComponent("\(Self.interfaceName)-app.conf", isDirectory: false)
+        case .app: return stateDir.appendingPathComponent("\(Self.interfaceName)-app\(identity.scopeSuffix).conf", isDirectory: false)
         }
     }
 

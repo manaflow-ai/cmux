@@ -229,6 +229,32 @@ extension CMUXCLI {
         }
         let backendFormat = String(localized: "cli.vpn.status.backend", defaultValue: "Backend: %@")
         print(String(format: backendFormat, neAvailable ? "app-managed (NetworkExtension)" : "wg-quick"))
+        // The app's own in-process tunnel (the cmux-tui wg hub) carries every Cloud
+        // machine terminal link, so its state is what decides whether `cmux vm`
+        // attach works, independent of the system tunnel above.
+        if let appTunnel = response["app_tunnel"] as? [String: Any] {
+            let hubAvailable = (appTunnel["hub_available"] as? Bool) ?? false
+            let hubRunning = (appTunnel["hub_running"] as? Bool) ?? false
+            let leases = (appTunnel["hub_leases"] as? Int) ?? 0
+            if !hubAvailable {
+                print(String(
+                    localized: "cli.vpn.status.appTunnel.unavailable",
+                    defaultValue: "App tunnel: unavailable (the bundled cmux-tui client lacks wireguard-hub; machine links use the system tunnel)"
+                ))
+            } else if hubRunning {
+                let format = String(localized: "cli.vpn.status.appTunnel.up", defaultValue: "App tunnel: up (machine links: %lld)")
+                print(String(format: format, leases))
+            } else {
+                print(String(
+                    localized: "cli.vpn.status.appTunnel.idle",
+                    defaultValue: "App tunnel: idle (starts with the first Cloud machine link; no sudo needed)"
+                ))
+            }
+            if let error = appTunnel["hub_last_error"] as? String, !error.isEmpty {
+                let format = String(localized: "cli.vpn.status.appTunnel.error", defaultValue: "App tunnel last error: %@")
+                print(String(format: format, error))
+            }
+        }
         if !neAvailable, Self.firstExecutable(Self.wgQuickCandidates) == nil {
             print(String(
                 localized: "cli.vpn.status.wgQuickMissing",
