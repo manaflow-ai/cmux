@@ -1426,6 +1426,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
             }
         })
     else {
+        drop(current);
+        reap_completed_workers(state);
         return;
     };
     let old_worker = current.worker.take();
@@ -1434,6 +1436,26 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     drop(current);
     if let Some(old_worker) = old_worker {
         let _ = old_worker.join();
+    }
+}
+
+fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
+    let mut pending = {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        std::mem::take(&mut current.pending)
+    };
+    let mut index = pending.len();
+    while index > 0 {
+        index -= 1;
+        if pending[index].1.is_done() {
+            let (handle, completion) = pending.swap_remove(index);
+            let _ = handle.join();
+            completion.mark_joined();
+        }
+    }
+    if !pending.is_empty() {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        current.pending.append(&mut pending);
     }
 }
 
@@ -1452,6 +1474,9 @@ fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<Work
     let needs_start = state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none();
     if needs_start {
         try_start_reaper(&state);
+        if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
+            reap_completed_workers(&state);
+        }
     }
 }
 
@@ -1484,6 +1509,7 @@ struct InteractiveWaitUntilWrittenGate {
 struct InteractiveWriter {
     shared: Arc<InteractiveWriterShared>,
     abort: Arc<dyn RemoteTransportAbort>,
+    transport_aborted: AtomicBool,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
@@ -1513,7 +1539,12 @@ impl InteractiveWriter {
             .inspect_err(|_| {
                 shared.worker_completion.release_slot();
             })?;
-        Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
+        Ok(Self {
+            shared,
+            abort,
+            transport_aborted: AtomicBool::new(false),
+            worker: Mutex::new(Some(worker)),
+        })
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
@@ -1646,13 +1677,20 @@ impl InteractiveWriter {
             state.queued_bytes = 0;
         }
         self.shared.changed.notify_all();
-        if let Err(abort_error) = self.abort.abort() {
+        if let Err(abort_error) = self.abort_transport() {
             self.record_abort_failure(&abort_error);
         }
     }
 
     fn abort_transport(&self) -> io::Result<()> {
-        self.abort.abort()
+        if self.transport_aborted.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let result = self.abort.abort();
+        if result.is_ok() {
+            self.transport_aborted.store(true, Ordering::Release);
+        }
+        result
     }
 
     fn record_abort_failure(&self, error: &io::Error) {
