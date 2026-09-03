@@ -11,26 +11,18 @@ public nonisolated protocol LocalLinuxOutputSource: AnyObject, Sendable {
     /// A single-consumer byte stream owned by the source. The scrollback ring
     /// installs one consumer and fans out bounded subscriptions to lanes.
     var output: AsyncStream<Data> { get }
-
-    /// Attempts one exact input operation. The returned count is the number of
-    /// bytes accepted by the pty; a short count is surfaced by the lane rather
-    /// than silently dropping user input.
-    func send(_ data: Data) async throws -> Int
-
-    /// Terminates the pty and finishes `output`. Implementations must be
-    /// idempotent because explicit termination races stream teardown by design.
-    func hangup() async
 }
 
 extension LocalLinuxSession: LocalLinuxOutputSource {}
 
+/// Receives terminal input bytes typed into a lane. The controller installs a
+/// sink that forwards to its single bounded input queue, so the lane and the
+/// Ghostty delegate share one input entrypoint.
+public typealias LocalLinuxLaneInputSink = @Sendable (Data) -> Void
+
 /// Errors raised while driving a local Linux lane.
 public nonisolated enum LocalLinuxLaneError: Error, Equatable, Sendable {
     case closed
-    case emptyInput
-    case inputTooLarge
-    case inputPartiallyAccepted(accepted: Int, expected: Int)
-    case invalidInputCount(Int)
     case cursorGap(requested: UInt64, retainedBase: UInt64, current: UInt64)
     case cursorAhead(requested: UInt64, current: UInt64)
     case sourceMismatch
@@ -40,13 +32,11 @@ public nonisolated enum LocalLinuxLaneError: Error, Equatable, Sendable {
 /// One local iSH pty exposed through the same sequence-aware lane contract as
 /// a paired Mac terminal.
 ///
-/// A lane is an attachment, not the owner of the shell process. `close()`
-/// detaches the lane so the coordinator can reopen after a transient stream
-/// failure. Call `terminate()` when the local terminal itself is deleted.
+/// A lane is an output attachment, not the owner of the shell process.
+/// `close()` detaches the lane so the coordinator can reopen after a transient
+/// stream failure; the shell keeps running and its ring keeps retaining output.
+/// Input typed through the lane is forwarded to the controller's queue.
 public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
-    /// Maximum UTF-8 input accepted in one operation, matching the remote lane.
-    public static let maximumInputByteCount = 16 * 1_024
-
     /// Maximum output payload in one frame. Large callback writes are split so
     /// one kernel write cannot monopolise the lane or allocate an unbounded
     /// frame in the consumer.
@@ -57,6 +47,7 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
 
     private let source: any LocalLinuxOutputSource
     private let ring: LocalLinuxScrollbackRing
+    private let input: LocalLinuxLaneInputSink
     private let requestedCursor: UInt64?
     private var nextSubscriptionCursor: UInt64?
     private var subscriptionID: UUID?
@@ -65,24 +56,23 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
     private var closed = false
 
     /// Creates a lane over any local pty source.
+    /// - Parameters:
+    ///   - source: The pty output source shared with `ring`.
+    ///   - ring: The retained history and fan-out hub for that source.
+    ///   - cursor: Absolute sequence to resume from, or `nil` for the full
+    ///     retained history.
+    ///   - input: Receives bytes passed to ``sendInput(_:)``.
     public init(
         source: any LocalLinuxOutputSource,
         ring: LocalLinuxScrollbackRing,
-        cursor: UInt64? = nil
+        cursor: UInt64? = nil,
+        input: @escaping LocalLinuxLaneInputSink = { _ in }
     ) {
         self.source = source
         self.ring = ring
+        self.input = input
         self.requestedCursor = cursor
         self.nextSubscriptionCursor = cursor
-    }
-
-    /// Convenience initializer for the embedded iSH pty.
-    public init(
-        session: LocalLinuxSession,
-        ring: LocalLinuxScrollbackRing,
-        cursor: UInt64? = nil
-    ) {
-        self.init(source: session, ring: ring, cursor: cursor)
     }
 
     /// Returns the replay frame first, then bounded live output frames.
@@ -172,28 +162,15 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
         return nil
     }
 
-    /// Sends one complete UTF-8 terminal-input operation.
-    public func sendInput(_ input: String) async throws {
+    /// Forwards one UTF-8 terminal-input operation to the controller's queue.
+    /// Raw bytes with control sequences should use the controller directly;
+    /// this entrypoint exists for the shared lane protocol.
+    public func sendInput(_ text: String) async throws {
         guard !closed else { throw LocalLinuxLaneError.closed }
         try Task.checkCancellation()
-        let bytes = Data(input.utf8)
-        guard !bytes.isEmpty else { throw LocalLinuxLaneError.emptyInput }
-        guard bytes.count <= Self.maximumInputByteCount else {
-            throw LocalLinuxLaneError.inputTooLarge
-        }
-
-        let accepted = try await source.send(bytes)
-        try Task.checkCancellation()
-        guard !closed else { throw LocalLinuxLaneError.closed }
-        guard accepted >= 0, accepted <= bytes.count else {
-            throw LocalLinuxLaneError.invalidInputCount(accepted)
-        }
-        guard accepted == bytes.count else {
-            throw LocalLinuxLaneError.inputPartiallyAccepted(
-                accepted: accepted,
-                expected: bytes.count
-            )
-        }
+        let bytes = Data(text.utf8)
+        guard !bytes.isEmpty else { return }
+        input(bytes)
     }
 
     /// Detaches this lane while retaining the local shell and its output ring.
@@ -209,12 +186,6 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
         }
     }
 
-    /// Terminates the local shell after detaching this lane. The local store
-    /// should call this when the terminal is explicitly closed or deleted.
-    public func terminate() async {
-        await close()
-        await source.hangup()
-    }
 }
 
 /// A bounded, sequence-aware output history and fan-out hub for one local pty.
@@ -225,35 +196,23 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
 /// pressure into a clean stream finish, which the coordinator can recover by
 /// reopening from its cursor.
 public actor LocalLinuxScrollbackRing {
-    public struct Snapshot: Sendable {
-        /// The selected start sequence used by the legacy snapshot API.
-        public let baseSequence: UInt64
+    struct Snapshot: Sendable {
+        /// The selected start sequence.
+        let baseSequence: UInt64
         /// The absolute floor still retained by the ring. This can be lower
         /// than `baseSequence` when a cursor selects a suffix.
-        public let retainedBaseSequence: UInt64
-        public let currentSequence: UInt64
-        public let bytes: Data
-
-        public init(
-            baseSequence: UInt64,
-            retainedBaseSequence: UInt64? = nil,
-            currentSequence: UInt64,
-            bytes: Data
-        ) {
-            self.baseSequence = baseSequence
-            self.retainedBaseSequence = retainedBaseSequence ?? baseSequence
-            self.currentSequence = currentSequence
-            self.bytes = bytes
-        }
+        let retainedBaseSequence: UInt64
+        let currentSequence: UInt64
+        let bytes: Data
     }
 
-    public struct Stamp: Sendable {
+    struct Stamp: Sendable {
         /// The absolute floor after appending and evicting.
-        public let baseSequence: UInt64
+        let baseSequence: UInt64
         /// Sequence at which the appended chunk began.
-        public let startSequence: UInt64
+        let startSequence: UInt64
         /// Sequence immediately after the appended chunk.
-        public let currentSequence: UInt64
+        let currentSequence: UInt64
     }
 
     /// A replay frame plus its bounded live-update stream.
@@ -292,12 +251,22 @@ public actor LocalLinuxScrollbackRing {
     private var frameByteLimit = LocalLinuxTerminalLane.maximumOutputByteCount
     private var subscribers: [UUID: Subscriber] = [:]
     private var overflowedSubscriberIDs: Set<UUID> = []
+    private let sourceEndedContinuation: AsyncStream<Void>.Continuation
+
+    /// Finishes once the bound source's output stream has ended, whether by a
+    /// natural process exit or an explicit hangup. The owner of the shell
+    /// awaits this to learn that its session is over; lanes never decide that.
+    /// Iterating this stream from a cancelled task returns immediately.
+    public nonisolated let sourceEnded: AsyncStream<Void>
 
     public init(limit: Int = LocalLinuxTerminalLane.retainedByteLimit) {
         // A negative budget must not turn eviction into `removeFirst` with a
         // negative count. Clamping is deterministic and preserves the public
         // non-throwing initializer.
         self.limit = max(0, limit)
+        let ended = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        sourceEnded = ended.stream
+        sourceEndedContinuation = ended.continuation
     }
 
     public var currentSequence: UInt64 {
@@ -322,25 +291,11 @@ public actor LocalLinuxScrollbackRing {
     }
 
     /// Appends one output chunk to the history and returns its sequence stamp.
-    /// Empty chunks do not consume sequence space.
+    /// Empty chunks do not consume sequence space. Production output arrives
+    /// through the bound source pump; this seam exists for arithmetic tests.
     @discardableResult
-    public func append(_ chunk: Data) -> Stamp {
+    func append(_ chunk: Data) -> Stamp {
         appendChunk(chunk)
-    }
-
-    /// Returns retained bytes from `cursor`, clamping stale and future cursors
-    /// for compatibility with the original ring API. Lane subscriptions use
-    /// `validatedSnapshot` below to fail closed on a cursor gap.
-    public func snapshot(from cursor: UInt64?) -> Snapshot {
-        let current = currentSequence
-        let selected = min(max(cursor ?? baseSequence, baseSequence), current)
-        let offset = Int(selected - baseSequence)
-        return Snapshot(
-            baseSequence: selected,
-            retainedBaseSequence: baseSequence,
-            currentSequence: current,
-            bytes: Data(buffer.dropFirst(offset))
-        )
     }
 
     /// Opens one bounded subscriber atomically with its replay snapshot.
@@ -486,6 +441,7 @@ public actor LocalLinuxScrollbackRing {
         // session's owner lifetime.
         let active = Array(subscribers.keys)
         for id in active { unsubscribe(id) }
+        sourceEndedContinuation.finish()
     }
 
     private func removeSubscriber(id: UUID) {
@@ -516,7 +472,9 @@ public actor LocalLinuxScrollbackRing {
         )
     }
 
-    private func validatedSnapshot(from cursor: UInt64?) throws -> Snapshot {
+    /// Returns retained bytes from `cursor`, failing closed when the cursor
+    /// points below the retained floor or ahead of the current sequence.
+    func validatedSnapshot(from cursor: UInt64?) throws -> Snapshot {
         let current = currentSequence
         if let cursor {
             guard cursor >= baseSequence else {

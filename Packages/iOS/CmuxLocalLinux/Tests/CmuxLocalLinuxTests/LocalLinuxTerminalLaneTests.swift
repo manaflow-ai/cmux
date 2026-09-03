@@ -66,7 +66,7 @@ struct LocalLinuxTerminalLaneTests {
         )) {
             try await lane.receiveOutput()
         }
-        await source.hangup()
+        await source.finishOutput()
     }
 
     @Test("a cursor beyond the current sequence is rejected")
@@ -82,7 +82,7 @@ struct LocalLinuxTerminalLaneTests {
         )) {
             try await lane.receiveOutput()
         }
-        await source.hangup()
+        await source.finishOutput()
     }
 
     @Test("large source writes are split without breaking sequence continuity")
@@ -125,63 +125,28 @@ struct LocalLinuxTerminalLaneTests {
         // newer than the frame start, even when the ring evicts old bytes.
         #expect(frame.retainedBaseSequence <= frame.sequence)
 
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
         #expect(snapshot.retainedBaseSequence == 2)
         #expect(snapshot.currentSequence == 4)
         #expect(snapshot.bytes == Data("cd".utf8))
         await lane.close()
     }
 
-    @Test("input is forwarded as exact UTF-8 bytes")
-    func inputUsesUTF8AndFullWriteContract() async throws {
+    @Test("input is forwarded to the sink as exact UTF-8 bytes")
+    func inputUsesUTF8AndReachesSink() async throws {
         let source = TestLocalLinuxOutputSource()
+        let sink = TestInputSink()
         let lane = LocalLinuxTerminalLane(
             source: source,
             ring: LocalLinuxScrollbackRing(),
-            cursor: nil
+            cursor: nil,
+            input: { sink.record($0) }
         )
 
         try await lane.sendInput("é\n")
+        try await lane.sendInput("")
 
-        #expect(await source.inputs() == [Data("é\n".utf8)])
-    }
-
-    @Test("empty and oversized input are rejected before touching the source")
-    func inputBoundsFailBeforeWrite() async throws {
-        let source = TestLocalLinuxOutputSource()
-        let lane = LocalLinuxTerminalLane(
-            source: source,
-            ring: LocalLinuxScrollbackRing(),
-            cursor: nil
-        )
-
-        await #expect(throws: LocalLinuxLaneError.emptyInput) {
-            try await lane.sendInput("")
-        }
-        await #expect(throws: LocalLinuxLaneError.inputTooLarge) {
-            try await lane.sendInput(
-                String(repeating: "x", count: LocalLinuxTerminalLane.maximumInputByteCount + 1)
-            )
-        }
-        #expect(await source.inputs().isEmpty)
-    }
-
-    @Test("a short source write is surfaced instead of silently dropping bytes")
-    func partialInputWriteFailsLoudly() async throws {
-        let source = TestLocalLinuxOutputSource(acceptedByteCount: 1)
-        let lane = LocalLinuxTerminalLane(
-            source: source,
-            ring: LocalLinuxScrollbackRing(),
-            cursor: nil
-        )
-
-        await #expect(throws: LocalLinuxLaneError.inputPartiallyAccepted(
-            accepted: 1,
-            expected: 3
-        )) {
-            try await lane.sendInput("abc")
-        }
-        #expect(await source.inputs() == [Data("abc".utf8)])
+        #expect(sink.inputs == [Data("é\n".utf8)])
     }
 
     @Test("closing a lane finishes a blocked receive without hanging up the shell")
@@ -205,7 +170,7 @@ struct LocalLinuxTerminalLaneTests {
         await lane.close()
 
         #expect(await pending.value == nil)
-        #expect(await source.didHangUp() == false)
+        #expect(await source.outputFinished() == false)
         await #expect(throws: LocalLinuxLaneError.closed) {
             try await lane.sendInput("x")
         }
@@ -258,20 +223,19 @@ struct LocalLinuxTerminalLaneTests {
         await lane.close()
     }
 
-    @Test("terminate hangs up the source after detaching the lane")
-    func terminateFinishesSource() async throws {
+    @Test("a finished source ends the ring and every attached lane")
+    func sourceEndFinishesRingAndLanes() async throws {
         let source = TestLocalLinuxOutputSource()
-        let lane = LocalLinuxTerminalLane(
-            source: source,
-            ring: LocalLinuxScrollbackRing(),
-            cursor: nil
-        )
+        let ring = LocalLinuxScrollbackRing()
+        let lane = LocalLinuxTerminalLane(source: source, ring: ring, cursor: nil)
         _ = try #require(try await lane.receiveOutput())
 
-        await lane.terminate()
+        await source.finishOutput()
 
-        #expect(await source.didHangUp())
-        #expect(await source.outputFinished())
+        var ended = ring.sourceEnded.makeAsyncIterator()
+        #expect(await ended.next() == nil)
+        #expect(try await lane.receiveOutput() == nil)
+        await lane.close()
     }
 
     @Test("one ring fans out each live frame to multiple lanes")
@@ -292,7 +256,6 @@ struct LocalLinuxTerminalLaneTests {
         #expect(firstFrame.currentSequence == 6)
         await first.close()
         await second.close()
-        await source.hangup()
     }
 
     @Test("starting a ring before subscription retains a bounded replay suffix")
@@ -317,7 +280,7 @@ struct LocalLinuxTerminalLaneTests {
         #expect(replay.currentSequence == 6)
         #expect(replay.bytes == Data("cdef".utf8))
 
-        await lane.terminate()
+        await lane.close()
     }
 
     @Test("a slow subscriber reattaches from replay after its queue overflows")
@@ -348,7 +311,7 @@ struct LocalLinuxTerminalLaneTests {
         #expect(replay.bytes.count == 65)
         #expect(replay.currentSequence == 65)
 
-        await lane.terminate()
+        await lane.close()
     }
 
     @Test("a shared ring rejects attaching a different source")
@@ -363,8 +326,8 @@ struct LocalLinuxTerminalLaneTests {
         await #expect(throws: LocalLinuxLaneError.sourceMismatch) {
             try await second.receiveOutput()
         }
-        await first.terminate()
-        await second.terminate()
+        await first.close()
+        await second.close()
     }
 
     @Test("a finished ring keeps its source identity")
@@ -444,19 +407,15 @@ private actor TestLocalLinuxOutputSource: LocalLinuxOutputSource {
     nonisolated let output: AsyncStream<Data>
 
     private let continuation: AsyncStream<Data>.Continuation
-    private let acceptedByteCount: Int?
-    private var sentInputs: [Data] = []
     private var didFinishOutput = false
-    private var didHangUpValue = false
 
-    init(acceptedByteCount: Int? = nil) {
+    init() {
         var streamContinuation: AsyncStream<Data>.Continuation!
         let stream = AsyncStream<Data>(bufferingPolicy: .unbounded) {
             streamContinuation = $0
         }
         self.output = stream
         self.continuation = streamContinuation
-        self.acceptedByteCount = acceptedByteCount
     }
 
     func emit(_ data: Data) {
@@ -468,25 +427,20 @@ private actor TestLocalLinuxOutputSource: LocalLinuxOutputSource {
         didFinishOutput = true
     }
 
-    func send(_ data: Data) async throws -> Int {
-        sentInputs.append(data)
-        return acceptedByteCount ?? data.count
-    }
-
-    func hangup() async {
-        didHangUpValue = true
-        finishOutput()
-    }
-
-    func inputs() -> [Data] {
-        sentInputs
-    }
-
-    func didHangUp() -> Bool {
-        didHangUpValue
-    }
-
     func outputFinished() -> Bool {
         didFinishOutput
+    }
+}
+
+private final class TestInputSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Data] = []
+
+    func record(_ data: Data) {
+        lock.withLock { recorded.append(data) }
+    }
+
+    var inputs: [Data] {
+        lock.withLock { recorded }
     }
 }

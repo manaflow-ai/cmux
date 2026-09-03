@@ -6,10 +6,10 @@ import Testing
 @Suite("Local Linux scrollback ring")
 struct LocalLinuxScrollbackRingTests {
     @Test("an empty ring starts at sequence zero")
-    func emptyRingStartsAtZero() async {
+    func emptyRingStartsAtZero() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 8)
 
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
 
         #expect(snapshot.baseSequence == 0)
         #expect(snapshot.currentSequence == 0)
@@ -34,19 +34,19 @@ struct LocalLinuxScrollbackRingTests {
     }
 
     @Test("a cursor selects a suffix of retained output")
-    func cursorSelectsRetainedSuffix() async {
+    func cursorSelectsRetainedSuffix() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 8)
         _ = await ring.append(Data("abcde".utf8))
 
-        let snapshot = await ring.snapshot(from: 2)
+        let snapshot = try await ring.validatedSnapshot(from: 2)
 
         #expect(snapshot.baseSequence == 2)
         #expect(snapshot.currentSequence == 5)
         #expect(String(decoding: snapshot.bytes, as: UTF8.self) == "cde")
     }
 
-    @Test("eviction advances the retained base and clamps stale cursors")
-    func evictionAdvancesBaseAndClampsCursors() async {
+    @Test("eviction advances the retained base and rejects stale or future cursors")
+    func evictionAdvancesBaseAndRejectsUnretainedCursors() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 4)
         _ = await ring.append(Data("abc".utf8))
         let stamp = await ring.append(Data("def".utf8))
@@ -55,33 +55,31 @@ struct LocalLinuxScrollbackRingTests {
         #expect(stamp.baseSequence == 2)
         #expect(stamp.currentSequence == 6)
 
-        let cold = await ring.snapshot(from: nil)
+        let cold = try await ring.validatedSnapshot(from: nil)
         #expect(cold.baseSequence == 2)
         #expect(cold.currentSequence == 6)
         #expect(String(decoding: cold.bytes, as: UTF8.self) == "cdef")
 
-        let stale = await ring.snapshot(from: 0)
-        #expect(stale.baseSequence == 2)
-        #expect(stale.currentSequence == 6)
-        #expect(String(decoding: stale.bytes, as: UTF8.self) == "cdef")
+        await #expect(throws: LocalLinuxLaneError.cursorGap(requested: 0, retainedBase: 2, current: 6)) {
+            try await ring.validatedSnapshot(from: 0)
+        }
 
-        let middle = await ring.snapshot(from: 4)
+        let middle = try await ring.validatedSnapshot(from: 4)
         #expect(middle.baseSequence == 4)
         #expect(middle.currentSequence == 6)
         #expect(String(decoding: middle.bytes, as: UTF8.self) == "ef")
 
-        let future = await ring.snapshot(from: 99)
-        #expect(future.baseSequence == 6)
-        #expect(future.currentSequence == 6)
-        #expect(future.bytes.isEmpty)
+        await #expect(throws: LocalLinuxLaneError.cursorAhead(requested: 99, current: 6)) {
+            try await ring.validatedSnapshot(from: 99)
+        }
     }
 
     @Test("an oversized chunk retains only its newest bytes")
-    func oversizedChunkIsBounded() async {
+    func oversizedChunkIsBounded() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 4)
 
         let stamp = await ring.append(Data("abcdef".utf8))
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
 
         #expect(stamp.startSequence == 0)
         #expect(stamp.baseSequence == 2)
@@ -92,11 +90,11 @@ struct LocalLinuxScrollbackRingTests {
     }
 
     @Test("empty output does not consume sequence space")
-    func emptyChunkDoesNotAdvance() async {
+    func emptyChunkDoesNotAdvance() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 4)
 
         let stamp = await ring.append(Data())
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
 
         #expect(stamp.baseSequence == 0)
         #expect(stamp.startSequence == 0)
@@ -105,11 +103,11 @@ struct LocalLinuxScrollbackRingTests {
     }
 
     @Test("a zero-sized ring still reports consumed sequence bytes")
-    func zeroLimitRetainsNothingButAdvancesSequence() async {
+    func zeroLimitRetainsNothingButAdvancesSequence() async throws {
         let ring = LocalLinuxScrollbackRing(limit: 0)
 
         let stamp = await ring.append(Data("abc".utf8))
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
 
         #expect(stamp.startSequence == 0)
         #expect(stamp.baseSequence == 3)
@@ -120,11 +118,11 @@ struct LocalLinuxScrollbackRingTests {
     }
 
     @Test("a negative retention budget is treated as zero")
-    func negativeLimitIsClamped() async {
+    func negativeLimitIsClamped() async throws {
         let ring = LocalLinuxScrollbackRing(limit: -1)
 
         let stamp = await ring.append(Data("x".utf8))
-        let snapshot = await ring.snapshot(from: nil)
+        let snapshot = try await ring.validatedSnapshot(from: nil)
 
         #expect(stamp.baseSequence == 1)
         #expect(stamp.currentSequence == 1)
