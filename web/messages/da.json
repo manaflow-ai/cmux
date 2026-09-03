@@ -60,6 +60,16 @@
     "genericBody": "Prøv igen. Kontakt support, hvis problemet fortsætter.",
     "backToSignIn": "Tilbage til login"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "cmux cloud",
+    "title": "Du har ikke adgang",
+    "signedOutBody": "Log ind på cmux for at se dette websted.",
+    "signIn": "Log ind på cmux",
+    "signedInAs": "Logget ind som {identity}",
+    "invalidTitle": "Dette adgangslink er ugyldigt",
+    "invalidBody": "Gå tilbage til webstedet, og prøv igen.",
+    "footer": "Adgang administreres af cmux."
+  },
   "common": {
     "downloadForMac": "Download til Mac",
     "viewOnGitHub": "Se på GitHub",
