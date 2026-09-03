@@ -136,7 +136,7 @@ final class CmuxTuiSurfaceProviderRegistry {
 }
 
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
-/// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
+/// VNC display resources, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (`projectionDidEnd` is a no-op).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
