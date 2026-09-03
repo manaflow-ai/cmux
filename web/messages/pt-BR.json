@@ -60,6 +60,16 @@
     "genericBody": "Tente novamente. Se o problema continuar, entre em contato com o suporte.",
     "backToSignIn": "Voltar para o login"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "nuvem cmux",
+    "title": "Você não tem acesso",
+    "signedOutBody": "Entre no cmux para ver este site.",
+    "signIn": "Entrar no cmux",
+    "signedInAs": "Conectado como {identity}",
+    "invalidTitle": "Este link de acesso não é válido",
+    "invalidBody": "Volte ao site e tente novamente.",
+    "footer": "O acesso é gerenciado pelo cmux."
+  },
   "common": {
     "downloadForMac": "Baixar para Mac",
     "viewOnGitHub": "Ver no GitHub",

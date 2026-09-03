@@ -60,6 +60,16 @@
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
     "backToSignIn": "返回登入"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "cmux 雲端",
+    "title": "你沒有存取權限",
+    "signedOutBody": "登入 cmux 以檢視此網站。",
+    "signIn": "登入 cmux",
+    "signedInAs": "已以 {identity} 的身分登入",
+    "invalidTitle": "此存取連結無效",
+    "invalidBody": "返回網站，然後再試一次。",
+    "footer": "存取權限由 cmux 管理。"
+  },
   "common": {
     "downloadForMac": "下載 Mac 版",
     "viewOnGitHub": "在 GitHub 上查看",

@@ -70,7 +70,7 @@
     "@vercel/otel": "^2.1.2",
     "drizzle-orm": "1.0.0-beta.22",
     "effect": "^3.21.2",
-    "freestyle": "0.2.9",
+    "freestyle": "0.2.10",
     "fzstd": "^0.1.1",
     "jose": "^6.2.3",
     "next": "16.3.4",
@@ -87,6 +87,7 @@
     "stripe": "22.3.0",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
+    "unique-names-generator": "4.7.1",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
   },

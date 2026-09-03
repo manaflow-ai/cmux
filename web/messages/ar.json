@@ -60,6 +60,16 @@
     "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
     "backToSignIn": "العودة إلى تسجيل الدخول"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "سحابة cmux",
+    "title": "ليس لديك حق الوصول",
+    "signedOutBody": "سجّل الدخول إلى cmux لعرض هذا الموقع.",
+    "signIn": "تسجيل الدخول إلى cmux",
+    "signedInAs": "تم تسجيل الدخول باسم {identity}",
+    "invalidTitle": "رابط الوصول هذا غير صالح",
+    "invalidBody": "ارجع إلى الموقع وحاول مرة أخرى.",
+    "footer": "تتم إدارة الوصول بواسطة cmux."
+  },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
     "viewOnGitHub": "عرض على GitHub",

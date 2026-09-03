@@ -126,6 +126,30 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
+const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+    });
+  }
+});
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -229,6 +253,31 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
     CMUX_VM_REQUIRE_PRO: z.string().optional(),
     CMUX_VM_DEFAULT_PLAN: z.string().optional(),
+    // Freestyle authenticates every protected-domain subrequest with this
+    // write-only token. Publication routes fail closed while it is absent.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET:
+      z.string().min(32).max(512).optional(),
+    // Canonical CMUX web origin used for the cross-domain sign-in handoff and
+    // pushed to Freestyle as the account-wide forward-auth target. It is never
+    // derived from a request; protected publications fail closed without it.
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Zone generated Cloud VM publication hostnames are minted under
+    // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
+    // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
+    // request its wildcard certificate. Defaults to cmux.sh.
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: z
+      .string()
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u,
+        "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
+      )
+      // A hostname is at most 253 characters; leave room for the generated label.
+      .max(200, "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must leave room for a generated label")
+      .optional(),
+    // Vercel Firewall rule id that throttles sign-in transaction creation per
+    // client and hostname on the Freestyle forward-auth route. Unset (or off
+    // Vercel) applies no limit.
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
@@ -393,6 +442,18 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
     CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
     CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
+    ),
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
+    ),
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
+    ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),

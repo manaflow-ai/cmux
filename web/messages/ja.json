@@ -122,6 +122,16 @@
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "cmux クラウド",
+    "title": "アクセス権がありません",
+    "signedOutBody": "このサイトを表示するには cmux にサインインしてください。",
+    "signIn": "cmux にサインイン",
+    "signedInAs": "{identity} としてサインイン中",
+    "invalidTitle": "このアクセスリンクは無効です",
+    "invalidBody": "サイトに戻って、もう一度お試しください。",
+    "footer": "アクセスは cmux によって管理されています。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
