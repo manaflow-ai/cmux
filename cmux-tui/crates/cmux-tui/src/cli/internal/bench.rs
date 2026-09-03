@@ -854,6 +854,7 @@ fn drain_pending(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_create_result(
     conn: &mut Conn,
     sent: Instant,

@@ -147,8 +147,7 @@ impl EnsuredOwnerHandle {
                 }
             }
         }
-        if exited || !owner_process_is_alive(self.pid) {
-            if let Some(root) = self.state_root {
+        if (exited || !owner_process_is_alive(self.pid)) && let Some(root) = self.state_root {
             let _ = std::fs::remove_dir_all(root);
             // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
             // place for durable sessions, because unlinking it reopens the
@@ -159,7 +158,6 @@ impl EnsuredOwnerHandle {
             let mut name = socket.file_name().unwrap_or_default().to_os_string();
             name.push(".spawn-lock");
             let _ = std::fs::remove_file(socket.with_file_name(name));
-            }
         }
     }
 }
