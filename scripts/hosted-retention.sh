@@ -399,7 +399,7 @@ cmux_hosted_retention_lsof_state() {
   if [[ -s "$output_file" && "$saw_name" -eq 0 ]]; then
     return 2
   fi
-  if [[ -s "$output_file" && "$lsof_status" -ne 0 ]]; then
+  if [[ -s "$output_file" && "$lsof_status" -gt 1 ]]; then
     return 2
   fi
   if (( lsof_status == 0 )) && [[ ! -s "$output_file" ]]; then
@@ -460,7 +460,7 @@ cmux_hosted_retention_collect_lsof_batch() {
   if [[ -s "$output_file" && "$saw_usable_name" -eq 0 ]]; then
     return 2
   fi
-  if [[ -s "$output_file" && "$lsof_status" -ne 0 ]]; then
+  if [[ -s "$output_file" && "$lsof_status" -gt 1 ]]; then
     return 2
   fi
   if (( lsof_status == 0 )) && [[ ! -s "$output_file" ]]; then
