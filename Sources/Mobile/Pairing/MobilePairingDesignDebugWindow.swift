@@ -217,6 +217,7 @@ import SwiftUI
         let variant: MobilePairingDesignVariant
         let content: MobilePairingTransportView.Content
         @Binding var selectedVariantRaw: String
+        @State private var selectedTransport: MobilePairingTransportChoice = .iroh
 
         var body: some View {
             VStack(alignment: .leading, spacing: 9) {
@@ -252,6 +253,7 @@ import SwiftUI
                     onSelectIOSAppTarget: { _ in },
                     copiedValue: nil,
                     onCopy: { _ in },
+                    selection: $selectedTransport,
                     design: variant
                 )
                 .padding(13)

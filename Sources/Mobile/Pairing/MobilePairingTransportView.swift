@@ -23,7 +23,7 @@ enum MobilePairingDesignVariant: String, CaseIterable, Identifiable, Sendable {
     static let defaultValue: Self = .leading
 }
 
-private enum MobilePairingTransportChoice: String, Hashable, Sendable {
+enum MobilePairingTransportChoice: String, Hashable, Sendable {
     case iroh
     case tailscale
 }
@@ -79,8 +79,7 @@ struct MobilePairingTransportView: View {
     let copiedValue: String?
     let onCopy: (String) -> Void
     let design: MobilePairingDesignVariant
-
-    @State private var chosenTransport: MobilePairingTransportChoice = .iroh
+    @Binding private var chosenTransport: MobilePairingTransportChoice
 
     init(
         content: Content,
@@ -91,6 +90,7 @@ struct MobilePairingTransportView: View {
         onSelectIOSAppTarget: @escaping (MobileIOSAppTarget) -> Void,
         copiedValue: String?,
         onCopy: @escaping (String) -> Void,
+        selection: Binding<MobilePairingTransportChoice>,
         design: MobilePairingDesignVariant = .defaultValue
     ) {
         self.content = content
@@ -101,6 +101,7 @@ struct MobilePairingTransportView: View {
         self.onSelectIOSAppTarget = onSelectIOSAppTarget
         self.copiedValue = copiedValue
         self.onCopy = onCopy
+        _chosenTransport = selection
         self.design = design
     }
 
@@ -139,7 +140,6 @@ struct MobilePairingTransportView: View {
                 )
             }
         }
-        .onAppear { chosenTransport = .iroh }
         .onChange(of: design) { _, _ in chosenTransport = .iroh }
     }
 
@@ -507,7 +507,7 @@ private struct MobilePairingIrohContent: View {
 
             Text(String(
                 localized: "mobile.pairing.irohInstruction",
-                defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed."
+                defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically. No code needed."
             ))
             .cmuxFont(presentation.isCompact ? .caption : .callout)
             .foregroundStyle(.secondary)
@@ -576,7 +576,7 @@ private struct MobilePairingTailscaleContent: View {
 
             MobilePairingQRImageView(payload: ready.attachURL)
                 .frame(
-                    maxWidth: presentation.isCompact ? 230 : 300,
+                    maxWidth: presentation.isCompact ? 240 : 320,
                     alignment: presentation.isLeading ? .leading : .center
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -593,6 +593,7 @@ private struct MobilePairingTailscaleContent: View {
                 )
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .accessibilityIdentifier("MobilePairingRefreshCodeButton")
             }
 
             Text(String(

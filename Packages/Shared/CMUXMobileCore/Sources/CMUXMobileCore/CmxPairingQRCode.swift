@@ -14,16 +14,18 @@ import Foundation
 ///
 /// Tailscale compatibility codes keep the v2 grammar so already-released
 /// clients can still scan them:
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...][&n=<display-revision>]`.
 ///
 /// The only metadata a Tailscale code carries is what the phone consults
 /// before dialing: `ub`, the opaque Stack user id the account preflight
 /// matches against the signed-in phone so a wrong-account scan fails fast
 /// (#6028), and `pc`, the pairing compatibility level, which fielded
-/// decoders default to 0 when absent — omitting it would spuriously fire the
+/// decoders default to 0 when absent, omitting it would spuriously fire the
 /// cross-version pairing warning on every current phone. App version and
 /// build (`av`/`ab`) only ever decorated that warning's message, so they are
 /// no longer written; the decoder still reads them from older Macs' codes.
+/// The optional `n` display revision changes only the rendered QR when a user
+/// asks for a refresh. It carries no pairing data and is ignored by decoders.
 ///
 /// Both grammars share these properties:
 /// - **No auth token.** The owner's Stack access token is the host's sole
@@ -249,6 +251,28 @@ public struct CmxPairingQRCode: Sendable {
             return false
         }
         return isPairingCodeURL(components)
+    }
+
+    /// Adds a display-only revision to a Tailscale pairing URL.
+    ///
+    /// The revision makes an explicitly refreshed QR render as a new code. It
+    /// carries no authorization or route data, and decoders ignore it. The
+    /// URL is returned unchanged for malformed, non-pairing, or Iroh URLs.
+    public static func addingDisplayRevision(_ revision: Int, to rawValue: String) -> String {
+        guard revision > 0,
+              let url = URL(string: rawValue),
+              CmxPairingURLScheme(rawValue: url.scheme) != nil,
+              url.host == "attach",
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              attachURLVersion(components) == tailscaleVersion else {
+            return rawValue
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "n" }
+        queryItems.append(URLQueryItem(name: "n", value: String(revision)))
+        components.queryItems = queryItems
+        return components.string ?? rawValue
     }
 
     /// Decode a supported plain pairing URL into a validated ticket.

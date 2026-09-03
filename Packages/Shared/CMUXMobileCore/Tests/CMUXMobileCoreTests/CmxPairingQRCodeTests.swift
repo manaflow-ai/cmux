@@ -3,7 +3,7 @@ import Testing
 @testable import CMUXMobileCore
 
 /// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale
-/// `host:port` routes in the URL query, nothing else.
+/// `host:port` routes in the URL query plus an optional display revision.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
         index: Int,

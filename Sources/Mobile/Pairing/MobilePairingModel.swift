@@ -8,7 +8,8 @@ import Observation
 /// in (authorization is a Stack same-account check), then turns on the pairing
 /// host and mints a compatibility pairing code. Automatic Iroh discovery needs no
 /// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// a timer. Refresh Code re-mints on demand and gives the displayed code a new
+/// revision so the change is visible without putting a secret in the QR.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -208,7 +209,7 @@ final class MobilePairingModel {
                 pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
             )
             guard generation == refreshGeneration else { return }
-            guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
+            guard let rawAttachURL = payload["attach_url"] as? String, !rawAttachURL.isEmpty else {
                 state = .failed(
                     String(
                         localized: "mobile.pairing.error.noTicket",
@@ -217,6 +218,10 @@ final class MobilePairingModel {
                 )
                 return
             }
+            let attachURL = CmxPairingQRCode.addingDisplayRevision(
+                generation,
+                to: rawAttachURL
+            )
             state = .ready(
                 Ready(
                     attachURL: attachURL,

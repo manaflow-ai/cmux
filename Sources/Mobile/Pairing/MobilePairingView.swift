@@ -10,6 +10,7 @@ import SwiftUI
 /// an explicit compatibility option in the transport chooser.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
+    @State private var selectedTransport: MobilePairingTransportChoice = .iroh
     @State private var signInModel = AccountSignInModel(
         flow: AppDelegate.shared?.auth?.accountFlow
     )
@@ -166,6 +167,7 @@ struct MobilePairingView: View {
             },
             copiedValue: copiedValue,
             onCopy: flashCopied,
+            selection: $selectedTransport,
             design: designVariant
         )
     }
