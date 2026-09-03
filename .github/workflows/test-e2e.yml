@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
+run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -11,6 +11,10 @@ on:
       test_filter:
         description: "Test class or class/method; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
         required: true
+      dispatch_id:
+        description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
+        required: false
+        default: ""
       test_timeout:
         description: "Per-test timeout in seconds"
         required: false

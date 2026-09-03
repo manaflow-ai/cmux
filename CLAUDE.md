@@ -105,17 +105,43 @@ iPhone build; do not mint a shared tag or rebuild the phone for that.
 
 ## Regression test commits
 
-Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
+Two commits, so the history proves the test catches the bug: commit 1 adds the failing test only, commit 2 adds the fix. When red/green proof is wanted, dispatch the hosted run once against commit 1 and once against the head.
+
+## Hosted E2E dispatch
+
+Dispatch hosted UI/E2E runs through the validated wrapper. It checks every filter item against the local test sources and refuses to dispatch a filter that matches zero tests, which otherwise wastes a full dispatch+watch cycle before the run fails:
+
+```bash
+./scripts/dispatch-e2e.sh --ref <branch-or-sha> --filter "<Class or Class/method>[,more]" --watch
+```
+
+`--dry-run` validates and prints the `gh` command without dispatching; `--runner`, `--record-video`, `--timeout` (per-test seconds), and `--job-timeout` (minutes) pass through. Validation reads the current checkout, so run it from a checkout of the same ref you dispatch. Raw fallback:
+
+```bash
+gh workflow run test-e2e.yml --repo manaflow-ai/cmux -f ref=<branch-or-sha> -f test_filter="<Class or Class/method>"
+```
+
+At most one dispatch per dogfood round; each comma-separated filter item becomes its own hosted run, so a multi-item filter spends the round's budget in one command. A red run means root-cause locally or on a fleet simulator first; never loop dispatch-fix-redispatch. A new XCUITest needs one green hosted run before the task is done; nothing else does.
+
+## Agent time discipline
+
+Every poll slice pays a full model reasoning pass, so waiting is where agent hours disappear.
+
+- **Park on one blocking command per wait**: `gh run watch <id> --exit-status`, `./scripts/dispatch-e2e.sh --watch`, or `gh pr checks --watch`. Never 30-60s poll slices, sleep-and-recheck chains, or PTY heartbeat polls.
+- **One build dispatch per need.** The cloud reload waits internally for a builder slot; never cycle `RELOAD_CLOUD_BUILDER` or re-dispatch a build that is already queued.
+- **Batch fixes per rebuild.** Accumulate a dogfood round's fixes, preflight with focused tests, then do one tagged rebuild for the round. Never rebuild per one-line fix.
+- **Locked or offline iPhone: probe once, then queue.** One reachability probe, enqueue in the install queue, notify, and end the turn with "queued; unlock to receive". Never write unlock/ready watcher scripts or repeat devicectl probes.
+- **CI is advisory.** Never block a handoff on bot checks, and never re-dispatch a failing hosted run without a local root cause.
 
 ## First pass, then dogfood
 
 A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
 
-Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and the automatic review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
+Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. PR checks are advisory review bots only; there are no required status checks. Let them run asynchronously and return only for actionable findings. Merge validation happens at merge time via the merge gate, not by watching PR checks.
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
-Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
+Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"Merge gate green: <branch>"` or `"Merge gate blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
 
 ## Pitfalls
 

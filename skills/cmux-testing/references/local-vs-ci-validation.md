@@ -17,7 +17,7 @@ For `cmuxApp` or `AppDelegate` churn, add the repo's GlobalISel workaround flag 
 
 ## E2E and UI tests
 
-Run through GitHub Actions or the VM: `gh workflow run test-e2e.yml`. Never launch an untagged app locally to satisfy socket or UI tests.
+Run through GitHub Actions or the VM. Use `./scripts/dispatch-e2e.sh --ref <branch> --filter "<Class or Class/method>"`; it validates the filter against local test sources and refuses zero-test dispatches. Raw fallback: `gh workflow run test-e2e.yml --repo manaflow-ai/cmux -f ref=<branch-or-sha> -f test_filter="<Class>"` (`test_filter` is required; an empty one is rejected). Dispatch at most once per dogfood round, and root-cause a red run locally or on a fleet simulator instead of looping dispatch-fix-redispatch. Never launch an untagged app locally to satisfy socket or UI tests.
 
 ## Python socket tests
 
