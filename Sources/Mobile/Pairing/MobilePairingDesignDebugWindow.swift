@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import SwiftUI
 
 #if DEBUG
