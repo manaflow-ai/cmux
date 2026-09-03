@@ -65,7 +65,9 @@ const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 const STDERR_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const PIPE_IO_FINAL_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(any(test, not(unix)))]
 const PIPE_IO_OUTPUT_CHUNK_BYTES: usize = 64 * 1024;
+#[cfg(any(test, not(unix)))]
 const PIPE_IO_OUTPUT_QUEUE_CAPACITY: usize = 1;
 const CLAIM_GEOMETRY_ERROR_CODE: &str = "claim-terminal-geometry-failed";
 const STDIN_PUMP_ERROR_CODE: &str = "stdin-pump-failed";
@@ -218,7 +220,9 @@ struct PipeIoOutputCancellation {
     /// A bounded, one-shot wake path for portable output workers. The Unix
     /// descriptor below remains necessary for `poll(2)`, while this channel
     /// lets a non-Unix worker wait without a timeout loop.
+    #[cfg(any(test, not(unix)))]
     cancel_sender: Sender<()>,
+    #[cfg(any(test, not(unix)))]
     cancel_receiver: Receiver<()>,
     #[cfg(unix)]
     wake_reader: Arc<UnixStream>,
@@ -234,6 +238,7 @@ struct PipeIoCancellationState {
 
 impl PipeIoOutputCancellation {
     fn new() -> io::Result<Self> {
+        #[cfg(any(test, not(unix)))]
         let (cancel_sender, cancel_receiver) = crossbeam_channel::bounded(1);
         #[cfg(unix)]
         {
@@ -245,7 +250,9 @@ impl PipeIoOutputCancellation {
             wake_writer.set_nonblocking(true)?;
             Ok(Self {
                 state: Arc::new(Mutex::new(PipeIoCancellationState::default())),
+                #[cfg(any(test, not(unix)))]
                 cancel_sender,
+                #[cfg(any(test, not(unix)))]
                 cancel_receiver,
                 wake_reader: Arc::new(wake_reader),
                 wake_writer: Arc::new(Mutex::new(wake_writer)),
@@ -255,7 +262,9 @@ impl PipeIoOutputCancellation {
         #[cfg(not(unix))]
         Ok(Self {
             state: Arc::new(Mutex::new(PipeIoCancellationState::default())),
+            #[cfg(any(test, not(unix)))]
             cancel_sender,
+            #[cfg(any(test, not(unix)))]
             cancel_receiver,
         })
     }
@@ -277,9 +286,10 @@ impl PipeIoOutputCancellation {
             return;
         }
 
-        // The receiver is owned by the sole stdout pump. A full channel means
-        // the wake is already pending, so publishing lifecycle state never
-        // blocks the monitor.
+        // The receiver is owned by the sole portable stdout pump. A full
+        // channel means the wake is already pending, so publishing lifecycle
+        // state never blocks the monitor.
+        #[cfg(any(test, not(unix)))]
         let _ = self.cancel_sender.try_send(());
 
         #[cfg(unix)]
@@ -338,11 +348,13 @@ impl<W: Write> PipeIoOutput for W {
 /// writes cannot be made nonblocking directly. The worker owns the sink and
 /// all commands are acknowledged in FIFO order. Cancellation is handled by
 /// the owner through `abort`, then the worker is always joined by `Drop`.
+#[cfg(any(test, not(unix)))]
 trait PipeIoOutputSink: Send {
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
     fn flush_output(&mut self) -> io::Result<()>;
 }
 
+#[cfg(any(test, not(unix)))]
 impl<W: Write + Send> PipeIoOutputSink for W {
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.write_all(bytes)
@@ -353,11 +365,13 @@ impl<W: Write + Send> PipeIoOutputSink for W {
     }
 }
 
+#[cfg(any(test, not(unix)))]
 enum PipeIoOutputCommand {
     Write { bytes: Vec<u8>, completion: Sender<io::Result<()>> },
     Flush { completion: Sender<io::Result<()>> },
 }
 
+#[cfg(any(test, not(unix)))]
 struct PipeIoOutputWorker {
     command_sender: Sender<PipeIoOutputCommand>,
     stop_sender: Sender<()>,
@@ -366,6 +380,7 @@ struct PipeIoOutputWorker {
     abort: Arc<dyn Fn() + Send + Sync>,
 }
 
+#[cfg(any(test, not(unix)))]
 impl PipeIoOutputWorker {
     fn spawn<S, F>(
         sink: S,
@@ -453,9 +468,7 @@ impl PipeIoOutputWorker {
                 .map_err(|_| {
                     io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
                 })?;
-            result_receiver.recv().map_err(|_| {
-                io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
-            })??;
+            self.wait_for_completion(result_receiver)?;
         }
         Ok(())
     }
@@ -465,13 +478,62 @@ impl PipeIoOutputWorker {
         self.command_sender.send(PipeIoOutputCommand::Flush { completion }).map_err(|_| {
             io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
         })?;
-        result_receiver.recv().map_err(|_| {
-            io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed")
-        })??;
+        self.wait_for_completion(result_receiver)?;
         Ok(())
+    }
+
+    fn wait_for_completion(&self, completion: Receiver<io::Result<()>>) -> io::Result<()> {
+        loop {
+            if self.cancellation.writes_cancelled() {
+                (self.abort)();
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "pipe-io stdout canceled"));
+            }
+
+            let cancellation = self.cancellation.cancellation_state();
+            let terminal_deadline = (cancellation.reason == Some(PipeIoExitReason::TerminalEnded))
+                .then_some(cancellation.drain_deadline)
+                .flatten();
+            if let Some(deadline) = terminal_deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    (self.abort)();
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "pipe-io stdout drain deadline expired",
+                    ));
+                }
+                let timeout = crossbeam_channel::after(remaining);
+                let cancel_receiver = self.cancellation.cancel_receiver.clone();
+                crossbeam_channel::select_biased! {
+                    recv(completion) -> result => return completion_result(result),
+                    recv(cancel_receiver) -> _ => continue,
+                    recv(timeout) -> _ => {
+                        (self.abort)();
+                        return Err(io::Error::new(
+                            io::ErrorKind::Interrupted,
+                            "pipe-io stdout drain deadline expired",
+                        ));
+                    }
+                }
+            } else {
+                let cancel_receiver = self.cancellation.cancel_receiver.clone();
+                crossbeam_channel::select_biased! {
+                    recv(completion) -> result => return completion_result(result),
+                    recv(cancel_receiver) -> _ => continue,
+                }
+            }
+        }
     }
 }
 
+#[cfg(any(test, not(unix)))]
+fn completion_result(
+    result: Result<io::Result<()>, crossbeam_channel::RecvError>,
+) -> io::Result<()> {
+    result.map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "pipe-io stdout worker closed"))?
+}
+
+#[cfg(any(test, not(unix)))]
 impl Drop for PipeIoOutputWorker {
     fn drop(&mut self) {
         // The pump has stopped issuing commands by the time this owner drops.
@@ -637,29 +699,183 @@ impl PipeIoOutput for PipeIoStdout {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::WriteFile;
+#[cfg(windows)]
+use windows_sys::Win32::System::IO::CancelSynchronousIo;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread};
+
+#[cfg(windows)]
+struct WindowsPipeIoAbort {
+    // Store the native handle as an integer so the cancellation closure keeps
+    // the ordinary `Send + Sync` guarantees of its shared state. It is cast
+    // back to `HANDLE` only at the Win32 call boundary.
+    worker_thread: Mutex<Option<usize>>,
+}
+
+#[cfg(windows)]
+impl WindowsPipeIoAbort {
+    fn install_current_thread(&self) -> io::Result<()> {
+        let mut handle = std::ptr::null_mut();
+        // SAFETY: the pseudo handles refer to this worker and process. The
+        // duplicated handle is owned by `WindowsPipeIoAbort` until join.
+        let copied = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                GetCurrentThread(),
+                GetCurrentProcess(),
+                &mut handle,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if copied == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        *self.worker_thread.lock().unwrap_or_else(|poison| poison.into_inner()) =
+            Some(handle as usize);
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        let handle = *self.worker_thread.lock().unwrap_or_else(|poison| poison.into_inner());
+        if let Some(handle) = handle {
+            // SAFETY: `handle` is a live duplicate of the output worker's
+            // thread handle. Windows permits another thread to cancel pending
+            // synchronous I/O issued by that worker.
+            unsafe {
+                let _ = CancelSynchronousIo(handle as HANDLE);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Default for WindowsPipeIoAbort {
+    fn default() -> Self {
+        Self { worker_thread: Mutex::new(None) }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsPipeIoAbort {
+    fn drop(&mut self) {
+        let handle = self.worker_thread.lock().unwrap_or_else(|poison| poison.into_inner()).take();
+        if let Some(handle) = handle {
+            // SAFETY: the duplicated handle is owned by this value and the
+            // worker has already been joined by `PipeIoOutputWorker::Drop`.
+            unsafe {
+                let _ = CloseHandle(handle as HANDLE);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+struct WindowsStdoutSink {
+    stdout: std::io::Stdout,
+}
+
+#[cfg(windows)]
+impl Write for WindowsStdoutSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        let length = bytes.len().min(u32::MAX as usize) as u32;
+        let mut written = 0_u32;
+        // SAFETY: `stdout` owns a valid process output handle for the life of
+        // this worker. `bytes` remains borrowed until `WriteFile` returns.
+        let ok = unsafe {
+            WriteFile(
+                self.stdout.as_raw_handle() as HANDLE,
+                bytes.as_ptr(),
+                length,
+                &mut written,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(written as usize)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // Writes are issued directly to the handle, so there is no userspace
+        // buffer whose flush could block independently.
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
 struct PipeIoStdout {
-    inner: std::io::BufWriter<std::io::Stdout>,
+    worker: PipeIoOutputWorker,
     cancellation: PipeIoOutputCancellation,
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn pipe_io_stdout(cancellation: PipeIoOutputCancellation) -> io::Result<PipeIoStdout> {
-    Ok(PipeIoStdout { inner: std::io::BufWriter::new(std::io::stdout()), cancellation })
+    let abort_state = Arc::new(WindowsPipeIoAbort::default());
+    let startup_state = abort_state.clone();
+    let abort_for_worker = abort_state.clone();
+    let abort: Arc<dyn Fn() + Send + Sync> = Arc::new(move || abort_for_worker.cancel());
+    let worker = PipeIoOutputWorker::spawn(
+        WindowsStdoutSink { stdout: std::io::stdout() },
+        cancellation.clone(),
+        abort,
+        move || startup_state.install_current_thread(),
+    )?;
+    Ok(PipeIoStdout { worker, cancellation })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 impl PipeIoOutput for PipeIoStdout {
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all(bytes)
+        self.worker.write_bytes(bytes)
     }
 
     fn flush_output(&mut self) -> io::Result<()> {
-        self.inner.flush()
+        self.worker.flush_output()
     }
 
     fn cancellation_reason(&self) -> Option<PipeIoExitReason> {
         self.cancellation.reason()
+    }
+}
+
+/// cmux-tui currently supports Unix hosts and Windows ConPTY work is planned
+/// separately. Unknown non-Unix targets fail setup instead of exposing a
+/// blocking stdio writer that cannot honor relay cancellation.
+#[cfg(all(not(unix), not(windows)))]
+struct PipeIoStdout;
+
+#[cfg(all(not(unix), not(windows)))]
+fn pipe_io_stdout(_cancellation: PipeIoOutputCancellation) -> io::Result<PipeIoStdout> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "pipe-io stdout cancellation is unavailable on this platform",
+    ))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+impl PipeIoOutput for PipeIoStdout {
+    fn write_bytes(&mut self, _bytes: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "pipe-io stdout cancellation is unavailable on this platform",
+        ))
+    }
+
+    fn flush_output(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
