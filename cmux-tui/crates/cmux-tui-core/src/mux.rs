@@ -16665,7 +16665,7 @@ fn restore_resource_state(
     for screen in &topology.screens {
         let expected_panes =
             panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
-        crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
+        crate::workspace_registry::validate_registry_screen_projection(screen, expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
             restore_layout_node(&screen.layout, &pane_slots, &mut split_slots, &mut allocate)?;
