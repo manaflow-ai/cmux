@@ -210,15 +210,17 @@ fi
 if ! awk '
   /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
+  in_verify && /verify-macos-bundle-architectures\.sh/ { saw_bundle=1 }
+  in_verify && /macos-universal-bundle-allowlist\.txt/ { saw_allowlist=1 }
   in_verify && /lipo -archs "\$APP_BINARY"/ { saw_app=1 }
   in_verify && /lipo -archs "\$CLI_BINARY"/ { saw_cli=1 }
   in_verify && /lipo -archs "\$HELPER_BINARY"/ { saw_helper=1 }
   in_verify && /\[\[ "\$APP_ARCHS" == \*arm64\* && "\$APP_ARCHS" == \*x86_64\* \]\]/ { saw_app_assert=1 }
   in_verify && /\[\[ "\$CLI_ARCHS" == \*arm64\* && "\$CLI_ARCHS" == \*x86_64\* \]\]/ { saw_cli_assert=1 }
   in_verify && /\[\[ "\$HELPER_ARCHS" == \*arm64\* && "\$HELPER_ARCHS" == \*x86_64\* \]\]/ { saw_helper_assert=1 }
-  END { exit !(saw_app && saw_cli && saw_helper && saw_app_assert && saw_cli_assert && saw_helper_assert) }
+  END { exit !(saw_bundle && saw_allowlist && saw_app && saw_cli && saw_helper && saw_app_assert && saw_cli_assert && saw_helper_assert) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must verify universal app, CLI, and helper slices with lipo"
+  echo "FAIL: nightly workflow must run the bundle-wide verifier and retain named universal app, CLI, and helper checks"
   exit 1
 fi
 

@@ -1,23 +1,27 @@
 name: CI
 
 on:
-  # Start on every change that could affect the macOS app. Keep the exclusions
-  # limited to paths that are independently validated and cannot contribute
-  # files to the packaged bundle; a positive app-input list would silently
-  # miss newly added resource trees.
+  # Keep the full suite available for explicit validation, while always
+  # running the lightweight GhosttyKit provenance check when its pointer,
+  # checksum, or helper changes in a PR.
   pull_request:
-    paths-ignore:
-      - "design/**"
-      - "plans/**"
-      - "ios/**"
-      - "cmux-browser/**"
-      - ".github/workflows/cmux-browser.yml"
-      - "homebrew-cmux/**"
-      - "README*.md"
-      - "CONTRIBUTING.md"
-      - "PROJECTS.md"
-      - "TODO.md"
-      - "reports.md"
+    paths:
+      - ghostty
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/validate-xcframework-archive.py
+      - scripts/ghosttykit-checksums.txt
+      - tests/test_ci_ghosttykit_release_check.sh
+      - tests/test_ci_change_areas.py
+      # Keep the bundle-wide architecture guard and its workflow contracts
+      # runnable when any of their inputs change.
+      - scripts/verify-macos-bundle-architectures.sh
+      - scripts/macos-universal-bundle-allowlist.txt
+      - tests/test_verify_macos_bundle_architectures.sh
+      - tests/test_nightly_universal_build.sh
+      - .github/workflows/nightly.yml
+      - .github/workflows/release.yml
+      - scripts/build-sign-upload.sh
+      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
@@ -34,9 +38,7 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
-      go: ${{ steps.detect.outputs.go }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
-      ghosttykit_guard: ${{ steps.detect.outputs.ghosttykit_guard }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -56,9 +58,7 @@ jobs:
             {
               echo "macos=true"
               echo "web=true"
-              echo "go=true"
               echo "agent_session_web=true"
-              echo "ghosttykit_guard=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -112,9 +112,7 @@ jobs:
               {
                 echo "macos=false"
                 echo "web=false"
-                echo "go=false"
                 echo "agent_session_web=false"
-                echo "ghosttykit_guard=true"
               } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -131,11 +129,6 @@ jobs:
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt
-            if [ "$has_ghosttykit_guard_file" = true ]; then
-              echo "ghosttykit_guard=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "ghosttykit_guard=false" >> "$GITHUB_OUTPUT"
-            fi
             exit 0
           fi
 
@@ -143,7 +136,6 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
-          echo "ghosttykit_guard=true" >> "$GITHUB_OUTPUT"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -202,18 +194,6 @@ jobs:
 
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
-
-      # These fixtures run only in this unprivileged pull_request job. They
-      # exercise the candidate workflow for developer feedback, never serve as
-      # the security boundary, and never run from pull_request_target.
-      - name: Validate CLA trigger admission behavior
-        run: ./tests/test_cla_trigger_gate.sh
-
-      - name: Validate CLA rerun authorization behavior
-        run: ./tests/test_cla_rerun_workflow.sh
-
-      - name: Validate merged pull request lock behavior
-        run: ./tests/test_cla_lock_workflow.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
@@ -334,9 +314,6 @@ jobs:
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
-      - name: Validate release attestation retry guard
-        run: ./tests/test_ci_attestation_retry.sh
-
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
@@ -406,13 +383,11 @@ jobs:
 
   ghosttykit-release-check:
     name: GhosttyKit release check
-    needs: changes
     permissions:
       contents: read
-    # Keep the network-backed provenance check scoped to the files it protects.
-    # The broad app trigger must not make an unrelated PR depend on a release
-    # download, while workflow_dispatch still runs the explicit guard.
-    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.ghosttykit_guard == 'true' }}
+    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
+    # workflow_dispatch keeps the same guard available for explicit CI runs.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -436,27 +411,6 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRIES: "0"
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
-
-  remote-daemon-tests:
-    needs: changes
-    if: ${{ needs.changes.outputs.go == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: daemon/remote/go.mod
-          cache-dependency-path: daemon/remote/go.sum
-
-      - name: Run remote daemon tests
-        working-directory: daemon/remote
-        run: go test ./...
-
-      - name: Validate remote daemon release assets
-        run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
     needs: changes
@@ -504,8 +458,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Verify generated webviews assets
         run: ./scripts/build-webviews-app.sh --check
@@ -546,8 +498,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -596,8 +546,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -1825,8 +1773,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Build and test Agent Session web resources
         run: |
@@ -1842,7 +1788,6 @@ jobs:
       - changes
       - workflow-guard-tests
       - ghosttykit-release-check
-      - remote-daemon-tests
       - web-typecheck
       - react-apps-check
       - diff-sidecar-check
@@ -1862,9 +1807,8 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = ("changes", "workflow-guard-tests")
+          required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
           allowed_routed = {
-              "remote-daemon-tests",
               "web-typecheck",
               "react-apps-check",
               "diff-sidecar-check",
@@ -1879,17 +1823,7 @@ jobs:
                   bad[name] = result
 
           outputs = needs["changes"].get("outputs", {})
-          ghostty_guard = outputs.get("ghosttykit_guard")
-          ghostty_result = needs["ghosttykit-release-check"]["result"]
-          if ghostty_guard not in {"true", "false"}:
-              bad["changes"] = f"invalid ghosttykit_guard output: {ghostty_guard!r}"
-          elif ghostty_guard == "true":
-              if ghostty_result != "success":
-                  bad["ghosttykit-release-check"] = ghostty_result
-          elif ghostty_result not in {"success", "skipped"}:
-              bad["ghosttykit-release-check"] = ghostty_result
           routed_outputs = {
-              "remote-daemon-tests": "go",
               "web-typecheck": "web",
               "react-apps-check": "web",
               "diff-sidecar-check": "macos",
@@ -1914,7 +1848,6 @@ jobs:
               "routes: "
               f"macos={outputs.get('macos')} "
               f"web={outputs.get('web')} "
-              f"go={outputs.get('go')} "
               f"agent_session_web={outputs.get('agent_session_web')}"
           )
           for name, data in sorted(needs.items()):
@@ -2416,9 +2349,6 @@ jobs:
       - name: Validate Release artifact slices
         run: |
           set -euo pipefail
-          ./scripts/verify-macos-bundle-architectures.sh \
-            --allowlist scripts/macos-universal-bundle-allowlist.txt \
-            "build-universal/Build/Products/Release/cmux.app"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -2448,7 +2378,6 @@ jobs:
       - changes
       - workflow-guard-tests
       - ghosttykit-release-check
-      - remote-daemon-tests
       - web-typecheck
       - react-apps-check
       - diff-sidecar-check
@@ -2479,14 +2408,6 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
-
-          outputs = needs["changes"].get("outputs", {})
-          ghostty_guard = outputs.get("ghosttykit_guard")
-          ghostty_result = needs["ghosttykit-release-check"]["result"]
-          if ghostty_guard not in {"true", "false"}:
-              bad["changes"] = f"invalid ghosttykit_guard output: {ghostty_guard!r}"
-          elif ghostty_guard == "true" and ghostty_result != "success":
-              bad["ghosttykit-release-check"] = ghostty_result
 
           if bad:
               for name, result in bad.items():

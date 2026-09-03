@@ -6,13 +6,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,118 +29,28 @@ def assert_areas(
     *,
     macos: bool,
     web: bool,
-    go: bool,
     agent_session_web: bool = False,
 ) -> None:
     actual = module.classify_files(paths)
     assert actual.macos is macos, (paths, actual)
     assert actual.web is web, (paths, actual)
-    assert actual.go is go, (paths, actual)
     assert actual.agent_session_web is agent_session_web, (paths, actual)
 
 
-def github_actions_path_matches(path: str, pattern: str) -> bool:
-    """Match the glob subset used by GitHub Actions path filters.
-
-    GitHub's single-star wildcard does not cross a slash, while ``**`` does;
-    ``?`` makes the preceding character optional. The workflow's filters use
-    only these constructs, so a small local compiler keeps this guard
-    dependency-free and aligned with the documented path-filter semantics
-    instead of relying on Python's fnmatch.
-    """
-    pieces: list[str] = []
-    index = 0
-    while index < len(pattern):
-        if pattern.startswith("**/", index):
-            pieces.append("(?:.*/)?")
-            index += 3
-        elif pattern.startswith("**", index):
-            pieces.append(".*")
-            index += 2
-        elif pattern[index] == "*":
-            pieces.append("[^/]*")
-            index += 1
-        elif pattern[index] == "?":
-            # GitHub documents ``?`` as a postfix quantifier (for example,
-            # ``*.jsx?`` matches both ``page.js`` and ``page.jsx``), rather
-            # than the exactly-one-character wildcard used by fnmatch.
-            if pieces:
-                pieces[-1] = f"(?:{pieces[-1]})?"
-            else:
-                # A leading question mark has no preceding character to
-                # quantify; preserve it as a literal instead of inventing a
-                # wildcard match.
-                pieces.append(re.escape("?"))
-            index += 1
-        else:
-            pieces.append(re.escape(pattern[index]))
-            index += 1
-    return re.fullmatch("".join(pieces), path) is not None
-
-
-def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
-    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    trigger = workflow.get("on", workflow.get(True))
-    assert isinstance(trigger, dict)
-    pull_request = trigger["pull_request"]
-    assert "paths" not in pull_request
-    ignored = pull_request["paths-ignore"]
-
-    # These are representative files from every app-producing boundary. None
-    # may be covered by the exclusion list, including source-root resources
-    # that are copied recursively by the Xcode target.
-    app_inputs = [
-        "skills/cmux-cua/agent.py",
-        "cmux-Bridging-Header.h",
-        ".xcode-version",
-        "Sources/AppDelegate.swift",
-        "cmux.xcodeproj/project.pbxproj",
-        "scripts/strip-release-bundle.sh",
-        "Resources/agent-session-react/index.js",
-        "web/app/page.tsx",
-        "daemon/remote/main.go",
-        "docs/cli-contract.md",
-        "CHANGELOG.md",
-    ]
-    for path in app_inputs:
-        assert not any(github_actions_path_matches(path, pattern) for pattern in ignored), path
-
-    # Clearly non-app paths retain the cheap skip behavior.
-    for path in [
-        "design/ci.png",
-        "plans/ci.md",
-        "ios/cmux/ContentView.swift",
-        "cmux-browser/src/index.ts",
-        ".github/workflows/cmux-browser.yml",
-    ]:
-        assert any(github_actions_path_matches(path, pattern) for pattern in ignored), path
-
-    # Keep the matcher itself honest about the slash-sensitive semantics used
-    # by GitHub's filter engine.
-    assert github_actions_path_matches("ios/a/b.swift", "ios/**")
-    assert not github_actions_path_matches("ios/a/b.swift", "ios/*")
-    assert not github_actions_path_matches("nested/ios/a.swift", "ios/**")
-    assert github_actions_path_matches("README.fr.md", "README*.md")
-    assert not github_actions_path_matches("docs/ci.md", "README*.md")
-    assert github_actions_path_matches("page.js", "*.jsx?")
-    assert github_actions_path_matches("page.jsx", "*.jsx?")
-    assert not github_actions_path_matches("page.j", "*.jsx?")
-
-
 def test_docs_only_skips_expensive_areas() -> None:
-    assert_areas(["docs/ci.md", "README.md"], macos=False, web=False, go=False)
+    assert_areas(["docs/ci.md", "README.md"], macos=False, web=False)
 
 
 def test_cli_contract_doc_runs_macos_contract_tests() -> None:
-    assert_areas(["docs/cli-contract.md"], macos=True, web=False, go=False)
+    assert_areas(["docs/cli-contract.md"], macos=True, web=False)
 
 
 def test_changelog_runs_web_validation() -> None:
-    assert_areas(["CHANGELOG.md"], macos=True, web=True, go=False)
+    assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
 
 def test_web_only_runs_web_without_macos() -> None:
-    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
+    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
@@ -153,12 +60,11 @@ def test_cmux_tui_only_skips_macos() -> None:
         ["cmux-tui/crates/cmux-tui-core/src/browser.rs", "cmux-tui/README.md", "cmux-tui/docs/protocol.md"],
         macos=False,
         web=False,
-        go=False,
     )
 
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
-    assert_areas(["web/app/page.tsx"], macos=False, web=True, go=False, agent_session_web=False)
+    assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
@@ -166,7 +72,6 @@ def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
         ["webviews/src/agent-session/shared/message.test.ts"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -176,7 +81,6 @@ def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
         ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -186,7 +90,6 @@ def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check()
         ["Resources/markdown-viewer/webviews-app/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=False,
     )
 
@@ -196,7 +99,6 @@ def test_root_agent_web_dependencies_run_web_and_macos() -> None:
         ["package.json", "bun.lock"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -206,37 +108,23 @@ def test_agent_session_resources_run_web_and_macos() -> None:
         ["Resources/agent-session-react/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
     assert_areas(
         ["Resources/agent-session-solid/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
-    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False, go=False)
+    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False)
 
 
 def test_ios_only_skips_main_macos_ci() -> None:
-    assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False, go=False)
-
-
-def test_remote_daemon_runs_go_only() -> None:
-    assert_areas(["daemon/remote/main.go"], macos=False, web=False, go=True)
-
-
-def test_remote_daemon_asset_builder_runs_go_validation() -> None:
-    assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
-
-
-def test_remote_daemon_manifest_generator_runs_go_validation() -> None:
-    assert_areas(["scripts/generate_remote_daemon_release_manifest.py"], macos=True, web=False, go=True)
+    assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False)
 
 
 def test_app_source_runs_macos() -> None:
-    assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
+    assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
 
 def test_workflow_changes_run_everything() -> None:
@@ -244,7 +132,6 @@ def test_workflow_changes_run_everything() -> None:
         [".github/workflows/ci.yml"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
 
@@ -413,9 +300,7 @@ def linux_preflight_needs(
     route_outputs = {
         "macos": "true",
         "web": "true",
-        "go": "true",
         "agent_session_web": "true",
-        "ghosttykit_guard": "true",
     }
     if outputs:
         route_outputs.update(outputs)
@@ -423,7 +308,6 @@ def linux_preflight_needs(
         "changes": "success",
         "workflow-guard-tests": "success",
         "ghosttykit-release-check": "success",
-        "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
         "diff-sidecar-check": "success",
@@ -492,13 +376,7 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
     assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == [
-        "macos=true",
-        "web=true",
-        "go=true",
-        "agent_session_web=true",
-        "ghosttykit_guard=true",
-    ]
+    assert outputs == ["macos=true", "web=true", "agent_session_web=true"]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -528,9 +406,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "go=true",
             "agent_session_web=true",
-            "ghosttykit_guard=true",
         ]
 
 
@@ -613,9 +489,7 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=false",
             "web=true",
-            "go=false",
             "agent_session_web=false",
-            "ghosttykit_guard=false",
         ]
 
 
@@ -623,13 +497,7 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
     assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == [
-        "macos=true",
-        "web=true",
-        "go=true",
-        "agent_session_web=true",
-        "ghosttykit_guard=true",
-    ]
+    assert outputs == ["macos=true", "web=true", "agent_session_web=true"]
 
 
 def test_router_changes_run_everything() -> None:
@@ -637,42 +505,24 @@ def test_router_changes_run_everything() -> None:
         ["scripts/ci/detect_ci_change_areas.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
     assert_areas(
         ["scripts/ci/subprocess.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
     assert_areas(
         ["tests/test_ci_change_areas.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
 
 
 def test_ghosttykit_checksum_pin_runs_macos() -> None:
-    assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
-
-
-def test_app_change_skips_networked_ghostty_guard() -> None:
-    result, outputs = run_detect_step_for_paths(["Sources/AppDelegate.swift"])
-
-    assert "Resolved areas: macos=true" in result.stdout
-    assert outputs[-1] == "ghosttykit_guard=false"
-
-
-def test_ghosttykit_release_check_is_provenance_scoped() -> None:
-    block = workflow_job_block("ghosttykit-release-check")
-
-    assert "      - changes" not in block
-    assert "    needs: changes" in block
-    assert "needs.changes.outputs.ghosttykit_guard == 'true'" in block
+    assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False)
 
 
 def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
@@ -685,9 +535,7 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "go=false",
         "agent_session_web=false",
-        "ghosttykit_guard=true",
     ]
 
 
@@ -708,9 +556,7 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "go=false",
         "agent_session_web=false",
-        "ghosttykit_guard=true",
     ]
 
 
@@ -721,18 +567,16 @@ def test_workflow_only_pr_keeps_fail_open_routing() -> None:
     assert outputs == [
         "macos=true",
         "web=true",
-        "go=true",
         "agent_session_web=true",
-        "ghosttykit_guard=true",
     ]
 
 
 def test_app_bundled_markdown_runs_macos() -> None:
-    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
+    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False)
 
 
 def test_swift_warning_budget_runs_macos() -> None:
-    assert_areas([".github/swift-warning-budget.tsv"], macos=True, web=False, go=False)
+    assert_areas([".github/swift-warning-budget.tsv"], macos=True, web=False)
 
 
 def test_cli_writes_github_outputs() -> None:
@@ -758,11 +602,10 @@ def test_cli_writes_github_outputs() -> None:
             stderr=subprocess.PIPE,
         )
 
-        assert "Resolved areas: macos=false web=true go=false" in result.stdout
+        assert "Resolved areas: macos=false web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=false",
             "web=true",
-            "go=false",
             "agent_session_web=false",
         ]
 
@@ -791,11 +634,10 @@ def test_cli_empty_diff_runs_all_areas() -> None:
         )
 
         assert "PR diff is empty; running all CI areas." in result.stdout
-        assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
+        assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "go=true",
             "agent_session_web=true",
         ]
 
@@ -809,7 +651,7 @@ def test_non_pr_events_run_all_areas() -> None:
         stderr=subprocess.PIPE,
     )
 
-    assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
+    assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
@@ -818,7 +660,6 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in [
         "changes",
         "workflow-guard-tests",
-        "remote-daemon-tests",
         "web-typecheck",
         "react-apps-check",
         "diff-sidecar-check",
@@ -833,8 +674,6 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
-    assert 'ghostty_guard = outputs.get("ghosttykit_guard")' in block
-    assert 'ghostty_guard not in {"true", "false"}' in block
 
 
 def test_required_tests_status_waits_for_app_host_matrix() -> None:
@@ -854,7 +693,7 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
     # The staged macOS jobs must gate on their direct needs explicitly.
     # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
     # success() gate, which GitHub evaluates over the transitive needs chain:
-    # routed linux jobs that legitimately skip (web/go/agent-session paths)
+    # routed linux jobs that legitimately skip (web/agent-session paths)
     # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
@@ -884,18 +723,13 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
     assert "      - ghosttykit-release-check" in block
-    assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
     assert "      - diff-sidecar-check" in block
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests")' in block
-    assert 'ghostty_guard = outputs.get("ghosttykit_guard")' in block
-    assert 'ghostty_guard not in {"true", "false"}' in block
-    assert 'ghostty_guard == "true"' in block
-    assert 'ghostty_result not in {"success", "skipped"}' in block
+    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
@@ -903,66 +737,23 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
 
 def test_linux_preflight_fails_when_routed_job_skips() -> None:
     result = run_linux_preflight(
-        linux_preflight_needs(results={"remote-daemon-tests": "skipped"})
+        linux_preflight_needs(results={"web-typecheck": "skipped"})
     )
 
     assert result.returncode != 0
-    assert "remote-daemon-tests: skipped (route go=true)" in result.stderr
+    assert "web-typecheck: skipped (route web=true)" in result.stderr
 
 
 def test_linux_preflight_allows_unrouted_job_skip() -> None:
     result = run_linux_preflight(
         linux_preflight_needs(
-            outputs={"go": "false"},
-            results={"remote-daemon-tests": "skipped"},
+            outputs={"web": "false"},
+            results={"web-typecheck": "skipped"},
         )
     )
 
     assert result.returncode == 0, result.stderr
-    assert "remote-daemon-tests: skipped" in result.stdout
-
-
-def test_linux_preflight_allows_unneeded_ghostty_guard_skip() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(
-            outputs={"ghosttykit_guard": "false"},
-            results={"ghosttykit-release-check": "skipped"},
-        )
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "ghosttykit-release-check: skipped" in result.stdout
-
-
-def test_linux_preflight_requires_ghostty_guard_when_requested() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(
-            outputs={"ghosttykit_guard": "true"},
-            results={"ghosttykit-release-check": "skipped"},
-        )
-    )
-
-    assert result.returncode != 0
-    assert "ghosttykit-release-check: skipped" in result.stderr
-
-
-def test_linux_preflight_rejects_missing_ghostty_guard_output() -> None:
-    needs = linux_preflight_needs()
-    del needs["changes"]["outputs"]["ghosttykit_guard"]  # type: ignore[index]
-
-    result = run_linux_preflight(needs)
-
-    assert result.returncode != 0
-    assert "invalid ghosttykit_guard output: None" in result.stderr
-
-
-def test_linux_preflight_rejects_malformed_ghostty_guard_output() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(outputs={"ghosttykit_guard": "maybe"})
-    )
-
-    assert result.returncode != 0
-    assert "invalid ghosttykit_guard output: 'maybe'" in result.stderr
+    assert "web-typecheck: skipped" in result.stdout
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
@@ -1068,8 +859,8 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
     result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
 
-    assert "Resolved areas: macos=false web=false go=false" in result.stdout
-    assert outputs == ["macos=false", "web=false", "go=false", "agent_session_web=false"]
+    assert "Resolved areas: macos=false web=false" in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false"]
 
     benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
     sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)

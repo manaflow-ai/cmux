@@ -1,6 +1,146 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-screen [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-screen [flags]\n\nサーフェスのターミナルテキストをプレーンテキストとして読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --scrollback                 表示中のビューポートだけでなくスクロールバックも含める\n  --lines <n>                  末尾 n 行に制限する（--scrollback を含意）\n  --selection                  アクティブな選択範囲だけを読み取る（--scrollback、--lines との併用不可）\n\n例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } }
+      }
+    },
+    "cli.help.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-selection [flags]\n\nRead the active selection from any selectable surface. Plain output includes source context; --json returns the complete response.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-selection [flags]\n\n選択可能なサーフェスからアクティブな選択範囲を読み取ります。通常出力にはソースコンテキストが含まれ、--json は完全なレスポンスを返します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } }
+      }
+    },
+    "cli.readSelection.output.noActiveSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Has selection: false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択範囲あり: false" } }
+      }
+    },
+    "cli.readSelection.error.readScreenConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen: --selection cannot be combined with --scrollback or --lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen: --selection は --scrollback または --lines と併用できません" } }
+      }
+    },
+    "cli.readSelection.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@: unexpected arguments: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@: 予期しない引数: %@" } }
+      }
+    },
+    "cli.readSelection.output.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル: %@" } }
+      }
+    },
+    "cli.readSelection.output.kind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kind: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "種類: %@" } }
+      }
+    },
+    "cli.readSelection.output.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Line: %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld" } }
+      }
+    },
+    "cli.readSelection.output.lines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lines: %lld-%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld-%lld" } }
+      }
+    },
+    "cli.readSelection.output.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URL: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL: %@" } }
+      }
+    },
+    "cli.usage.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } }
+      }
+    },
+    "cli.usage.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } }
+      }
+    },
+    "socket.surfaceSelection.noFocusedSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No surface is focused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカスされているサーフェスがありません。" } }
+      }
+    },
+    "socket.surfaceSelection.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid selector for `%@`." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "`%@` のセレクターが無効です。" } }
+      }
+    },
+    "socket.surfaceSelection.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface not found for the given surface selector." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "指定したサーフェスセレクターに一致するサーフェスが見つかりません。" } }
+      }
+    },
+    "socket.surfaceSelection.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out after 5 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストは5秒後にタイムアウトしました。" } }
+      }
+    },
+    "socket.surfaceSelection.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This surface does not support selection reads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスは選択範囲の読み取りに対応していません。" } }
+      }
+    },
+    "socket.surfaceSelection.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが見つかりません。" } }
+      }
+    },
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
@@ -158,11 +298,104 @@
         "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
       }
     },
+    "cli.help.notify": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux notify [flags]\n\nSend or clear notifications.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux notify [flags]\n\nワークスペース／サーフェスに通知を送り、--clear で対象を消去します。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا أو امسح الهدف باستخدام --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest ili obrišite cilj pomoću --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux notify [flags]\n\nSend en meddelelse eller ryd målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux notify [flags]\n\nBenachrichtigung senden oder das Ziel mit --clear leeren.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux notify [flags]\n\nEnvía una notificación o limpia el destino con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux notify [flags]\n\nEnvoyer une notification ou effacer la cible avec --clear.\n\nFlags : --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux notify [flags]\n\nInvia una notifica o cancella la destinazione con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់: cmux notify [flags]\n\nផ្ញើការជូនដំណឹង ឬសម្អាតគោលដៅដោយ --clear។\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux notify [flags]\n\n알림을 보내거나 --clear로 대상을 지웁니다.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux notify [flags]\n\nSend et varsel eller tøm målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie albo wyczyść cel za pomocą --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação ou limpe o destino com --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление или очистите цель с помощью --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "th": { "stringUnit": { "state": "translated", "value": "วิธีใช้: cmux notify [flags]\n\nส่งการแจ้งเตือนหรือล้างเป้าหมายด้วย --clear\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux notify [flags]\n\nBildirim gönderin veya --clear ile hedefi temizleyin.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення або очистьте ціль за допомогою --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux notify [flags]\n\n发送通知，或使用 --clear 清除目标。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux notify [flags]\n\n傳送通知，或使用 --clear 清除目標。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format" } }
+      }
+    },
+    "cli.help.notify.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--clear                Clear notifications for the resolved caller/target instead of posting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--clear                解決された呼び出し元／対象の通知を投稿せずに消去" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "--clear                امسح إشعارات المتصل/الهدف المحلّل بدل النشر" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "--clear                Obriši obavijesti riješenog pozivaoca/cilja umjesto slanja" } },
+        "da": { "stringUnit": { "state": "translated", "value": "--clear                Ryd meddelelser for det fundne mål i stedet for at sende" } },
+        "de": { "stringUnit": { "state": "translated", "value": "--clear                Benachrichtigungen des aufgelösten Ziels löschen statt senden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "--clear                Limpia las notificaciones del destino resuelto en vez de publicar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "--clear                Effacer les notifications de la cible résolue au lieu de publier" } },
+        "it": { "stringUnit": { "state": "translated", "value": "--clear                Cancella le notifiche della destinazione invece di pubblicare" } },
+        "km": { "stringUnit": { "state": "translated", "value": "--clear                សម្អាតការជូនដំណឹងរបស់គោលដៅជំនួសការផ្ញើ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "--clear                게시하지 않고 확인된 대상의 알림 삭제" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "--clear                Tøm varsler for det løste målet i stedet for å sende" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "--clear                Wyczyść powiadomienia rozpoznanego celu zamiast wysyłać" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "--clear                Limpe as notificações do destino resolvido em vez de publicar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "--clear                Очистить уведомления найденной цели вместо отправки" } },
+        "th": { "stringUnit": { "state": "translated", "value": "--clear                ล้างการแจ้งเตือนของเป้าหมายแทนการโพสต์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "--clear                Göndermek yerine çözümlenen hedefin bildirimlerini temizle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "--clear                Очистити сповіщення визначеної цілі замість надсилання" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "--clear                清除已解析目标的通知，而不是发布" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "--clear                清除已解析目標的通知，而不是發佈" } }
+      }
+    },
+    "cli.help.notify.management": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The response includes the created notification id. Use cmux dismiss-notification --id <uuid>, cmux list-notifications, or cmux clear-notifications to manage notifications." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "応答には作成した通知の ID が含まれます。cmux dismiss-notification --id <uuid>、cmux list-notifications、または cmux clear-notifications で通知を管理できます。" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تتضمن الاستجابة معرّف الإشعار المنشأ. استخدم أوامر cmux لإدارة الإشعارات." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odgovor sadrži ID stvorene obavijesti. Koristite cmux naredbe za upravljanje obavijestima." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Svaret indeholder ID'et på den oprettede meddelelse. Brug cmux-kommandoer til at administrere meddelelser." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Antwort enthält die ID der erstellten Benachrichtigung. Mit cmux-Befehlen können Benachrichtigungen verwaltet werden." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La respuesta incluye el ID de la notificación creada. Usa los comandos cmux para administrar notificaciones." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La réponse contient l’identifiant de la notification créée. Utilisez les commandes cmux pour gérer les notifications." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La risposta include l’ID della notifica creata. Usa i comandi cmux per gestire le notifiche." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចម្លើយមាន ID នៃការជូនដំណឹងដែលបានបង្កើត។ ប្រើពាក្យបញ្ជា cmux ដើម្បីគ្រប់គ្រង។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "응답에는 생성된 알림 ID가 포함됩니다. cmux 명령으로 알림을 관리하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Svaret inneholder ID-en til det opprettede varselet. Bruk cmux-kommandoer til å håndtere varsler." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Odpowiedź zawiera identyfikator utworzonego powiadomienia. Użyj poleceń cmux, aby zarządzać powiadomieniami." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A resposta inclui o ID da notificação criada. Use os comandos cmux para gerenciar notificações." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ответ содержит ID созданного уведомления. Используйте команды cmux для управления уведомлениями." } },
+        "th": { "stringUnit": { "state": "translated", "value": "คำตอบมี ID ของการแจ้งเตือนที่สร้างขึ้น ใช้คำสั่ง cmux เพื่อจัดการการแจ้งเตือน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yanıt oluşturulan bildirimin ID'sini içerir. Bildirimleri yönetmek için cmux komutlarını kullanın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відповідь містить ID створеного сповіщення. Керуйте сповіщеннями командами cmux." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "响应包含创建的通知 ID。使用 cmux 命令管理通知。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "回應包含建立的通知 ID。使用 cmux 指令管理通知。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "--reply                السماح بردّ نصي مضمن" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "--reply                Dozvoli tekstualni ugrađeni odgovor" } },
+        "da": { "stringUnit": { "state": "translated", "value": "--reply                Tillad et frit tekstsvar inline" } },
+        "de": { "stringUnit": { "state": "translated", "value": "--reply                Freie Inline-Textantwort erlauben" } },
+        "es": { "stringUnit": { "state": "translated", "value": "--reply                Permitir una respuesta de texto en línea" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "--reply                Autoriser une réponse texte intégrée" } },
+        "it": { "stringUnit": { "state": "translated", "value": "--reply                Consenti una risposta testuale in linea" } },
+        "km": { "stringUnit": { "state": "translated", "value": "--reply                អនុញ្ញាតការឆ្លើយតបជាអក្សរ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "--reply                자유 형식 인라인 답장 허용" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "--reply                Tillat et fritt tekstsvar inline" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "--reply                Zezwól na tekstową odpowiedź w wierszu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "--reply                Permitir resposta de texto em linha" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "--reply                Разрешить свободный текстовый ответ" } },
+        "th": { "stringUnit": { "state": "translated", "value": "--reply                อนุญาตการตอบกลับแบบข้อความ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "--reply                Serbest metinli satır içi yanıta izin ver" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "--reply                Дозволити вільну текстову відповідь" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "--reply                允许自由文本内联回复" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "--reply                允許自由文字內嵌回覆" } }
       }
     },
     "debug.menu.notification.all": {
@@ -38339,6 +38572,31 @@
         }
       }
     },
+    "cli.error.clearNotificationsSurfaceRequiresTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface requires a workspace or window context" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface にはワークスペースまたはウィンドウのコンテキストが必要です" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface يتطلب سياق مساحة عمل أو نافذة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface zahtijeva kontekst radnog prostora ili prozora" } },
+        "da": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface kræver en workspace- eller vindueskontekst" } },
+        "de": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface erfordert einen Workspace- oder Fensterkontext" } },
+        "es": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface requiere un contexto de espacio de trabajo o ventana" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface nécessite un contexte d’espace de travail ou de fenêtre" } },
+        "it": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface richiede il contesto di uno spazio di lavoro o di una finestra" } },
+        "km": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface ត្រូវការបរិបទ workspace ឬ window" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface에는 워크스페이스 또는 창 컨텍스트가 필요합니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface krever en arbeidsområde- eller vinduskontekst" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface wymaga kontekstu obszaru roboczego lub okna" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface exige um contexto de workspace ou janela" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface требует контекста рабочего пространства или окна" } },
+        "th": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface ต้องมีบริบทเวิร์กสเปซหรือหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface bir çalışma alanı veya pencere bağlamı gerektirir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface потребує контексту робочого простору або вікна" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface 需要工作区或窗口上下文" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "clear-notifications --surface 需要工作區或視窗內容" } }
+      }
+    },
     "cli.error.dismissNotificationSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -39135,6 +39393,31 @@
             "value": "cmux could not run this command from the app bundle. Reinstall cmux or run the command from a standard cmux CLI installation."
           }
         }
+      }
+    },
+    "cli.help.clearNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]\n\nClear queued notifications, optionally scoped to a workspace and surface.\n\nFlags: --workspace <id|ref|index> --surface <id|ref|index> --window <id|ref|index>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]\n\n通知を消去し、必要に応じてワークスペースとサーフェスで限定します。\n\nFlags: --workspace <id|ref|index> --surface <id|ref|index> --window <id|ref|index>" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux clear-notifications [options]\n\nامسح الإشعارات، مع إمكانية تحديد مساحة عمل أو سطح أو نافذة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux clear-notifications [options]\n\nObrišite obavijesti, uz opcionalno ograničenje na radni prostor, površinu i prozor." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux clear-notifications [options]\n\nRyd meddelelser, eventuelt afgrænset til workspace, surface og vindue." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux clear-notifications [options]\n\nBenachrichtigungen löschen, optional auf Workspace, Oberfläche und Fenster begrenzt." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux clear-notifications [options]\n\nLimpia las notificaciones, opcionalmente limitadas a espacio de trabajo, superficie y ventana." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux clear-notifications [options]\n\nEffacer les notifications, avec un filtrage facultatif par espace de travail, surface et fenêtre." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux clear-notifications [options]\n\nCancella le notifiche, con filtro facoltativo per spazio di lavoro, superficie e finestra." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់: cmux clear-notifications [options]\n\nសម្អាតការជូនដំណឹង ដោយអាចកំណត់ workspace, surface និង window។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux clear-notifications [options]\n\n알림을 지우며 워크스페이스, 표면, 창으로 범위를 지정할 수 있습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux clear-notifications [options]\n\nTøm varsler, eventuelt begrenset til arbeidsområde, overflate og vindu." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux clear-notifications [options]\n\nWyczyść powiadomienia, opcjonalnie ograniczając je do obszaru, powierzchni i okna." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux clear-notifications [options]\n\nLimpe as notificações, opcionalmente limitando por workspace, superfície e janela." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux clear-notifications [options]\n\nОчистите уведомления, при необходимости ограничив их рабочим пространством, поверхностью и окном." } },
+        "th": { "stringUnit": { "state": "translated", "value": "วิธีใช้: cmux clear-notifications [options]\n\nล้างการแจ้งเตือน โดยเลือกเวิร์กสเปซ พื้นผิว และหน้าต่างได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux clear-notifications [options]\n\nBildirimleri temizleyin; çalışma alanı, yüzey ve pencereye göre sınırlayabilirsiniz." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux clear-notifications [options]\n\nОчистіть сповіщення, за потреби обмеживши їх робочим простором, поверхнею та вікном." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux clear-notifications [options]\n\n清除通知，可按工作区、表面和窗口限定范围。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux clear-notifications [options]\n\n清除通知，可依工作區、表面和視窗限定範圍。" } }
       }
     },
     "cli.help.dismissNotification": {
@@ -54801,6 +55084,131 @@
         }
       }
     },
+    "cli.ssh.error.mixedTTYOptionCluster": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: مجموعة خيارات قصيرة مختلطة '%@' غير مدعومة بعد الوجهة؛ استخدم --ssh-option لخيارات SSH أو -- لوسائط الأمر البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: miješani klaster kratkih opcija '%@' nije podržan nakon odredišta; koristite --ssh-option za SSH zastavice ili -- za argumente udaljene naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kort indstillingsklynge '%@' understøttes ikke efter destinationen; brug --ssh-option til SSH-flag eller -- til argumenter til fjernkommandoen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Gemischter Kurzoptions-Cluster „%@“ wird nach dem Ziel nicht unterstützt; verwenden Sie --ssh-option für SSH-Optionen oder -- für Argumente des Remote-Befehls"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mixed short-option cluster '%@' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: el grupo de opciones cortas mixtas '%@' no se admite después del destino; usa --ssh-option para las opciones de SSH o -- para los argumentos del comando remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : le groupe d’options courtes mixtes « %@ » n’est pas pris en charge après la destination ; utilisez --ssh-option pour les options SSH ou -- pour les arguments de commande distante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: il gruppo di opzioni brevi miste \"%@\" non è supportato dopo la destinazione; usa --ssh-option per le opzioni SSH o -- per gli argomenti del comando remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 宛先の後の混在した短いオプションクラスター「%@」はサポートされていません。SSH フラグには --ssh-option、リモートコマンド引数には -- を使用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ក្រុមជម្រើសខ្លីចម្រុះ '%@' មិនត្រូវបានគាំទ្របន្ទាប់ពីទិសដៅទេ; ប្រើ --ssh-option សម្រាប់ជម្រើស SSH ឬ -- សម្រាប់អាគុយម៉ង់ពាក្យបញ្ជាពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 대상 뒤의 혼합 짧은 옵션 클러스터 '%@'는 지원되지 않습니다. SSH 플래그에는 --ssh-option을, 원격 명령 인수에는 --를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kortalternativklynge '%@' støttes ikke etter målet; bruk --ssh-option for SSH-flagg eller -- for argumenter til fjernkommandoen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mieszany klaster krótkich opcji „%@” nie jest obsługiwany po miejscu docelowym; użyj --ssh-option dla flag SSH lub -- dla argumentów zdalnego polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: o agrupamento misto de opções curtas \"%@\" não é compatível após o destino; use --ssh-option para opções SSH ou -- para argumentos do comando remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: смешанная группа коротких параметров «%@» после адресата не поддерживается; используйте --ssh-option для параметров SSH или -- для аргументов удалённой команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ไม่รองรับกลุ่มตัวเลือกแบบสั้นที่ผสมกัน '%@' หลังปลายทาง โปรดใช้ --ssh-option สำหรับแฟล็ก SSH หรือ -- สำหรับอาร์กิวเมนต์คำสั่งระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: hedefin ardından gelen karma kısa seçenek kümesi '%@' desteklenmiyor; SSH seçenekleri için --ssh-option, uzak komut bağımsız değişkenleri için -- kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: змішаний кластер коротких параметрів «%@» після призначення не підтримується; використовуйте --ssh-option для параметрів SSH або -- для аргументів віддаленої команди"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目标之后不支持混合短选项集“%@”；SSH 选项请使用 --ssh-option，远程命令参数请使用 --"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目的地後不支援混合短選項叢集「%@」；SSH 選項請使用 --ssh-option，遠端命令引數請使用 --"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.status": {
       "extractionState": "manual",
       "localizations": {
@@ -58614,6 +59022,23 @@
         }
       }
     },
+    "cli.vm.list.planMeter.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines on the %2$@ plan, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ プランのマシン %1$d 台（上限なし）"
+          }
+        }
+      }
+    },
     "cli.vm.list.planMeter": {
       "extractionState": "manual",
       "localizations": {
@@ -58644,6 +59069,261 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドマシンがありません。cmux vm new を試してください"
+          }
+        }
+      }
+    },
+    "cli.vpn.address": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your address on the network: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク上のあなたのアドレス: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.alreadyUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is already up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルはすでに接続されています。"
+          }
+        }
+      }
+    },
+    "cli.vpn.bringingUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringing the tunnel up (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを接続しています（sudo のパスワード入力が求められます）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is down."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切断しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.enrolled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enrolled this Mac on your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を Cloud VM ネットワークに登録しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.notUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is not up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルは接続されていません。"
+          }
+        }
+      }
+    },
+    "cli.vpn.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is unenrolled from your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Cloud VM ネットワークから登録解除されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.rotated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshed this Mac's tunnel keys."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネル鍵を更新しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.config": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイル: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: down (enrolled; run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 切断（登録済み。`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.notSetUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: not set up (run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 未設定（`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.wgQuickMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick is not installed. Install with: brew install wireguard-tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick がインストールされていません。`brew install wireguard-tools` でインストールしてください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルが接続されました。"
           }
         }
       }
@@ -65694,23 +66374,6 @@
         }
       }
     },
-    "command.cloudVM.advanced.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Advanced"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細"
-          }
-        }
-      }
-    },
     "command.cloudVM.current.missing.message": {
       "extractionState": "manual",
       "localizations": {
@@ -65983,6 +66646,23 @@
         }
       }
     },
+    "command.cloudVM.new.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Cloud VM"
+          }
+        }
+      }
+    },
     "command.cloudVM.newMachine.title": {
       "extractionState": "manual",
       "localizations": {
@@ -65996,23 +66676,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいクラウドマシン…"
-          }
-        }
-      }
-    },
-    "command.cloudVM.open.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM を開く"
           }
         }
       }
@@ -89001,23 +89664,6 @@
         }
       }
     },
-    "debug.menu.splitButtonLayoutDebug": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Button Layout Debug…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分割ボタンレイアウトのデバッグ…"
-          }
-        }
-      }
-    },
     "debug.menu.startupAppearanceDebug": {
       "extractionState": "manual",
       "localizations": {
@@ -89694,533 +90340,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "セミボールド"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.alwaysHover": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always Show Hover State"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホバー状態を常に表示"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.backdropOptions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Backdrop Options"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "背景オプション"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.caretSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレットセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.cloudPreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Split Button"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウド分割ボタン"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forced Hover Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "強制ホバーセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.both": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Both"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.caret": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.plus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラス"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.inUse": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In Use"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用中"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.innerPadding": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inner Padding and Width"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内側の余白と幅"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.liveNote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changes apply live."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更はライブで反映されます。"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.controlBackground": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "controlBackgroundColor"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "controlBackgroundColor"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.hidden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.precompositedBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pre-composited barBackground"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成済み barBackground"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.precompositedPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pre-composited paneBackground"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成済み paneBackground"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.rawBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "barBackground (tab chrome)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "barBackground（タブクローム）"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.rawPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Raw paneBackground (opaque)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未加工 paneBackground（不透明）"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.translucentChrome": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Translucent chrome"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "半透明クローム"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.windowBackground": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "windowBackgroundColor"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "windowBackgroundColor"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.bottom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bottom"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.leading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leading"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.top": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Top"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.trailing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trailing"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "後"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.plusClicks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus clicks: %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラスのクリック数: %d"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.plusSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラスセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.resetPadding": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset Padding and Widths"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "余白と幅をリセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.sectionWidth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Section Width"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セクション幅"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Button Backdrop Color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ボタン背景色"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.width.caretOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret Width Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレット幅オフセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.width.plusOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus Width Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラス幅オフセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.windowTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Button Layout"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分割ボタンレイアウト"
           }
         }
       }
@@ -126931,13 +127050,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscribe to cmux Pro to use up to 5 machines"
+            "value": "Subscribe to cmux Pro to create Cloud machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro に登録すると最大 5 台のマシンを利用できます"
+            "value": "cmux Pro に登録すると Cloud マシンを作成できます"
+          }
+        }
+      }
+    },
+    "machines.empty.planIncludes.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes unlimited machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランではマシンを無制限に利用できます"
           }
         }
       }
@@ -127146,6 +127282,23 @@
         }
       }
     },
+    "machines.menu.copyIPAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IP Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPアドレスをコピー"
+          }
+        }
+      }
+    },
     "machines.menu.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -127261,6 +127414,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン %1$d / %2$d"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d 台"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン 1 台"
           }
         }
       }
@@ -146709,6 +146896,23 @@
         }
       }
     },
+    "notifications.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        }
+      }
+    },
     "notifications.dismiss": {
       "extractionState": "manual",
       "localizations": {
@@ -149000,13 +149204,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 hrs/mo, then usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月 20 時間、その後は従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149017,13 +149221,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled, usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有、従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149058,6 +149262,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "1"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.concurrent.paid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.concurrent.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50 per user"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーごとに 50"
           }
         }
       }
@@ -149782,13 +150020,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model gateway with usage and cost analytics"
+            "value": "Unlimited workspaces"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用量とコスト分析付きのモデルゲートウェイ"
+            "value": "ワークスペースは無制限"
           }
         }
       }
@@ -149799,13 +150037,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 active compute-hours per month, then usage-based"
+            "value": "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月20時間のアクティブ計算時間、その後は従量課金"
+            "value": "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク"
           }
         }
       }
@@ -149850,13 +150088,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         }
       }
@@ -150020,13 +150258,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size."
+            "value": "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントごとに VM サイズを選びます。課金はアクティブなコンピュート時間単位で、アイドル状態の VM は自動停止します。Pro には 4 vCPU / 16 GB サイズで月 20 時間が含まれます。"
+            "value": "すべての Cloud VM は 5 vCPU / 20 GB RAM / 200 GB ディスクです。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
           }
         }
       }
@@ -150207,13 +150445,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled Cloud VM compute hours"
+            "value": "Up to 50 Cloud VMs per user"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有 Cloud VM コンピュート時間"
+            "value": "ユーザーごとに最大 50 台の Cloud VM"
           }
         }
       }
@@ -150275,13 +150513,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         }
       }
@@ -152769,6 +153007,10 @@
         }
       }
     },
+    "remoteDaemon.error.cloudNotificationClearWorkspaceInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يتطلب مسح إشعار CLI السحابي workspace_id صالحًا"}},"bs":{"stringUnit":{"state":"translated","value":"Brisanje cloud CLI obavijesti zahtijeva važeći workspace_id"}},"da":{"stringUnit":{"state":"translated","value":"Rydning af cloud-CLI-meddelelser kræver et gyldigt workspace_id"}},"de":{"stringUnit":{"state":"translated","value":"Das Löschen von Cloud-CLI-Benachrichtigungen erfordert eine gültige workspace_id"}},"en":{"stringUnit":{"state":"translated","value":"Cloud CLI notification clear requires a valid workspace_id"}},"es":{"stringUnit":{"state":"translated","value":"Para limpiar notificaciones de Cloud CLI se necesita un workspace_id válido"}},"fr":{"stringUnit":{"state":"translated","value":"L’effacement des notifications Cloud CLI nécessite un workspace_id valide"}},"it":{"stringUnit":{"state":"translated","value":"La cancellazione delle notifiche Cloud CLI richiede un workspace_id valido"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud CLI 通知の消去には有効な workspace_id が必要です"}},"km":{"stringUnit":{"state":"translated","value":"ការសម្អាតការជូនដំណឹង Cloud CLI ត្រូវការ workspace_id ត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud CLI 알림을 지우려면 유효한 workspace_id가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"Tømming av Cloud CLI-varsler krever en gyldig workspace_id"}},"pl":{"stringUnit":{"state":"translated","value":"Czyszczenie powiadomień Cloud CLI wymaga prawidłowego workspace_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"A limpeza de notificações do Cloud CLI exige um workspace_id válido"}},"ru":{"stringUnit":{"state":"translated","value":"Для очистки уведомлений Cloud CLI требуется корректный workspace_id"}},"th":{"stringUnit":{"state":"translated","value":"การล้างการแจ้งเตือน Cloud CLI ต้องใช้ workspace_id ที่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud CLI bildirim temizleme için geçerli bir workspace_id gerekir"}},"uk":{"stringUnit":{"state":"translated","value":"Для очищення сповіщень Cloud CLI потрібен дійсний workspace_id"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知需要有效的 workspace_id"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知需要有效的 workspace_id"}}}},
+    "remoteDaemon.error.cloudNotificationClearWorkspaceDenied": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"هدف مسح إشعار CLI السحابي لا يطابق مساحة العمل هذه"}},"bs":{"stringUnit":{"state":"translated","value":"Cilj brisanja cloud CLI obavijesti ne odgovara ovom radnom prostoru"}},"da":{"stringUnit":{"state":"translated","value":"Målet for rydning af cloud-CLI-meddelelser matcher ikke dette workspace"}},"de":{"stringUnit":{"state":"translated","value":"Das Ziel zum Löschen der Cloud-CLI-Benachrichtigung gehört nicht zu diesem Workspace"}},"en":{"stringUnit":{"state":"translated","value":"Cloud CLI notification clear target does not match this workspace"}},"es":{"stringUnit":{"state":"translated","value":"El destino de limpieza de notificaciones de Cloud CLI no coincide con este espacio de trabajo"}},"fr":{"stringUnit":{"state":"translated","value":"La cible d’effacement des notifications Cloud CLI ne correspond pas à cet espace de travail"}},"it":{"stringUnit":{"state":"translated","value":"La destinazione di cancellazione delle notifiche Cloud CLI non corrisponde a questo spazio di lavoro"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud CLI 通知の消去対象がこのワークスペースと一致しません"}},"km":{"stringUnit":{"state":"translated","value":"គោលដៅសម្អាតការជូនដំណឹង Cloud CLI មិនត្រូវនឹង workspace នេះទេ"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud CLI 알림 삭제 대상이 이 워크스페이스와 일치하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Målet for tømming av Cloud CLI-varsler samsvarer ikke med dette arbeidsområdet"}},"pl":{"stringUnit":{"state":"translated","value":"Cel czyszczenia powiadomień Cloud CLI nie pasuje do tego obszaru roboczego"}},"pt-BR":{"stringUnit":{"state":"translated","value":"O destino de limpeza das notificações do Cloud CLI não corresponde a este workspace"}},"ru":{"stringUnit":{"state":"translated","value":"Цель очистки уведомлений Cloud CLI не соответствует этому рабочему пространству"}},"th":{"stringUnit":{"state":"translated","value":"เป้าหมายการล้างการแจ้งเตือน Cloud CLI ไม่ตรงกับเวิร์กสเปซนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud CLI bildirim temizleme hedefi bu çalışma alanıyla eşleşmiyor"}},"uk":{"stringUnit":{"state":"translated","value":"Ціль очищення сповіщень Cloud CLI не відповідає цьому робочому простору"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知的目标与此工作区不匹配"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知的目標與此工作區不相符"}}}},
+    "remoteDaemon.error.cloudNotificationClearSurfaceInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يتطلب مسح إشعار CLI السحابي surface_id صالحًا"}},"bs":{"stringUnit":{"state":"translated","value":"Brisanje cloud CLI obavijesti zahtijeva važeći surface_id"}},"da":{"stringUnit":{"state":"translated","value":"Rydning af cloud-CLI-meddelelser kræver et gyldigt surface_id"}},"de":{"stringUnit":{"state":"translated","value":"Das Löschen von Cloud-CLI-Benachrichtigungen erfordert eine gültige surface_id"}},"en":{"stringUnit":{"state":"translated","value":"Cloud CLI notification clear requires a valid surface_id"}},"es":{"stringUnit":{"state":"translated","value":"Para limpiar notificaciones de Cloud CLI se necesita un surface_id válido"}},"fr":{"stringUnit":{"state":"translated","value":"L’effacement des notifications Cloud CLI nécessite un surface_id valide"}},"it":{"stringUnit":{"state":"translated","value":"La cancellazione delle notifiche Cloud CLI richiede un surface_id valido"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud CLI 通知の消去には有効な surface_id が必要です"}},"km":{"stringUnit":{"state":"translated","value":"ការសម្អាតការជូនដំណឹង Cloud CLI ត្រូវការ surface_id ត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud CLI 알림을 지우려면 유효한 surface_id가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"Tømming av Cloud CLI-varsler krever en gyldig surface_id"}},"pl":{"stringUnit":{"state":"translated","value":"Czyszczenie powiadomień Cloud CLI wymaga prawidłowego surface_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"A limpeza de notificações do Cloud CLI exige um surface_id válido"}},"ru":{"stringUnit":{"state":"translated","value":"Для очистки уведомлений Cloud CLI требуется корректный surface_id"}},"th":{"stringUnit":{"state":"translated","value":"การล้างการแจ้งเตือน Cloud CLI ต้องใช้ surface_id ที่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud CLI bildirim temizleme için geçerli bir surface_id gerekir"}},"uk":{"stringUnit":{"state":"translated","value":"Для очищення сповіщень Cloud CLI потрібен дійсний surface_id"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知需要有效的 surface_id"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"清除 Cloud CLI 通知需要有效的 surface_id"}}}},
+    "remoteDaemon.error.cloudNotificationClearEncodingFailed": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر ترميز طلب Cloud CLI"}},"bs":{"stringUnit":{"state":"translated","value":"Kodiranje Cloud CLI zahtjeva nije uspjelo"}},"da":{"stringUnit":{"state":"translated","value":"Kunne ikke kode Cloud CLI-anmodningen"}},"de":{"stringUnit":{"state":"translated","value":"Cloud-CLI-Anfrage konnte nicht codiert werden"}},"en":{"stringUnit":{"state":"translated","value":"Failed to encode Cloud CLI request"}},"es":{"stringUnit":{"state":"translated","value":"No se pudo codificar la solicitud de Cloud CLI"}},"fr":{"stringUnit":{"state":"translated","value":"Échec de l’encodage de la requête Cloud CLI"}},"it":{"stringUnit":{"state":"translated","value":"Impossibile codificare la richiesta Cloud CLI"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud CLI リクエストをエンコードできませんでした"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចអ៊ិនកូដសំណើ Cloud CLI បានទេ"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud CLI 요청을 인코딩하지 못했습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Kunne ikke kode Cloud CLI-forespørselen"}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się zakodować żądania Cloud CLI"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Falha ao codificar a solicitação do Cloud CLI"}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось закодировать запрос Cloud CLI"}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถเข้ารหัสคำขอ Cloud CLI ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud CLI isteği kodlanamadı"}},"uk":{"stringUnit":{"state":"translated","value":"Не вдалося закодувати запит Cloud CLI"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法编码 Cloud CLI 请求"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法編碼 Cloud CLI 要求"}}}},
     "remoteDaemon.error.missingPersistentPTYCapability": {
       "localizations": {
         "ar": {
@@ -158108,13 +158350,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$50、または年額$480。"
           }
         }
       }
@@ -183771,6 +184013,23 @@
         }
       }
     },
+    "settings.cloudMachines.plan.summary.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$d machines, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · マシン %2$d 台（上限なし）"
+          }
+        }
+      }
+    },
     "settings.cloudMachines.plan.summary": {
       "extractionState": "manual",
       "localizations": {
@@ -193763,7 +194022,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet blaxel"
+            "value": "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet freestyle"
           }
         },
         "ja": {
@@ -244000,6 +244259,14 @@
         }
       }
     },
+    "socket.notification.clear.callerSelectorsRequireCaller": {"extractionState":"manual","localizations":{"ar": {"stringUnit":{"state":"translated","value":"تتطلب محددات caller استخدام caller=true"}},"bs": {"stringUnit":{"state":"translated","value":"Caller selektori zahtijevaju caller=true"}},"da": {"stringUnit":{"state":"translated","value":"Caller-selektorer kræver caller=true"}},"de": {"stringUnit":{"state":"translated","value":"Caller-Selektoren erfordern caller=true"}},"en": {"stringUnit":{"state":"translated","value":"caller-only selectors require caller=true"}},"es": {"stringUnit":{"state":"translated","value":"Los selectores exclusivos de caller requieren caller=true"}},"fr": {"stringUnit":{"state":"translated","value":"Les sélecteurs caller nécessitent caller=true"}},"it": {"stringUnit":{"state":"translated","value":"I selettori solo caller richiedono caller=true"}},"ja": {"stringUnit":{"state":"translated","value":"caller 専用セレクターには caller=true が必要です"}},"km": {"stringUnit":{"state":"translated","value":"ឧបករណ៍ជ្រើស caller ត្រូវការ caller=true"}},"ko": {"stringUnit":{"state":"translated","value":"caller 전용 선택자는 caller=true가 필요합니다"}},"nb": {"stringUnit":{"state":"translated","value":"Caller-selektorer krever caller=true"}},"pl": {"stringUnit":{"state":"translated","value":"Selektory caller wymagają caller=true"}},"pt-BR": {"stringUnit":{"state":"translated","value":"Os seletores exclusivos de caller exigem caller=true"}},"ru": {"stringUnit":{"state":"translated","value":"Для селекторов caller требуется caller=true"}},"th": {"stringUnit":{"state":"translated","value":"ตัวเลือก caller ต้องใช้ caller=true"}},"tr": {"stringUnit":{"state":"translated","value":"caller seçicileri caller=true gerektirir"}},"uk": {"stringUnit":{"state":"translated","value":"Селектори caller потребують caller=true"}},"zh-Hans": {"stringUnit":{"state":"translated","value":"仅 caller 选择器需要 caller=true"}},"zh-Hant": {"stringUnit":{"state":"translated","value":"僅 caller 選取器需要 caller=true"}}}},
+    "socket.notification.clear.callerInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"caller مفقود أو غير صالح"}},"bs":{"stringUnit":{"state":"translated","value":"Caller nedostaje ili je nevažeći"}},"da":{"stringUnit":{"state":"translated","value":"Caller mangler eller er ugyldig"}},"de":{"stringUnit":{"state":"translated","value":"Caller fehlt oder ist ungültig"}},"en":{"stringUnit":{"state":"translated","value":"Missing or invalid caller"}},"es":{"stringUnit":{"state":"translated","value":"Falta caller o no es válido"}},"fr":{"stringUnit":{"state":"translated","value":"Caller manquant ou invalide"}},"it":{"stringUnit":{"state":"translated","value":"Caller mancante o non valido"}},"ja":{"stringUnit":{"state":"translated","value":"caller が指定されていないか無効です"}},"km":{"stringUnit":{"state":"translated","value":"caller បាត់ ឬមិនត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"caller가 없거나 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Caller mangler eller er ugyldig"}},"pl":{"stringUnit":{"state":"translated","value":"Brak caller lub nieprawidłowy caller"}},"pt-BR":{"stringUnit":{"state":"translated","value":"caller ausente ou inválido"}},"ru":{"stringUnit":{"state":"translated","value":"Параметр caller отсутствует или недействителен"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี caller หรือ caller ไม่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"caller eksik veya geçersiz"}},"uk":{"stringUnit":{"state":"translated","value":"Параметр caller відсутній або недійсний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"caller 缺失或无效"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"caller 遺失或無效"}}}},
+    "socket.notification.clear.callerScopeConflict": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لا يمكن الجمع بين مسح caller و workspace_id أو tab_id أو surface_id"}},"bs":{"stringUnit":{"state":"translated","value":"Caller clear ne može se kombinovati s workspace_id, tab_id ili surface_id"}},"da":{"stringUnit":{"state":"translated","value":"Caller-clear kan ikke kombineres med workspace_id, tab_id eller surface_id"}},"de":{"stringUnit":{"state":"translated","value":"Caller-Löschung kann nicht mit workspace_id, tab_id oder surface_id kombiniert werden"}},"en":{"stringUnit":{"state":"translated","value":"caller clear cannot be combined with workspace_id, tab_id, or surface_id"}},"es":{"stringUnit":{"state":"translated","value":"caller clear no puede combinarse con workspace_id, tab_id o surface_id"}},"fr":{"stringUnit":{"state":"translated","value":"caller clear ne peut pas être combiné avec workspace_id, tab_id ou surface_id"}},"it":{"stringUnit":{"state":"translated","value":"caller clear non può essere combinato con workspace_id, tab_id o surface_id"}},"ja":{"stringUnit":{"state":"translated","value":"caller の消去は workspace_id、tab_id、または surface_id と併用できません"}},"km":{"stringUnit":{"state":"translated","value":"caller clear មិនអាចប្រើជាមួយ workspace_id, tab_id ឬ surface_id បានទេ"}},"ko":{"stringUnit":{"state":"translated","value":"caller clear는 workspace_id, tab_id 또는 surface_id와 함께 사용할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Caller-clear kan ikke kombineres med workspace_id, tab_id eller surface_id"}},"pl":{"stringUnit":{"state":"translated","value":"caller clear nie może być łączony z workspace_id, tab_id ani surface_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"caller clear não pode ser combinado com workspace_id, tab_id ou surface_id"}},"ru":{"stringUnit":{"state":"translated","value":"Очистку caller нельзя сочетать с workspace_id, tab_id или surface_id"}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถใช้ caller clear ร่วมกับ workspace_id, tab_id หรือ surface_id ได้"}},"tr":{"stringUnit":{"state":"translated","value":"caller clear, workspace_id, tab_id veya surface_id ile birleştirilemez"}},"uk":{"stringUnit":{"state":"translated","value":"Очищення caller не можна поєднувати з workspace_id, tab_id або surface_id"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"caller clear 不能与 workspace_id、tab_id 或 surface_id 一起使用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"caller clear 不可與 workspace_id、tab_id 或 surface_id 搭配"}}}},
+    "socket.notification.clear.preferredWorkspaceIdInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"preferred_workspace_id مفقود أو غير صالح"}},"bs":{"stringUnit":{"state":"translated","value":"preferred_workspace_id nedostaje ili je nevažeći"}},"da":{"stringUnit":{"state":"translated","value":"preferred_workspace_id mangler eller er ugyldig"}},"de":{"stringUnit":{"state":"translated","value":"preferred_workspace_id fehlt oder ist ungültig"}},"en":{"stringUnit":{"state":"translated","value":"Missing or invalid preferred_workspace_id"}},"es":{"stringUnit":{"state":"translated","value":"Falta preferred_workspace_id o no es válido"}},"fr":{"stringUnit":{"state":"translated","value":"preferred_workspace_id manquant ou invalide"}},"it":{"stringUnit":{"state":"translated","value":"preferred_workspace_id mancante o non valido"}},"ja":{"stringUnit":{"state":"translated","value":"preferred_workspace_id が指定されていないか無効です"}},"km":{"stringUnit":{"state":"translated","value":"preferred_workspace_id បាត់ ឬមិនត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"preferred_workspace_id가 없거나 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"preferred_workspace_id mangler eller er ugyldig"}},"pl":{"stringUnit":{"state":"translated","value":"Brak lub nieprawidłowy preferred_workspace_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"preferred_workspace_id ausente ou inválido"}},"ru":{"stringUnit":{"state":"translated","value":"preferred_workspace_id отсутствует или недействителен"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี preferred_workspace_id หรือไม่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"preferred_workspace_id eksik veya geçersiz"}},"uk":{"stringUnit":{"state":"translated","value":"preferred_workspace_id відсутній або недійсний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"preferred_workspace_id 缺失或无效"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"preferred_workspace_id 遺失或無效"}}}},
+    "socket.notification.clear.preferredSurfaceIdInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"preferred_surface_id مفقود أو غير صالح"}},"bs":{"stringUnit":{"state":"translated","value":"preferred_surface_id nedostaje ili je nevažeći"}},"da":{"stringUnit":{"state":"translated","value":"preferred_surface_id mangler eller er ugyldigt"}},"de":{"stringUnit":{"state":"translated","value":"preferred_surface_id fehlt oder ist ungültig"}},"en":{"stringUnit":{"state":"translated","value":"Missing or invalid preferred_surface_id"}},"es":{"stringUnit":{"state":"translated","value":"Falta preferred_surface_id o no es válido"}},"fr":{"stringUnit":{"state":"translated","value":"preferred_surface_id manquant ou invalide"}},"it":{"stringUnit":{"state":"translated","value":"preferred_surface_id mancante o non valido"}},"ja":{"stringUnit":{"state":"translated","value":"preferred_surface_id が指定されていないか無効です"}},"km":{"stringUnit":{"state":"translated","value":"preferred_surface_id បាត់ ឬមិនត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"preferred_surface_id가 없거나 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"preferred_surface_id mangler eller er ugyldig"}},"pl":{"stringUnit":{"state":"translated","value":"Brak lub nieprawidłowy preferred_surface_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"preferred_surface_id ausente ou inválido"}},"ru":{"stringUnit":{"state":"translated","value":"preferred_surface_id отсутствует или недействителен"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี preferred_surface_id หรือไม่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"preferred_surface_id eksik veya geçersiz"}},"uk":{"stringUnit":{"state":"translated","value":"preferred_surface_id відсутній або недійсний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"preferred_surface_id 缺失或无效"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"preferred_surface_id 遺失或無效"}}}},
+    "socket.notification.clear.surfaceIdRequiresWorkspace": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"surface_id يتطلب workspace_id"}},"bs":{"stringUnit":{"state":"translated","value":"surface_id zahtijeva workspace_id"}},"da":{"stringUnit":{"state":"translated","value":"surface_id kræver workspace_id"}},"de":{"stringUnit":{"state":"translated","value":"surface_id erfordert workspace_id"}},"en":{"stringUnit":{"state":"translated","value":"surface_id requires workspace_id"}},"es":{"stringUnit":{"state":"translated","value":"surface_id requiere workspace_id"}},"fr":{"stringUnit":{"state":"translated","value":"surface_id nécessite workspace_id"}},"it":{"stringUnit":{"state":"translated","value":"surface_id richiede workspace_id"}},"ja":{"stringUnit":{"state":"translated","value":"surface_id には workspace_id が必要です"}},"km":{"stringUnit":{"state":"translated","value":"surface_id ត្រូវការ workspace_id"}},"ko":{"stringUnit":{"state":"translated","value":"surface_id에는 workspace_id가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"surface_id krever workspace_id"}},"pl":{"stringUnit":{"state":"translated","value":"surface_id wymaga workspace_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"surface_id exige workspace_id"}},"ru":{"stringUnit":{"state":"translated","value":"Для surface_id требуется workspace_id"}},"th":{"stringUnit":{"state":"translated","value":"surface_id ต้องมี workspace_id"}},"tr":{"stringUnit":{"state":"translated","value":"surface_id workspace_id gerektirir"}},"uk":{"stringUnit":{"state":"translated","value":"Для surface_id потрібен workspace_id"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"surface_id 需要 workspace_id"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"surface_id 需要 workspace_id"}}}},
+    "socket.notification.clear.workspaceIdInvalid": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"workspace_id مفقود أو غير صالح"}},"bs":{"stringUnit":{"state":"translated","value":"workspace_id nedostaje ili je nevažeći"}},"da":{"stringUnit":{"state":"translated","value":"workspace_id mangler eller er ugyldigt"}},"de":{"stringUnit":{"state":"translated","value":"workspace_id fehlt oder ist ungültig"}},"en":{"stringUnit":{"state":"translated","value":"Missing or invalid workspace_id"}},"es":{"stringUnit":{"state":"translated","value":"Falta workspace_id o no es válido"}},"fr":{"stringUnit":{"state":"translated","value":"workspace_id manquant ou invalide"}},"it":{"stringUnit":{"state":"translated","value":"workspace_id mancante o non valido"}},"ja":{"stringUnit":{"state":"translated","value":"workspace_id が指定されていないか無効です"}},"km":{"stringUnit":{"state":"translated","value":"workspace_id បាត់ ឬមិនត្រឹមត្រូវ"}},"ko":{"stringUnit":{"state":"translated","value":"workspace_id가 없거나 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"workspace_id mangler eller er ugyldig"}},"pl":{"stringUnit":{"state":"translated","value":"Brak lub nieprawidłowy workspace_id"}},"pt-BR":{"stringUnit":{"state":"translated","value":"workspace_id ausente ou inválido"}},"ru":{"stringUnit":{"state":"translated","value":"workspace_id отсутствует или недействителен"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี workspace_id หรือไม่ถูกต้อง"}},"tr":{"stringUnit":{"state":"translated","value":"workspace_id eksik veya geçersiz"}},"uk":{"stringUnit":{"state":"translated","value":"workspace_id відсутній або недійсний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"workspace_id 缺失或无效"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"workspace_id 遺失或無效"}}}},
+    "socket.notification.clear.unavailable": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"الإشعارات غير متاحة. حاول مرة أخرى."}},"bs":{"stringUnit":{"state":"translated","value":"Obavijesti nisu dostupne. Pokušajte ponovo."}},"da":{"stringUnit":{"state":"translated","value":"Notifikationer er ikke tilgængelige. Prøv igen."}},"de":{"stringUnit":{"state":"translated","value":"Benachrichtigungen sind nicht verfügbar. Versuche es erneut."}},"en":{"stringUnit":{"state":"translated","value":"Notifications are unavailable. Try again."}},"es":{"stringUnit":{"state":"translated","value":"Las notificaciones no están disponibles. Inténtalo de nuevo."}},"fr":{"stringUnit":{"state":"translated","value":"Les notifications sont indisponibles. Réessayez."}},"it":{"stringUnit":{"state":"translated","value":"Le notifiche non sono disponibili. Riprova."}},"ja":{"stringUnit":{"state":"translated","value":"通知を利用できません。もう一度お試しください。"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចប្រើការជូនដំណឹងបានទេ។ សូមព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"알림을 사용할 수 없습니다. 다시 시도해 주세요."}},"nb":{"stringUnit":{"state":"translated","value":"Varsler er ikke tilgjengelige. Prøv igjen."}},"pl":{"stringUnit":{"state":"translated","value":"Powiadomienia są niedostępne. Spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"As notificações estão indisponíveis. Tente novamente."}},"ru":{"stringUnit":{"state":"translated","value":"Уведомления недоступны. Повторите попытку."}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถใช้การแจ้งเตือนได้ โปรดลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"Bildirimler kullanılamıyor. Tekrar deneyin."}},"uk":{"stringUnit":{"state":"translated","value":"Сповіщення недоступні. Спробуйте ще раз."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"通知不可用。请重试。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"通知無法使用。請再試一次。"}}}},
     "socket.notification.dismissSelectorRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -255797,506 +256064,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "系統"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cloud-VM"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-VM"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cloud VM"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.menu.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM メニュー"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.menu.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM アクション"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM を開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
           }
         }
       }
@@ -272389,6 +272156,7 @@
         }
       }
     },
+    "cli.error.notifyClearSurfaceRequiresTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"notify --clear --surface requires workspace or window context; specify --workspace or --window"}},"ja":{"stringUnit":{"state":"translated","value":"notify --clear --surface にはワークスペースまたはウィンドウのコンテキストが必要です。--workspace または --window を指定してください"}},"ar":{"stringUnit":{"state":"translated","value":"يتطلب notify --clear --surface سياق مساحة عمل أو نافذة؛ حدّد --workspace أو --window"}},"bs":{"stringUnit":{"state":"translated","value":"notify --clear --surface zahtijeva kontekst radnog prostora ili prozora; navedite --workspace ili --window"}},"da":{"stringUnit":{"state":"translated","value":"notify --clear --surface kræver workspace- eller vindueskontekst; angiv --workspace eller --window"}},"de":{"stringUnit":{"state":"translated","value":"notify --clear --surface erfordert einen Workspace- oder Fensterkontext; geben Sie --workspace oder --window an"}},"es":{"stringUnit":{"state":"translated","value":"notify --clear --surface requiere un contexto de espacio de trabajo o ventana; especifica --workspace o --window"}},"fr":{"stringUnit":{"state":"translated","value":"notify --clear --surface nécessite un contexte d’espace de travail ou de fenêtre ; indiquez --workspace ou --window"}},"it":{"stringUnit":{"state":"translated","value":"notify --clear --surface richiede il contesto di uno spazio di lavoro o di una finestra; specifica --workspace o --window"}},"km":{"stringUnit":{"state":"translated","value":"notify --clear --surface ត្រូវការបរិបទ workspace ឬ window; បញ្ជាក់ --workspace ឬ --window"}},"ko":{"stringUnit":{"state":"translated","value":"notify --clear --surface에는 워크스페이스 또는 창 컨텍스트가 필요합니다. --workspace 또는 --window를 지정하십시오"}},"nb":{"stringUnit":{"state":"translated","value":"notify --clear --surface krever arbeidsområde- eller vinduskontekst; angi --workspace eller --window"}},"pl":{"stringUnit":{"state":"translated","value":"notify --clear --surface wymaga kontekstu obszaru roboczego lub okna; podaj --workspace lub --window"}},"pt-BR":{"stringUnit":{"state":"translated","value":"notify --clear --surface exige um contexto de workspace ou janela; informe --workspace ou --window"}},"ru":{"stringUnit":{"state":"translated","value":"Для notify --clear --surface требуется контекст рабочего пространства или окна; укажите --workspace или --window"}},"th":{"stringUnit":{"state":"translated","value":"notify --clear --surface ต้องมีบริบทเวิร์กสเปซหรือหน้าต่าง โปรดระบุ --workspace หรือ --window"}},"tr":{"stringUnit":{"state":"translated","value":"notify --clear --surface bir çalışma alanı veya pencere bağlamı gerektirir; --workspace veya --window belirtin"}},"uk":{"stringUnit":{"state":"translated","value":"notify --clear --surface потребує контексту робочого простору або вікна; вкажіть --workspace або --window"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"notify --clear --surface 需要工作区或窗口上下文；请指定 --workspace 或 --window"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"notify --clear --surface 需要工作區或視窗內容；請指定 --workspace 或 --window"}}}},
     "machines.new.kind.desktop.summary": {
       "extractionState": "manual",
       "localizations": {
@@ -272436,6 +272204,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 台中 %1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台を使用中"
           }
         }
       }
@@ -272844,6 +272646,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "作成"
+          }
+        }
+      }
+    },
+    "machines.pending.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを作成できませんでした"
+          }
+        }
+      }
+    },
+    "machines.pending.failed.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't set up Base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base を設定できませんでした"
+          }
+        }
+      }
+    },
+    "machines.pending.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成を再試行"
+          }
+        }
+      }
+    },
+    "machines.pending.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "machines.pending.showError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Error…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーを表示…"
+          }
+        }
+      }
+    },
+    "machines.pending.copyError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーをコピー"
+          }
+        }
+      }
+    },
+    "machines.pending.failure.lead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ did not get created. The command reported:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は作成されませんでした。コマンドの出力:"
+          }
+        }
+      }
+    },
+    "machines.new.background.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creation continues in the Machines panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成は Machines パネルで続行されます。"
+          }
+        }
+      }
+    },
+    "machines.new.background.note.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup continues in the Machines panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定は Machines パネルで続行されます。"
+          }
+        }
+      }
+    },
+    "machines.notification.ready.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の準備ができました"
+          }
+        }
+      }
+    },
+    "machines.notification.ready.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's open in its own workspace. Click to go there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "専用のワークスペースで開いています。クリックして移動します。"
+          }
+        }
+      }
+    },
+    "machines.notification.ready.body.list": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find it in the Machines list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines リストで確認できます。"
+          }
+        }
+      }
+    },
+    "machines.notification.createdOpenFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ was created, but opening it failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は作成されましたが、開けませんでした"
+          }
+        }
+      }
+    },
+    "machines.notification.createdOpenFailed.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open it from the Machines list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines リストから開いてください。"
+          }
+        }
+      }
+    },
+    "machines.notification.failed.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry or dismiss it from the Machines list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines リストから再試行するか閉じてください。"
+          }
+        }
+      }
+    },
+    "machines.pending.createdOpenFailed.bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ was created, but opening it failed: %2$@ Open it from the list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は作成されましたが、開けませんでした: %2$@ リストから開いてください。"
           }
         }
       }
