@@ -255,6 +255,29 @@ jobs:
           )
           PY
 
+      - name: Require startup terminal replay sentinel
+        if: matrix.shard == 'startup'
+        working-directory: cmux-tui
+        run: |
+          matches=0
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            case "$(basename "$bin")" in
+              terminal-*)
+                if ! "$bin" --list \
+                  | grep -Fqx 'pending_wrap_replay_preserves_cursor_with_origin_mode: test'; then
+                  echo "::error::terminal replay test binary does not contain the exact startup sentinel" >&2
+                  exit 1
+                fi
+                matches=$((matches + 1))
+                ;;
+            esac
+          done < target/valgrind-test-binaries.txt
+          if [[ "$matches" -ne 1 ]]; then
+            echo "::error::expected one terminal integration test binary, found $matches" >&2
+            exit 1
+          fi
+
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
         run: |
