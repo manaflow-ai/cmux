@@ -230,6 +230,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
+        ] + [
             // Mobile
             .init(
                 section: .mobile,
@@ -342,6 +343,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta")
             ),
 
+        ] + [
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
             .init(
