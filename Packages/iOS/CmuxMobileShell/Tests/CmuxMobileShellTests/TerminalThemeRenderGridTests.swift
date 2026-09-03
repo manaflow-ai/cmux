@@ -117,6 +117,101 @@ import Testing
 }
 
 @MainActor
+@Test func legacySemanticFrameWithoutThemeUsesResolvedRGBColors() async throws {
+    let surfaceID = "terminal-legacy-semantic-theme"
+    let store = MobileShellComposite.preview()
+    var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        styles: [
+            .init(
+                id: 0,
+                foreground: "#d0d0d0",
+                background: "#101010",
+                foregroundSource: .defaultColor,
+                backgroundSource: .defaultColor
+            ),
+            .init(
+                id: 1,
+                foreground: "#ff8800",
+                background: "#101010",
+                foregroundSource: .palette,
+                foregroundPaletteIndex: 3,
+                backgroundSource: .defaultColor
+            ),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "themed", cellWidth: 6),
+        ],
+        terminalForeground: "#d0d0d0",
+        terminalBackground: "#101010"
+    )
+
+    #expect(store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID))
+    let chunk = try #require(await outputIterator.next())
+    let replay = try #require(String(data: chunk.data, encoding: .utf8))
+
+    #expect(replay.contains("38;2;255;136;0"))
+    #expect(replay.contains("48;2;16;16;16"))
+    #expect(!replay.contains("38;5;3"))
+    #expect(!replay.contains(";39;49m"))
+}
+
+@MainActor
+@Test func themeBackedDeltaKeepsSemanticPaletteColors() async throws {
+    let surfaceID = "terminal-backed-semantic-theme"
+    let store = MobileShellComposite.preview()
+    var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let fullFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 6,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: .monokai,
+        terminalConfigTheme: .monokai,
+        terminalThemeRevision: 1
+    )
+
+    #expect(store.deliverTerminalRenderGrid(fullFrame, surfaceID: surfaceID))
+    let fullChunk = try #require(await outputIterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullChunk.streamToken)
+
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        columns: 6,
+        rows: 1,
+        full: false,
+        clearedRows: [0],
+        styles: [
+            .init(
+                id: 0,
+                foreground: "#e6db74",
+                background: "#272822",
+                foregroundSource: .palette,
+                foregroundPaletteIndex: 3,
+                backgroundSource: .defaultColor
+            ),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "color", cellWidth: 5),
+        ]
+    )
+
+    #expect(store.deliverTerminalRenderGrid(delta, surfaceID: surfaceID))
+    let deltaChunk = try #require(await outputIterator.next())
+    let replay = try #require(String(data: deltaChunk.data, encoding: .utf8))
+
+    #expect(replay.contains("38;5;3"))
+    #expect(replay.contains(";49m"))
+    #expect(!replay.contains("38;2;230;219;116"))
+}
+
+@MainActor
 @Test func staleTerminalContentStillAdvancesRevisionedThemeMetadata() throws {
     let surfaceID = "terminal-stale-content-fresh-theme"
     let store = MobileShellComposite.preview()
