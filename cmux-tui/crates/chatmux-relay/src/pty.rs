@@ -1668,22 +1668,12 @@ impl Inner {
         publication_gate: &Arc<RouteGate>,
         message: &str,
     ) {
-        let gate = {
-            let attachments = self.attachments.lock().expect("attach lock");
-            let Some(current) = attachments.get(pty_id) else { return };
-            if current.generation != generation
-                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-            {
-                return;
-            }
-            Arc::clone(&current.publication_gate)
-        };
-        let Some(_publication) = gate.try_lock() else {
-            // A live output callback may own the gate while waiting on the
-            // socket. Send the terminal error directly in that case. The
-            // attachment cannot be replaced until the callback releases its
-            // gate, so this remains generation-scoped without another wait.
-            let attachments = self.attachments.lock().expect("attach lock");
+        // Start failure must retire the route before publishing its terminal
+        // error. The tunnel sink classifies an error as fatal by checking the
+        // attachment map synchronously. Do not wait for the publication gate:
+        // a stalled subscribe or replay callback can own it indefinitely.
+        let attachment = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
@@ -1692,21 +1682,12 @@ impl Inner {
             {
                 return;
             }
-            drop(attachments);
-            send_pty_error(context, pty_id, "failed", message);
-            return;
+            let attachment = attachments.remove(pty_id).expect("attachment still present");
+            attachment.closing.store(true, Ordering::SeqCst);
+            attachment
         };
-        let attachments = self.attachments.lock().expect("attach lock");
-        let Some(current) = attachments.get(pty_id) else { return };
-        if current.generation != generation
-            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-            || current.closing.load(Ordering::SeqCst)
-            || current.close_pending.load(Ordering::SeqCst)
-        {
-            return;
-        }
-        drop(attachments);
         send_pty_error(context, pty_id, "failed", message);
+        attachment.control.kill();
     }
 
     async fn emit_error_for_generation_async(
