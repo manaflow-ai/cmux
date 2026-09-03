@@ -424,7 +424,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: focused Linux journal process-fence test
-        if: runner.os == 'Linux'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -432,11 +432,12 @@ jobs:
           -- --exact
 
       - name: focused macOS journal process-fence tests
-        if: runner.os == 'macOS'
+        if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
         run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
+        if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -444,6 +445,7 @@ jobs:
           -- --exact
 
       - name: focused final journal ownership tests
+        if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: |
           cargo test -p cmux-tui-core --lib \
@@ -489,7 +491,9 @@ jobs:
           ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
           cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
           grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
-          if [[ -s "$normal_names" && -s "$ignored_names" ]] && cmp -s "$normal_names" "$ignored_names"; then
+          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
+          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
+          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
             echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
             exit 1
           fi

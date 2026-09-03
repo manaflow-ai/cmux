@@ -138,7 +138,12 @@ Payload:
 object{event:"client-attached",client:uint64,transport:"unix"|"ws",name:string|null,kind:string|null}
 ```
 
-Meaning: A control connection attached its first surface. A connection that never calls `attach-surface` does not emit this event, and later surfaces on the same connection do not emit it again. Use `list-clients` for the attached surface set and sizes.
+Meaning: The server emits this once when the control connection commits its
+first attach stream, whether it comes from the legacy `attach-surface` command
+or a resource `terminal.attach` or `browser.attach` operation. A connection
+with no committed attachment does not emit it, and later streams or surfaces
+on the same connection do not emit it again. Use `list-clients` for the
+authoritative attached-surface set and reported sizes.
 
 Example:
 
@@ -182,7 +187,9 @@ Payload:
 object{event:"client-detached",client:uint64}
 ```
 
-Meaning: A control connection disconnected naturally or was ended by `detach-client`. This is emitted even if the connection never attached a surface.
+Meaning: The server emits this once when it removes a control connection,
+whether the connection ended naturally or through `detach-client`. It is
+emitted even when the connection never attached a surface.
 
 Example:
 

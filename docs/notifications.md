@@ -50,8 +50,21 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
+
+# Compatibility form for older scripts
 cmux notify --title "Done" --tab 0 --panel 1
+
+# Capture the returned id and dismiss exactly that notification
+notification_id="$(cmux notify --title "Done" --body "Task complete" --id-format uuids | awk '$1 == "OK" {print $2}')"
+cmux dismiss-notification --id "$notification_id"
+
+# Clear notifications for the posting surface (same caller resolution as notify)
+cmux notify --clear
+
+# Clear a workspace or surface in a specific window
+cmux clear-notifications --window window:1 --workspace workspace:1 --surface surface:1
 ```
 
 ## Navigation
@@ -274,13 +287,13 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux list-notifications
-cmux dismiss-notification (--id <notification-id> | --all-read)
-cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
-cmux open-notification --id <notification-id>
+cmux dismiss-notification (--id <uuid|notification:<uuid>> | --all-read)
+cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <uuid|notification:<uuid>>
 cmux jump-to-unread
-cmux clear-notifications
+cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux set-status <key> <value>
 cmux clear-status <key>
 cmux ping

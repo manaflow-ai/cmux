@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { auditAlertSink } from "./alertSinkAudit.mjs";
 import { auditCloudVmProviderCoherence } from "./defaultProviderAudit.mjs";
 import { auditFreeProvisioningOverride } from "./freeProvisioningAudit.mjs";
 import {
@@ -26,7 +27,13 @@ try {
   const env = loadTargetEnv(project);
   const keys = Object.keys(env).sort();
   const present = new Set(keys);
-  const missingRequired = requiredRuntimeEnvKeys.filter((key) => !present.has(key));
+  // The Slack sink is required unless the env carries a recorded operator
+  // decision to run without one; a misused acknowledgement is itself a problem.
+  const alertSink = auditAlertSink(env);
+  const waived = new Set(alertSink.waivedRequiredKeys);
+  const missingRequired = requiredRuntimeEnvKeys.filter(
+    (key) => !present.has(key) && !waived.has(key),
+  );
   const missingRecommended = recommendedRuntimeEnvKeys.filter((key) => !present.has(key));
   const forbiddenPresent = forbiddenRuntimeEnvKeys.filter((key) => present.has(key));
   const legacyCloudVmPresent = legacyCloudVmEnvKeys.filter((key) => present.has(key));
@@ -47,7 +54,8 @@ try {
     ok: missingRequired.length === 0 &&
       forbiddenPresent.length === 0 &&
       providerCoherence.problems.length === 0 &&
-      freeProvisioning.problems.length === 0,
+      freeProvisioning.problems.length === 0 &&
+      alertSink.problems.length === 0,
     target,
     project: project.projectName,
     envKeyCount: keys.length,
@@ -58,6 +66,7 @@ try {
     legacyCloudVmPresent,
     providerCoherence,
     freeProvisioning,
+    alertSink,
   };
 
   console.log(JSON.stringify(result, null, 2));

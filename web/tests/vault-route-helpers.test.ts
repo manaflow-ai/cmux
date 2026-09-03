@@ -279,6 +279,7 @@ const testUser: AuthedUser = {
   teamIds: [],
       userBillingPlanId: null,
       billingPlanId: null,
+      billingSeats: null,
       resolveSubrouterPermissions: async () => ({
         use: false,
         manageAccounts: false,

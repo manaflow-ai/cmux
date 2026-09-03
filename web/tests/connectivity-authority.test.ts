@@ -20,6 +20,7 @@ const USER: AuthedUser = {
   teamIds: [],
   userBillingPlanId: null,
   billingPlanId: null,
+  billingSeats: null,
   resolveSubrouterPermissions: async () => ({
     use: false,
     manageAccounts: false,
@@ -166,6 +167,44 @@ describe("Connectivity authority", () => {
 
     expect(response.status).toBe(401);
     expect(called).toBe(false);
+  });
+
+  test("maps Stack Auth throttles to a retryable response", async () => {
+    let called = false;
+    const response = await handleConnectivitySync(syncRequest(null), {
+      verify: async () => {
+        throw new AggregateError([
+          new Error("Rate limited, no retry-after header received"),
+        ]);
+      },
+      authority: {
+        sync: () => {
+          called = true;
+          return Effect.die(new Error("unexpected authority work"));
+        },
+        syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
+      },
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    expect(called).toBe(false);
+  });
+
+  test("maps other Stack Auth provider failures to service unavailable", async () => {
+    const response = await handleScopedConnectivitySync(scopedSyncRequest(scopeWire), {
+      verify: async () => {
+        throw new Error("Stack Auth unreachable");
+      },
+      authority: {
+        sync: () => Effect.die(new Error("unexpected sync")),
+        syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
+      },
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "authentication_unavailable" });
   });
 
   test("serves an authenticated no-store sync response", async () => {

@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 import SQLite3
 import Testing
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

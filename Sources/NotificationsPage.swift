@@ -381,6 +381,18 @@ struct NotificationRow: View, Equatable {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
+        .contextMenu {
+            Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                onOpen()
+            }
+            Button(String(localized: "notifications.copy", defaultValue: "Copy")) {
+                TerminalNotificationClipboard.copy(notification, workspaceTitle: tabTitle)
+            }
+            Divider()
+            Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                onClear()
+            }
+        }
     }
 }
 
