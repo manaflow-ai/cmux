@@ -11,6 +11,10 @@ import Foundation
 /// later command can't finish before an earlier browser navigate/click/wait.
 private let cmuxSidebarWorkerQueue = DispatchQueue(label: "com.cmux.sidebar-action-worker")
 
+/// Select-burst coalescing lives in ``SidebarSelectCoalescer``
+/// (CmuxSwiftRenderUI), where its FIFO/newest-wins semantics are unit-tested.
+private let sidebarSelectCoalescer = SidebarSelectCoalescer()
+
 // The custom-sidebar rendering, interpreter, JSON DSL, resizable split, and
 // the file-watching model now live in the `CmuxSwiftRender` (logic) and
 // `CmuxSwiftRenderUI` (SwiftUI) packages. The app target keeps only the
@@ -34,7 +38,13 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         // so nothing here blocks SwiftUI and ordering is preserved end to end.
         let controller = TerminalController.shared
         let commands = action.commands
+        let selectGeneration = sidebarSelectCoalescer.generation(for: commands)
         cmuxSidebarWorkerQueue.async {
+            // A newer select is already queued behind this one: skip the heavy
+            // switch, the burst's final click defines the end state.
+            if let selectGeneration, !sidebarSelectCoalescer.isCurrent(selectGeneration) {
+                return
+            }
             for command in commands {
                 switch command {
                 case let .cmux(method, params):
@@ -45,7 +55,18 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                         // like v2Int decode them.
                         var typed: [String: Any] = [:]
                         for (key, value) in params {
-                            if let intValue = Int(value) { typed[key] = intValue } else { typed[key] = value }
+                            if let intValue = Int(value) {
+                                typed[key] = intValue
+                            } else if value.hasPrefix("["),
+                                      let data = value.data(using: .utf8),
+                                      let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any] {
+                                // Array-typed v2 params (e.g. child_workspace_ids)
+                                // travel as JSON strings through the string-only
+                                // action pipe; inflate them here.
+                                typed[key] = array
+                            } else {
+                                typed[key] = value
+                            }
                         }
                         payload["params"] = typed
                     }

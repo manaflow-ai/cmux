@@ -109,6 +109,26 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "surface.read_selection" {
+            return await socketSurfaceSelectionResponseAsync(request)
+        }
+
+        if request.method == "feed.jump" {
+            guard let result = await controlCommandCoordinator
+                .handleSocketWorkerFeedAsync(request, context: self) else {
+                return Self.v2Encoder.error(
+                    id: request.id,
+                    code: "method_not_found",
+                    message: String(
+                        localized: "socket.error.unknownMethod",
+                        defaultValue: "Unknown method"
+                    ),
+                    data: nil
+                )
+            }
+            return Self.v2Encoder.response(id: request.id, result)
+        }
+
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
@@ -183,6 +203,65 @@ extension TerminalController {
         }
 
         return socketWorkerV2Response(handling: request)
+    }
+
+    /// Runs the live selection read without parking the cooperative executor.
+    /// Synchronous in-process callers keep the legacy adapter, but socket
+    /// connections race the read against a cancellable request deadline.
+    private nonisolated func socketSurfaceSelectionResponseAsync(
+        _ request: ControlRequest
+    ) async -> String {
+        let (responses, continuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        let operation = Task {
+            let result = await self.v2SurfaceReadSelection(params: request.params)
+            continuation.yield(self.v2Result(id: request.id?.foundationObject, result))
+            continuation.finish()
+        }
+        let deadlineClock = ContinuousClock()
+        let timeout = Task {
+            do {
+                // Genuine request deadline; cancellation tears down the sleeper.
+                try await deadlineClock.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            continuation.yield(self.v2Error(
+                id: request.id?.foundationObject,
+                code: "timeout",
+                message: String(
+                    localized: "socket.surfaceSelection.timeout",
+                    defaultValue: "Request timed out after 5 seconds"
+                )
+            ))
+            continuation.finish()
+        }
+        continuation.onTermination = { @Sendable _ in
+            operation.cancel()
+            timeout.cancel()
+        }
+
+        let response = await withTaskCancellationHandler(
+            operation: {
+                var iterator = responses.makeAsyncIterator()
+                return await iterator.next()
+            },
+            onCancel: {
+                operation.cancel()
+                timeout.cancel()
+                continuation.finish()
+            }
+        )
+        operation.cancel()
+        timeout.cancel()
+        continuation.finish()
+        return response ?? v2Error(
+            id: request.id?.foundationObject,
+            code: "request_error",
+            message: "Request failed before returning a result"
+        )
     }
 
     private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {

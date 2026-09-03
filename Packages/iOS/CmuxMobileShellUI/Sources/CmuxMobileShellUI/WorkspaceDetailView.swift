@@ -77,6 +77,11 @@ struct WorkspaceDetailView: View {
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    /// Top safe-area inset captured just OUTSIDE the terminal leaf's
+    /// top-edge safe-area expansion. Once the leaf underlaps the bar its
+    /// UIKit `safeAreaInsets.top` reads 0, so the surface's scroll-edge band
+    /// height must come from SwiftUI geometry captured before the ignore.
+    @State var terminalCapturedTopInset: CGFloat = 0
     // Rendered content width per trailing toolbar item, keyed by item. The
     // title's width cap subtracts the structurally visible items' widths so
     // they always fit and iOS never folds them into the overflow More menu
@@ -178,13 +183,28 @@ struct WorkspaceDetailView: View {
     }
     #endif
     var body: some View {
-        let content = Group { detailSurfaceContent }
+        let content = Group {
+            VStack(spacing: 0) {
+                if let message = store.terminalCreationError,
+                   store.selectedWorkspaceID == workspace.id,
+                   store.terminalCreationErrorWorkspaceID == workspace.rpcWorkspaceID {
+                    terminalCreationRecovery(message: message)
+                }
+                detailSurfaceContent
+            }
+        }
 
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // With the scroll-edge band active (iOS 26, terminal surface),
+            // the bar stays system glass and the terminal's overscan rows
+            // render under it; other surfaces keep the opaque themed bar.
+            .mobileTerminalNavigationChrome(
+                theme: store.activeTerminalTheme,
+                scrollEdgeGlass: terminalScrollEdgeGlassActive
+            )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.
@@ -195,6 +215,10 @@ struct WorkspaceDetailView: View {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
+                restoreLocalBrowserTabIfRequested()
+            }
+            .onChange(of: store.pendingLocalBrowserTabRestoreWorkspaceID) { _, _ in
+                restoreLocalBrowserTabIfRequested()
             }
             .onChange(of: browserStreamStore.panelDiscoveryRevision(in: workspace.rpcWorkspaceID.rawValue)) { _, _ in
                 store.refreshWorkspaceSelection()
@@ -282,6 +306,31 @@ struct WorkspaceDetailView: View {
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
+    }
+
+    private func terminalCreationRecovery(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    createTerminal()
+                } label: {
+                    Text(L10n.string("mobile.terminal.creationRetry", defaultValue: "Retry"))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("MobileTerminalCreationRetry")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.14))
+        .accessibilityIdentifier("MobileTerminalCreationRecovery")
     }
 
     #if os(iOS)
@@ -1082,6 +1131,7 @@ struct WorkspaceDetailView: View {
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
         _ = browserStore.openBrowser(for: workspaceID)
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
+        store.recordLastOpenedLocalBrowserTab(in: workspace.id)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
@@ -1099,6 +1149,7 @@ struct WorkspaceDetailView: View {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        store.recordLastOpenedBrowserStreamTab(panelID: panelID, in: workspace.id)
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
@@ -1118,6 +1169,7 @@ struct WorkspaceDetailView: View {
             simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
         }
         _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        store.recordLastOpenedSimulatorStreamTab(panelID: panelID, in: workspace.id)
         // One task, stop awaited before start: two independent tasks have no
         // ordering guarantee, and the reversed order would tear down the new
         // stream (or churn host sessions) right after it started.
@@ -1133,6 +1185,15 @@ struct WorkspaceDetailView: View {
                 workspaceID: workspaceID
             )
         }
+    }
+
+    /// Reopens the phone-local browser pane when the store's last-opened-tab
+    /// restore asked for it. The local browser lives in this view layer's
+    /// `BrowserSurfaceStore`, so the composite hands the reopen here as a
+    /// one-shot intent; opening is idempotent for an already-open pane.
+    private func restoreLocalBrowserTabIfRequested() {
+        guard store.consumeLocalBrowserTabRestore(for: workspace.id) else { return }
+        _ = browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
     private func stopActiveBrowserStream() {

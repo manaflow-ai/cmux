@@ -45,6 +45,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 
+# Distribution archives, including the INTERNAL TestFlight lane, are always
+# production-level artifacts. These values are exported for the cloud archive
+# serializer and repeated as xcodebuild settings in the local fallback.
+export CMUX_IOS_AUTH_ENV=production
+export CMUX_API_BASE_URL=https://cmux.com
+export CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+export CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+PRODUCTION_RUNTIME_BUILD_ARGS=(
+  CMUX_IOS_AUTH_ENV=production
+  CMUX_API_BASE_URL=https://cmux.com
+  CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+  CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+)
+
 LANE="beta"
 TAG="beta"
 # TestFlight orders by marketing version FIRST: uploading below the testers'
@@ -148,10 +162,12 @@ case "$LANE" in
     BETA_BUNDLE_ID="com.cmux.app"
     LANE_DISPLAY_NAME="cmux"
     [[ "$TAG" == "beta" ]] && TAG="appstore"
-    # The App Store lane ships with crash reporting off. upload-testflight.sh
-    # enforces this at export time, so the fleet archive must bake it in (the
-    # hq cloud script forwards this env into the remote xcodebuild archive).
-    export CMUX_CRASH_REPORTING_ENABLED="NO"
+    # The App Store lane ships with crash reporting on, matching beta.
+    # upload-testflight.sh enforces the lane value at export time, so the
+    # fleet archive must bake it in (the hq cloud script forwards this env
+    # into the remote xcodebuild archive). The in-app telemetry consent
+    # toggle remains the user-facing opt-out for crash reports and analytics.
+    export CMUX_CRASH_REPORTING_ENABLED="YES"
     ;;
   *)
     die "unsupported lane: $LANE (expected beta or appstore)"
@@ -251,6 +267,7 @@ build_archive_local() {
       ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \

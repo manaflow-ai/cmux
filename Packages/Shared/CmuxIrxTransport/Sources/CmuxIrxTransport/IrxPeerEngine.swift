@@ -16,17 +16,23 @@ public struct IrxClientSession: Sendable {
     public let admit: IrxAdmit
     public let control: IrxLaneStream
     public let establishedAt: Date
+    /// Monotonic counterpart used for liveness decisions. Wall-clock time is
+    /// retained for diagnostics only because clock rollback must not suppress
+    /// a foreground zombie replacement.
+    public let establishedAtMonotonic: ContinuousClock.Instant
 
     public init(
         connection: IrxConnection,
         admit: IrxAdmit,
         control: IrxLaneStream,
-        establishedAt: Date
+        establishedAt: Date,
+        establishedAtMonotonic: ContinuousClock.Instant = .now
     ) {
         self.connection = connection
         self.admit = admit
         self.control = control
         self.establishedAt = establishedAt
+        self.establishedAtMonotonic = establishedAtMonotonic
     }
 }
 
@@ -62,6 +68,11 @@ public actor IrxPeerEngine {
     private var session: IrxClientSession?
     private var state: IrxSessionState = .idle
     private var dialTask: Task<IrxClientSession, any Error>?
+    /// Monotonic owner token for the dial slot. Cancelling a task does not
+    /// guarantee that its underlying transport stops before its waiter
+    /// resumes, so completion must prove it still owns the slot before it can
+    /// clear or adopt anything.
+    private var dialGeneration: UInt64 = 0
     private var redialTimer: Task<Void, Never>?
     private var terminationWatcher: Task<Void, Never>?
     private var backoff: Duration
@@ -123,7 +134,7 @@ public actor IrxPeerEngine {
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
-        if let session, await !session.connection.isClosed {
+        if let session, await !session.connection.isClosed, !explicit {
             return session
         }
         if let parkedCode, !explicit {
@@ -131,14 +142,35 @@ public actor IrxPeerEngine {
                 code: IrxCloseCode(rawValue: parkedCode) ?? .invalidGrant)
         }
         if explicit {
+            // An explicit replacement invalidates the old session before the
+            // new dial starts. Keeping it here after a failed replacement
+            // makes currentSession() return a zombie and suppresses every
+            // subsequent automatic dial.
+            let previous = session
+            session = nil
+            terminationWatcher?.cancel()
+            terminationWatcher = nil
             parkedCode = nil
             cooldownUntil = nil
-            dialTask?.cancel()
-            dialTask = nil
+            invalidateDial()
+            if let previous {
+                Task {
+                    await previous.connection.close(
+                        code: .explicitRedial,
+                        origin: .local
+                    )
+                }
+            }
         }
         if let dialTask {
             record("dial-joined", ["trigger": trigger])
-            return try await dialTask.value
+            let generation = dialGeneration
+            let joined = try await dialTask.value
+            guard dialGeneration == generation else {
+                await joined.connection.close(code: .explicitRedial, origin: .local)
+                throw CancellationError()
+            }
+            return joined
         }
         if !explicit, let cooldownUntil, ContinuousClock.now < cooldownUntil {
             // The scheduled redial owns the next attempt; fail fast instead
@@ -149,24 +181,36 @@ public actor IrxPeerEngine {
         redialTimer = nil
         setState(.connecting)
         record("dial-started", ["trigger": trigger])
+        dialGeneration &+= 1
+        let generation = dialGeneration
         let task = Task<IrxClientSession, any Error> {
             try await self.dialOnce()
         }
         dialTask = task
         do {
             let established = try await task.value
+            guard dialGeneration == generation else {
+                await established.connection.close(
+                    code: .explicitRedial, origin: .local)
+                throw CancellationError()
+            }
             dialTask = nil
             adopt(established)
             return established
         } catch let denial as IrxAdmissionDenied {
+            guard dialGeneration == generation else { throw denial }
             dialTask = nil
             parkedCode = denial.code.rawValue
             setState(.closed(code: denial.code.rawValue))
             record("dial-denied", ["code": denial.code.rawValue])
             throw denial
         } catch {
+            guard dialGeneration == generation else { throw error }
             dialTask = nil
-            guard !Task.isCancelled else { throw error }
+            // Cancellation is always owner-driven (stop(), an explicit
+            // replacement, or a hint-race redial); the canceller owns the
+            // next state, so no failure bookkeeping and no redial schedule.
+            if error is CancellationError || Task.isCancelled { throw error }
             lastDialError = error
             setState(.closed(code: "dial-failed"))
             record(
@@ -184,6 +228,57 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
+    /// Foreground resume: a session that has not proven liveness recently is
+    /// treated as a zombie (a suspension can kill the QUIC connection without
+    /// isClosed flipping) and replaced IMMEDIATELY — close + explicit redial —
+    /// instead of waiting out keepalive strike detection. Fresh sessions and
+    /// no-session states fall through to a normal warm-up.
+    public func foregroundKick(staleAfter: Duration = .seconds(15)) {
+        Task {
+            if let session = await self.currentSessionForKick() {
+                // Liveness evidence is a recent pong OR a recent admission: a
+                // just-established session has no pong yet and must not be
+                // executed as a zombie while its first keepalive is in flight
+                // (that exact race produced the foreground redial storm).
+                let now = ContinuousClock.now
+                let pongAge = (await session.connection.lastPongAt).map { now - $0 }
+                let sessionAge = session.establishedAtMonotonic.duration(to: now)
+                let liveness = pongAge.map { min($0, sessionAge) } ?? sessionAge
+                if liveness > staleAfter {
+                    self.record("foreground-stale-redial", [:])
+                    _ = try? await self.ensureSession(explicit: true, trigger: "foreground-stale")
+                    return
+                }
+            }
+            _ = try? await self.ensureSession(trigger: "foreground")
+        }
+    }
+
+    private func currentSessionForKick() -> IrxClientSession? {
+        session
+    }
+
+    /// Event-driven relay race: fresh discovery just revealed a different
+    /// home relay for this peer. An admitted session passing keepalives is
+    /// never touched. An in-flight dial (aimed at the stale relay, where it
+    /// would sit out a silent black-hole timeout) is cancelled and replaced
+    /// immediately; a pending backoff redial is pulled forward. Parked
+    /// denials stay parked: authorization state is not a routing question.
+    public func relayHintChanged(trigger: String) {
+        if case .ready = state { return }
+        if parkedCode != nil { return }
+        guard dialTask != nil || redialTimer != nil || cooldownUntil != nil else {
+            return
+        }
+        record("hint-race-redial", ["trigger": trigger])
+        invalidateDial()
+        redialTimer?.cancel()
+        redialTimer = nil
+        cooldownUntil = nil
+        backoff = config.initialBackoff
+        Task { _ = try? await self.ensureSession(trigger: trigger) }
+    }
+
     public func currentSession() async -> IrxClientSession? {
         if let session, await !session.connection.isClosed {
             return session
@@ -195,8 +290,7 @@ public actor IrxPeerEngine {
     public func stop(code: IrxCloseCode = .userRequested) async {
         redialTimer?.cancel()
         redialTimer = nil
-        dialTask?.cancel()
-        dialTask = nil
+        invalidateDial()
         terminationWatcher?.cancel()
         terminationWatcher = nil
         if let session {
@@ -208,12 +302,26 @@ public actor IrxPeerEngine {
     }
 
     private func adopt(_ established: IrxClientSession) {
+        let previous = session
         session = established
         backoff = config.initialBackoff
         parkedCode = nil
         setState(.ready(session: established.admit.session))
         watchTermination(of: established)
         startKeepalive(of: established)
+        // Replacement is make-before-break. The new session is published and
+        // keepalive-armed before the old connection is closed, so a planned
+        // RPC/client handoff cannot create a peer-visible outage. The old
+        // termination watcher is already cancelled by watchTermination.
+        if let previous,
+           previous.admit.session != established.admit.session {
+            Task {
+                await previous.connection.close(
+                    code: .explicitRedial,
+                    origin: .local
+                )
+            }
+        }
     }
 
     private func startKeepalive(of established: IrxClientSession) {
@@ -296,6 +404,12 @@ public actor IrxPeerEngine {
         for continuation in stateContinuations.values {
             continuation.yield(next)
         }
+    }
+
+    private func invalidateDial() {
+        dialGeneration &+= 1
+        dialTask?.cancel()
+        dialTask = nil
     }
 
     private func removeStateContinuation(_ id: Int) {

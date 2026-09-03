@@ -1,4 +1,6 @@
 use super::*;
+use crate::JournalIngress;
+use crate::resource::TerminalPublicId;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -14,14 +16,26 @@ pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
 
-pub(crate) type PendingAgentHookProjection = (String, String, String, u64, JournalIngress);
-pub(crate) type PendingAgentHookCursor = (u64, String, i64);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentHookRetryClass {
     Transient,
     Permanent,
 }
+
+/// Why a durable hook projection stays pending, bounded by the retry budget
+/// that `retry_class` selects.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AgentHookPendingFailure<'a> {
+    pub error: &'a str,
+    pub retry_class: AgentHookRetryClass,
+}
+
+/// `(producer_id, origin, idempotency_key, event_sequence, ingress)` of one
+/// pending hook projection row.
+pub(crate) type PendingAgentHookProjection = (String, String, String, u64, JournalIngress);
+
+/// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
+pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -585,10 +599,10 @@ impl WorkspaceRegistry {
         idempotency_key: &str,
         sequence: u64,
         ingress: &JournalIngress,
-        error: &str,
-        retry_class: AgentHookRetryClass,
+        failure: AgentHookPendingFailure<'_>,
     ) -> anyhow::Result<()> {
         const MAX_ERROR_CHARS: usize = 1_024;
+        let AgentHookPendingFailure { error, retry_class } = failure;
         let ingress_json = serde_json::to_string(ingress)?;
         let terminal_id = ingress
             .subjects
@@ -827,53 +841,6 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_agent_projection_with_hook_state(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_revision: Option<u64>,
-        terminal_id: &TerminalPublicId,
-        result: &Value,
-        deltas: &Value,
-        hook_state: Option<&AgentHookProjectionState>,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
-            mutation,
-            fingerprint,
-            expected_revision,
-            terminal_id,
-            result,
-            deltas,
-            hook_state,
-            None,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_agent_projection_with_hook_state_and_sequence(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_revision: Option<u64>,
-        terminal_id: &TerminalPublicId,
-        result: &Value,
-        deltas: &Value,
-        hook_state: Option<&AgentHookProjectionState>,
-        journal_sequence: u64,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
-            mutation,
-            fingerprint,
-            expected_revision,
-            terminal_id,
-            result,
-            deltas,
-            hook_state,
-            Some(journal_sequence),
-        )
-    }
-
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -887,7 +854,8 @@ impl WorkspaceRegistry {
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
 
-    pub fn commit_agent_projection(
+    #[cfg(test)]
+    pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -896,7 +864,7 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
+        self.commit_agent_projection_with_hook_state(
             mutation,
             fingerprint,
             expected_revision,
@@ -909,7 +877,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn commit_agent_projection_inner(
+    pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -1641,7 +1609,6 @@ impl WorkspaceRegistry {
         u64::try_from(count).context("resource agent projection count is negative")
     }
 
-    #[cfg(test)]
     #[cfg(test)]
     pub(crate) fn agent_hook_pending_retry_state_for_test(
         &self,

@@ -5,12 +5,24 @@ import SwiftUI
 struct AccountSignInView: View {
     let model: AccountSignInModel
     let automaticallyStartsSignIn: Bool
+    /// Idle-state heading; hosts embed their own context (e.g. the Cloud
+    /// machines pane) so they never stack a second header above this view.
+    var idleTitle = String(localized: "account.signIn.heading", defaultValue: "Sign in to cmux")
+    /// Idle-state supporting line under ``idleTitle``.
+    var idleSubtitle = String(
+        localized: "account.signIn.prompt",
+        defaultValue: "Continue with your cmux account."
+    )
 
     var body: some View {
         VStack(spacing: 16) {
             switch model.phase {
             case .idle:
-                AccountSignInIdleView(onSignIn: model.presentSignIn)
+                AccountSignInIdleView(
+                    title: idleTitle,
+                    subtitle: idleSubtitle,
+                    onSignIn: model.presentSignIn
+                )
             case let .loading(stage):
                 AccountSignInLoadingView(
                     stage: stage,
@@ -45,6 +57,8 @@ struct AccountSignInView: View {
 }
 
 private struct AccountSignInIdleView: View {
+    let title: String
+    let subtitle: String
     let onSignIn: () -> Void
 
     var body: some View {
@@ -52,12 +66,9 @@ private struct AccountSignInIdleView: View {
             Image(systemName: "person.crop.circle.badge.plus")
                 .cmuxFont(size: 34)
                 .foregroundStyle(.tint)
-            Text(String(localized: "account.signIn.heading", defaultValue: "Sign in to cmux"))
+            Text(title)
                 .cmuxFont(.title2, weight: .semibold)
-            Text(String(
-                localized: "account.signIn.prompt",
-                defaultValue: "Continue with your cmux account."
-            ))
+            Text(subtitle)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             Button(String(localized: "account.signIn.start", defaultValue: "Sign In"), action: onSignIn)

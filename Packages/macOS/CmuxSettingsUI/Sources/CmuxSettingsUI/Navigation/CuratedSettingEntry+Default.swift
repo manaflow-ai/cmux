@@ -97,6 +97,15 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "notifications.agentIdleReminder agent waiting input idle reminder nag notify claude"
             ),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
+            .init(
+                section: .app,
+                id: "notification-sound-overrides",
+                title: String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.app.notification-sound-overrides",
+                    defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
+                )
+            ),
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 

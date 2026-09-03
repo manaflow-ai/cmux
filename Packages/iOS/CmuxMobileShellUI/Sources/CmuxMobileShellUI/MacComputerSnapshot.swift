@@ -44,6 +44,12 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// still reconnect or remove it. Labeled so several identically named
     /// entries stop looking interchangeable.
     var isOlderDuplicate: Bool = false
+    /// Whether the phone can control this Mac's keep-awake state right now
+    /// (live connection + the Mac advertises the caffeine RPC).
+    var supportsCaffeineControl: Bool = false
+    /// This Mac's cmux-owned keep-awake state. `nil` while unknown, on Macs
+    /// without the capability, and whenever the phone isn't connected.
+    var caffeineEnabled: Bool?
     /// This Computer's effective connection method (its own stored choice,
     /// falling back to the app default). Decides the list section.
     var connectionMethod: MobileConnectionMethod?

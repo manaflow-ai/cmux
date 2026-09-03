@@ -213,11 +213,11 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut agents = self.durable_agents(terminal, state)?;
         agents.retain(|agent| {
-            !(agent
-                .source_session
-                .as_deref()
-                .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
-                || agent.source == "hook" && agent.state == "done")
+            (agent.source != "hook" || agent.state != "done")
+                && !agent
+                    .source_session
+                    .as_deref()
+                    .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
         });
         for agent in &mut agents {
             if agent.source_session.as_deref().is_some_and(|value| {
@@ -475,7 +475,7 @@ impl WorkspaceRegistry {
                 ) = row?;
                 validate_identifier("frontend", &frontend)?;
                 validate_identifier("projection scope", &scope)?;
-                FrontendProjectionPublicId::parse(subject_key.clone())?;
+                FrontendProjectionPublicId::parse(subject_key.as_str())?;
                 anyhow::ensure!(
                     schema_version
                         == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),

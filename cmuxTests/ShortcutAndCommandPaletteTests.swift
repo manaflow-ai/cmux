@@ -883,7 +883,6 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
 
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudOpenCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))

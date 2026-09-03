@@ -324,7 +324,7 @@ fn terminal_process_get(
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
     }
-    if let Some(cwd) = surface.pwd().or_else(|| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.local_cwd() {
         value["cwd"] = json!(cwd);
     }
     Ok(value)
@@ -2393,6 +2393,7 @@ mod tests {
             }
         }
 
+        surface.set_test_pwd(Some("file:///tmp/hostless".into()));
         let process =
             dispatch(&mux, parsed_request("terminal.process.get", &selectors, json!({}), None))
                 .unwrap();
@@ -2400,7 +2401,7 @@ mod tests {
         assert_eq!(process["argv"], json!(["fake-shell", "argument with spaces"]));
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
-        assert!(process.get("cwd").is_none_or(Value::is_string));
+        assert_eq!(process["cwd"], "/tmp/hostless");
         let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
         assert!(foreground.is_null() || foreground.is_string());
     }

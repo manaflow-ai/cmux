@@ -145,9 +145,11 @@ export function PricingIntervalSelector({
         <span
           className="ml-1.5 text-xs font-medium"
           style={{
+            // Selected pill is bg-foreground/text-background; the label must
+            // match that text, not the accent, to stay readable on the pill.
             color:
               interval === "year"
-                ? "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))"
+                ? "inherit"
                 : "var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))",
           }}
         >

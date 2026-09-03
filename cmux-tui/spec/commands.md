@@ -141,13 +141,13 @@ browser surface still has one live tab. When a browser tab becomes hidden, the
 client sends `release-surface-size`; detaching or disconnecting also removes
 its report. Internal server-only resizes do not update client reports.
 
-Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
+Optional-size creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `new-pane`, `new-pane-right`, `split`, and `run`. The `split` command uses `dir:"right"` or `dir:"down"`; receipt operations may use `split-right` or `split-down`. `create-terminal` and `create-surface-with-receipt` also accept dimensions but require the pair. `attach-surface` requires the pair when `attach-initial-size` is used. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal`, `create-surface-with-receipt`, and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
@@ -311,6 +311,62 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
+### server-stats
+
+| Field | Value |
+| --- | --- |
+| name | `server-stats` |
+| status | implemented |
+| since | protocol 12, capability `server-stats-v1` |
+
+Reports where the daemon spends its time so an operator or agent can locate a
+bottleneck without sampling the process: registry mutex contention with the
+source site that holds it, journal writer batch shape and commit latency, and
+control-socket admission. Counters accumulate since daemon start. The command
+reads atomics and never touches SQLite or the journal, so it is safe to poll.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  registry_lock:object{
+    wait_us:histogram, hold_us:histogram,
+    contended_acquisitions:uint64, stalls:uint64,
+    holder:object{site:string,held_for_us:uint64}|null,
+    last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+    top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
+  },
+  journal_writer:object{
+    batches:uint64, terminal_events:uint64, durable_events:uint64,
+    batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
+    receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,
+    terminal_queued:uint64, durable_queued:uint64,
+    phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
+  }|null,
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+}
+histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+```
+
+`schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
+events. Percentiles are log-linear bucket upper bounds and overestimate by at
+most 25%. `site` values are `file:line` of the code that acquired the registry
+lock. `contended_acquisitions` counts waits of at least 1 ms and `stalls`
+counts waits of at least 100 ms. `journal_writer` is `null` for ephemeral
+sessions. `connections.refused` counts sockets dropped at `limit`; for hook
+producers each one is a lost event.
+
+Errors: `bad request: ...`.
+
+CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+stdout renders the object as nested `key: value` lines; `--json` prints the
+exact result object. Against a server without `server-stats-v1` the CLI exits
+1 with `server.stats_unsupported`.
+
 ### set-client-info
 
 | Field | Value |
@@ -399,6 +455,39 @@ Example:
 ```json
 {"id":4,"cmd":"list-clients"}
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### machine-usage
+
+| Field | Value |
+| --- | --- |
+| name | `machine-usage` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Returns the machine-level model spend readout hosted by this daemon. Inside a cmux Cloud VM the daemon polls coderouter for the trailing-window totals of the machine's model traffic; anywhere else, or while coderouter has no ready totals, `usage` is null and frontends hide the readout. Servers advertise `machine-usage-v1` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  usage:object{
+    vm_id:string,
+    period_days:uint32,
+    total_tokens:uint64,
+    api_equivalent_usd:float64,
+    as_of:string|null
+  }|null
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"machine-usage"}
+{"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
 ```
 
 ### register-browser-provider / get-browser-provider
@@ -562,7 +651,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Requests that attached TUI frontends re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+Requests the server owner and attached TUI frontends to re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback). Interactive owners redraw; headless owners apply server-owned settings without a TUI frame.
 
 Params: none.
 
@@ -572,7 +661,7 @@ Result:
 object{reloaded:true,path:string|null}
 ```
 
-Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates server launch options for future browser surfaces; existing browser runtimes and already-open browser surfaces may require restart for browser endpoint/profile/binary changes.
 
 Errors: `bad request: ...`.
 
@@ -2847,7 +2936,16 @@ Errors:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+`index`. The destination index uses the pre-move tab list's insertion
+coordinates. For a same-pane move, the server removes the tab, subtracts one
+from `index` when it is greater than the tab's current index, then clamps the
+adjusted index to the last valid position in the shortened list. For example,
+with tabs `[A,B,C]`, moving `A` with `index:2` produces `[B,A,C]`, while
+`index:3` produces `[B,C,A]`; `index:0` and `index:1` leave the order unchanged.
+A same-pane no-op returns `ok:true` and leaves the active tab unchanged. A
+cross-pane move removes the tab from its source, collapses an empty source
+pane, and inserts it at the clamped destination index.
 
 Params:
 
@@ -2867,10 +2965,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface <id>` | Surface id does not exist |
-| `unknown pane <id>` | Destination pane does not exist |
+| `unknown surface/pane` | The surface, destination pane, or the surface's current pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 

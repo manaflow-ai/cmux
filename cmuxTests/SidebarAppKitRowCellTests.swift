@@ -24,6 +24,7 @@ struct SidebarAppKitRowCellTests {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
+            isMuted: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
@@ -153,6 +154,7 @@ struct SidebarAppKitRowCellTests {
                 canMarkRead: false,
                 canMarkUnread: false,
                 hasLatestNotification: false,
+                allNotificationsMuted: false,
                 notifications: []
             )
         )

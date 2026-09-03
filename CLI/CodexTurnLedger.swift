@@ -13,7 +13,7 @@ final class CodexTurnLedger {
         case promptSubmit(turnID: String?)
         case subagentStart(id: String?, turnID: String?)
         case subagentStop(id: String?, turnID: String?)
-        case stop(turnID: String?)
+        case stop(turnID: String?, claimNotification: Bool, requireCurrentTurn: Bool)
         case sessionEnd
         case observation
     }
@@ -55,9 +55,7 @@ final class CodexTurnLedger {
         self.fileManager = fileManager
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
-
     deinit {}
-
     func sessionStart(
         sessionID: String,
         workspaceID: String?,
@@ -72,73 +70,71 @@ final class CodexTurnLedger {
             invocation: invocation
         )
     }
-
     func promptSubmit(
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation,
+        allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         try apply(
             .promptSubmit(turnID: turnID),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )
     }
-
     func subagentStart(
         sessionID: String,
         agentID: String?,
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation, allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         try apply(
             .subagentStart(id: agentID, turnID: turnID),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation, allowCreate: allowCreate
         )
     }
-
     func subagentStop(
         sessionID: String,
         agentID: String?,
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation, allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         try apply(
             .subagentStop(id: agentID, turnID: turnID),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation, allowCreate: allowCreate
         )
     }
-
     func stop(
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation,
+        claimNotification: Bool = true, allowCreate: Bool = true, requireCurrentTurn: Bool = false
     ) throws -> CodexTurnLedgerDecision {
         try apply(
-            .stop(turnID: turnID),
+            .stop(turnID: turnID, claimNotification: claimNotification, requireCurrentTurn: requireCurrentTurn),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation, allowCreate: allowCreate
         )
     }
-
     func sessionEnd(
         sessionID: String,
         workspaceID: String?,
@@ -153,28 +149,26 @@ final class CodexTurnLedger {
             invocation: invocation
         )
     }
-
     func observe(
         sessionID: String,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation, allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         try apply(
             .observation,
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation, allowCreate: allowCreate
         )
     }
-
     private func apply(
         _ event: Event,
         sessionID: String,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation, allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         let normalizedSessionID = Self.normalized(sessionID) ?? ""
         guard !normalizedSessionID.isEmpty else { return .ignored }
@@ -186,6 +180,7 @@ final class CodexTurnLedger {
             let ownerRecord = normalizedSurfaceID.isEmpty
                 ? nil
                 : state.surfaceOwners[normalizedSurfaceID].flatMap { state.records[$0] }
+            if !allowCreate, existing == nil, ownerRecord == nil { return .ignored }
             let ownership = self.ownership(
                 event: event,
                 sessionID: normalizedSessionID,
@@ -311,8 +306,23 @@ final class CodexTurnLedger {
                         shouldNotify: false
                     )
                 }
-            case .stop(let turnID):
+            case .stop(let turnID, let claimNotification, let requireCurrentTurn):
                 let key = self.turnKey(turnID ?? record.activeTurnID)
+                if requireCurrentTurn {
+                    if Self.normalized(record.activeTurnID) == nil,
+                       record.pendingTurns[key] == nil,
+                       !claimNotification {
+                        // An unattributed stop must not invent the @current
+                        // turn when the ledger has no current identity.
+                        return .ignored
+                    }
+                    if let incomingTurnID = Self.normalized(turnID),
+                       let activeTurnID = Self.normalized(record.activeTurnID) {
+                        if incomingTurnID != activeTurnID, record.pendingTurns[key] == nil {
+                            return .ignored
+                        }
+                    }
+                }
                 let active = self.activeChildCount(record)
                 if active > 0 {
                     record.pendingTurns[key] = CodexTurnLedgerPending(turnID: Self.normalized(turnID ?? record.activeTurnID))
@@ -325,7 +335,7 @@ final class CodexTurnLedger {
                     )
                 } else if record.settledTurnIDs.contains(key) {
                     let shouldNotify = !record.notifiedTurnIDs.contains(key)
-                    if shouldNotify {
+                    if claimNotification, shouldNotify {
                         record.notifiedTurnIDs.append(key)
                     }
                     decision = self.decision(
@@ -339,7 +349,7 @@ final class CodexTurnLedger {
                     record.pendingTurns.removeValue(forKey: key)
                     record.settledTurnIDs.append(key)
                     let shouldNotify = !record.notifiedTurnIDs.contains(key)
-                    if shouldNotify { record.notifiedTurnIDs.append(key) }
+                    if claimNotification, shouldNotify { record.notifiedTurnIDs.append(key) }
                     decision = self.decision(
                         ownership: .foreground,
                         settlement: .settled,

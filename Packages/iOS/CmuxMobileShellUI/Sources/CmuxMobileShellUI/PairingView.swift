@@ -79,7 +79,7 @@ struct PairingView: View {
                         .accessibilityIdentifier("MobileAddDeviceNameField")
 
                         TextField(
-                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
+                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"),
                             text: $host
                         )
                         .focused($focusedField, equals: .host)
@@ -102,7 +102,7 @@ struct PairingView: View {
                             Text(MobilePairingScannerSheet.guidanceText)
                             Text(L10n.string(
                                 "mobile.addDevice.help",
-                                defaultValue: "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+                                defaultValue: "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
                             ))
                         }
                     }
@@ -136,7 +136,7 @@ struct PairingView: View {
                                     .textSelection(.enabled)
                                     .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
 
-                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
+                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."))
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -376,7 +376,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
+            defaultValue: "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
         )
     }
 

@@ -95,6 +95,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.paneFlashColor",
         "notifications.showInMenuBar",
         "notifications.sound",
+        "notifications.soundOverrides",
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
         "sidebar.hideAllDetails",

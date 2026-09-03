@@ -132,6 +132,7 @@ class TerminalController {
     /// Actor-isolated ten-minute cache for mobile task model discovery.
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
+    private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
@@ -234,12 +235,9 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
-    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
-    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
@@ -515,7 +513,15 @@ class TerminalController {
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(
                 target: serverEventTarget,
-                markerStore: socketPathMarkerStore
+                markerStore: socketPathMarkerStore,
+                failureCaptureGate: SocketListenerFailureCaptureGate(
+                    // Deleted /tmp dev sockets are routine on dev machines
+                    // (cleanup scripts) and the path monitor self-heals, so
+                    // debug builds keep path.missing as breadcrumbs only.
+                    capturesPathMissingFailures: !SocketControlSettings.isDebugLikeBundleIdentifier(
+                        socketMarkerBundleIdentifier
+                    )
+                )
             )
         )
         self.socketServer = socketServer
@@ -548,10 +554,25 @@ class TerminalController {
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleSocketReadSnapshotRefresh()
+                // These topology notifications are posted by MainActor-owned
+                // workspace/window mutations. A nil queue keeps invalidation
+                // synchronous at the notification boundary.
+                queue: nil
+            ) { [weak self] notification in
+                let topologyChanged = name == .mainWindowContextsDidChange
+                    || name == .workspaceOrderDidChange
+                    || (name == .workspacePaneGeometryDidChange
+                        && notification.userInfo?[GhosttyNotificationKey.topologyChanged] as? Bool == true)
+                // This observer is explicitly installed on the main queue.
+                // Invalidate before creating the deferred publication task so
+                // a queued socket read cannot observe a completed claim after
+                // the topology has already changed.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if topologyChanged {
+                        self.invalidateSocketHandleTopologyRefresh()
+                    }
+                    self.scheduleSocketReadSnapshotRefresh()
                 }
             }
         }
@@ -619,7 +640,7 @@ class TerminalController {
         switch request.command {
         case .toggle, .show, .focus:
             return true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             return focus
         case .hide, .getState:
             return false
@@ -671,11 +692,11 @@ class TerminalController {
         }
     }
 
-    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () throws -> T) rethrows -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return try body()
     }
 
     /// The stack of socket command keys currently executing on this thread
@@ -914,29 +935,12 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
-    private nonisolated static func shouldCaptureSocketListenerFailure(
-        message: String,
-        stage: String,
-        path: String,
-        errnoCode: Int32?
-    ) -> Bool {
-        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
-        let now = Date()
-        socketListenerFailureCaptureLock.lock()
-        defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
-            return false
-        }
-        socketListenerFailureLastCapturedAt[key] = now
-        return true
-    }
-
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
     private nonisolated static func makeSocketServerEvents(
         target: ServerEventTarget,
-        markerStore: SocketPathMarkerStore
+        markerStore: SocketPathMarkerStore,
+        failureCaptureGate: SocketListenerFailureCaptureGate
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -944,7 +948,7 @@ class TerminalController {
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
-                guard shouldCaptureSocketListenerFailure(
+                guard failureCaptureGate.shouldCapture(
                     message: message,
                     stage: stage,
                     path: data["path"] as? String ?? "",
@@ -956,6 +960,7 @@ class TerminalController {
             },
             listenerDidStart: { path, _ in
                 // @MainActor closure, invoked synchronously inside start().
+                failureCaptureGate.listenerDidStart()
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
@@ -1195,6 +1200,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "surface.read_selection" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 5
+                ) {
+                    await self.v2SurfaceReadSelection(params: parsedRequest.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -1207,7 +1220,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
@@ -1222,6 +1238,12 @@ class TerminalController {
                         )
                     }
                 }
+            }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
@@ -1563,6 +1585,26 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "vault.sessions":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultSessions(params: request.params)
+            }
+        case "vault.search":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultSearch(params: request.params)
+            }
+        case "vault.checkpoints":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpoints(params: request.params)
+            }
+        case "vault.checkpoint":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpointCreate(params: request.params)
+            }
+        case "vault.fork":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultFork(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "surface.ssh_session_attach.resolve":
@@ -1691,6 +1733,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("coderouter."):
+            return socketWorkerCoderouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2801,6 +2845,11 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "vault.sessions",
+            "vault.search",
+            "vault.checkpoints",
+            "vault.checkpoint",
+            "vault.fork",
             "caffeine.status",
             "caffeine.set",
             "comments.list",
@@ -2843,6 +2892,13 @@ class TerminalController {
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
+            "vm.publication_list",
+            "vm.publication_create",
+            "vm.publication_verify",
+            "vm.publication_update",
+            "vm.publication_delete",
+            "vm.domain_list",
+            "vm.domain_verify",
             "vm.create",
             "vm.base_open",
             "vm.base_reset",
@@ -2865,15 +2921,32 @@ class TerminalController {
             "vm.terminal_open",
             "vm.terminal_new",
             "vm.workspace_new",
+            "vm.workspace_open",
+            "vm.workspace_close",
+            "vm.workspace_delete",
+            "vm.workspace_rename",
+            "vm.terminal_close",
+            "vm.terminal_write",
+            "vm.terminal_read",
+            "vm.terminal_wait",
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",
+            "vm.cloud_agent_open",
+            "vm.cloud_prompt",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "coderouter.claude_upstream.get",
+            "coderouter.claude_upstream.set",
+            "coderouter.claude_upstream.add",
+            "coderouter.claude_upstream.update",
+            "coderouter.claude_upstream.remove",
+            "coderouter.claude_upstream.clear",
+            "coderouter.machines",
             "window.list",
             "window.current",
             "window.focus",
@@ -2967,6 +3040,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -3895,14 +3969,26 @@ class TerminalController {
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
                 // can then return a stable non-zero auth-required failure
-                // instead of presenting a generic backend error.
-                return v2Error(
-                    id: id,
-                    code: "auth_required",
-                    message: String(
+                // instead of presenting a generic backend error. A server 401
+                // means the app still holds a session the service rejects, so
+                // `cmux auth login` alone would short-circuit on "already
+                // signed in" — the fix is sign out, then sign in.
+                let message: String
+                if case .httpStatus = vmError {
+                    message = String(
+                        localized: "socket.cloudVM.sessionRejected",
+                        defaultValue: "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+                    )
+                } else {
+                    message = String(
                         localized: "socket.cloudVM.authRequired",
                         defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
                     )
+                }
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: message
                 )
             }
             return v2Error(
@@ -3931,7 +4017,13 @@ class TerminalController {
               !code.isEmpty else {
             return nil
         }
-        return ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        // The server trace id (support reference) travels with the structured
+        // error so the CLI and scripts can log it without parsing display text.
+        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
+            payload["trace_id"] = traceId
+        }
+        return payload
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
@@ -4028,7 +4120,7 @@ class TerminalController {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
@@ -4092,6 +4184,7 @@ class TerminalController {
                 }
             }
         }
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 
     // MARK: - V2 Context Resolution
@@ -7278,38 +7371,41 @@ class TerminalController {
             }
             if let url,
                respectExternalOpenRules,
-               preferredProfileID == nil,
-               BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                guard NSWorkspace.shared.open(url) else {
+               preferredProfileID == nil {
+                switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+                case .notConfigured:
+                    break
+                case .failed:
                     result = .err(
                         code: "external_open_failed",
                         message: "Failed to open URL externally",
                         data: ["url": url.absoluteString]
                     )
                     return
+                case .opened:
+                    let windowId = v2BrowserWindowID(
+                        for: container.host,
+                        tabManager: tabManager
+                    )
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": container.ownerID.uuidString,
+                        "workspace_ref": v2Ref(
+                            kind: .workspace,
+                            uuid: container.ownerID
+                        ),
+                        "pane_id": v2OrNull(nil),
+                        "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                        "surface_id": v2OrNull(nil),
+                        "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                        "created_split": false,
+                        "placement_strategy": "external",
+                        "opened_externally": true,
+                        "url": url.absoluteString
+                    ])
+                    return
                 }
-                let windowId = v2BrowserWindowID(
-                    for: container.host,
-                    tabManager: tabManager
-                )
-                result = .ok([
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "workspace_id": container.ownerID.uuidString,
-                    "workspace_ref": v2Ref(
-                        kind: .workspace,
-                        uuid: container.ownerID
-                    ),
-                    "pane_id": v2OrNull(nil),
-                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
-                    "surface_id": v2OrNull(nil),
-                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
-                    "created_split": false,
-                    "placement_strategy": "external",
-                    "opened_externally": true,
-                    "url": url.absoluteString
-                ])
-                return
             }
             v2MaybeFocusWindow(for: tabManager)
             switch container {
@@ -13020,6 +13116,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13058,6 +13161,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13112,6 +13222,7 @@ class TerminalController {
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
                     ),
+                    soundContext: meta?.soundContext,
                     correlationKey: meta?.correlationKey
                 )
                 return "OK"
@@ -13143,6 +13254,7 @@ class TerminalController {
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
                 ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13186,6 +13298,7 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

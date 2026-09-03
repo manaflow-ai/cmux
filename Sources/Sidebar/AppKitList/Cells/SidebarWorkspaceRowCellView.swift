@@ -27,6 +27,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
+    private let muteImageView = NSImageView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
@@ -38,7 +39,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Detail slots
     private let descriptionView = SidebarRowTextView(lines: 12)
     private let subtitleView = SidebarRowTextView(lines: 2)
-    private let compactStatusLine = SidebarRowCompactStatusLine()
     private let remoteTargetView = SidebarRowTextView(lines: 1)
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
@@ -68,6 +68,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var renameSession: SidebarRowInlineRenameSession?
     var isEditing: Bool { renameSession != nil }
     private var pumpCancellables: [AnyCancellable] = []
+    private weak var pumpWorkspace: Workspace?
+    private var pumpRebuild: (@MainActor () -> Void)?
     private var isPresentationActive = true
 
 #if DEBUG
@@ -75,27 +77,32 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// optimistic press/deselect, hover enforcement).
     var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
 #endif
-
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
+    /// container re-render; installation also replays the current model.
     func installPump(
         workspace: Workspace,
         rebuild: @escaping @MainActor () -> Void
     ) {
+        pumpRebuild = rebuild
+        guard pumpWorkspace !== workspace else { return }
         pumpCancellables.removeAll()
+        pumpWorkspace = workspace
         workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
+            .dropFirst()
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
+        rebuild()
     }
 
     /// Measurement/apply entry used by the pump path.
@@ -158,11 +165,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting; the status glyph, compact
-    /// status menu, and checklist controls act without activating the row,
+    /// close button closes without selecting; the status glyph and checklist
+    /// controls act without activating the row,
     /// exactly like their legacy SwiftUI Buttons).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
-        for control in [closeButton, statusGlyphButton, compactStatusLine, checklistSection] {
+        for control in [closeButton, statusGlyphButton, checklistSection] {
             if hitView === control || hitView.isDescendant(of: control) {
                 return true
             }
@@ -194,6 +201,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         pinImageView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(pinImageView)
+        muteImageView.imageScaling = .scaleProportionallyDown
+        contentContainer.addSubview(muteImageView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
@@ -214,9 +223,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             self.actions?.onOpenWorkspaceDescriptionURL(url)
         }
         contentContainer.addSubview(subtitleView)
-        compactStatusLine.isHidden = true
-        compactStatusLine.menuProvider = { [weak self] in self?.makeCompactStatusMenu() ?? NSMenu() }
-        contentContainer.addSubview(compactStatusLine)
         contentContainer.addSubview(remoteTargetView)
         contentContainer.addSubview(remoteStatusView)
         remoteReconnectButton.isBordered = false
@@ -291,6 +297,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
+        pumpWorkspace = nil
+        pumpRebuild = nil
         setPresentationActive(false)
         return postUpdateActions
     }
@@ -413,6 +421,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             pinImageView.contentTintColor = palette.secondary(0.8)
             pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
         }
+        muteImageView.isHidden = !snapshot.isMuted
+        if snapshot.isMuted {
+            muteImageView.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "bell.slash.fill", pointSize: model.scaled(9), weight: .semibold
+            )
+            muteImageView.contentTintColor = palette.secondary(0.8)
+            muteImageView.toolTip = String(
+                localized: "sidebar.mutedWorkspace.tooltip",
+                defaultValue: "Notifications muted for this workspace"
+            )
+        }
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
         if media.isPlayingAudio {
@@ -476,6 +495,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.stringValue = boundedTitle
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
+        titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
         let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
@@ -533,18 +553,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
-        }
-
-        // Compact status row (legacy `compactWorkspaceStatusMenu`): in
-        // hide-all-details mode, any visible status renders as a flag +
-        // "Status: X" line that opens the lanes menu.
-        let showsCompactStatus = model.todoControlsEnabled
-            && settings.hidesAllDetails
-            && snapshot.taskStatus != nil
-            && snapshot.todoStatusMenuModel != nil
-        compactStatusLine.isHidden = !showsCompactStatus
-        if showsCompactStatus, let taskStatus = snapshot.taskStatus {
-            compactStatusLine.configure(status: taskStatus, model: model, palette: palette)
         }
 
         // Remote
@@ -1000,44 +1008,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
-    /// The compact status line's lanes menu (legacy `compactWorkspaceStatusMenu`):
-    /// the Auto row, a divider, the five status lanes, a divider, then None —
-    /// selection checkmarks included, applying to this row's workspace only.
-    private func makeCompactStatusMenu() -> NSMenu? {
-        guard let menuModel = model?.snapshot.todoStatusMenuModel,
-              let actions else { return nil }
-        // Freeze the workspace-bound closures at menu-build time: menu
-        // tracking allows model updates, so a row recycled while its menu is
-        // open must not route the selection to the cell's NEW workspace.
-        let applyStatus = actions.applyTodoStatus
-        let hideStatus = actions.hideTodoStatus
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let lanes = WorkspaceTodoStatusLane.lanes(
-            inferred: menuModel.inferred,
-            activeOverride: menuModel.activeOverride,
-            isHidden: false
-        )
-        for lane in lanes {
-            if lane.isNone {
-                menu.addItem(.separator())
-            }
-            let item = SidebarRowClosureMenuItem(title: lane.title) {
-                if lane.isNone {
-                    hideStatus()
-                } else {
-                    applyStatus(lane.status)
-                }
-            }
-            item.state = lane.isSelected ? .on : .off
-            menu.addItem(item)
-            if lane.status == nil, !lane.isNone {
-                menu.addItem(.separator())
-            }
-        }
-        return menu
-    }
-
     func beginInlineRename() {
         guard let model, renameSession == nil else { return }
         let session = SidebarRowInlineRenameSession(
@@ -1167,6 +1137,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             place(pinImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
+        if !muteImageView.isHidden {
+            let side = model.scaled(9) + 4
+            place(muteImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + titleRowSpacing
+        }
         for view in [mediaAudioView, mediaMicView, mediaCameraView] where !view.isHidden {
             let side = model.scaled(9) + 4
             place(view, size: NSSize(width: side, height: side), centerY: firstLineCenter)
@@ -1227,15 +1202,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         placeBlock(descriptionView)
         placeBlock(subtitleView)
-
-        if !compactStatusLine.isHidden {
-            y += spacing
-            let height = compactStatusLine.measuredHeight(width: contentWidth)
-            if apply {
-                compactStatusLine.frame = NSRect(x: leading, y: y, width: contentWidth, height: height)
-            }
-            y += height
-        }
 
         if !remoteTargetView.isHidden {
             y += model.latestNotificationText == nil ? 1 : 2

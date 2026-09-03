@@ -75,17 +75,13 @@ extension GitMetadataService {
             repository: repository,
             deadline: deadline
         )
-        guard references.checkedOutBranch != .unreadable else {
-            // Keep the root metadata paths so a later HEAD/index/config event
-            // can trigger a fresh plan instead of dropping the existing watcher.
-            pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
-                repository: repository,
-                deadline: deadline
-            )
-            forceWorkTreeRoots.insert(repository.workTreeRoot)
-            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
-        }
-        let branchContext = GitConfigBranchContext.resolved(references.branchName)
+        // Synthetic/incomplete repositories may not have an object database
+        // that Git plumbing can read even though their bounded HEAD file still
+        // identifies a branch. Preserve the conservative file-backed parser in
+        // that case so include sentinels and config roots remain observable.
+        let branchContext: GitConfigBranchContext = references.checkedOutBranch == .unreadable
+            ? .fileBacked
+            : .resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
             pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
                 repository: repository,

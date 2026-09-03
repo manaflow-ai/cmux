@@ -474,8 +474,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
                 }
             }
         }
-        connections.abort_all();
-        while connections.join_next().await.is_some() {}
+        connections.shutdown().await;
         let upgrades = shared
             .upgrades
             .lock()

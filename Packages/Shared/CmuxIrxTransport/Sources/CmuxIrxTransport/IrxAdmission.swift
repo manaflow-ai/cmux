@@ -33,25 +33,27 @@ public struct IrxAdmissionDenied: Error, Equatable, Sendable {
     }
 }
 
-/// Grant judgment seam: given the presented grant JWS and the TLS-proved
-/// remote key, either return the admitted peer tuple or throw
-/// ``IrxAdmissionDenied``. Implemented app-side with the broker's pinned
-/// verification keys; deliberately OFFLINE (no backend call sits on the
-/// admission path - revocations enforce at the next admission).
+/// Admission judgment seam: given the (optional) presented grant JWS and the
+/// TLS-proved remote key, either return the admitted peer tuple or throw
+/// ``IrxAdmissionDenied``. The list judge ignores the grant entirely; the
+/// legacy grant judge requires one. Deliberately OFFLINE (no backend call
+/// sits on the admission path - revocations enforce via the pushed device
+/// list, or at the next admission).
 public typealias IrxGrantJudgment =
-    @Sendable (_ grantJWS: String, _ remoteEndpointIDHex: String) throws -> IrxAdmittedPeerInfo
+    @Sendable (_ grantJWS: String?, _ remoteEndpointIDHex: String) throws -> IrxAdmittedPeerInfo
 
 public enum IrxAdmission {
     /// Admission must resolve fast or fail loud; nothing here touches the
     /// network beyond the connection itself.
     public static let deadline: Duration = .seconds(5)
 
-    /// Client half: open the control lane, present the grant, await the
-    /// admit. A denial arrives as the connection's own termination and is
-    /// rethrown with its parsed code.
+    /// Client half: open the control lane, send the hello (grantless in
+    /// list-auth mode; the optional grant exists only for legacy dialects),
+    /// await the admit. A denial arrives as the connection's own termination
+    /// and is rethrown with its parsed code.
     public static func performClient(
         connection: IrxConnection,
-        grantJWS: String,
+        grantJWS: String? = nil,
         journal: IrxJournal
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()

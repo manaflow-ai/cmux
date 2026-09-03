@@ -11,6 +11,7 @@ final class SecondaryMacSubscription {
     static let eventTopics: Set<String> = [
         "workspace.updated",
         "notification.feed.changed",
+        "caffeine.status.changed",
     ]
 
     let macDeviceID: String

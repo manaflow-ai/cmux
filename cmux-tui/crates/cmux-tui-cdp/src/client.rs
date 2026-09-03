@@ -2244,9 +2244,10 @@ mod tests {
         let started = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
         let writer = BlockingOutboundWriter { started: started.clone(), release: release.clone() };
+        let drain_inner = inner;
         let drain = thread::spawn(move || {
             let mut writer = writer;
-            drain_outbound(&inner, &mut writer, &outbound_rx).unwrap();
+            drain_outbound(&drain_inner, &mut writer, &outbound_rx).unwrap();
         });
 
         started.wait();

@@ -555,6 +555,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
+        // Resolve availability at menu-open time. The row may have retained an
+        // older anchor snapshot while the group was being promoted, but the
+        // action bundle owns the authoritative live notification check.
+        let notificationState = actions.notificationState()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
             action: actions.onTapPlus
@@ -573,28 +577,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
-            enabled: model.canMarkRead,
+            enabled: notificationState.canMarkRead,
             action: actions.onMarkRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markUnread", defaultValue: "Mark Group as Unread"),
-            enabled: model.canMarkUnread,
+            enabled: notificationState.canMarkUnread,
             action: actions.onMarkUnread
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            enabled: model.hasLatestNotifications,
+            enabled: notificationState.hasLatestNotifications,
             action: actions.onClearLatestNotifications
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllRead", defaultValue: "Mark All Workspaces in Group as Read"),
-            enabled: model.canMarkAllRead,
+            enabled: notificationState.canMarkAllRead,
             action: actions.onMarkAllRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllUnread", defaultValue: "Mark All Workspaces in Group as Unread"),
-            enabled: model.canMarkAllUnread,
+            enabled: notificationState.canMarkAllUnread,
             action: actions.onMarkAllUnread
         ))
         menu.addItem(.separator())

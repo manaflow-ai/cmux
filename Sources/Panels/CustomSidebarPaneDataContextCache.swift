@@ -21,6 +21,8 @@ final class CustomSidebarPaneDataContextCache {
             ObjectIdentifier(tabManager).debugDescription,
             tabManager.selectedTabId?.uuidString ?? "",
             tabManager.tabs.map { $0.id.uuidString }.joined(separator: ","),
+            tabManager.tabs.map { $0.groupId?.uuidString ?? "-" }.joined(separator: ","),
+            tabManager.workspaceGroups.map { "\($0.id.uuidString):\($0.name):\($0.isCollapsed)" }.joined(separator: ","),
             String(sidebarUnread.totalUnreadCount)
         ].joined(separator: "|")
         if key == cachedKey, let cachedContext {

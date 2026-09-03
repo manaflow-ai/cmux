@@ -2144,6 +2144,24 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Resolves a group's current anchor, including any member promoted after a close.
+    func workspaceGroupAnchor(for groupId: UUID) -> Workspace? {
+        guard let anchorId = workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId else {
+            return nil
+        }
+        return tabs.first { $0.id == anchorId }
+    }
+
+    /// Selects a group's current anchor; unlike the plus action, it never creates a workspace.
+    @discardableResult
+    func selectWorkspaceGroupAnchor(for groupId: UUID) -> Workspace? {
+        guard let anchor = workspaceGroupAnchor(for: groupId) else {
+            return nil
+        }
+        selectWorkspace(anchor)
+        return anchor
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
@@ -4279,6 +4297,10 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.focusHistoryMenuSnapshot(direction: direction, maxItemCount: maxItemCount)
     }
 
+    func recentlyFocusedFocusHistoryMenuItems(maxItemCount: Int) -> [FocusHistoryMenuItem] {
+        focusHistoryNavigation.recentlyFocusedFocusHistoryMenuItems(maxItemCount: maxItemCount)
+    }
+
     @discardableResult
     func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool {
         focusHistoryNavigation.navigateToFocusHistoryMenuItem(item)
@@ -6150,6 +6172,11 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            // Workspace notification mute is persisted in the session
+            // manifest; include it in the autosave fingerprint so toggling
+            // the menu item cannot be lost when no other workspace field
+            // changes.
+            hasher.combine(workspace.isMuted)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

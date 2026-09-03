@@ -164,6 +164,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
+    let isMuted: Bool
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
@@ -207,12 +208,16 @@ extension Workspace {
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
+        // Combine exposes up to four-way convenience publishers. Compose the
+        // fifth field explicitly so adding a row-affecting property does not
+        // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,
             $customDescription,
             $isPinned,
             $customColor
         )
+        .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -231,10 +236,11 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
+                    customTitle: workspaceFields.0.0,
+                    customDescription: workspaceFields.0.1,
+                    isPinned: workspaceFields.0.2,
+                    isMuted: workspaceFields.1,
+                    customColor: workspaceFields.0.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

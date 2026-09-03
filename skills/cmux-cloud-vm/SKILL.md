@@ -5,15 +5,16 @@ description: Route work to cmux Cloud machines (persistent cloud VMs) from the C
 
 # cmux Cloud Machines
 
-Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness.
+Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
 
 ## What a machine is
 
 | Term | Meaning |
 |------|---------|
 | **Machine** | A persistent cloud VM (`cmux vm ls`). Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
-| **Contents** | Ubuntu 22.04 (xfce desktop image, the default): node 22, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled** under `/root/.npm-global/bin`. The desktop runs TigerVNC + noVNC and the CUA driver (`cua-computer-server`) for computer-use agents. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
+| **Contents** | Ubuntu 24.04 (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Desktop-kind machines (the default; `vm new --base` makes a shell-only machine with no screen) boot a desktop: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty) and noVNC on 6901 — the **Desktop** row in the sidebar / `vm open <m>:desktop` shows it. Shells on the machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool` and `cua-driver mcp` act on that screen. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
+| **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
 | **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
@@ -39,7 +40,7 @@ cmux vm run --sync -- bun test                           # push cwd to work/<dir
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
 cmux vm tree                                             # the surface catalog: This Mac, then every machine, workspace, terminal, desktop, port
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
-cmux surface open vivid-newt/screen/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
+cmux surface open vivid-newt/display/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding), so synced checkouts and dependencies stay warm. `--new` forces a fresh machine; `--machine <id>` pins one.
@@ -62,7 +63,12 @@ cmux vm agent --agent opencode --no-open --json -- "add a README"             # 
 cmux vm exec <id> -- <command...>       # one command, non-interactive, ~30 s default cap
 cmux vm push <id> ./repo work/repo && cmux vm pull <id> work/repo/out.tgz
 cmux vm wait <id> --wake                # block until ready and awake
+cmux vm terminal send <id> <term> 'bun test' --keys enter     # drive a machine terminal headlessly: type, then press keys (no pane, no focus)
+cmux vm terminal wait <id> <term> --pattern 'pass|fail' --timeout 300   # block until the screen matches; exit 1 on timeout
+cmux vm terminal read <id> <term>       # the visible screen — what a person at that terminal sees
 ```
+
+`terminal send/wait/read` is the interactive counterpart of `exec`: a REPL, a TUI, a long test run, or another agent's session on the machine can be driven and observed without attaching a pane or stealing focus. Start the program with `cmux surface new-terminal --machine <id> --no-open -- <cmd>` (its `term_…` id comes back on the OK line), then loop send → wait → read.
 
 `vm agent` starts the agent as a **detached terminal in the machine's cmux-tui session**: it survives closed panes and reconnects from any device (`cmux vm open <machine>/<ws>/<term>`). Long shell work should also be backgrounded (see recipes) — never hold a long `exec` open.
 
@@ -72,6 +78,8 @@ cmux vm wait <id> --wake                # block until ready and awake
 cmux vm tree <id>                       # live: terminals with title, cwd, agent state, (open: surface)
 cmux vm open <id>                       # the machine's shell (+ its screen on desktop machines)
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
+cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
@@ -81,6 +89,8 @@ cmux notify --title "Cloud build done" --body "…"
 ```
 
 The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open` — never guess raw provider URLs.
+
+A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
 
 ## CodeRouter and model credentials
 
@@ -113,6 +123,7 @@ CodeRouter routes **model credentials**, not compute. An agent started with `vm 
 | Reference | When to Use |
 |-----------|-------------|
 | [references/commands.md](references/commands.md) | Exhaustive `cmux vm` command list with examples |
+| [references/sidebar-parity.md](references/sidebar-parity.md) | Every Cloud-sidebar action and the CLI verb that does the same thing (1:1) |
 | [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |

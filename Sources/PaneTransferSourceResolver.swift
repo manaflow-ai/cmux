@@ -109,7 +109,10 @@ struct PaneTransferSourceResolver {
         }
     }
 
-    /// Completes the accepted source, including a live Bonsplit drag session.
+    /// Revokes routing for an accepted source while preserving native ownership.
+    ///
+    /// A live Bonsplit source is completed by its AppKit `endedAt` callback;
+    /// this method only removes the capability used to route subsequent drops.
     @MainActor
     func finishAcceptedDrop(
         _ source: Source,

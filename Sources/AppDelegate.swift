@@ -1498,6 +1498,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
+                workstreamIDNormalizer: { rawValue, source in
+                    FeedWorkstreamIdentifier.canonicalizedRawValue(
+                        agentID: source,
+                        rawValue: rawValue
+                    )
+                },
                 titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
@@ -2331,6 +2337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // widens coverage to other entrypoints.
         let needsTerminationSnapshotBackstop = !isTerminatingApp
         isTerminatingApp = true
+        MemoryPressureMonitor.shared.stop()
         computerUseUXCoordinator.teardownForTermination()
         if needsTerminationSnapshotBackstop {
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -2419,6 +2426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
+        CoderouterClient.bootstrap(auth: auth.coordinator)
+        MachineUsageClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -7492,7 +7501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch command {
         case .focus:
             requiresWindowFocus = true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             requiresWindowFocus = focus
         case .toggle, .show, .hide, .getState:
             requiresWindowFocus = false
@@ -7551,6 +7560,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 state.setVisible(true)
                 state.mode = mode
                 context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
+            }
+            return .ok
+
+        case .setCustomSidebar(let name, let focus):
+            guard CmuxExtensionSidebarSelection.customSidebarsEnabled else {
+                return .failure(String(localized: "rightSidebar.remote.error.customSidebarsDisabled", defaultValue: "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"))
+            }
+            if let name {
+                guard CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) != nil else {
+                    return .failure(String(localized: "rightSidebar.remote.error.customSidebarNotFound", defaultValue: "ERROR: No custom sidebar named '\(name)' in ~/.config/cmux/sidebars"))
+                }
+                state.selectCustomSidebar(name: name)
+            }
+            guard let selected = state.customSidebarName,
+                  CmuxExtensionSidebarSelection.customSidebarFileURL(forName: selected) != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.customSidebarUnset", defaultValue: "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"))
+            }
+            if focus {
+                guard focusRightSidebarInActiveMainWindow(mode: .customSidebar, focusFirstItem: true, preferredWindow: preferredWindow) else {
+                    return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
+                }
+            } else {
+                state.setVisible(true)
+                state.mode = .customSidebar
+                context?.keyboardFocusCoordinator.rememberRightSidebarMode(.customSidebar)
             }
             return .ok
         case .getState:
@@ -7727,6 +7761,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func syncKeyboardFocusAfterFirstResponderChange(in window: NSWindow?) {
         keyboardFocusCoordinator(for: window)?.syncAfterResponderChange()
+    }
+
+    /// Hands keyboard focus from the right sidebar to the workspace's focused
+    /// panel, when the sidebar currently owns it. Used after a sidebar-origin
+    /// action opens a panel in the main area (for example a file drag-drop):
+    /// the drag never resigns the sidebar's first responder, so without this
+    /// the find/shortcut router keeps targeting the sidebar. No-op when the
+    /// sidebar does not own focus.
+    @discardableResult
+    func restoreMainPanelKeyboardFocusFromRightSidebar(in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?
+            .restoreFocusedPanelFocusFromRightSidebarIfNeeded() ?? false
     }
 
     @discardableResult
@@ -8578,22 +8624,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                     return
                 }
+                // Create hands the request to the shared create coordinator and
+                // the sheet closes at once: the placeholder workspace's loading
+                // pane and the Machines panel's pending row show Base coming up,
+                // and the person keeps working meanwhile (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     imageKinds: page?.limits?.imageKinds ?? [],
-                    launch: { [weak self] arguments, completion in
+                    submit: { [weak self] request in
                         guard let self else { return false }
-                        return self.launchCloudVMBaseOpen(
-                            workspace: workspace,
-                            socketPath: socketPath,
-                            preferredWindow: launchWindow,
-                            arguments: arguments,
-                            onCompletion: { result in
-                                completion(result)
-                                onCompletion?(result)
-                            }
-                        )
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, progress, completion in
+                            guard let self else { return false }
+                            return self.launchCloudVMBaseOpen(
+                                workspace: workspace,
+                                socketPath: socketPath,
+                                preferredWindow: launchWindow,
+                                arguments: arguments,
+                                onProgress: progress,
+                                onCompletion: { result in
+                                    completion(result)
+                                    onCompletion?(result)
+                                }
+                            )
+                        }
                     }
                 )
                 model.onFinished = { outcome in
@@ -8630,6 +8684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         preferredWindow: NSWindow?,
         arguments: [String],
+        onProgress: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
     ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -8644,6 +8699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
                 "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
             ],
+            onOutput: onProgress,
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -9805,7 +9861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let cascadeOffset: CGFloat = 24
-        let minimumWindowSize = NSSize(width: 460, height: 360)
+        let minimumWindowSize = NSSize(width: 460, height: CmuxMainWindow.minimumContentSize.height)
         var frame = window.frame
         frame.origin = NSPoint(
             x: sourceFrame.minX + cascadeOffset,

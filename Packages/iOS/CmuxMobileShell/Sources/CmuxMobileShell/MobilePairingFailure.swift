@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 internal import CmuxMobileRPC
+public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 internal import CmuxMobileTransport
 import Foundation
@@ -193,8 +194,19 @@ extension MobilePairingFailureCategory {
         }
     }
 
-    /// The localized headline shown in the pairing error section.
-    public var message: String {
+    /// The localized headline shown in the pairing error section, resolved
+    /// for the running build's distribution channel.
+    public var message: String { message(buildType: .current()) }
+
+    /// The localized headline for one distribution channel.
+    ///
+    /// The public App Store build (and any channel whose
+    /// ``MobileBuildType/usesInternalBuildVocabulary`` is `false`) describes
+    /// Mac compatibility in product terms only; team-distributed builds name
+    /// the exact internal lanes (DEV, BETA, INTERNAL) their users choose
+    /// between. App Review rejected the App Store app under Guideline 2.2 for
+    /// that lane vocabulary, so the neutral copy is the fail-safe default.
+    public func message(buildType: MobileBuildType) -> String {
         switch self {
         case .offline:
             return L10n.string(
@@ -285,6 +297,15 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
         case let .authEnvironmentMismatch(macChannelIsRelease):
+            guard buildType.usesInternalBuildVocabulary else {
+                // Both directions collapse to one neutral cause for public
+                // builds: the two apps sign in through different environments,
+                // so re-entering the email can never fix it.
+                return L10n.string(
+                    "mobile.pairing.authEnvironmentMismatch.official",
+                    defaultValue: "This Mac uses a different cmux sign-in environment, so its account can never match this iPhone's account, even with the same email."
+                )
+            }
             if macChannelIsRelease {
                 return L10n.string(
                     "mobile.pairing.authEnvironmentMismatch",
@@ -296,6 +317,12 @@ extension MobilePairingFailureCategory {
                 defaultValue: "This iPhone uses cmux's production sign-in, but this Mac runs a dev build on the development auth environment, so their accounts can never match — even with the same email."
             )
         case .buildIncompatible:
+            guard buildType.usesInternalBuildVocabulary else {
+                return L10n.string(
+                    "mobile.pairing.buildIncompatible.official",
+                    defaultValue: "This Mac runs an incompatible version of cmux."
+                )
+            }
             return L10n.string(
                 "mobile.pairing.buildIncompatible",
                 defaultValue: "This iPhone build cannot connect to that cmux build."
@@ -332,7 +359,7 @@ extension MobilePairingFailureCategory {
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
-                defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer."
+                defaultValue: "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR."
             )
         case .noSupportedRoute:
             return L10n.string(
@@ -364,16 +391,21 @@ extension MobilePairingFailureCategory {
     }
 
     /// A second, shorter line of actionable next steps shown beneath the
-    /// headline. `nil` for categories whose headline is already the full
-    /// instruction (auth, invalid code, cancelled).
-    public var guidance: String? {
+    /// headline, resolved for the running build's distribution channel. `nil`
+    /// for categories whose headline is already the full instruction (auth,
+    /// invalid code, cancelled).
+    public var guidance: String? { guidance(buildType: .current()) }
+
+    /// The guidance line for one distribution channel, gated exactly like
+    /// ``message(buildType:)``.
+    public func guidance(buildType: MobileBuildType) -> String? {
         switch self {
         case .offline:
             return nil
         case .tailscaleUnavailable:
             return L10n.string(
                 "mobile.pairing.guidance.tailscaleUnavailable",
-                defaultValue: "Open Tailscale on both devices, confirm they use the same network, then scan a fresh Pair iPhone code from the Mac."
+                defaultValue: "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its numeric Tailscale IP and port."
             )
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
@@ -396,19 +428,32 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Both devices must be signed in to the same cmux account."
             )
         case let .authEnvironmentMismatch(macChannelIsRelease):
+            guard buildType.usesInternalBuildVocabulary else {
+                return L10n.string(
+                    "mobile.pairing.guidance.authEnvironment.official",
+                    defaultValue: "Pair with a Mac running the standard cmux app, and update cmux on the Mac if it is out of date."
+                )
+            }
             if macChannelIsRelease {
                 return L10n.string(
                     "mobile.pairing.guidance.authEnvironment",
                     defaultValue: "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
                 )
             }
-            // Reaches production users (TestFlight/App Store scanning a dev
-            // Mac's QR), so product terms only — no script paths or flags.
+            // Reaches development-channel users scanning a dev Mac's QR from a
+            // production-auth phone, so product terms only — no script paths
+            // or flags.
             return L10n.string(
                 "mobile.pairing.guidance.authEnvironment.devMac",
                 defaultValue: "Pair with a Mac running the release cmux app, or use a development-channel iPhone build for dev Macs."
             )
         case .buildIncompatible:
+            guard buildType.usesInternalBuildVocabulary else {
+                return L10n.string(
+                    "mobile.pairing.guidance.buildIncompatible.official",
+                    defaultValue: "Update cmux on your Mac to the latest version, then try again."
+                )
+            }
             return L10n.string(
                 "mobile.pairing.guidance.buildIncompatible",
                 defaultValue: "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
@@ -416,9 +461,15 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh QR or link."
+                defaultValue: "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
             )
         case .unrecognizedVersion:
+            guard buildType.usesInternalBuildVocabulary else {
+                return L10n.string(
+                    "mobile.pairing.guidance.updateApp.official",
+                    defaultValue: "Update cmux from the App Store, then scan again."
+                )
+            }
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."

@@ -203,8 +203,9 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+        // A UUID or a handle ref (`workspace:3`), like every other workspace_id on the socket:
+        // `cmux vm open <machine> --workspace workspace:3` lands here.
+        guard let workspaceId = v2UUIDAny(params["workspace_id"]) else {
             return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -245,8 +246,9 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+        // A UUID or a handle ref (`workspace:3`), like every other workspace_id on the socket:
+        // `cmux vm open <machine> --workspace workspace:3` lands here.
+        guard let workspaceId = v2UUIDAny(params["workspace_id"]) else {
             return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {

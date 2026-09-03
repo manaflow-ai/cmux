@@ -329,7 +329,8 @@ final class MobileMacConnectionRegistry {
                         fallback: ownerKey.canonicalMacDeviceID
                     ),
                     instanceTag: connection.instanceTag,
-                    role: .focused
+                    role: .focused,
+                    routeKind: connection.route.kind
                 )
             }
             guard let subscription = entry.controlSubscription else {
@@ -343,7 +344,8 @@ final class MobileMacConnectionRegistry {
                 ),
                 instanceTag: subscription.authenticatedInstanceTag
                     ?? subscription.storedInstanceTag,
-                role: .control
+                role: .control,
+                routeKind: subscription.route.kind
             )
         }
         .sorted {

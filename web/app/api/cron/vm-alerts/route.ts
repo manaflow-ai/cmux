@@ -14,5 +14,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const checks = await runVmAlertChecks();
-  return jsonResponse({ checks });
+  // Top-level `configured` makes a sink-less production deployment visible to
+  // anything scraping the cron response, not only readers of the summary.
+  return jsonResponse({ configured: checks.alertSink.configured, checks });
 }

@@ -39,6 +39,9 @@ struct SidebarWorkspaceRowActions {
     let markRead: ([UUID]) -> Void
     let markUnread: ([UUID]) -> Void
     let clearLatestNotifications: ([UUID]) -> Void
+    /// Reads live mute state when a deferred context menu action executes.
+    let currentNotificationsMuted: ([UUID]) -> Bool
+    let setNotificationsMuted: ([UUID], Bool) -> Void
     let openNotification: (TerminalNotification) -> Void
     let copyWorkspaceLinks: ([UUID]) -> Void
     let openPullRequest: (URL) -> Void
