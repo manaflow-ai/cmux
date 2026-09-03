@@ -1282,7 +1282,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             return (existing.title, true)
         }
 
-        if let fallback, !hasAutoTitle {
+        if let fallback {
             return (fallback, false)
         }
 
@@ -1362,9 +1362,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// invoke this directly; the publisher remains the fallback for other
     /// terminal title writers.
     private func synchronizeTerminalTabTitle(_ terminal: TerminalPanel) {
+        let hasCustomTitle = surfaceId(forPanelId: terminal.id)
+            .flatMap { bonsplitController.tab($0) }?
+            .hasCustomTitle == true
         _ = reconcileCodexTabTitlePresentation(
             panelId: terminal.id,
-            fallback: terminal.displayTitle
+            fallback: hasCustomTitle ? nil : terminal.displayTitle
         )
     }
 
