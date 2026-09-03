@@ -315,6 +315,27 @@ impl Conn {
         }
     }
 
+    fn request_until(&mut self, request: Value, deadline: Instant) -> Result<Value, String> {
+        let id = self.send(request)?;
+        loop {
+            let value = self.read_value_until(deadline)?;
+            if value.get("event").is_some() {
+                continue;
+            }
+            if value.get("id").and_then(Value::as_u64) != Some(id) {
+                continue;
+            }
+            if value.get("ok").and_then(Value::as_bool) == Some(true) {
+                return Ok(value.get("data").cloned().unwrap_or(Value::Null));
+            }
+            return Err(value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("command failed")
+                .to_string());
+        }
+    }
+
     fn identify(&mut self) -> Result<Value, String> {
         self.request(json!({"cmd":"identify"}))
     }
@@ -399,6 +420,7 @@ impl ProbeGates {
 
 fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let (socket, guard) = ensure_session(global)?;
+    let bench_deadline = Instant::now() + BENCH_DEADLINE;
 
     // Subscriber connection: timestamp every tree delta.
     let mut subscriber = Conn::open(&socket)?;
@@ -416,20 +438,18 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
         list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
     let baseline = control.request(json!({"cmd":"new-workspace"}))?;
     let Some(baseline_surface) = baseline["surface"].as_u64() else {
-        cleanup_baseline_terminal(&mut control, &baseline);
+        cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
         return Err("baseline surface missing".into());
     };
     let active_pane = match fetch_active_pane(&mut control) {
         Ok(pane) => pane,
         Err(error) => {
-            cleanup_baseline_terminal(&mut control, &baseline);
+            cleanup_baseline_terminal(&mut control, &baseline, bench_deadline);
             return Err(error);
         }
     };
 
     let report = Arc::new(Mutex::new(Report::new(&socket)));
-    let bench_deadline = Instant::now() + BENCH_DEADLINE;
-
     // Concurrent create loops. Each worker submits its whole create batch
     // before reading a response. That gives both typing probes the same
     // in-flight create load to compare.
@@ -482,7 +502,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
 
-    close_created_terminals(&mut control, &initial_terminals, &report);
+    close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
     if let Some(owner_pid) = guard
         .owner
         .as_ref()
@@ -630,6 +650,7 @@ fn close_created_terminals(
     conn: &mut Conn,
     initial: &HashSet<String>,
     report: &Arc<Mutex<Report>>,
+    deadline: Instant,
 ) {
     let current = match list_terminal_ids(conn) {
         Ok(current) => current,
@@ -641,7 +662,10 @@ fn close_created_terminals(
     let plan =
         teardown_close_plan(initial, current.iter().map(|(id, life)| (id.as_str(), life.as_str())));
     for terminal_id in plan {
-        match conn.request(json!({"cmd":"close-terminal","terminal_id":&terminal_id})) {
+        match conn.request_until(
+            json!({"cmd":"close-terminal","terminal_id":&terminal_id}),
+            deadline,
+        ) {
             Ok(_) => report.lock().unwrap().terminals_closed_at_teardown += 1,
             Err(error) => report
                 .lock()
@@ -861,7 +885,7 @@ fn record_create_result(
 
         // View-only close of this surface (default destroy for a tab).
         let close_start = Instant::now();
-        match conn.request(json!({"cmd":"close-surface","surface":surface_id})) {
+        match conn.request_until(json!({"cmd":"close-surface","surface":surface_id}), deadline) {
             Ok(_) => report.lock().unwrap().close_surface.record(close_start.elapsed()),
             Err(error) => report.lock().unwrap().errors.push(format!("close-surface: {error}")),
         }
@@ -871,7 +895,10 @@ fn record_create_result(
     // close, which blocks on host exit escalation (terminal.close_wait).
     if let Some(terminal_id) = terminal_id {
         let close_start = Instant::now();
-        match conn.request(json!({"cmd":"close-terminal","terminal_id":&terminal_id})) {
+        match conn.request_until(
+            json!({"cmd":"close-terminal","terminal_id":&terminal_id}),
+            deadline,
+        ) {
             Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
             Err(error) => {
                 // A partial benchmark is not a valid measurement. Record the
@@ -961,9 +988,12 @@ fn fetch_active_pane(conn: &mut Conn) -> Result<u64, String> {
     screen["active_pane"].as_u64().ok_or_else(|| "no active pane".into())
 }
 
-fn cleanup_baseline_terminal(conn: &mut Conn, baseline: &Value) {
+fn cleanup_baseline_terminal(conn: &mut Conn, baseline: &Value, deadline: Instant) {
     if let Some(terminal_id) = baseline.get("terminal_id").and_then(Value::as_str) {
-        let _ = conn.request(json!({"cmd":"close-terminal","terminal_id":terminal_id}));
+        let _ = conn.request_until(
+            json!({"cmd":"close-terminal","terminal_id":terminal_id}),
+            deadline,
+        );
     }
 }
 
@@ -972,6 +1002,7 @@ fn spawn_subscriber(
     events: Arc<Mutex<VisibilityIndex>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> thread::JoinHandle<()> {
+    let _ = conn.reader.get_mut().set_read_timeout(Some(Duration::from_millis(100)));
     thread::spawn(move || {
         while !stop.load(std::sync::atomic::Ordering::Acquire) {
             match conn.read_value() {
@@ -979,6 +1010,9 @@ fn spawn_subscriber(
                     events.lock().unwrap().push(TimedEvent { at: Instant::now(), value });
                 }
                 Ok(_) => {}
+                Err(_) if !stop.load(std::sync::atomic::Ordering::Acquire) => {
+                    thread::sleep(Duration::from_millis(1));
+                }
                 Err(_) => break,
             }
         }
