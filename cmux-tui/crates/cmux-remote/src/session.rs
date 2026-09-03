@@ -11,7 +11,7 @@ use cmux_remote_protocol::{
     WireFrame,
 };
 use tokio::sync::{Notify, mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::link::{FrameLink, LinkError};
@@ -758,6 +758,7 @@ struct ScheduledSenderInner {
     limits: SessionLimits,
     cancel: CancellationToken,
     tasks: Mutex<Option<Vec<JoinHandle<()>>>>,
+    task_abort_handles: Mutex<Vec<AbortHandle>>,
     shutdown_join: Mutex<Option<JoinHandle<()>>>,
     join_started: AtomicBool,
     shutdown_complete: CancellationToken,
@@ -775,6 +776,16 @@ impl Drop for ScheduledSenderInner {
             for task in tasks {
                 task.abort();
             }
+        }
+        let abort_handles = match self.task_abort_handles.lock() {
+            Ok(mut abort_handles) => std::mem::take(&mut *abort_handles),
+            Err(poisoned) => {
+                let mut abort_handles = poisoned.into_inner();
+                std::mem::take(&mut *abort_handles)
+            }
+        };
+        for abort_handle in abort_handles {
+            abort_handle.abort();
         }
         let join = match self.shutdown_join.lock() {
             Ok(mut join) => join.take(),
@@ -806,6 +817,7 @@ impl ScheduledSender {
             limits,
             cancel: CancellationToken::new(),
             tasks: Mutex::new(Some(Vec::with_capacity(8))),
+            task_abort_handles: Mutex::new(Vec::with_capacity(8)),
             shutdown_join: Mutex::new(None),
             join_started: AtomicBool::new(false),
             shutdown_complete: CancellationToken::new(),
@@ -846,9 +858,11 @@ impl ScheduledSender {
                 inner.active_tasks.fetch_sub(1, Ordering::AcqRel);
             }
         });
+        let abort_handle = task.abort_handle();
         let mut tasks = self.inner.tasks.lock().unwrap();
         if let Some(tasks) = tasks.as_mut() {
             tasks.push(task);
+            self.inner.task_abort_handles.lock().unwrap().push(abort_handle);
         } else {
             task.abort();
         }
@@ -1513,6 +1527,52 @@ mod tests {
             .expect("later close waited forever after cancelled shutdown")
             .unwrap();
         assert_eq!(send.await.unwrap().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn dropping_cancelled_close_aborts_joined_workers() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([21; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let first_close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !session.scheduler.inner.join_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first close did not begin scheduler shutdown");
+        first_close.abort();
+        let _ = first_close.await;
+        send.abort();
+        let _ = send.await;
+        drop(session);
+        drop(link);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while weak_link.upgrade().is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled close retained a worker and its link");
     }
 
     #[tokio::test]
