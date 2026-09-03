@@ -79,6 +79,14 @@
       "created_at": "2026-09-02T06:09:28Z",
       "repoId": 1144115288,
       "pullRequestNo": 11476
+    },
+    {
+      "name": "counterposition",
+      "id": 331214,
+      "comment_id": 5518930800,
+      "created_at": "2026-09-03T01:29:59Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 11747
     }
   ]
 }
