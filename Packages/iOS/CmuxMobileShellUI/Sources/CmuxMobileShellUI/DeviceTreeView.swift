@@ -118,7 +118,6 @@ struct DeviceTreeView: View {
             }
             .listStyle(.insetGrouped)
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: rowMembership)
-            .cloudNavigationDestinations()
             .navigationDestination(for: MacConnectionRef.self) { ref in
                 if let computer = computers.first(where: { $0.id == ref.pairingID }) {
                     MacComputerDetailView(
