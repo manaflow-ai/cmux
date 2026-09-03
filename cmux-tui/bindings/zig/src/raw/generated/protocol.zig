@@ -2894,6 +2894,8 @@ pub const MachineStatsRequest = struct {
 };
 
 pub fn machineStats(client: anytype, request: MachineStatsRequest) !wire.Decoded(MachineStatsResult) {
+    var unary_request = request;
+    unary_request.follow = false;
     return client.callTyped(
         MachineStatsResult,
         .{
@@ -2902,7 +2904,7 @@ pub fn machineStats(client: anytype, request: MachineStatsRequest) !wire.Decoded
             .since = 12,
             .capability = "machine-stats-v1",
         },
-        request,
+        unary_request,
     );
 }
 

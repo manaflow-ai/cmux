@@ -1536,6 +1536,8 @@ impl CmuxClient {
     }
 
     pub fn machine_stats(&mut self, request: MachineStatsRequest) -> Result<T::MachineStatsResult> {
+        let mut request = request;
+        request.follow = Some(false);
         self.execute(&MACHINE_STATS_METADATA, &request)
     }
 

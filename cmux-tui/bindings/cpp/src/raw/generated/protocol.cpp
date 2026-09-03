@@ -19017,7 +19017,9 @@ Result<Tree> Client::list_workspaces(
 
 Result<MachineStatsResult> Client::machine_stats(
     const MachineStatsRequest& request, RequestOptions options) {
-    auto encoded = encode_value(request);
+    auto unary_request = request;
+    unary_request.follow = false;
+    auto encoded = encode_value(unary_request);
     if (!encoded) return std::move(encoded).error();
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();

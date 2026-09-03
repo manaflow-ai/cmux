@@ -1023,10 +1023,13 @@ __all__ = [
                 ]
             )
             request_name = self.models[f"commands/{wire_name}/request"].name
+            conditional_stream = command.get("stream") is not None and command["stream"].get("mode_field") == "follow"
             arguments = []
             for name, _field in required + positional_optional + optional:
                 python_name = _snake(name)
                 value = python_name
+                if conditional_stream and name == command["stream"]["mode_field"]:
+                    value = "False"
                 if name == "bytes":
                     value = (
                         "(base64.b64encode(bytes_data).decode('ascii') "
@@ -1042,7 +1045,7 @@ __all__ = [
                 lines.append(
                     f"        return self._invoke_command({_quote(wire_name)}, {constructed})"
                 )
-            if command.get("stream") is not None and command["stream"].get("mode_field") == "follow":
+            if conditional_stream:
                 follow_arguments = []
                 for name, _field in required + positional_optional + optional:
                     python_name = _snake(name)

@@ -1121,10 +1121,21 @@ class CppEmitter:
         method = _cpp_field(wire_name)
         streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
         if not streaming:
+            conditional_stream = command["stream"] is not None and command["stream"].get("mode_field") == "follow"
+            mode_field = command["stream"]["mode_field"] if conditional_stream else None
             lines = [
                 f"Result<{result}> Client::{method}(",
                 f"    const {request}& request, RequestOptions options) {{",
-                "    auto encoded = encode_value(request);",
+            ]
+            if mode_field is not None:
+                lines.extend([
+                    "    auto unary_request = request;",
+                    f"    unary_request.{mode_field} = false;",
+                    "    auto encoded = encode_value(unary_request);",
+                ])
+            else:
+                lines.append("    auto encoded = encode_value(request);")
+            lines.extend([
                 "    if (!encoded) return std::move(encoded).error();",
                 "    auto parameters = encoded.value().as_object();",
                 "    if (!parameters) return std::move(parameters).error();",
@@ -1133,7 +1144,7 @@ class CppEmitter:
                 f"    return decode_value<{result}>(response.value());",
                 "}",
                 "",
-            ]
+            ])
             if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
                 stream = command["stream"]
                 terminal = stream["terminal_event"]

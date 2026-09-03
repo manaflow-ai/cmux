@@ -526,10 +526,12 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
             )
         else:
             result_name = result_names[wire_name]
+            conditional_stream = command["stream"] is not None and command["stream"].get("mode_field") == "follow"
             lines.extend(
                 [
                     f"    pub fn {method}(&mut self, request: {request_name}) -> Result<{result_name}> {{",
                     *guards,
+                    *(["        let mut request = request;", "        request.follow = Some(false);"] if conditional_stream else []),
                     f"        self.execute(&{metadata_name}, &request)",
                     "    }",
                 ]
