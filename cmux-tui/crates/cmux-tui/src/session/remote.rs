@@ -3963,16 +3963,13 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
 
 #[cfg(unix)]
 fn is_private_dump_name(name: &[u8]) -> bool {
-    [
-        (&b"mirror-"[..], &b".txt"[..]),
-        (&b"frames-"[..], &b".log"[..]),
-    ]
-    .into_iter()
-    .any(|(prefix, suffix)| {
-        name.strip_prefix(prefix)
-            .and_then(|name| name.strip_suffix(suffix))
-            .is_some_and(|id| !id.is_empty() && id.iter().all(|byte| byte.is_ascii_digit()))
-    })
+    [(&b"mirror-"[..], &b".txt"[..]), (&b"frames-"[..], &b".log"[..])].into_iter().any(
+        |(prefix, suffix)| {
+            name.strip_prefix(prefix)
+                .and_then(|name| name.strip_suffix(suffix))
+                .is_some_and(|id| !id.is_empty() && id.iter().all(|byte| byte.is_ascii_digit()))
+        },
+    )
 }
 
 #[cfg(unix)]
@@ -5200,7 +5197,10 @@ mod tests {
                 libc::timespec { tv_sec: modified, tv_nsec: 0 },
                 libc::timespec { tv_sec: modified, tv_nsec: 0 },
             ];
-            assert_eq!(unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) }, 0);
+            assert_eq!(
+                unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) },
+                0
+            );
         }
 
         prune_dump_files_with_limits(&directory.output, 2, 10).unwrap();
@@ -5214,10 +5214,7 @@ mod tests {
             .filter(|entry| is_private_dump_name(entry.file_name().as_os_str().as_bytes()))
             .collect::<Vec<_>>();
         assert_eq!(retained.len(), 2);
-        let bytes = retained
-            .iter()
-            .map(|entry| entry.metadata().unwrap().len())
-            .sum::<u64>();
+        let bytes = retained.iter().map(|entry| entry.metadata().unwrap().len()).sum::<u64>();
         assert_eq!(bytes, 10);
     }
 
