@@ -8284,6 +8284,41 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn geometry_claim_rejection_after_surface_exit_is_terminal_ended() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let (finished_tx, finished_rx) = channel();
+        let sender_session = session.clone();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(sender_session.claim_terminal_geometry(7)).unwrap();
+        });
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "set-client-sizing");
+
+        // This is the attach/claim race: the daemon reports the terminal exit
+        // while the claim request is still waiting for its rejection.
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.surface_is_exited(7));
+        session.handle_line(json!({
+            "id": command["id"],
+            "ok": false,
+            "error": "unknown surface 7",
+        }));
+
+        let error = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+        assert_eq!(
+            crate::pipe_io::classify_claim_failure(&session, 7, &error),
+            crate::pipe_io::PipeIoExitReason::TerminalEnded
+        );
+        sender.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn accepted_interactive_writes_remain_fifo() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
