@@ -14,6 +14,7 @@ pub(crate) fn terminal_text(value: &str) -> String {
 
 fn terminal_text_with_limit(value: &str, max_bytes: usize) -> String {
     let mut output = String::with_capacity(value.len().min(max_bytes));
+    let mut units = Vec::new();
     let mut truncated = false;
 
     for character in value.chars() {
@@ -23,13 +24,14 @@ fn terminal_text_with_limit(value: &str, max_bytes: usize) -> String {
             break;
         }
         output.push_str(&escaped);
+        units.push(escaped);
     }
 
     if truncated {
         const ELLIPSIS: &str = "…";
         while output.len() + ELLIPSIS.len() > max_bytes {
-            let Some((index, _)) = output.char_indices().next_back() else { break };
-            output.truncate(index);
+            let Some(unit) = units.pop() else { break };
+            output.truncate(output.len() - unit.len());
         }
         if ELLIPSIS.len() <= max_bytes {
             output.push_str(ELLIPSIS);
@@ -87,6 +89,7 @@ mod tests {
     fn terminal_text_is_byte_bounded_without_splitting_unicode() {
         assert_eq!(terminal_text_with_limit("éééé", 7), "éé…");
         assert_eq!(terminal_text_with_limit("\x1bAAAA", 9), "\\u{1B}…");
+        assert_eq!(terminal_text_with_limit("AAAA\x1b", 8), "AAAA…");
         assert!(terminal_text(&"界".repeat(200)).len() <= DIAGNOSTIC_FIELD_MAX_BYTES);
     }
 }
