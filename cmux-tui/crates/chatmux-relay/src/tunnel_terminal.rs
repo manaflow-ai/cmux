@@ -43,11 +43,6 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-<<<<<<< HEAD
-use base64::engine::general_purpose::STANDARD as BASE64;
-use bytes::{Buf, BytesMut};
-=======
->>>>>>> c6878e73f05 (chore(chatmux-relay): match pinned rustfmt import order)
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bytes::{Buf, BytesMut};
@@ -163,17 +158,20 @@ pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
 /// length-prefixed stream that desynced once can never be trusted again, so
 /// the caller must close the connection.
 pub struct TunnelFrameDecoder {
-    buffer: Vec<u8>,
+    buffer: BytesMut,
+    storage_capacity: usize,
     failed: bool,
     max_frame_bytes: usize,
 }
 
 impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
+        let max_frame_bytes = max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES);
         TunnelFrameDecoder {
-            buffer: Vec::new(),
+            storage_capacity: 0,
+            buffer: BytesMut::new(),
             failed: false,
-            max_frame_bytes: max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES),
+            max_frame_bytes,
         }
     }
 
@@ -182,6 +180,7 @@ impl TunnelFrameDecoder {
             return Err("decoder_poisoned");
         }
         self.buffer.extend_from_slice(chunk);
+        self.storage_capacity = self.storage_capacity.max(self.buffer.capacity());
         let mut frames = Vec::new();
         while self.buffer.len() >= HEADER_BYTES {
             let length = u32::from_be_bytes([
@@ -202,9 +201,19 @@ impl TunnelFrameDecoder {
             if self.buffer.len() < HEADER_BYTES + length {
                 break;
             }
-            let payload = self.buffer[HEADER_BYTES..HEADER_BYTES + length].to_vec();
-            self.buffer.drain(..HEADER_BYTES + length);
+            self.buffer.advance(HEADER_BYTES);
+            let payload = self.buffer.split_to(length).to_vec();
             frames.push(TunnelFrame { kind, payload });
+        }
+        // A single read may contain many frames. Keep the retained decoder
+        // storage bounded by one maximum-size frame plus its header instead
+        // of holding the capacity of that whole read forever.
+        let retained_limit = self.max_frame_bytes + HEADER_BYTES;
+        if self.storage_capacity > retained_limit && self.buffer.len() <= retained_limit {
+            let mut compacted = BytesMut::with_capacity(retained_limit);
+            compacted.extend_from_slice(&self.buffer);
+            self.storage_capacity = compacted.capacity();
+            self.buffer = compacted;
         }
         Ok(frames)
     }
