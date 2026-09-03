@@ -27,6 +27,7 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   resolveVmProvisioningAccountScope,
+  vmCreateDisabledResponse,
 } from "../../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
 import type { VmTimingRecorder } from "../../../../services/vms/timings";
@@ -66,15 +67,7 @@ export async function runBaseRoute(input: {
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
-      return vmErrorResponse({
-        error: "vm_create_disabled",
-        status: 503,
-        message: "Cloud VM creation is disabled for this environment.",
-        action: "Ask an admin to enable Cloud VM creation, then retry.",
-        reason: "Cloud VM creation is disabled.",
-        phase: "create",
-        retryable: true,
-      });
+      return vmCreateDisabledResponse();
     }
     if (isVmImageConfigError(err)) {
       const described = reportVmImageConfigError(err);

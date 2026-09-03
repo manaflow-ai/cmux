@@ -63,11 +63,35 @@ export function annotateVmErrorSpan(span: Span, input: VmErrorResponseInput): vo
     "cmux.vm.error_status": input.status,
     "cmux.vm.error_phase": input.phase ?? "unknown",
     "cmux.vm.error_operator_fault": isOperatorFaultVmError(input),
-    "cmux.vm.error_reason": input.reason ?? input.message,
+    "cmux.vm.error_fault": vmErrorFault(input),
+    "cmux.vm.error_reason": stringOrUndefined(diagnostics.internalReason) ?? input.reason ?? input.message,
     "cmux.vm.error_provider": stringOrUndefined(diagnostics.provider),
+    "cmux.vm.error_provider_operation": stringOrUndefined(diagnostics.providerOperation),
+    "cmux.vm.error_provider_code": stringOrUndefined(diagnostics.providerCode),
+    "cmux.vm.error_provider_status": numberOrUndefined(diagnostics.providerStatus),
+    "cmux.vm.error_provider_path": stringOrUndefined(diagnostics.providerPath),
     "cmux.vm.error_image": stringOrUndefined(diagnostics.image),
     "cmux.vm.error_env_var": stringOrUndefined(diagnostics.envVar),
   });
+}
+
+/**
+ * Who has to act on this error.
+ * `user`: the caller's request or account (4xx that is not a known
+ * operator-fault code). `vendor`: a third party we pay answered badly
+ * (diagnostics say so, or a provider is named on a 5xx). `operator`: our own
+ * config, database, or code. Sentry/Axiom filter on this to route pages.
+ */
+export type VmErrorFault = "user" | "vendor" | "operator";
+
+export function vmErrorFault(
+  input: Pick<VmErrorResponseInput, "error" | "status" | "diagnostics">,
+): VmErrorFault {
+  if (!isOperatorFaultVmError(input)) return "user";
+  const diagnostics = input.diagnostics ?? {};
+  if (diagnostics.fault === "vendor") return "vendor";
+  if (diagnostics.fault === "operator") return "operator";
+  return stringOrUndefined(diagnostics.provider) ? "vendor" : "operator";
 }
 
 /**
@@ -89,15 +113,26 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
   const operatorFault = isOperatorFaultVmError(input);
+  const fault = vmErrorFault(input);
+  const internalReason = stringOrUndefined(diagnostics.internalReason) ?? input.reason ?? input.message;
+  // The Error message is what an operator reads first in Sentry and in the
+  // log line: name the party at fault and the raw dependency answer, never the
+  // softened copy the user saw. Fingerprint by code + provider + vendor code
+  // so "freestyle 404" and "freestyle 500" are separate issues.
+  const blame = stringOrUndefined(diagnostics.blame) ?? provider ?? (fault === "user" ? "caller" : "cmux");
+  const providerCode = stringOrUndefined(diagnostics.providerCode);
   reportError(
-    new Error(`cloud VM ${input.error}: ${input.message}`),
+    new Error(`cloud VM ${input.error} [${fault}: ${blame}] ${internalReason}`),
     {
       subsystem: "cloud_vm_api",
       code: input.error,
       status: input.status,
       phase: input.phase ?? "unknown",
+      fault,
+      blame,
       operator_fault: operatorFault,
-      reason: input.reason ?? input.message,
+      reason: internalReason,
+      user_facing_message: input.message,
       operation: context?.operation,
       route: context?.route,
       user_id: context?.userId,
@@ -107,15 +142,19 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
       ...diagnostics,
     },
     {
-      fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown"],
+      fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown", providerCode ?? "no-code"],
       level: operatorFault ? "error" : "warning",
       tags: {
         "vm.error_code": input.error,
         "vm.phase": input.phase ?? "unknown",
         "vm.status": input.status,
         "vm.operator_fault": operatorFault,
+        "vm.fault": fault,
+        "vm.blame": blame,
         "vm.operation": context?.operation,
         "vm.provider": provider,
+        "vm.provider_code": providerCode,
+        "vm.provider_status": numberOrUndefined(diagnostics.providerStatus),
         "client.name": context?.client.name,
         "client.version": context?.client.version,
         "client.channel": context?.client.channel,
@@ -530,4 +569,8 @@ export function captureVmProvisionOutcome(
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

@@ -125,7 +125,7 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
+    expect(payload.message).toBe("cmux Cloud machines require a cmux Pro subscription.");
     expect(String(payload.action)).toContain("Subscribe to cmux Pro");
     expect(String(payload.action)).not.toContain("up to");
     expect(String(payload.action)).not.toContain("cmux vm rm");
@@ -142,7 +142,7 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toContain("free plan includes 3 Cloud VMs");
+    expect(payload.message).toContain("free plan includes 3 cmux Cloud machines");
     expect(String(payload.action)).toContain("Upgrade to cmux Pro");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
     expect(payload.upgradeRequired).toBe(true);
@@ -158,7 +158,7 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toContain("10 active Cloud VMs");
+    expect(payload.message).toContain("10 active cmux Cloud machines");
     expect(String(payload.action)).toContain("cmux vm ls");
     expect(payload.upgradeRequired).toBeUndefined();
   });
@@ -170,7 +170,7 @@ describe("active-limit response as the paywall moment", () => {
       retryAction: "unused",
     });
     const payload = await body(response);
-    expect(payload.message).toContain("1 Cloud VM.");
+    expect(payload.message).toContain("1 cmux Cloud machine.");
   });
 });
 

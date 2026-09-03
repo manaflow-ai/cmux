@@ -55,6 +55,7 @@ import {
   vmActiveLimitExceededResponse,
   resolveVmProvisioningAccountScope,
   runAfterResponse,
+  vmCreateDisabledResponse,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
@@ -429,13 +430,7 @@ export async function POST(request: Request): Promise<Response> {
           imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_disabled",
-              status: 503,
-              message: "Cloud VM creation is disabled for this environment.",
-              action: "Ask an admin to enable Cloud VM creation, then retry.",
-              reason: "Cloud VM creation is disabled.",
-            });
+            return vmCreateDisabledResponse();
           }
           if (isVmImageConfigError(err)) {
             const described = reportVmImageConfigError(err);

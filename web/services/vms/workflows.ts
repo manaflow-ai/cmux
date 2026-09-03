@@ -41,6 +41,8 @@ import {
   isVmLimitExceededError,
   isVmModelPlaneError,
   vmWorkflowErrorCause,
+  isVmNotFoundError,
+  isVmProviderOperationError,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
@@ -612,6 +614,118 @@ function revokeModelPlane(
   );
 }
 
+const PROVIDER_MISSING_PROBE_TIMEOUT = "5 seconds";
+
+/**
+ * A provider operation on a machine the control plane still lists can fail
+ * because the provider no longer has it: deleted from the vendor dashboard,
+ * reclaimed, or expired out of band. Before this wrapper that 404 surfaced as
+ * a retryable 502 (`vm_cloud_service_unavailable`), so clients looped on
+ * attach against a machine that would never come back and the sidebar kept
+ * listing it.
+ *
+ * The 404 is confirmed with one status probe (a 404 from a sub-resource, such
+ * as a daemon file, must not destroy a live machine), the row is marked
+ * destroyed with the same bookkeeping the reconciler does, and the caller gets
+ * a terminal {@link VmNotFoundError} with `reason: "provider_missing"`.
+ * Anything else propagates unchanged.
+ */
+function failWhenProviderVmMissing<A, R = never>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  operation: string,
+  op: Effect.Effect<A, VmWorkflowError, R>,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<A, VmWorkflowError, R> {
+  const gone = new VmNotFoundError({
+    vmId: providerVmId,
+    reason: "provider_missing",
+    provider: vm.provider,
+    operation,
+  });
+  return op.pipe(
+    Effect.catchAll((err) => {
+      // The resume preflight already saw the provider report the machine
+      // destroyed; only the bookkeeping is left.
+      if (isVmNotFoundError(err) && err.reason === "provider_missing") {
+        return markProviderVmMissing(repo, vm, providerVmId, operation, modelPlane).pipe(
+          Effect.andThen(Effect.fail(gone)),
+        );
+      }
+      if (!isVmProviderOperationError(err) || !isProviderNotFoundError(err.cause)) {
+        return Effect.fail(err);
+      }
+      return Effect.gen(function* () {
+        const missing = yield* confirmProviderVmMissing(providers, vm, providerVmId);
+        if (!missing) return yield* Effect.fail(err);
+        yield* markProviderVmMissing(repo, vm, providerVmId, operation, modelPlane);
+        return yield* Effect.fail(gone);
+      });
+    }),
+  );
+}
+
+/**
+ * Re-ask the provider whether the machine exists. Only a second not-found
+ * answer counts (a `destroyed` status, or a not-found failure from a driver
+ * that throws instead); a timeout, an outage, or any live status leaves the
+ * original error in place so a flaky vendor cannot make cmux forget a machine.
+ */
+function confirmProviderVmMissing(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  const getStatus = providers.getStatus;
+  // Without a status verb the failed operation's own 404 is the only evidence.
+  if (!getStatus) return Effect.succeed(true);
+  return getStatus(vm.provider, providerVmId).pipe(
+    Effect.timeoutFail({
+      duration: PROVIDER_MISSING_PROBE_TIMEOUT,
+      onTimeout: () =>
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: `getStatus(${providerVmId})`,
+          cause: new Error("status probe timed out"),
+        }),
+    }),
+    Effect.map((status) => status === "destroyed"),
+    Effect.catchAll((probeErr) => Effect.succeed(isProviderNotFoundError(probeErr))),
+  );
+}
+
+function markProviderVmMissing(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  operation: string,
+  modelPlane: VmModelPlaneRevoker | undefined,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const marked = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "destroyed",
+    }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    // false: another request already recorded the destruction, or the row was
+    // replaced; the reconciler owns whatever is left.
+    if (!marked) return;
+    yield* revokeModelPlane(modelPlane, vm.id);
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.destroyed",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { source: "provider_missing", operation },
+    }).pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
 export function openBaseVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -899,23 +1013,32 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    const snapshot = yield* (providers.snapshot
-      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmOperationUnsupportedError({
-        provider: vm.provider,
-        operation: "snapshot",
-      })));
-    yield* repo.recordUsageEvent({
-      userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.snapshot.created",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
-    });
-    return snapshot;
+    return yield* failWhenProviderVmMissing(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "snapshot",
+      Effect.gen(function* () {
+        const snapshot = yield* (providers.snapshot
+          ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
+          : Effect.fail(new VmOperationUnsupportedError({
+            provider: vm.provider,
+            operation: "snapshot",
+          })));
+        yield* repo.recordUsageEvent({
+          userId: vm.userId,
+          billingTeamId: vm.billingTeamId,
+          billingPlanId: vm.billingPlanId,
+          vmId: vm.id,
+          eventType: "vm.snapshot.created",
+          provider: vm.provider,
+          imageId: vm.imageId,
+          metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
+        });
+        return snapshot;
+      }),
+    );
   });
 }
 
@@ -1475,6 +1598,19 @@ function preflightResumeIfSuspended(
           : Effect.succeed(null as VMStatus | null),
       ),
     );
+    if (status === "destroyed") {
+      // The provider no longer has the machine although the row says it
+      // does. Stop before minting anything; failWhenProviderVmMissing marks
+      // the row destroyed and turns this into the terminal 404.
+      return yield* Effect.fail(
+        new VmNotFoundError({
+          vmId: providerVmId,
+          reason: "provider_missing",
+          provider: vm.provider,
+          operation: `getStatus(${providerVmId})`,
+        }),
+      );
+    }
     if (status === "creating") {
       // Another caller's resume is in flight; wait for it rather than
       // minting endpoints or running commands against a not-yet-ready VM.
@@ -1831,28 +1967,37 @@ export function execVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(
+    return yield* failWhenProviderVmMissing(
       repo,
       providers,
       vm,
       input.providerVmId,
       "exec",
+      Effect.gen(function* () {
+        yield* preflightResumeIfSuspended(
+          repo,
+          providers,
+          vm,
+          input.providerVmId,
+          "exec",
+        );
+        const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
+          timeoutMs: input.timeoutMs,
+          providerMetadata: vm.providerMetadata,
+        });
+        yield* repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: vm.billingTeamId,
+          billingPlanId: vm.billingPlanId,
+          vmId: vm.id,
+          eventType: "vm.exec",
+          provider: vm.provider,
+          imageId: vm.imageId,
+          metadata: { commandLength: input.command.length, exitCode: result.exitCode },
+        }).pipe(Effect.catchAll(() => Effect.void));
+        return result satisfies ExecResult;
+      }),
     );
-    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
-      timeoutMs: input.timeoutMs,
-      providerMetadata: vm.providerMetadata,
-    });
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.exec",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return result satisfies ExecResult;
   });
 }
 
@@ -1864,18 +2009,28 @@ export function getVmStats(input: {
 }) {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
+    const repo = yield* VmRepository;
     const vm = yield* requireUserVm(input);
-    // No resume preflight on purpose: a reading must never wake a sleeping machine.
-    if (!providers.getStats) {
-      return yield* Effect.fail(
-        new VmProviderOperationError({
-          provider: vm.provider,
-          operation: "getStats",
-          cause: new Error("machine stats are not supported by this deployment"),
-        }),
-      );
-    }
-    return yield* providers.getStats(vm.provider, input.providerVmId);
+    return yield* failWhenProviderVmMissing(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "getStats",
+      Effect.gen(function* () {
+        // No resume preflight on purpose: a reading must never wake a sleeping machine.
+        if (!providers.getStats) {
+          return yield* Effect.fail(
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: "getStats",
+              cause: new Error("machine stats are not supported by this deployment"),
+            }),
+          );
+        }
+        return yield* providers.getStats(vm.provider, input.providerVmId);
+      }),
+    );
   });
 }
 
@@ -1892,53 +2047,62 @@ export function openVmPort(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(
+    return yield* failWhenProviderVmMissing(
       repo,
       providers,
       vm,
       input.providerVmId,
-      "open_port",
-    );
-    if (!providers.openPort) {
-      return yield* Effect.fail(
-        new VmProviderOperationError({
+      "openPort",
+      Effect.gen(function* () {
+        yield* preflightResumeIfSuspended(
+          repo,
+          providers,
+          vm,
+          input.providerVmId,
+          "open_port",
+        );
+        if (!providers.openPort) {
+          return yield* Effect.fail(
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: "openPort",
+              cause: new Error("open-port is not supported by this deployment"),
+            }),
+          );
+        }
+        const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
+        // Keep the preview token in the same revocation ledger as terminal/RPC
+        // endpoints. The raw token is never persisted; only its hash is needed to
+        // identify and invalidate this account's lease during sign-out.
+        yield* repo.recordLease({
+          vmId: vm.id,
+          userId: input.userId,
+          kind: "preview",
+          tokenHash: hashToken(endpoint.token),
+          expiresAt: new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS),
+          transport: "https",
+          metadata: { port: input.port },
+        }).pipe(
+          Effect.catchAll((err) => {
+            const cleanup = providers.revokeEndpointLeases
+              ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+              : Effect.void;
+            return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+          }),
+        );
+        yield* repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: vm.billingTeamId,
+          billingPlanId: vm.billingPlanId,
+          vmId: vm.id,
+          eventType: "vm.open_port",
           provider: vm.provider,
-          operation: "openPort",
-          cause: new Error("open-port is not supported by this deployment"),
-        }),
-      );
-    }
-    const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
-    // Keep the preview token in the same revocation ledger as terminal/RPC
-    // endpoints. The raw token is never persisted; only its hash is needed to
-    // identify and invalidate this account's lease during sign-out.
-    yield* repo.recordLease({
-      vmId: vm.id,
-      userId: input.userId,
-      kind: "preview",
-      tokenHash: hashToken(endpoint.token),
-      expiresAt: new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS),
-      transport: "https",
-      metadata: { port: input.port },
-    }).pipe(
-      Effect.catchAll((err) => {
-        const cleanup = providers.revokeEndpointLeases
-          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
-          : Effect.void;
-        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+          imageId: vm.imageId,
+          metadata: { port: input.port },
+        }).pipe(Effect.catchAll(() => Effect.void));
+        return endpoint;
       }),
     );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.open_port",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { port: input.port },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
   });
 }
 
@@ -1963,68 +2127,77 @@ export function openVmCmuxRemote(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
-    if (!providers.openCmuxRemote) {
-      return yield* Effect.fail(
-        new VmProviderOperationError({
-          provider: vm.provider,
-          operation: "openCmuxRemote",
-          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
-        }),
-      );
-    }
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+    return yield* failWhenProviderVmMissing(
       repo,
       providers,
       vm,
       input.providerVmId,
-      "attach",
-      providers.openCmuxRemote(vm.provider, input.providerVmId, {
-        deviceFingerprint: input.deviceFingerprint,
-        clientCapabilities: input.clientCapabilities,
-        providerMetadata: vm.providerMetadata,
+      "openCmuxRemote",
+      Effect.gen(function* () {
+        yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+        if (!providers.openCmuxRemote) {
+          return yield* Effect.fail(
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: "openCmuxRemote",
+              cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+            }),
+          );
+        }
+        const endpoint = yield* withResumeOnSuspendedAfterFailure(
+          repo,
+          providers,
+          vm,
+          input.providerVmId,
+          "attach",
+          providers.openCmuxRemote(vm.provider, input.providerVmId, {
+            deviceFingerprint: input.deviceFingerprint,
+            clientCapabilities: input.clientCapabilities,
+            providerMetadata: vm.providerMetadata,
+          }),
+        );
+        yield* repo.recordLease({
+          vmId: vm.id,
+          userId: input.userId,
+          kind: "preview",
+          tokenHash: hashToken(endpoint.token),
+          expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+          transport: "cmux-remote",
+          metadata: { session: endpoint.session, invited: !!endpoint.invitation },
+        }).pipe(
+          Effect.catchAll((err) => {
+            const cleanup = providers.revokeEndpointLeases
+              ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+              : Effect.void;
+            return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+          }),
+        );
+        yield* repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: vm.billingTeamId,
+          billingPlanId: vm.billingPlanId,
+          vmId: vm.id,
+          eventType: "vm.attach",
+          provider: vm.provider,
+          imageId: vm.imageId,
+          metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
+        }).pipe(Effect.catchAll(() => Effect.void));
+        // Backfill: machines created before address recording learn their private
+        // address on first attach, so "Copy IP Address" appears for them too.
+        const learned = endpoint.networkAddresses;
+        if (learned && repo.mergeProviderMetadata) {
+          const metadata = vm.providerMetadata ?? {};
+          const patch = {
+            ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
+            ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
+          };
+          if (Object.keys(patch).length) {
+            yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
+          }
+        }
+        return endpoint;
       }),
     );
-    yield* repo.recordLease({
-      vmId: vm.id,
-      userId: input.userId,
-      kind: "preview",
-      tokenHash: hashToken(endpoint.token),
-      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
-      transport: "cmux-remote",
-      metadata: { session: endpoint.session, invited: !!endpoint.invitation },
-    }).pipe(
-      Effect.catchAll((err) => {
-        const cleanup = providers.revokeEndpointLeases
-          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
-          : Effect.void;
-        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
-      }),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.attach",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    // Backfill: machines created before address recording learn their private
-    // address on first attach, so "Copy IP Address" appears for them too.
-    const learned = endpoint.networkAddresses;
-    if (learned && repo.mergeProviderMetadata) {
-      const metadata = vm.providerMetadata ?? {};
-      const patch = {
-        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
-        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
-      };
-      if (Object.keys(patch).length) {
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
-    return endpoint;
   });
 }
 
@@ -2038,19 +2211,29 @@ export function approveVmCmuxRemoteEnrollment(input: {
 }) {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
+    const repo = yield* VmRepository;
     const vm = yield* requireAccessibleUserVm(input);
-    if (!providers.approveCmuxRemoteEnrollment) {
-      return yield* Effect.fail(
-        new VmProviderOperationError({
-          provider: vm.provider,
-          operation: "approveCmuxRemoteEnrollment",
-          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
-        }),
-      );
-    }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
-      providerMetadata: vm.providerMetadata,
-    });
+    return yield* failWhenProviderVmMissing(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "approveCmuxRemoteEnrollment",
+      Effect.gen(function* () {
+        if (!providers.approveCmuxRemoteEnrollment) {
+          return yield* Effect.fail(
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: "approveCmuxRemoteEnrollment",
+              cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+            }),
+          );
+        }
+        return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+          providerMetadata: vm.providerMetadata,
+        });
+      }),
+    );
   });
 }
 
@@ -2172,73 +2355,82 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    // A provider that only runs the cmux-tui daemon cannot serve the legacy
-    // websocket/SSH attach at all; say so before waking or mutating anything.
-    const supportedTransports = providers.attachTransports?.(vm.provider);
-    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
-      return yield* Effect.fail(
-        new VmAttachTransportUnsupportedError({
-          provider: vm.provider,
-          vmId: input.providerVmId,
-          requested: "websocket",
-          supported: supportedTransports,
-        }),
-      );
-    }
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
-    // Once preflight records the VM as running, that state is externally
-    // visible to concurrent attach/SSH requests. Later cleanup failures must
-    // fail closed without pausing a VM another request may have attached to.
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+    return yield* failWhenProviderVmMissing(
       repo,
       providers,
       vm,
       input.providerVmId,
-      "attach",
-      providers.openAttach(vm.provider, input.providerVmId, {
-        ...(input.options ?? {}),
-        providerMetadata: vm.providerMetadata,
+      "openAttach",
+      Effect.gen(function* () {
+        // A provider that only runs the cmux-tui daemon cannot serve the legacy
+        // websocket/SSH attach at all; say so before waking or mutating anything.
+        const supportedTransports = providers.attachTransports?.(vm.provider);
+        if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+          return yield* Effect.fail(
+            new VmAttachTransportUnsupportedError({
+              provider: vm.provider,
+              vmId: input.providerVmId,
+              requested: "websocket",
+              supported: supportedTransports,
+            }),
+          );
+        }
+        yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+        // Once preflight records the VM as running, that state is externally
+        // visible to concurrent attach/SSH requests. Later cleanup failures must
+        // fail closed without pausing a VM another request may have attached to.
+        yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+        const endpoint = yield* withResumeOnSuspendedAfterFailure(
+          repo,
+          providers,
+          vm,
+          input.providerVmId,
+          "attach",
+          providers.openAttach(vm.provider, input.providerVmId, {
+            ...(input.options ?? {}),
+            providerMetadata: vm.providerMetadata,
+          }),
+        );
+        yield* storeEndpointLeases(vm, endpoint).pipe(
+          Effect.catchAll((err) =>
+            revokeEndpointIdentity(vm.provider, endpoint).pipe(
+              Effect.andThen(Effect.fail(err)),
+            ),
+          ),
+        );
+        yield* repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: vm.billingTeamId,
+          billingPlanId: vm.billingPlanId,
+          vmId: vm.id,
+          eventType: "vm.attach",
+          provider: vm.provider,
+          imageId: vm.imageId,
+          metadata: {
+            transport: endpoint.transport,
+            requireDaemon: input.options?.requireDaemon === true,
+            requestedSessionId: input.options?.sessionId ?? null,
+            daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
+          },
+        }).pipe(Effect.catchAll(() => Effect.void));
+        const session = endpoint.transport === "websocket"
+          ? yield* repo.upsertVmSession({
+            vmId: vm.id,
+            userId: input.userId,
+            providerSessionId: endpoint.sessionId,
+            title: input.sessionTitle ?? null,
+            status: "running",
+            attachmentCount: 1,
+            metadata: {
+              transport: endpoint.transport,
+              daemonAvailable: !!endpoint.daemon,
+              attachmentId: endpoint.attachmentId,
+            },
+          })
+          : undefined;
+        return { endpoint, session };
       }),
     );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((err) =>
-        revokeEndpointIdentity(vm.provider, endpoint).pipe(
-          Effect.andThen(Effect.fail(err)),
-        ),
-      ),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.attach",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: {
-        transport: endpoint.transport,
-        requireDaemon: input.options?.requireDaemon === true,
-        requestedSessionId: input.options?.sessionId ?? null,
-        daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
-      },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    const session = endpoint.transport === "websocket"
-      ? yield* repo.upsertVmSession({
-        vmId: vm.id,
-        userId: input.userId,
-        providerSessionId: endpoint.sessionId,
-        title: input.sessionTitle ?? null,
-        status: "running",
-        attachmentCount: 1,
-        metadata: {
-          transport: endpoint.transport,
-          daemonAvailable: !!endpoint.daemon,
-          attachmentId: endpoint.attachmentId,
-        },
-      })
-      : undefined;
-    return { endpoint, session };
   });
 }
 
