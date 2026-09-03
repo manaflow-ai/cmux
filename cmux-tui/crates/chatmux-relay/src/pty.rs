@@ -1766,6 +1766,7 @@ impl Inner {
                 Err(_) => {
                     let send = Arc::clone(&context.send);
                     let pty_id = pty_id.to_owned();
+                    let error_pty_id = pty_id.clone();
                     let code = code.to_owned();
                     let message = message.to_owned();
                     self.force_retire_with_completion(
@@ -1776,7 +1777,7 @@ impl Inner {
                             send(json!({
                                 "version": PTY_PROTOCOL_VERSION,
                                 "type": "pty_error",
-                                "ptyId": pty_id,
+                                "ptyId": error_pty_id,
                                 "code": code,
                                 "message": message,
                             }));
@@ -1990,7 +1991,7 @@ impl Inner {
     }
 
     async fn with_live_attachment_async(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         attachment: &Attachment,
         context: &FrameContext,
