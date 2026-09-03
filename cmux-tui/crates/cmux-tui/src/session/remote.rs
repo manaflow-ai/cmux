@@ -1337,48 +1337,18 @@ impl InteractiveWriter {
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        self.enqueue_inner(message, measure_latency, false)
+        self.enqueue_inner(message, measure_latency)
     }
 
-    /// Bounded-probe admission is fail-fast. It never waits for the queue
-    /// mutex or for capacity, so a shared reconnect deadline remains
-    /// authoritative when the remote writer is stalled.
-    fn try_enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        self.enqueue_inner(message, measure_latency, true)
-    }
-
-    fn enqueue_inner(
-        &self,
-        message: String,
-        measure_latency: bool,
-        nonblocking: bool,
-    ) -> io::Result<u64> {
+    fn enqueue_inner(&self, message: String, measure_latency: bool) -> io::Result<u64> {
         let mut write =
             InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
         let message_bytes = write.message.len();
-        let state = if nonblocking {
-            match self.shared.state.try_lock() {
-                Ok(state) => Ok(state),
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    Err(io::Error::other("interactive writer queue is poisoned"))
-                }
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    if measure_latency {
-                        self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "interactive writer queue mutex is contended",
-                    ))
-                }
-            }
-        } else {
-            self.shared
-                .state
-                .lock()
-                .map_err(|_| io::Error::other("interactive writer queue is poisoned"))
-        };
-        let mut state = state?;
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
         if let Some(failure) = &state.failure {
             return Err(failure.to_error());
         }
@@ -1407,6 +1377,89 @@ impl InteractiveWriter {
         drop(state);
         self.shared.changed.notify_one();
         Ok(sequence)
+    }
+
+    /// Admit a deadline-bound control request without allowing either the
+    /// queue mutex or a full queue to consume time beyond its request budget.
+    /// Normal PTY input continues to use `enqueue`, which preserves its
+    /// blocking FIFO behavior during brief mutex contention.
+    fn enqueue_until(
+        &self,
+        message: String,
+        measure_latency: bool,
+        deadline: Instant,
+    ) -> io::Result<u64> {
+        let mut write =
+            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
+        let message_bytes = write.message.len();
+        loop {
+            let mut state = match self.shared.state.try_lock() {
+                Ok(state) => state,
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err(io::Error::other("interactive writer queue is poisoned"));
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return self.queue_admission_timeout(measure_latency);
+                    }
+                    // std::sync::Mutex has no timed lock. Yield in short
+                    // bounded intervals so a transient holder is not
+                    // rejected, while the absolute request deadline remains
+                    // authoritative.
+                    std::thread::sleep(remaining.min(Duration::from_millis(1)));
+                    continue;
+                }
+            };
+
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            if state.closed {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "interactive writer is closed",
+                ));
+            }
+            let queue_full = state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+                || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes);
+            if queue_full {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return self.queue_admission_timeout(measure_latency);
+                }
+                let (_next, timeout) = self
+                    .shared
+                    .changed
+                    .wait_timeout(state, remaining)
+                    .unwrap_or_else(|poison| poison.into_inner());
+                if timeout.timed_out() {
+                    return self.queue_admission_timeout(measure_latency);
+                }
+                continue;
+            }
+
+            let sequence = state.last_enqueued_sequence.checked_add(1).ok_or_else(|| {
+                io::Error::other("interactive writer sequence space is exhausted")
+            })?;
+            state.last_enqueued_sequence = sequence;
+            state.queued_bytes += message_bytes;
+            write.sequence = sequence;
+            state.writes.push_back(write);
+            drop(state);
+            self.shared.changed.notify_one();
+            return Ok(sequence);
+        }
+    }
+
+    fn queue_admission_timeout(&self, measure_latency: bool) -> io::Result<u64> {
+        if measure_latency {
+            self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "interactive writer queue admission deadline expired",
+        ))
     }
 
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
@@ -3141,12 +3194,26 @@ impl RemoteSession {
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
         );
-        // Reconnect probes share one absolute deadline. They must not wait on
-        // a queue mutex held by a stalled writer; normal control requests keep
-        // their existing short mutex critical section and preserve input FIFO.
+        // Control requests have a bounded admission budget for both the queue
+        // mutex and queue capacity. Normal PTY input uses `request_no_wait`
+        // and keeps its blocking FIFO behavior during brief contention.
         let enqueue_result = match deadline {
-            RequestDeadline::Until(_) => self.interactive_writer.try_enqueue(message, false),
-            _ => self.interactive_writer.enqueue(message, false),
+            RequestDeadline::Standard => self.interactive_writer.enqueue_until(
+                message,
+                false,
+                Instant::now() + REMOTE_REQUEST_TIMEOUT,
+            ),
+            RequestDeadline::Attach => self.interactive_writer.enqueue_until(
+                message,
+                false,
+                Instant::now() + remote_write_timeout(),
+            ),
+            RequestDeadline::Fixed(timeout) => {
+                self.interactive_writer.enqueue_until(message, false, Instant::now() + timeout)
+            }
+            RequestDeadline::Until(probe_deadline) => {
+                self.interactive_writer.enqueue_until(message, false, probe_deadline)
+            }
         };
         let sequence = match enqueue_result {
             Ok(sequence) => sequence,
