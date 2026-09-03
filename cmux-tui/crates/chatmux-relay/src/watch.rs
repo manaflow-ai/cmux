@@ -1413,6 +1413,14 @@ mod tests {
         let refusal = next_frame(&mut critical, &mut watch, "refusal").await;
         assert_eq!(refusal["type"], "fs_watch_error");
         assert_eq!(refusal["code"], "path_forbidden");
+        assert_eq!(
+            refusal["message"],
+            "path is forbidden by the workspace policy"
+        );
+        assert!(
+            !refusal.to_string().contains(&root.to_string_lossy().to_string()),
+            "watch refusal must not disclose the local workspace path"
+        );
         // Session cap: the 17th watch refuses watch_limit.
         for index in 0..WATCH_MAX_SESSIONS {
             registry.open(open_frame(&format!("w{index}"), &root), None);
