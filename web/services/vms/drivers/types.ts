@@ -88,15 +88,6 @@ export type CreateOptions = {
    */
   imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
   /**
-   * Machine-level environment delivered at create time (the coderouter
-   * model-plane env: OPENAI_BASE_URL plus placeholder keys). Treat values as
-   * secrets anyway: drivers pass them to the provider's create call or write
-   * them into the guest only, and never echo them into
-   * VMHandle.providerMetadata, which is persisted. Providers without
-   * machine-level env support ignore it.
-   */
-  envs?: Readonly<Record<string, string>>;
-  /**
    * Per-domain request headers the provider's TLS edge injects into every
    * request the guest makes to `domain` (the coderouter route token and the
    * VM id). Header values are secrets: drivers pass them to the provider's
@@ -125,10 +116,16 @@ export type VmEdgeRule = {
   readonly domain: string;
   /** Headers the edge sets on every request to `domain`, overwriting the guest's. */
   readonly headers: Readonly<Record<string, string>>;
+  /**
+   * Where the edge connects for `domain` (port 443). Lets the guest dial one
+   * fixed alias while each deployment routes it to its own API host. Absent:
+   * the edge connects to `domain` itself.
+   */
+  readonly destinationHost?: string;
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };

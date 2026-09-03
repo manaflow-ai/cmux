@@ -872,9 +872,11 @@ mod tests {
                 columns,
                 "Ghostty width {width:?} must remain authoritative"
             );
-            let expected_diff_option = forced
-                .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
-                .unwrap_or(CellDiffOption::None);
+            let expected_diff_option = if forced {
+                CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap())
+            } else {
+                CellDiffOption::None
+            };
             assert_eq!(target.diff_option, expected_diff_option);
         }
     }
