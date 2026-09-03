@@ -35,6 +35,42 @@ private final class TemporaryAppEnvironment {
 
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
+    private struct LiveSurfaceTimeout: Error {}
+
+    @MainActor
+    private func waitForLiveSurface(_ surface: TerminalSurface) async throws {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        let readiness = AsyncStream<Void>.makeStream()
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        surface.onRuntimeReady = {
+            previousOnRuntimeReady?()
+            readiness.continuation.yield()
+            readiness.continuation.finish()
+        }
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        if surface.hasLiveSurface { return }
+        try await withThrowingTaskGroup(of: Bool.self, returning: Bool.self) {
+            group in
+            group.addTask {
+                for await _ in readiness.stream {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let becameReady = try await group.next() ?? false
+            group.cancelAll()
+            guard becameReady, surface.hasLiveSurface else {
+                throw LiveSurfaceTimeout()
+            }
+            return true
+        }
+    }
+
     @MainActor
     @Test func addressedDeliveryDoesNotSelectOrFocusTargetWorkspace() throws {
         let environment = TemporaryAppEnvironment()
@@ -226,7 +262,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func hookObservedTurnGatesDeliveryInsteadOfShellActivity() throws {
+    @Test func hookObservedTurnGatesDeliveryInsteadOfShellActivity() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager
         var created: [Workspace] = []
@@ -242,7 +278,9 @@ struct AgentPromptSubmissionTests {
             environment.restore()
         }
 
-        func makeAgentWorkspace() throws -> (Workspace, UUID) {
+        func makeAgentWorkspace(
+            releaseSurface: Bool = true
+        ) throws -> (Workspace, UUID) {
             let workspace = tabManager.addWorkspace(select: false)
             created.append(workspace)
             let surfaceID = try #require(workspace.focusedPanelId)
@@ -255,7 +293,9 @@ struct AgentPromptSubmissionTests {
                 panelId: surfaceID,
                 refreshPorts: false
             )
-            panel.surface.releaseSurfaceForTesting()
+            if releaseSurface {
+                panel.surface.releaseSurfaceForTesting()
+            }
             // A TUI agent keeps the shell in commandRunning even while its
             // composer is idle; that alone must not gate addressed delivery.
             workspace.panelShellActivityStates[surfaceID] = .commandRunning
@@ -291,7 +331,13 @@ struct AgentPromptSubmissionTests {
         ) == "agent_not_ready")
 
         // A hook-observed turn owns the composer and takes precedence.
-        let (busyWorkspace, busySurface) = try makeAgentWorkspace()
+        let (busyWorkspace, busySurface) = try makeAgentWorkspace(
+            releaseSurface: false
+        )
+        let busyPanel = try #require(
+            busyWorkspace.terminalInputTarget(forPanelID: busySurface)?.panel
+        )
+        try await waitForLiveSurface(busyPanel.surface)
         let busySessionID = "busy-session"
         busyWorkspace.recordAgentTurnStart(
             panelId: busySurface,
@@ -356,27 +402,18 @@ struct AgentPromptSubmissionTests {
         let service = controller.agentPromptSubmissionService
         let workspaceID = workspace.id
         let targetSurfaceID = panelID
-        let fakeRuntimeSurface = UnsafeMutableRawPointer(bitPattern: 1)!
-        // The queue-drain guard needs a non-nil runtime, but this test's
-        // delivery closure never calls Ghostty. Clear the sentinel before the
-        // panel teardown path so no native free is attempted on it.
-        panel.surface.releaseSurfaceForTesting()
-        panel.surface.installRuntimeSurfaceForTesting(
-            fakeRuntimeSurface,
-            configureNativeCallbacks: false
-        )
         defer {
             controller.cancelAgentPromptConfirmationFallback(
                 workspaceID: workspaceID
             )
             _ = service.remove(workspaceID: workspaceID)
-            panel.surface.surface = nil
             panel.surface.releaseSurfaceForTesting()
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             environment.restore()
         }
+        try await waitForLiveSurface(panel.surface)
 
         let agentKey = "codex.session-a"
         workspace.recordAgentPID(
@@ -447,7 +484,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func activeTurnSchedulesADeadlineRetry() throws {
+    @Test func activeTurnSchedulesADeadlineRetry() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager
         let workspace = tabManager.addWorkspace(select: true)
@@ -458,22 +495,17 @@ struct AgentPromptSubmissionTests {
         let controller = TerminalController.shared
         let workspaceID = workspace.id
         let targetSurfaceID = panelID
-        panel.surface.releaseSurfaceForTesting()
-        panel.surface.installRuntimeSurfaceForTesting(
-            UnsafeMutableRawPointer(bitPattern: 1)!,
-            configureNativeCallbacks: false
-        )
         defer {
             controller.cancelAgentPromptConfirmationFallback(
                 workspaceID: workspaceID
             )
-            panel.surface.surface = nil
             panel.surface.releaseSurfaceForTesting()
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             environment.restore()
         }
+        try await waitForLiveSurface(panel.surface)
 
         workspace.recordAgentPID(
             key: "codex.expiry-scheduler",
@@ -504,7 +536,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func expiredActiveTurnReleasesTheGuardedQueue() throws {
+    @Test func expiredActiveTurnReleasesTheGuardedQueue() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager
         let workspace = tabManager.addWorkspace(select: true)
@@ -515,20 +547,15 @@ struct AgentPromptSubmissionTests {
         let service = TerminalController.shared.agentPromptSubmissionService
         let workspaceID = workspace.id
         let targetSurfaceID = panelID
-        panel.surface.releaseSurfaceForTesting()
-        panel.surface.installRuntimeSurfaceForTesting(
-            UnsafeMutableRawPointer(bitPattern: 1)!,
-            configureNativeCallbacks: false
-        )
         defer {
             _ = service.remove(workspaceID: workspaceID)
-            panel.surface.surface = nil
             panel.surface.releaseSurfaceForTesting()
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             environment.restore()
         }
+        try await waitForLiveSurface(panel.surface)
 
         workspace.recordAgentPID(
             key: "codex.expiry-drain",
@@ -617,7 +644,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func replacingAnAgentBindingDoesNotDiscardItsQueuedPrompt() throws {
+    @Test func replacingAnAgentBindingDoesNotDiscardItsQueuedPrompt() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager
         let workspace = tabManager.addWorkspace(select: true)
@@ -628,20 +655,15 @@ struct AgentPromptSubmissionTests {
         let service = TerminalController.shared.agentPromptSubmissionService
         let workspaceID = workspace.id
         let targetSurfaceID = panelID
-        panel.surface.releaseSurfaceForTesting()
-        panel.surface.installRuntimeSurfaceForTesting(
-            UnsafeMutableRawPointer(bitPattern: 1)!,
-            configureNativeCallbacks: false
-        )
         defer {
             _ = service.remove(workspaceID: workspaceID)
-            panel.surface.surface = nil
             panel.surface.releaseSurfaceForTesting()
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             environment.restore()
         }
+        try await waitForLiveSurface(panel.surface)
 
         workspace.recordAgentPID(
             key: "codex.replaced-old",
@@ -688,7 +710,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func restoringAReusedPIDDoesNotDrainBeforeSavedIdentityIsInstalled() throws {
+    @Test func restoringAReusedPIDDoesNotDrainBeforeSavedIdentityIsInstalled() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager
         let workspace = tabManager.addWorkspace(select: true)
@@ -699,20 +721,15 @@ struct AgentPromptSubmissionTests {
         let service = TerminalController.shared.agentPromptSubmissionService
         let workspaceID = workspace.id
         let targetSurfaceID = panelID
-        panel.surface.releaseSurfaceForTesting()
-        panel.surface.installRuntimeSurfaceForTesting(
-            UnsafeMutableRawPointer(bitPattern: 1)!,
-            configureNativeCallbacks: false
-        )
         defer {
             _ = service.remove(workspaceID: workspaceID)
-            panel.surface.surface = nil
             panel.surface.releaseSurfaceForTesting()
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             environment.restore()
         }
+        try await waitForLiveSurface(panel.surface)
 
         var attempts = 0
         let receipt = service.submit(
@@ -935,8 +952,11 @@ struct AgentPromptSubmissionTests {
         let agentResponse = try #require(agentPayload as? [String: Any])
         #expect(agentResponse["submitted"] as? Bool == true)
         #expect(agentResponse["queued"] as? Bool == true)
+        #expect(agentResponse["queue_reason"] as? String == "agent_not_ready")
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 1)
         #expect(
-            panel.surface.debugPendingSocketInputForTesting().items == 2
+            TerminalController.shared.agentPromptSubmissionService
+                .pendingCount == 1
         )
     }
 
@@ -1614,13 +1634,18 @@ struct AgentPromptSubmissionTests {
         let payload = try #require(rawPayload as? [String: Any])
         #expect(payload["submitted"] as? Bool == true)
         #expect(payload["queued"] as? Bool == true)
+        #expect(payload["queue_reason"] as? String == "prior_prompt_in_flight")
         #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
         #expect(payload["surface_id"] as? String == panelID.uuidString)
         let pending = panel.surface.debugPendingSocketInputForTesting()
-        #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(pending.items == 0)
+        #expect(pending.promptSubmissionItems == 0)
         #expect(pending.inputTextItems == 0)
         #expect(pending.keyEvents == 0)
+        #expect(
+            TerminalController.shared.agentPromptSubmissionService
+                .pendingCount == 1
+        )
     }
 
     @MainActor

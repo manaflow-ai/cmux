@@ -385,11 +385,22 @@ extension Workspace {
             identity: agentPIDProcessIdentitiesByKey[key]
         )
         var didClearOtherStructuredAgentRuntime = false
+        // Replace a structured binding as one scope transition. Clearing the
+        // old key first is otherwise observable as "no agent" and discards a
+        // queued prompt before the replacement key is installed.
+        let deferReplacementScopeSynchronization =
+            synchronizePromptInputScope
+                && panelId != nil
+                && isStructuredAgentHookPIDKey(key)
+        let interimScopeSynchronization =
+            deferReplacementScopeSynchronization
+                ? false
+                : synchronizePromptInputScope
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(
                 onPanel: panelId,
                 keeping: key,
-                synchronizePromptInputScope: synchronizePromptInputScope
+                synchronizePromptInputScope: interimScopeSynchronization
             )
         }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
@@ -399,7 +410,7 @@ extension Workspace {
             recordAgentPIDOwnership(
                 key: key,
                 panelId: panelId,
-                synchronizePromptInputScope: synchronizePromptInputScope
+                synchronizePromptInputScope: interimScopeSynchronization
             )
         } else {
             removeAgentPIDOwnership(key: key)
@@ -411,6 +422,12 @@ extension Workspace {
                     synchronizePromptInputAgentScope(forPanelId: changedPanelId)
                 }
             }
+        } else if didClearOtherStructuredAgentRuntime,
+                  synchronizePromptInputScope,
+                  let panelId {
+            // The retained key was already present, but stale sibling keys
+            // were removed; reconcile once after the complete replacement.
+            synchronizePromptInputAgentScope(forPanelId: panelId)
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime
