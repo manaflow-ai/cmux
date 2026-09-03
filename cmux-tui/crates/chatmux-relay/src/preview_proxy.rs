@@ -1344,7 +1344,7 @@ mod tests {
         S: futures_util::Stream<Item = Result<Message, tungstenite::Error>> + Unpin,
     {
         loop {
-            let message = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
+            let message = tokio::time::timeout(Duration::from_secs(10), socket.next())
                 .await
                 .unwrap_or_else(|_| panic!("no {what} within 10s"))
                 .unwrap_or_else(|| panic!("{what}: socket ended"))
@@ -1416,7 +1416,7 @@ mod tests {
         page.send(Message::text(network_done.to_string())).await.expect("network done");
         // Both also pipe to devtools (console first).
         assert!(next_text(&mut devtools, "console pipe").await.contains("consoleAPICalled"));
-        let tail = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let tail = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let body = registry.tail(None).expect("tail");
                 let wire::WorkspaceResultBody::PreviewConsoleTail(result) = &body else {
@@ -1425,7 +1425,7 @@ mod tests {
                 if result.events.len() >= 2 {
                     break result.events.clone();
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         })
         .await
@@ -1447,7 +1447,7 @@ mod tests {
 
         // Latest page connection wins; the earlier one gets a close frame.
         let mut replacement = connect_ws(proxy, "/__chatmux__/page").await;
-        let closed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match page.next().await {
                     Some(Ok(Message::Close(frame))) => break frame,
