@@ -27,6 +27,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "cursor", title: "Cursor Integration", synonyms: "automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: "Gemini CLI Integration", synonyms: "automation.geminiIntegration gemini cli google agent hooks notifications"),
 
+        ] + [
             // App
             .init(section: .app, id: "language", title: "Language", synonyms: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
             .init(section: .app, id: "appearance", title: "Appearance", synonyms: "app.appearance theme color scheme light mode dark mode system mode"),
@@ -108,6 +109,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
+        ] + [
             // Terminal
             .init(
                 section: .terminal,
@@ -177,12 +179,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position")
             ),
 
+        ] + [
             // TextBox
             .init(section: .textBox, id: "show-textbox-new-terminals", title: "Show TextBox on New Terminals", synonyms: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
             .init(section: .textBox, id: "focus-textbox-new-terminals", title: "Focus TextBox on New Terminals", synonyms: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
             .init(section: .textBox, id: "default-submit-action", title: String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"), synonyms: "terminal.textBoxDefaultSubmitAction submit action shift tab claude codex opencode pi agent route provider icon new session"),
             .init(section: .textBox, id: "textbox-max-lines", title: "TextBox Max Lines", synonyms: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
 
+        ] + [
             // Sidebar appearance + sidebar workspace row details
             .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: "Hide All Sidebar Details", synonyms: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
@@ -230,6 +234,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
+        ] + [
         ] + [
             // Mobile
             .init(
@@ -298,10 +303,12 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
             ),
 
+        ] + [
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
             .init(section: .customSidebars, id: "renderer", title: String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), synonyms: "customSidebars.renderer renderer in-process in app remote worker isolated process hover focus typing input"),
 
+        ] + [
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
@@ -344,6 +351,7 @@ extension Array where Element == CuratedSettingEntry {
             ),
 
         ] + [
+        ] + [
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
             .init(
@@ -367,6 +375,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
+        ] + [
             // Computer Use
             .init(
                 section: .computerUse,
@@ -388,6 +397,7 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),
+        ] + [
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
@@ -416,14 +426,17 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "react-grab", title: "React Grab Version", synonyms: "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"),
             .init(section: .browser, id: "history", title: "Browsing History", synonyms: "browsing history clear visited pages omnibar suggestions delete"),
 
+        ] + [
             // Browser import
             .init(section: .browserImport, id: "import-data", title: "Import Browser Data", synonyms: "chrome safari firefox brave edge arc bookmarks history cookies profiles migration"),
             .init(section: .browserImport, id: "import-hint", title: "Show import hint on blank browser tabs", synonyms: "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"),
 
+        ] + [
             // Global hotkey
             .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable System-Wide Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide show hide all windows"),
             .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
+        ] + [
             // Keyboard shortcuts
             .init(
                 section: .keyboardShortcuts,
@@ -438,6 +451,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
+        ] + [
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
@@ -452,10 +466,12 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
+        ] + [
             // cmux.json
             .init(section: .settingsJSON, id: "open-file", title: "User config file", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),
             .init(section: .settingsJSON, id: "documentation", title: "Documentation", synonyms: "docs documentation schema reference cmux json keys configuration"),
 
+        ] + [
             // Reset
             .init(section: .reset, id: "reset-all", title: "Reset All Settings", synonyms: "factory reset restore defaults clear preferences"),
         ] + Self.declarativeTerminalEntries
