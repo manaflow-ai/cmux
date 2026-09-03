@@ -19,11 +19,12 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-// cmux's validated public-platform devbox (baked on cmux's Freestyle account):
-// the manifest's base default. The manifest is the only source of truth for
-// images; no env var selects or overrides one.
-const validatedSnapshot = "sh-e4dc9393a82e4dfaaa8f90b01b0d247c";
-const validatedVersion = "freestyle-cmux-devbox-20260902e";
+// cmux's validated public-platform devbox ladder (baked on cmux's Freestyle
+// account): one snapshot per size, each the base default for its size. With no
+// memory given the resolver picks the smallest. The manifest is the only source
+// of truth for images; no env var selects or overrides one.
+const validatedSnapshot = "sh-c62ba13d5db544f6aa2d115adf8460dc";
+const validatedVersion = "freestyle-cmux-devbox-20260903a-sm";
 // The desktop devbox from this PR: validated, listed under both kinds with one
 // image id, but baked on another Freestyle account, so not a default until
 // re-promoted under cmux's key.
@@ -75,7 +76,7 @@ describe("VM image resolver: request by kind", () => {
       imageVersion: validatedVersion,
       kind: "base",
     });
-    expect(listVmImageKinds("freestyle", deployed)).toEqual([{ kind: "base", image: validatedSnapshot }]);
+    expect(listVmImageKinds("freestyle", deployed)).toMatchObject([{ kind: "base", image: validatedSnapshot, size: { name: "sm" } }]);
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       image: validatedSnapshot,
       imageVersion: validatedVersion,
@@ -160,7 +161,7 @@ describe("VM image resolver: request by kind", () => {
     expect(vmImageKindFor("freestyle", validatedSnapshot)).toBe("base");
 
     // The base default is flagged in the manifest; the retired beta entry never is.
-    expect(listVmImageKinds("freestyle", deployed)).toEqual([{ kind: "base", image: validatedSnapshot }]);
+    expect(listVmImageKinds("freestyle", deployed)).toMatchObject([{ kind: "base", image: validatedSnapshot, size: { name: "sm" } }]);
     expect(listVmImageKinds("freestyle", deployed).map((entry) => entry.image)).not.toContain("sh-fb3dcf7b47894114889b10186626af5b");
   });
 });

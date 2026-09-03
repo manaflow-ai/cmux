@@ -81,6 +81,13 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
+   */
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
    * Machine-level environment injected at create time (e.g. the coderouter
    * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
    * be secrets: drivers must pass them to the provider's create call only and
