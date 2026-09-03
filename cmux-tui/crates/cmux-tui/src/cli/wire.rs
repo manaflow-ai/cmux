@@ -20,6 +20,7 @@ const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
 const MINIMUM_SERVER_PROTOCOL: u64 =
     cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
+const MAXIMUM_SERVER_PROTOCOL: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -201,9 +202,13 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
         return Err("unexpected server app");
     }
-    if identity.get("protocol").and_then(Value::as_u64).is_none_or(|protocol| protocol < MINIMUM_SERVER_PROTOCOL) {
+    let Some(protocol) = identity.get("protocol").and_then(Value::as_u64) else {
+        return Err("unsupported server protocol");
+    };
+    if !(MINIMUM_SERVER_PROTOCOL..=MAXIMUM_SERVER_PROTOCOL).contains(&protocol) {
         return Err("unsupported server protocol");
     }
+    crate::session::parse_identity_capabilities(identity)?;
     Ok(())
 }
 
@@ -759,10 +764,24 @@ mod tests {
     }
 
     #[test]
-    fn capability_preflight_accepts_current_and_newer_protocol() {
-        for protocol in [MINIMUM_SERVER_PROTOCOL, cmux_tui_core::server::PROTOCOL_VERSION as u64 + 1] {
+    fn capability_preflight_accepts_current_protocol() {
+        for protocol in [MINIMUM_SERVER_PROTOCOL, MAXIMUM_SERVER_PROTOCOL] {
             let identity = json!({"app":"cmux-tui", "protocol": protocol});
             assert_eq!(validate_capability_identity(&identity), Ok(()));
+        }
+    }
+
+    #[test]
+    fn capability_preflight_rejects_future_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol": MAXIMUM_SERVER_PROTOCOL + 1});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_malformed_capabilities() {
+        for capabilities in [json!(null), json!("session-journal-v1"), json!([false])] {
+            let identity = json!({"app":"cmux-tui", "protocol": MAXIMUM_SERVER_PROTOCOL, "capabilities": capabilities});
+            assert_eq!(validate_capability_identity(&identity), Err("capabilities must be an array of strings"));
         }
     }
 
