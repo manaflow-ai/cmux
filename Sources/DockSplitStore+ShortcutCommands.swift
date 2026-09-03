@@ -283,10 +283,10 @@ extension DockSplitStore {
         let customTitle = title?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ) ?? ""
-        if var transfer = detachedSurfaceTransfersByPanelId[panelId] {
-            transfer.customTitle = customTitle.isEmpty ? nil : customTitle
-            transfer.customTitleSource = customTitle.isEmpty ? nil : .user
-            setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        if customTitle.isEmpty {
+            panelCustomTitleSourcesByPanelId.removeValue(forKey: panelId)
+        } else {
+            panelCustomTitleSourcesByPanelId[panelId] = .user
         }
         bonsplitController.updateTab(
             tabId,

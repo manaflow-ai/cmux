@@ -78,6 +78,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored private let terminalTitleUpdateCoalescer:
         NotificationBurstCoalescer
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    @ObservationIgnored var panelCustomTitleSourcesByPanelId:
+        [UUID: Workspace.CustomTitleSource] = [:]
     /// Focused presentation of Dock panels whose agent lifecycle needs input.
     @ObservationIgnored let agentNeedsInputAttention = SurfaceAttentionModel()
     @ObservationIgnored var restoredPanelTitleBoundariesByPanelId:
@@ -1245,9 +1247,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     /// Resolves the stable title beneath a Dock tab's transient Codex marker.
     ///
-    /// Terminal titles and transferred custom-title provenance remain the
-    /// source of truth so transient markers never leak into persistence or a
-    /// later move back to a workspace.
+    /// The undecorated Bonsplit title and its ownership remain the source of
+    /// truth so transient markers never leak into persistence or a later move
+    /// back to a workspace.
     func stableDockTerminalTabTitle(
         panelId: UUID,
         fallback: String? = nil,
@@ -1260,32 +1262,20 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         let transfer = transferOverride ?? detachedSurfaceTransfersByPanelId[panelId]
         let composer = CodexTabTitleComposer()
+        let transferredCustomTitleSource: Workspace.CustomTitleSource? =
+            transfer?.customTitle == nil
+                ? nil
+                : (transfer?.customTitleSource ?? .user)
+        let customTitleSource = panelCustomTitleSourcesByPanelId[panelId]
+            ?? transferredCustomTitleSource
+        let hasAutoTitle = existing.hasCustomTitle
+            && customTitleSource == .auto
 
-        if existing.hasCustomTitle {
-            if let transferredTitle = transfer?.customTitle,
-               transfer?.customTitleSource == .auto {
-                let lifecycles: [CodexTabTitleLifecycle?] = [
-                    nil,
-                    .running,
-                    .idle,
-                    .needsInput,
-                    .unknown,
-                ]
-                let isTransferredAutoTitle = lifecycles.contains { lifecycle in
-                    composer.presentation(
-                        baseTitle: transferredTitle,
-                        lifecycle: lifecycle,
-                        hasUserOwnedTitle: false
-                    ).title == existing.title
-                }
-                if isTransferredAutoTitle {
-                    return (transferredTitle, false)
-                }
-            }
+        if existing.hasCustomTitle, !hasAutoTitle {
             return (existing.title, true)
         }
 
-        if let fallback {
+        if let fallback, !hasAutoTitle {
             return (fallback, false)
         }
 

@@ -69,9 +69,10 @@ extension DockSplitStore {
         let stableTabTitle = stableTerminalTitle?.title ?? tab.title
         let customTitle = tab.hasCustomTitle ? stableTabTitle : nil
         let customTitleSource: Workspace.CustomTitleSource? = if let customTitle {
-            customTitle == transfer?.customTitle
-                ? transfer?.customTitleSource
-                : .user
+            panelCustomTitleSourcesByPanelId[panel.id]
+                ?? (customTitle == transfer?.customTitle
+                    ? (transfer?.customTitleSource ?? .user)
+                    : .user)
         } else {
             nil
         }
