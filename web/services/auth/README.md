@@ -46,3 +46,28 @@ Stack Auth sees:
 
 Multiply by 50 for the real rate: `users/me` spans hang off request traces that
 are head-sampled at 2%, except under `/api/vm*`, which is kept in full.
+
+# Surviving clients that never update
+
+The auth-provider fix above holds for every client version, because it changes
+what the server does with a request rather than what the client sends. Two more
+defenses exist for the same reason.
+
+**Redundant registrations cost nothing.** `POST /api/devices` compares the
+incoming registration against the stored rows and returns success without
+taking the per-team advisory lock or writing, when the only difference would be
+a presence timestamp refreshed within `CMUX_DEVICE_PRESENCE_TOUCH_INTERVAL_MS`
+(one minute). This matters because the Mac's own dedupe compares route hints
+carrying observation timestamps, which `sanitizeServerPublishedRoutes` strips
+before storing. A shipped Mac therefore re-registers identical rows for as long
+as it runs, and no client update can change that.
+
+**Throttles name a delay.** Native ingress 429s carry `Retry-After`. The iroh
+broker client already shipped honors it and persists an account-scoped cooldown
+across relaunch, so this is the one backpressure signal that reaches builds we
+cannot update. A 429 without the header tells that client nothing and it falls
+back to its own retry cadence.
+
+The client user agent is `cmux/102` for every build, stable and nightly alike,
+so traffic cannot currently be attributed to a version. Assume the worst case:
+whatever is storming will still be storming after the next release.

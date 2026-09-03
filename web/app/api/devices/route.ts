@@ -32,6 +32,11 @@ import {
 } from "../../../services/account/deletionLock";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
+import {
+  presenceTouchIntervalMs,
+  registrationIsUnchanged,
+} from "../../../services/devices/registrationNoOp";
+import { recordRegistrationNoOp } from "../../../services/auth/authTelemetry";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
@@ -209,6 +214,49 @@ export async function POST(request: Request): Promise<Response> {
 
   const db = cloudDb();
   const now = new Date();
+
+  // A client that re-registers an unchanged route set costs a per-team
+  // advisory lock, two selects and two upserts. The Mac's own dedupe compares
+  // route hints that carry observation timestamps, which this route strips
+  // before storing, so it re-POSTs identical rows for as long as it runs. That
+  // behavior ships in builds we cannot update, so the server answers it here
+  // instead of paying for the write.
+  const [stored] = await db
+    .select({
+      userId: devices.userId,
+      platform: devices.platform,
+      displayName: devices.displayName,
+      labels: devices.labels,
+      instanceRoutes: deviceAppInstances.routes,
+      instanceLabels: deviceAppInstances.labels,
+      lastSeenAt: deviceAppInstances.lastSeenAt,
+    })
+    .from(devices)
+    .innerJoin(deviceAppInstances, eq(deviceAppInstances.deviceId, devices.id))
+    .where(and(
+      eq(devices.teamId, team.teamId),
+      eq(devices.deviceUuid, deviceUuid),
+      eq(deviceAppInstances.tag, tag),
+    ))
+    .limit(1);
+  if (
+    registrationIsUnchanged({
+      stored: stored ?? null,
+      incoming: {
+        userId: user.id,
+        platform,
+        displayName,
+        labels: deviceLabels,
+        instanceRoutes: routes,
+        instanceLabels,
+      },
+      now,
+      touchIntervalMs: presenceTouchIntervalMs(),
+    })
+  ) {
+    recordRegistrationNoOp();
+    return jsonResponse({ ok: true, deviceId: deviceUuid, teamId: team.teamId, tag });
+  }
 
   let registered: { error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null };
   try {

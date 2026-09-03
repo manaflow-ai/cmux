@@ -43,3 +43,13 @@ export function recordAuthResolution(resolution: AuthResolution): void {
     span.setAttribute("cmux.auth.local_verify_miss", resolution.localVerifyMiss);
   }
 }
+
+/**
+ * Record that a device registration changed nothing and was answered without
+ * a write. Rides the request span, so measuring how much of the registry's
+ * traffic is redundant costs no extra events.
+ */
+export function recordRegistrationNoOp(): void {
+  const span = trace.getActiveSpan();
+  span?.setAttribute("cmux.devices.registration_no_op", true);
+}
