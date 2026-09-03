@@ -1240,9 +1240,9 @@ claude_passthrough_option_flag() {
 
 claude_builtin_command_name() {
     case "$1" in
-        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
-        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
-        ultrareview|update|upgrade)
+        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|gateway|\
+        import|install|kill|logs|mcp|experimental-next|plugin|plugins|project|\
+        rc|remote-control|respawn|rm|setup-token|stop|ultrareview|update|upgrade)
             return 0
             ;;
     esac
