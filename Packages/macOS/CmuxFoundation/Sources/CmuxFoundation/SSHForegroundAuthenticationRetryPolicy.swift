@@ -128,14 +128,52 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_root_termination_identity=
           cmux_ssh_auth_perl_command="$(command -v perl 2>/dev/null || true)"
           cmux_ssh_auth_lsof_command="$(command -v lsof 2>/dev/null || true)"
-          cmux_ssh_auth_force_root_shell_fallback() {
-            # This is a last-resort recovery path when both kernel-aware
-            # runtimes are unavailable. Restrict it to the captured root and
-            # require the current parent and process-group tuple to match.
+          cmux_ssh_auth_read_proc_stat() {
+            cmux_ssh_auth_proc_pid="$1"
+            case "$cmux_ssh_auth_proc_pid" in
+              ''|*[!0-9]*) return 1 ;;
+            esac
+            cmux_ssh_auth_proc_path="/proc/$cmux_ssh_auth_proc_pid/stat"
+            [ -r "$cmux_ssh_auth_proc_path" ] || return 1
+            IFS= read -r cmux_ssh_auth_proc_line < "$cmux_ssh_auth_proc_path" || return 1
+            cmux_ssh_auth_proc_observed_pid="${cmux_ssh_auth_proc_line%% *}"
+            cmux_ssh_auth_proc_tail="${cmux_ssh_auth_proc_line##*) }"
+            [ "$cmux_ssh_auth_proc_observed_pid" = "$cmux_ssh_auth_proc_pid" ] || return 1
+            [ "$cmux_ssh_auth_proc_tail" != "$cmux_ssh_auth_proc_line" ] || return 1
+            set -- $cmux_ssh_auth_proc_tail
+            [ "$#" -ge 20 ] || return 1
+            cmux_ssh_auth_proc_state="$1"
+            cmux_ssh_auth_proc_parent="$2"
+            cmux_ssh_auth_proc_group="$3"
+            cmux_ssh_auth_proc_start="${20}"
+            case "$cmux_ssh_auth_proc_state" in
+              t) cmux_ssh_auth_proc_state=T ;;
+              z) cmux_ssh_auth_proc_state=Z ;;
+            esac
+            case "$cmux_ssh_auth_proc_state" in
+              [A-Za-z]) ;;
+              *) return 1 ;;
+            esac
+            case "$cmux_ssh_auth_proc_parent" in
+              ''|*[!0-9]*) return 1 ;;
+            esac
+            case "$cmux_ssh_auth_proc_group" in
+              ''|0|0*|*[!0-9]*) return 1 ;;
+            esac
+            case "$cmux_ssh_auth_proc_start" in
+              ''|0|0*|*[!0-9]*) return 1 ;;
+            esac
+            return 0
+          }
+          cmux_ssh_auth_force_root_procfs_fallback() {
+            # Linux has no kernel pidfd backend when Perl is unavailable, so
+            # re-read the complete procfs identity before each root signal.
+            # Do not use this path for Darwin tokens: without libproc there is
+            # no safe shell interface for the kernel birth identity.
             cmux_ssh_auth_fallback_token="$1"
             cmux_ssh_auth_fallback_kind="${cmux_ssh_auth_fallback_token%%:*}"
             case "$cmux_ssh_auth_fallback_kind" in
-              D|K) ;;
+              P) ;;
               *) return 1 ;;
             esac
             cmux_ssh_auth_fallback_rest="${cmux_ssh_auth_fallback_token#*:}"
@@ -144,22 +182,65 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_fallback_parent="${cmux_ssh_auth_fallback_rest%%:*}"
             cmux_ssh_auth_fallback_rest="${cmux_ssh_auth_fallback_rest#*:}"
             cmux_ssh_auth_fallback_group="${cmux_ssh_auth_fallback_rest%%:*}"
-            case "$cmux_ssh_auth_fallback_pid:$cmux_ssh_auth_fallback_parent:$cmux_ssh_auth_fallback_group" in
+            cmux_ssh_auth_fallback_start="${cmux_ssh_auth_fallback_rest#*:}"
+            case "$cmux_ssh_auth_fallback_pid:$cmux_ssh_auth_fallback_parent:$cmux_ssh_auth_fallback_group:$cmux_ssh_auth_fallback_start" in
               ''|*[!0-9:]*|*:|*:) return 1 ;;
             esac
-            cmux_ssh_auth_fallback_current=$(
-              /bin/ps -o ppid= -o pgid= -o state= -p "$cmux_ssh_auth_fallback_pid" \
-                2>/dev/null || true
-            )
-            set -- $cmux_ssh_auth_fallback_current
-            [ "$#" -ge 3 ] || return 1
-            [ "$1" = "$cmux_ssh_auth_fallback_parent" ] || return 1
-            [ "$2" = "$cmux_ssh_auth_fallback_group" ] || return 1
-            case "$3" in *Z*) return 0 ;; esac
+            cmux_ssh_auth_fallback_start="${cmux_ssh_auth_fallback_start%%:*}"
+            case "$cmux_ssh_auth_fallback_start" in
+              [1-9][0-9]*) ;;
+              *) return 1 ;;
+            esac
+            cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_fallback_pid" || return 1
+            [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_fallback_parent" ] || return 1
+            [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_fallback_group" ] || return 1
+            [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_fallback_start" ] || return 1
+            case "$cmux_ssh_auth_proc_state" in Z) return 0 ;; esac
             /bin/kill -CONT "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
             /bin/kill -TERM "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
             /bin/kill -KILL "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || true
-            return 0
+          }
+          cmux_ssh_auth_force_root_darwin_perl_fallback() {
+            [ -x /usr/bin/perl ] || return 1
+            /usr/bin/perl -e '
+              use strict;
+              use warnings;
+              my ($token) = @ARGV;
+              my @fields = split /:/, $token, -1;
+              exit 1 unless @fields == 7 && ($fields[0] eq "D" || $fields[0] eq "K");
+              my ($pid, $parent, $group, $seconds, $microseconds) = @fields[1..5];
+              exit 1 unless $pid =~ /\A[1-9][0-9]*\z/ && $parent =~ /\A[0-9]+\z/ &&
+                $group =~ /\A[1-9][0-9]*\z/ && $seconds =~ /\A[1-9][0-9]*\z/ &&
+                $microseconds =~ /\A[0-9]+\z/ && $microseconds < 1_000_000;
+              my $pid_number = int($pid);
+              my $matched = 0;
+              for my $size (136, 184) {
+                my $buffer = "\0" x $size;
+                my $written = syscall(336, 2, $pid_number, 3, 0, $buffer, $size);
+                next unless defined $written && $written == $size;
+                my ($group_offset, $seconds_offset, $microseconds_offset) =
+                  $size == 136 ? (100, 120, 128) : (148, 168, 176);
+                my $status = unpack("L<", substr($buffer, 4, 4));
+                my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+                my $observed_parent = unpack("L<", substr($buffer, 16, 4));
+                my $observed_group = unpack("L<", substr($buffer, $group_offset, 4));
+                my $observed_seconds = unpack("Q<", substr($buffer, $seconds_offset, 8));
+                my $observed_microseconds = unpack("Q<", substr($buffer, $microseconds_offset, 8));
+                if ($observed_pid == $pid_number && $observed_parent == $parent &&
+                    $observed_group == $group && $status != 5 &&
+                    $observed_seconds == $seconds && $observed_microseconds == $microseconds) {
+                  $matched = 1;
+                  last;
+                }
+              }
+              exit 1 unless $matched;
+              my $failed = 0;
+              for my $signal_number (18, 15, 9) {
+                next if kill($signal_number, $pid_number);
+                $failed = 1 if kill(0, $pid_number);
+              }
+              exit $failed;
+            ' "$1" >/dev/null 2>&1
           }
           cmux_ssh_auth_capture_root_termination_identity() {
             case "$cmux_ssh_auth_platform" in
@@ -280,6 +361,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     ' "$cmux_ssh_auth_tree_root_pid" "$cmux_ssh_auth_tree_root_parent" 2>/dev/null
                   ) || cmux_ssh_auth_root_termination_identity=
                 fi
+                if [ -z "$cmux_ssh_auth_root_termination_identity" ] &&
+                   cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_tree_root_pid"; then
+                  if [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_tree_root_parent" ] &&
+                     [ "$cmux_ssh_auth_proc_state" != Z ]; then
+                    cmux_ssh_auth_root_termination_identity="P:$cmux_ssh_auth_tree_root_pid:$cmux_ssh_auth_proc_parent:$cmux_ssh_auth_proc_group:$cmux_ssh_auth_proc_start"
+                  fi
+                fi
                 ;;
             esac
             case "$cmux_ssh_auth_root_termination_identity" in
@@ -375,54 +463,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1
                 cmux_ssh_auth_force_status=$?
                 if [ "$cmux_ssh_auth_force_status" -ne 0 ]; then
-                  cmux_ssh_auth_force_root_shell_fallback "$cmux_ssh_auth_root_termination_identity" || true
+                  cmux_ssh_auth_force_root_darwin_perl_fallback "$cmux_ssh_auth_root_termination_identity" || true
                 fi
                 ;;
               K:*)
-                if [ -x /usr/bin/perl ]; then
-                  /usr/bin/perl -e '
-                    use strict;
-                    use warnings;
-                    my ($token) = @ARGV;
-                    my @fields = split /:/, $token, -1;
-                    exit 0 unless @fields == 7 && $fields[0] eq "K";
-                    my ($pid, $parent, $group, $seconds, $microseconds) = @fields[1..5];
-                    exit 0 unless $pid =~ /\A[1-9][0-9]*\z/ && $parent =~ /\A[0-9]+\z/ &&
-                      $group =~ /\A[1-9][0-9]*\z/ && $seconds =~ /\A[1-9][0-9]*\z/ &&
-                      $microseconds =~ /\A[0-9]+\z/ && $microseconds < 1_000_000;
-                    my $pid_number = int($pid);
-                    my $matched = 0;
-                    for my $size (136, 184) {
-                      my $buffer = "\0" x $size;
-                      my $written = syscall(336, 2, $pid_number, 3, 0, $buffer, $size);
-                      next unless defined $written && $written == $size;
-                      my ($group_offset, $seconds_offset, $microseconds_offset) =
-                        $size == 136 ? (100, 120, 128) : (148, 168, 176);
-                      my $status = unpack("L<", substr($buffer, 4, 4));
-                      my $observed_pid = unpack("L<", substr($buffer, 12, 4));
-                      my $observed_parent = unpack("L<", substr($buffer, 16, 4));
-                      my $observed_group = unpack("L<", substr($buffer, $group_offset, 4));
-                      my $observed_seconds = unpack("Q<", substr($buffer, $seconds_offset, 8));
-                      my $observed_microseconds = unpack("Q<", substr($buffer, $microseconds_offset, 8));
-                      if ($observed_pid == $pid_number && $observed_parent == $parent &&
-                          $observed_group == $group && $status != 5 &&
-                          $observed_seconds == $seconds && $observed_microseconds == $microseconds) {
-                        $matched = 1;
-                        last;
-                      }
-                    }
-                    exit 0 unless $matched;
-                    exit 1 unless kill(18, $pid_number);
-                    exit 1 unless kill(15, $pid_number);
-                    exit 1 unless kill(9, $pid_number);
-                  ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1
-                  cmux_ssh_auth_force_status=$?
-                  if [ "$cmux_ssh_auth_force_status" -ne 0 ]; then
-                    cmux_ssh_auth_force_root_shell_fallback "$cmux_ssh_auth_root_termination_identity" || true
-                  fi
-                else
-                  cmux_ssh_auth_force_root_shell_fallback "$cmux_ssh_auth_root_termination_identity" || true
-                fi
+                cmux_ssh_auth_force_root_darwin_perl_fallback \
+                  "$cmux_ssh_auth_root_termination_identity" || true
                 ;;
               P:*)
                 if [ -n "$cmux_ssh_auth_perl_command" ]; then
@@ -513,6 +559,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       $send->($signal_number);
                     }
                   ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1 || true
+                else
+                  cmux_ssh_auth_force_root_procfs_fallback \
+                    "$cmux_ssh_auth_root_termination_identity" || true
                 fi
                 ;;
             esac
@@ -697,14 +746,26 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               # is not an identity fence under PID reuse.
               cmux_ssh_auth_signal_backend=portable
             fi
-            if [ ! -r /proc/1/stat ]; then
-              cmux_ssh_auth_cleanup_needs_root_abort=1
-              return 1
-            fi
             cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
             if [ -z "$cmux_ssh_auth_perl_command" ]; then
-              cmux_ssh_auth_cleanup_needs_root_abort=1
-              return 1
+              : > "$cmux_ssh_auth_snapshot" || return 1
+              for cmux_ssh_auth_proc_path in /proc/[0-9]*/stat; do
+                [ -r "$cmux_ssh_auth_proc_path" ] || continue
+                cmux_ssh_auth_proc_pid="${cmux_ssh_auth_proc_path#/proc/}"
+                cmux_ssh_auth_proc_pid="${cmux_ssh_auth_proc_pid%/stat}"
+                if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_proc_pid"; then
+                  printf '%s %s %s %s P_%s 0 0 0 0\n' \
+                    "$cmux_ssh_auth_proc_pid" "$cmux_ssh_auth_proc_parent" \
+                    "$cmux_ssh_auth_proc_group" "$cmux_ssh_auth_proc_state" \
+                    "$cmux_ssh_auth_proc_start" >> "$cmux_ssh_auth_snapshot"
+                fi
+              done
+              if [ ! -s "$cmux_ssh_auth_snapshot" ]; then
+                cmux_ssh_auth_cleanup_needs_root_abort=1
+                return 1
+              fi
+              cmux_ssh_auth_snapshot_format=portable
+              return 0
             fi
             if [ -n "$cmux_ssh_auth_snapshot_format" ] &&
                [ "$cmux_ssh_auth_snapshot_format" != portable ]; then
@@ -1130,7 +1191,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # the PID version. Linux uses a fresh procfs snapshot and pidfds so a
           # PID cannot be reused between validation and signal delivery. On an
           # older or sandboxed kernel that rejects pidfds, the Perl fallback
-          # re-reads the full identity immediately before kill(2).
+          # re-reads the full identity immediately before kill(2). If Perl is
+          # absent, the shell procfs path applies the same start-time fence.
+          # Darwin keeps the Perl/libproc fallback and fails closed if neither
+          # kernel-aware runtime is available.
           # STOP candidates are journaled after the identity-checked request.
           # A confirming snapshot must prove the stopped state before TERM or
           # KILL. A stopped process cannot exit and reuse its PID, which closes
@@ -1304,7 +1368,103 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             [ "$cmux_ssh_auth_portable_status" -eq 0 ]
           }
 
-          cmux_ssh_auth_signal_darwin_fallback_batch() {
+          cmux_ssh_auth_signal_procfs_batch() {
+            cmux_ssh_auth_procfs_signal_name="$1"
+            cmux_ssh_auth_procfs_signal_input="$2"
+            cmux_ssh_auth_procfs_signal_output="${3:-/dev/null}"
+            case "$cmux_ssh_auth_procfs_signal_name" in
+              STOP|TERM|KILL|CONT) ;;
+              *) return 2 ;;
+            esac
+            [ -d /proc ] || return 1
+            : > "$cmux_ssh_auth_procfs_signal_output" || return 1
+            cmux_ssh_auth_procfs_failed=0
+            while IFS=' ' read -r cmux_ssh_auth_procfs_depth cmux_ssh_auth_procfs_pid \
+              cmux_ssh_auth_procfs_parent cmux_ssh_auth_procfs_group \
+              cmux_ssh_auth_procfs_original_state cmux_ssh_auth_procfs_started; do
+              case "$cmux_ssh_auth_procfs_depth:$cmux_ssh_auth_procfs_pid:$cmux_ssh_auth_procfs_parent:$cmux_ssh_auth_procfs_group" in
+                ''|*[!0-9:]*|*:|*:) continue ;;
+              esac
+              case "$cmux_ssh_auth_procfs_started" in
+                P_[1-9][0-9]*_0_0_0_0) ;;
+                *) continue ;;
+              esac
+              cmux_ssh_auth_procfs_expected_start="${cmux_ssh_auth_procfs_started#P_}"
+              cmux_ssh_auth_procfs_expected_start="${cmux_ssh_auth_procfs_expected_start%_0_0_0_0}"
+              if ! cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid"; then
+                [ -e "/proc/$cmux_ssh_auth_procfs_pid/stat" ] && cmux_ssh_auth_procfs_failed=1
+                continue
+              fi
+              if [ "$cmux_ssh_auth_proc_parent" != "$cmux_ssh_auth_procfs_parent" ] ||
+                 [ "$cmux_ssh_auth_proc_group" != "$cmux_ssh_auth_procfs_group" ] ||
+                 [ "$cmux_ssh_auth_proc_start" != "$cmux_ssh_auth_procfs_expected_start" ]; then
+                cmux_ssh_auth_procfs_failed=1
+                continue
+              fi
+              case "$cmux_ssh_auth_proc_state" in
+                Z) continue ;;
+              esac
+              case "$cmux_ssh_auth_procfs_signal_name" in
+                STOP)
+                  case "$cmux_ssh_auth_proc_state" in
+                    T)
+                      [ "$cmux_ssh_auth_procfs_original_state" = T ] &&
+                        printf '%s\n' "$cmux_ssh_auth_procfs_depth $cmux_ssh_auth_procfs_pid $cmux_ssh_auth_procfs_parent $cmux_ssh_auth_procfs_group $cmux_ssh_auth_procfs_original_state $cmux_ssh_auth_procfs_started" >> "$cmux_ssh_auth_procfs_signal_output"
+                      continue
+                      ;;
+                  esac
+                  if /bin/kill -STOP "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                    printf '%s\n' "$cmux_ssh_auth_procfs_depth $cmux_ssh_auth_procfs_pid $cmux_ssh_auth_procfs_parent $cmux_ssh_auth_procfs_group $cmux_ssh_auth_procfs_original_state $cmux_ssh_auth_procfs_started" >> "$cmux_ssh_auth_procfs_signal_output"
+                  else
+                    cmux_ssh_auth_procfs_failed=1
+                  fi
+                  ;;
+                CONT)
+                  [ "$cmux_ssh_auth_procfs_original_state" = T ] && continue
+                  if ! /bin/kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                    if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
+                       [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_procfs_parent" ] &&
+                       [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_procfs_group" ] &&
+                       [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_procfs_expected_start" ] &&
+                       [ "$cmux_ssh_auth_proc_state" = T ]; then
+                      cmux_ssh_auth_procfs_failed=1
+                    fi
+                  fi
+                  ;;
+                TERM)
+                  [ "$cmux_ssh_auth_proc_state" = T ] || continue
+                  cmux_ssh_auth_procfs_term_status=0
+                  cmux_ssh_auth_procfs_cont_status=0
+                  /bin/kill -TERM "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_term_status=$?
+                  /bin/kill -CONT "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1 || cmux_ssh_auth_procfs_cont_status=$?
+                  if [ "$cmux_ssh_auth_procfs_term_status" -ne 0 ] ||
+                     [ "$cmux_ssh_auth_procfs_cont_status" -ne 0 ]; then
+                    if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
+                       [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_procfs_parent" ] &&
+                       [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_procfs_group" ] &&
+                       [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_procfs_expected_start" ] &&
+                       [ "$cmux_ssh_auth_proc_state" = T ]; then
+                      cmux_ssh_auth_procfs_failed=1
+                    fi
+                  fi
+                  ;;
+                KILL)
+                  [ "$cmux_ssh_auth_proc_state" = T ] || continue
+                  if ! /bin/kill -KILL "$cmux_ssh_auth_procfs_pid" >/dev/null 2>&1; then
+                    if cmux_ssh_auth_read_proc_stat "$cmux_ssh_auth_procfs_pid" &&
+                       [ "$cmux_ssh_auth_proc_parent" = "$cmux_ssh_auth_procfs_parent" ] &&
+                       [ "$cmux_ssh_auth_proc_group" = "$cmux_ssh_auth_procfs_group" ] &&
+                       [ "$cmux_ssh_auth_proc_start" = "$cmux_ssh_auth_procfs_expected_start" ] &&
+                       [ "$cmux_ssh_auth_proc_state" = T ]; then
+                      cmux_ssh_auth_procfs_failed=1
+                    fi
+                  fi
+                  ;;
+              esac
+            done < "$cmux_ssh_auth_procfs_signal_input"
+            return "$cmux_ssh_auth_procfs_failed"
+          }
+          cmux_ssh_auth_signal_darwin_perl_batch() {
             cmux_ssh_auth_fallback_signal_name="$1"
             cmux_ssh_auth_fallback_signal_input="$2"
             cmux_ssh_auth_fallback_signal_output="${3:-/dev/null}"
@@ -1403,117 +1563,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 "$cmux_ssh_auth_fallback_signal_input" "$cmux_ssh_auth_fallback_signal_output" \
                 >/dev/null 2>&1
               cmux_ssh_auth_fallback_status=$?
-              if [ "$cmux_ssh_auth_fallback_status" -eq 0 ]; then
-                return 0
-              fi
+              return "$cmux_ssh_auth_fallback_status"
             fi
-            # Keep a final recovery path even on stripped systems without
-            # Perl. The candidate came from a fresh kernel snapshot, and this
-            # check repeats its parent, group, and state fence before each
-            # standard kill. It is weaker than the pid-version path, so it is
-            # used only after both exact backends fail.
-            : > "$cmux_ssh_auth_fallback_signal_output" || return 1
-            cmux_ssh_auth_fallback_failed=0
-            while IFS=' ' read -r cmux_ssh_auth_fallback_depth cmux_ssh_auth_fallback_pid \
-              cmux_ssh_auth_fallback_parent cmux_ssh_auth_fallback_group \
-              cmux_ssh_auth_fallback_original_state cmux_ssh_auth_fallback_started; do
-              case "$cmux_ssh_auth_fallback_depth:$cmux_ssh_auth_fallback_pid:$cmux_ssh_auth_fallback_parent:$cmux_ssh_auth_fallback_group" in
-                ''|*[!0-9:]*|*:|*:) continue ;;
-              esac
-              case "$cmux_ssh_auth_fallback_started" in
-                K_[0-9]*_[0-9]*_0_0) ;;
-                *) continue ;;
-              esac
-              cmux_ssh_auth_fallback_current=$(
-                /bin/ps -o ppid= -o pgid= -o state= -p "$cmux_ssh_auth_fallback_pid" \
-                  2>/dev/null || true
-              )
-              set -- $cmux_ssh_auth_fallback_current
-              [ "$#" -ge 3 ] || continue
-              cmux_ssh_auth_fallback_observed_parent="$1"
-              cmux_ssh_auth_fallback_observed_group="$2"
-              cmux_ssh_auth_fallback_observed_state="$3"
-              [ "$cmux_ssh_auth_fallback_observed_parent" = "$cmux_ssh_auth_fallback_parent" ] || continue
-              [ "$cmux_ssh_auth_fallback_observed_group" = "$cmux_ssh_auth_fallback_group" ] || continue
-              case "$cmux_ssh_auth_fallback_observed_state" in *Z*) continue ;; esac
-              case "$cmux_ssh_auth_fallback_signal_name" in
-                STOP)
-                  case "$cmux_ssh_auth_fallback_observed_state" in
-                    *T*)
-                      [ "$cmux_ssh_auth_fallback_original_state" = T ] &&
-                        printf '%s\n' "$cmux_ssh_auth_fallback_depth $cmux_ssh_auth_fallback_pid $cmux_ssh_auth_fallback_parent $cmux_ssh_auth_fallback_group $cmux_ssh_auth_fallback_original_state $cmux_ssh_auth_fallback_started" >> "$cmux_ssh_auth_fallback_signal_output"
-                      continue
-                      ;;
-                  esac
-                  if /bin/kill -STOP "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1; then
-                    printf '%s\n' "$cmux_ssh_auth_fallback_depth $cmux_ssh_auth_fallback_pid $cmux_ssh_auth_fallback_parent $cmux_ssh_auth_fallback_group $cmux_ssh_auth_fallback_original_state $cmux_ssh_auth_fallback_started" >> "$cmux_ssh_auth_fallback_signal_output"
-                  else
-                    cmux_ssh_auth_fallback_failed=1
-                  fi
-                  ;;
-                CONT)
-                  [ "$cmux_ssh_auth_fallback_original_state" = T ] && continue
-                  if ! /bin/kill -CONT "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1; then
-                    cmux_ssh_auth_fallback_current=$(
-                      /bin/ps -o ppid= -o pgid= -o state= -p "$cmux_ssh_auth_fallback_pid" \
-                        2>/dev/null || true
-                    )
-                    set -- $cmux_ssh_auth_fallback_current
-                    if [ "$#" -ge 3 ] && [ "$1" = "$cmux_ssh_auth_fallback_parent" ] &&
-                       [ "$2" = "$cmux_ssh_auth_fallback_group" ]; then
-                      case "$3" in *T*) cmux_ssh_auth_fallback_failed=1 ;; esac
-                    fi
-                  fi
-                  ;;
-                TERM)
-                  case "$cmux_ssh_auth_fallback_observed_state" in *T*) ;; *) continue ;; esac
-                  cmux_ssh_auth_fallback_term_status=0
-                  cmux_ssh_auth_fallback_cont_status=0
-                  /bin/kill -TERM "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || cmux_ssh_auth_fallback_term_status=$?
-                  /bin/kill -CONT "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1 || cmux_ssh_auth_fallback_cont_status=$?
-                  if [ "$cmux_ssh_auth_fallback_term_status" -ne 0 ] ||
-                     [ "$cmux_ssh_auth_fallback_cont_status" -ne 0 ]; then
-                    cmux_ssh_auth_fallback_current=$(
-                      /bin/ps -o ppid= -o pgid= -o state= -p "$cmux_ssh_auth_fallback_pid" \
-                        2>/dev/null || true
-                    )
-                    set -- $cmux_ssh_auth_fallback_current
-                    if [ "$#" -ge 3 ] && [ "$1" = "$cmux_ssh_auth_fallback_parent" ] &&
-                       [ "$2" = "$cmux_ssh_auth_fallback_group" ]; then
-                      case "$3" in *T*) cmux_ssh_auth_fallback_failed=1 ;; esac
-                    fi
-                  fi
-                  ;;
-                KILL)
-                  case "$cmux_ssh_auth_fallback_observed_state" in *T*) ;; *) continue ;; esac
-                  if ! /bin/kill -KILL "$cmux_ssh_auth_fallback_pid" >/dev/null 2>&1; then
-                    cmux_ssh_auth_fallback_current=$(
-                      /bin/ps -o ppid= -o pgid= -o state= -p "$cmux_ssh_auth_fallback_pid" \
-                        2>/dev/null || true
-                    )
-                    set -- $cmux_ssh_auth_fallback_current
-                    if [ "$#" -ge 3 ] && [ "$1" = "$cmux_ssh_auth_fallback_parent" ] &&
-                       [ "$2" = "$cmux_ssh_auth_fallback_group" ]; then
-                      case "$3" in *T*) cmux_ssh_auth_fallback_failed=1 ;; esac
-                    fi
-                  fi
-                  ;;
-              esac
-            done < "$cmux_ssh_auth_fallback_signal_input"
-            return "$cmux_ssh_auth_fallback_failed"
+            return 1
           }
-
           cmux_ssh_auth_signal_verified_batch() {
             cmux_ssh_auth_signal_name="$1"
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
             cmux_ssh_auth_signal_filter_stopped="${4:-1}"
             if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
-              cmux_ssh_auth_signal_portable_batch \
-                "$cmux_ssh_auth_signal_name" \
-                "$cmux_ssh_auth_signal_input" \
-                "$cmux_ssh_auth_signal_output" \
-                "$cmux_ssh_auth_signal_filter_stopped"
+              if [ -n "$cmux_ssh_auth_perl_command" ]; then
+                cmux_ssh_auth_signal_portable_batch \
+                  "$cmux_ssh_auth_signal_name" \
+                  "$cmux_ssh_auth_signal_input" \
+                  "$cmux_ssh_auth_signal_output" \
+                  "$cmux_ssh_auth_signal_filter_stopped"
+              else
+                cmux_ssh_auth_signal_procfs_batch \
+                  "$cmux_ssh_auth_signal_name" \
+                  "$cmux_ssh_auth_signal_input" \
+                  "$cmux_ssh_auth_signal_output" \
+                  "$cmux_ssh_auth_signal_filter_stopped"
+              fi
               cmux_ssh_auth_signal_status=$?
               if [ "$cmux_ssh_auth_signal_status" -ne 0 ]; then
                 cmux_ssh_auth_cleanup_needs_root_abort=1
@@ -1693,7 +1765,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_signal_output" >/dev/null 2>&1
             cmux_ssh_auth_signal_status=$?
             if [ "$cmux_ssh_auth_signal_status" -ne 0 ]; then
-              cmux_ssh_auth_signal_darwin_fallback_batch \
+              cmux_ssh_auth_signal_darwin_perl_batch \
                 "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
                 "$cmux_ssh_auth_signal_output"
               cmux_ssh_auth_signal_status=$?
