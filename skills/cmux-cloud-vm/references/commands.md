@@ -25,11 +25,11 @@ Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the 
 ### `cmux vm new`
 
 ```bash
-cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
+cmux vm new [--desktop|--base] [--size <20g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
 # alias: cmux vm create
 ```
 
-Socket `vm.create` with the machine **kind** — shell-only (`base`) for a bare `vm new` today; `--desktop` asks for a machine with a screen (TigerVNC + openbox + noVNC on 6901; `--base`/`--no-desktop` explicitly ask for shell-only). The backend picks the image for the kind — today one devbox snapshot serves both kinds — and `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is a memory preset (`2g|4g|8g|16g|24g|32g`, aliases `small|medium|large|xl|xxl`, or MB ≥ 512); plans cap it. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
+Socket `vm.create` with the machine **kind** — shell-only (`base`) for a bare `vm new` today; `--desktop` asks for a machine with a screen (TigerVNC + openbox + noVNC on 6901; `--base`/`--no-desktop` explicitly ask for shell-only). The backend picks the image for the kind — today one devbox snapshot serves both kinds — and `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is `20g` (the 5 vCPU / 20 GB / 200 GB plan machine every plan sells) or raw MB ≥ 512; the backend resolves sizes to the plan machine, so 20g is the only preset. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
 Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); `--focus false` opens it without switching to its workspace (what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). Providers: `--provider e2b|freestyle|daytona` (default Freestyle, chosen server-side).
 
 ### `cmux vm status`
@@ -131,7 +131,7 @@ Socket `vm.exec {id, command}`. Each argv element is shell-quoted, then joined, 
 ### `cmux vm run`
 
 ```bash
-cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] [--json] -- <command...>
+cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g|MB>] [--timeout <seconds>] [--json] -- <command...>
 ```
 
 Runs a command on a cloud machine **without naming one**: sticky binding for the caller's directory (`~/.cmuxterm/vm-run-bindings.json`, 14-day TTL) → idle awake pool machine, least-loaded by `vm.stats` → sleeping pool machine (exec wakes it) → provision a fresh shell-only pool machine (`vm.create {kind: base}`, labeled `agent-pool` via `vm.rename`, recorded in `~/.cmuxterm/vm-run-pool.json` under a cross-process `flock`, waited to ready) → at the plan cap, the least-loaded busy pool machine. Only machines the router itself provisioned are drafted; `--machine <id>` pins any machine, `--new` forces a fresh pool machine, `--size` applies to a machine this run creates. `--sync` pushes the current directory to `work/<basename>` first and runs there; `--pull <remote>` fetches that path back afterwards. `--timeout` default 600 s, max 15 minutes.
@@ -142,7 +142,7 @@ The routing decision goes to **stderr** (`[cmux vm run] <id> (<reason>)`); stdou
 ### `cmux vm route`
 
 ```bash
-cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|24g|32g>] [--json]
+cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g|MB>] [--json]
 ```
 
 Prints the machine `vm run` / `vm agent` would use for a directory and why, without running anything (same policy, same `vm.list` + `vm.stats` calls). Text: `machine=<id> created=<bool>` and `reason: …`; when the pool is empty or busy it prints that `cmux vm run` would provision and stops — unless `--provision`, which creates the machine now. `--json`: `{machine (null when it would provision), created, reason, would_provision, directory}`. Exit 0 in every routed case.

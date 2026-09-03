@@ -686,7 +686,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB.")
             }
             memoryMb = parsed
         }
@@ -1235,7 +1235,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB.")
             }
             memoryMb = parsed
         }
@@ -1324,7 +1324,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 20g (the plan machine) or memory in MB.")
             }
             memoryMb = parsed
         }

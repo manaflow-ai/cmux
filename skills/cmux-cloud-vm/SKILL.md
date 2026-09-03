@@ -45,13 +45,13 @@ cmux vm open vivid-newt/main/term_2f9c                   # show the human one te
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 ```
 
-Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one; `--size 8g` sizes a machine the run creates.
+Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one; `--size 20g` sizes a machine the run creates (20g, the plan machine, is the only preset; raw MB also parses).
 
 ## Picking a machine
 
 1. `cmux vm route` — the router's answer for this directory. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first (`--provision` creates it now).
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (shell-only; `--desktop` for a machine with a screen); add `--size 8g` / `--name <label>`. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
+3. Isolation → `cmux vm new --detach --json` (shell-only; `--desktop` for a machine with a screen); add `--name <label>` (`--size` accepts `20g` — the plan machine, the only preset — or raw MB). The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
 4. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Running work

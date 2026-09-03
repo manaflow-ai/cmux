@@ -34,7 +34,7 @@ cmux vm tree [<machine>|local] [--refresh]
 Create and name:
 
 ```
-cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--detach|-d]
+cmux vm new [--desktop|--base] [--size <20g|MB>] [--name <label>] [--detach|-d]
 cmux vm wait <id> [--timeout <seconds>] [--wake]   # block until ready; --wake also wakes a sleeper
 cmux vm rename <id> <new-label>      # label only; the id stays the address
 ```
