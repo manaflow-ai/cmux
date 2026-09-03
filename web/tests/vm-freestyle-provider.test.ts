@@ -333,7 +333,11 @@ describe("FreestyleProvider create with edge rules", () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
-    expect(ok.creates[0]).toMatchObject({ snapshotId: "snap-1", tls: { rules: freestyleEdgeRules([EDGE_RULE]) } });
+    expect(ok.creates[0]).toMatchObject({
+      snapshotId: "snap-1",
+      idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+      tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
+    });
     expect(ok.writes).toEqual([]);
     expect(JSON.stringify(ok.writes)).not.toContain("crt_");
     expect(ok.deletes).toEqual([]);
