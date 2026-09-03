@@ -1,10 +1,7 @@
 id = "copilot"
-# Local patch 1: detect Copilot's background-agent waiting row. Keep the
-# upstream version/date and use a numeric local suffix so a future catalog
-# refresh cannot present this rule as an upstream replacement.
-version = "2026.07.07.1.1"
+version = "2026.08.29.1"
 min_engine_version = 1
-updated_at = "2026-07-07T14:15:00Z"
+updated_at = "2026-08-29T00:00:00Z"
 aliases = ["github-copilot", "ghcs"]
 
 [[rules]]

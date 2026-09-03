@@ -76,7 +76,9 @@ The manifests are derived from herdr at manifest snapshot commit
 detector engine follows source reference commit
 `7b675f42af35508eab66ac42fe1598628597a893`. The Claude manifest includes the
 upstream background-shell correction from
-`987b070fbfa187e85009b45cd7e208fc6175ff6a`. See
+`987b070fbfa187e85009b45cd7e208fc6175ff6a`. The Copilot manifest includes
+the upstream background-agent rule at version `2026.08.29.1` from the pinned
+snapshot. See
 `manifests/LICENSE`, `manifests/README.md`, and `ATTRIBUTIONS.md`. The
 Manaflow portions use MIT; the package includes that text in `LICENSE-MIT`.
 The checked-in `manifests/SHA256SUMS` record is verified before the bundled
