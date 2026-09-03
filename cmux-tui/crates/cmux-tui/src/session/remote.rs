@@ -8550,6 +8550,36 @@ mod tests {
     }
 
     #[test]
+    fn bounded_request_rejects_a_contended_writer_queue_without_waiting() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock().unwrap();
+        let request_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let request = std::thread::spawn(move || {
+            finished_tx
+                .send(request_session.request_with_deadline(
+                    json!({"cmd": "bounded-probe"}),
+                    RequestDeadline::Until(deadline),
+                ))
+                .unwrap();
+        });
+
+        let result_while_contended = finished_rx.recv_timeout(Duration::from_millis(50));
+        drop(queue_guard);
+        request.join().unwrap();
+        let result = result_while_contended
+            .expect("deadline-bounded request waited for the interactive queue mutex");
+        assert!(result.is_err(), "contended request unexpectedly received a response");
+        let error = result.unwrap_err();
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::WouldBlock)
+        }));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn latency_histogram_reports_fixed_bucket_percentiles() {
         let metrics = InteractiveWriteMetrics::default();
         for latency in [
