@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929. */
+/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
 
 
 import type * as T from "./types.js";
@@ -776,6 +776,11 @@ export interface SendKeyRequest extends CmuxRequestBase {
 }
 export type SendKeyResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface ServerStatsRequest extends CmuxRequestBase {
+  cmd: "server-stats";
+}
+
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
   cmd: "set-cell-pixels";
@@ -1024,6 +1029,7 @@ export type CmuxRequest =
   | SelectWorkspaceRequest
   | SendRequest
   | SendKeyRequest
+  | ServerStatsRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -1724,6 +1730,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "server-stats": {
+    request: ServerStatsRequest;
+    result: T.ServerStatsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-stats-v1";
     stream: null;
   };
   "set-cell-pixels": {
