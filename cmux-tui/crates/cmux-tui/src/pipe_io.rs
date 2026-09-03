@@ -124,7 +124,7 @@ impl StderrGate {
     }
 
     fn diag(&self, line: String) {
-        self.emit_with(line, |line| write_stderr_line_bounded(line));
+        self.emit_with(line, write_stderr_line_bounded);
     }
 }
 
