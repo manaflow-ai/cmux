@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929";
+pub const ir_sha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1001,6 +1001,96 @@ pub const Screen = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
     };
+};
+
+pub const ServerStatsConnections = struct {
+    accepted: u64,
+    active: u64,
+    limit: u64,
+    peak: u64,
+    refused: u64,
+};
+
+pub const ServerStatsHistogram = struct {
+    count: u64,
+    max: u64,
+    mean: u64,
+    p50: u64,
+    p90: u64,
+    p99: u64,
+};
+
+pub const ServerStatsJournalWriter = struct {
+    batch_size: ServerStatsHistogram,
+    batches: u64,
+    commit_failures: u64,
+    commit_lock_wait_us: ServerStatsHistogram,
+    commit_us: ServerStatsHistogram,
+    deadline_expiries: u64,
+    durable_events: u64,
+    durable_queued: u64,
+    phase: ServerStatsWriterPhase,
+    phase_for_us: u64,
+    receipt_wait_us: ServerStatsHistogram,
+    terminal_events: u64,
+    terminal_queued: u64,
+};
+
+pub const ServerStatsLockHolder = struct {
+    held_for_us: u64,
+    site: []const u8,
+};
+
+pub const ServerStatsLockSite = struct {
+    acquisitions: u64,
+    hold_max_us: u64,
+    hold_total_us: u64,
+    site: []const u8,
+};
+
+pub const ServerStatsLockStall = struct {
+    blocker: wire.Nullable([]const u8),
+    waited_us: u64,
+    waiter: []const u8,
+};
+
+pub const ServerStatsRegistryLock = struct {
+    contended_acquisitions: u64,
+    hold_us: ServerStatsHistogram,
+    holder: wire.Nullable(ServerStatsLockHolder),
+    last_stall: wire.Nullable(ServerStatsLockStall),
+    stalls: u64,
+    top_sites: []const ServerStatsLockSite,
+    wait_us: ServerStatsHistogram,
+};
+
+pub const ServerStatsResult = struct {
+    connections: ServerStatsConnections,
+    journal_writer: wire.Nullable(ServerStatsJournalWriter),
+    registry_lock: ServerStatsRegistryLock,
+    schema: u32,
+    uptime_ms: u64,
+};
+
+pub const ServerStatsWriterPhase = enum {
+    idle,
+    waiting_lock,
+    committing,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "idle")) return .idle;
+        if (std.mem.eql(u8, value, "waiting_lock")) return .waiting_lock;
+        if (std.mem.eql(u8, value, "committing")) return .committing;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .idle => "idle",
+            .waiting_lock => "waiting_lock",
+            .committing => "committing",
+        };
+    }
 };
 
 pub const SetCellPixelsResult = struct {
@@ -3677,6 +3767,21 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
+pub const ServerStatsRequest = struct {};
+
+pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
+    return client.callTyped(
+        ServerStatsResult,
+        .{
+            .name = "server-stats",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "server-stats-v1",
+        },
+        request,
+    );
+}
+
 pub const SetCellPixelsRequest = struct {
     height_px: u16,
     width_px: u16,
@@ -5000,7 +5105,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 104;
+pub const command_count: usize = 105;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5087,6 +5192,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "select-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },

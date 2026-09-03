@@ -142,7 +142,6 @@ export type PublicationRequestEvaluation =
  * limit it: every unauthenticated navigation would otherwise cost a write.
  */
 export function evaluatePublicationRequest(input: {
-  readonly hostname: string;
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly sessionToken: string | null;
@@ -151,10 +150,7 @@ export function evaluatePublicationRequest(input: {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const viewerResolver = yield* PublicationViewerResolver;
-    const target = yield* repository.findActivePublicationForRequest({
-      hostname: input.hostname,
-      providerTlsRuleId: input.providerTlsRuleId,
-    });
+    const target = yield* resolvePublicationForRequest(input);
     if (!target) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
 
     if (target.publication.accessMode === "public") {
@@ -167,7 +163,7 @@ export function evaluatePublicationRequest(input: {
       const principal = yield* repository.findValidSession({
         tokenHash: hashPublicationToken(input.sessionToken),
         publicationId: target.publication.id,
-        hostname: input.hostname,
+        hostname: target.publication.hostname,
         now: input.now ?? new Date(),
       });
       if (principal) {
@@ -194,9 +190,25 @@ export function evaluatePublicationRequest(input: {
   });
 }
 
+/**
+ * The publication a Freestyle forward-auth call is about, or null when no
+ * active, reachable publication owns that TLS rule. Both the policy check and
+ * the callback exchange start here so every hostname the route acts on comes
+ * from the publication row, never from a forwarding header.
+ */
+export function resolvePublicationForRequest(input: {
+  readonly providerTlsRuleId: string;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    return yield* repository.findActivePublicationForRequest({
+      providerTlsRuleId: input.providerTlsRuleId,
+    });
+  });
+}
+
 /** Evaluate and, when sign-in is required, mint the transaction in one step. */
 export function authorizePublicationRequest(input: {
-  readonly hostname: string;
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly returnPath: string;
