@@ -506,7 +506,14 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
 
-    close_created_terminals(&mut control, &initial_terminals, &report, bench_deadline);
+    let owned_session = guard.owner.as_ref().is_some_and(|owner| owner.should_stop());
+    close_created_terminals(
+        &mut control,
+        &initial_terminals,
+        &report,
+        bench_deadline,
+        owned_session,
+    );
     if let Some(owner_pid) =
         guard.owner.as_ref().filter(|owner| owner.should_stop()).map(|owner| owner.pid())
     {
@@ -648,9 +655,10 @@ fn list_terminal_ids(conn: &mut Conn) -> Result<Vec<(String, String)>, String> {
 /// the terminal, and `server stop` keeps its host alive by design).
 fn close_created_terminals(
     conn: &mut Conn,
-    _initial: &HashSet<String>,
+    initial: &HashSet<String>,
     report: &Arc<Mutex<Report>>,
     deadline: Instant,
+    owned_session: bool,
 ) {
     let current = match list_terminal_ids(conn) {
         Ok(current) => current,
@@ -663,7 +671,8 @@ fn close_created_terminals(
     let plan = current
         .iter()
         .filter(|(id, life)| {
-            created.contains(id) && !matches!(life.as_str(), "tombstoned" | "exited")
+            (created.contains(id) || (owned_session && !initial.contains(id)))
+                && !matches!(life.as_str(), "tombstoned" | "exited")
         })
         .map(|(id, _)| id.to_string())
         .collect::<Vec<_>>();
@@ -1401,6 +1410,13 @@ mod tests {
         assert_eq!(plan, vec!["baseline", "new-tab", "split"]);
         // Nothing created: nothing closed, including pre-existing terminals.
         assert!(teardown_close_plan(&initial, [("pre-a", "running")]).is_empty());
+    }
+
+    #[test]
+    fn teardown_preserves_preexisting_and_excludes_untracked_shared_terminals() {
+        let initial: HashSet<String> = ["preexisting".to_string()].into_iter().collect();
+        let current = [("preexisting", "running"), ("created", "running")];
+        assert_eq!(teardown_close_plan(&initial, current), vec!["created"]);
     }
 
     #[test]
