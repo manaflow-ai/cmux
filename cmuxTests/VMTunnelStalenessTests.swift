@@ -150,8 +150,28 @@ struct VMTunnelStalenessTests {
         #expect(completed.contains("AllowedIPs = 10.16.170.0/24, fd98:deb9:4c94::/64"))
         #expect(!completed.contains("10.0.0.0/8"))
         #expect(completed.contains("PrivateKey = k"))
+        // macOS permits duplicate destinations only when each route is scoped
+        // to its owning utun.  Without these hooks stock wg-quick's second
+        // `route add` fails with EEXIST and tears the new tunnel back down.
+        #expect(completed.contains("Table = off"))
+        #expect(completed.contains("PostUp = /sbin/route -q -n add -inet '10.16.170.0/24' -interface %i -ifscope %i"))
+        #expect(completed.contains("PostUp = /sbin/route -q -n add -inet6 'fd98:deb9:4c94::/64' -interface %i -ifscope %i"))
+        #expect(completed.contains("PostDown = /sbin/route -q -n delete -inet -ifscope %i '10.16.170.0/24'"))
+        #expect(completed.contains("PostDown = /sbin/route -q -n delete -inet6 -ifscope %i 'fd98:deb9:4c94::/64'"))
         // Nothing known about the network: the server's routes stay.
         let kept = try VMTunnelManager.completedConfig(server, privateKey: "k", allowedIPs: [])
         #expect(kept.contains("AllowedIPs = 10.0.0.0/8, fd00::/8"))
+    }
+
+    @Test("Route hooks reject values that could escape the privileged command")
+    func routeHooksRejectUnsafeAllowedIPs() {
+        let server = "[Interface]\nPrivateKey = \nAddress = 100.64.0.1/32\n\n[Peer]\nPublicKey = p\nAllowedIPs = 10.0.0.0/8\n"
+        #expect(throws: VMTunnelManager.TunnelError.self) {
+            _ = try VMTunnelManager.completedConfig(
+                server,
+                privateKey: "k",
+                allowedIPs: ["10.16.170.0/24; touch /tmp/cmux-route-pwned"]
+            )
+        }
     }
 }
