@@ -13,9 +13,9 @@ final class MachinesPanelModelTests: XCTestCase {
     func testSnapshotMapsSummaryFields() {
         let summary = VMSummary(
             id: "noble-wren",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "blaxel/base-image:latest",
+            image: "cmuxd-ws:tooling-20260509f",
             createdAt: 1_787_400_000_000,
             base: nil
         )
@@ -23,7 +23,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(snapshot.id, "noble-wren")
         XCTAssertEqual(snapshot.displayName, "noble-wren")
         XCTAssertNil(snapshot.label)
-        XCTAssertEqual(snapshot.provider, "blaxel")
+        XCTAssertEqual(snapshot.provider, "freestyle")
         XCTAssertFalse(snapshot.isDesktop)
         XCTAssertEqual(snapshot.activity, .ready)
         XCTAssertEqual(
@@ -35,9 +35,9 @@ final class MachinesPanelModelTests: XCTestCase {
     func testDesktopImageDetection() {
         let desktop = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "noble-dolphin",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "blaxel/xfce-vnc:latest",
+            image: "cmux-xfce-vnc:latest",
             createdAt: 0,
             base: nil
         ))
@@ -45,24 +45,28 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(desktop.createdAt)
     }
 
-    func testBakedDevboxImageIsDesktop() {
+    /// Regression: the baked devbox image used to read as a desktop because
+    /// one provider's devbox bundled xfce + noVNC. The shared devbox image
+    /// every remaining provider boots is shell-only, so a name-based desktop
+    /// would put a dead Desktop row in the machine's surface list.
+    func testBakedDevboxImageIsNotDesktop() {
         let devbox = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "vivid-heron",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "sandbox/cmux-devbox:latest",
+            image: "cmux-devbox:devbox-20260828b",
             createdAt: 0,
             base: nil
         ))
-        XCTAssertTrue(devbox.isDesktop)
+        XCTAssertFalse(devbox.isDesktop)
     }
 
     func testLabelDrivesDisplayName() {
         var summary = VMSummary(
             id: "noble-wren",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "blaxel/base-image:latest",
+            image: "cmuxd-ws:tooling-20260509f",
             createdAt: 0,
             base: nil
         )
@@ -217,9 +221,9 @@ final class MachinesPanelModelTests: XCTestCase {
         let created: Int64 = 1_787_400_000_000
         let summary = VMSummary(
             id: "noble-wren",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "blaxel/xfce-vnc:latest",
+            image: "cmux-xfce-vnc:latest",
             createdAt: created,
             base: nil
         )
@@ -246,9 +250,9 @@ final class MachinesPanelModelTests: XCTestCase {
         let created: Int64 = 1_787_400_000_000
         let summary = VMSummary(
             id: "noble-wren",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "blaxel/xfce-vnc:latest",
+            image: "cmux-xfce-vnc:latest",
             createdAt: created,
             base: nil
         )
@@ -315,7 +319,7 @@ final class MachinesPanelModelTests: XCTestCase {
         let created = now.addingTimeInterval(-86_400)
         func machine(_ id: String, createdAt: Date) -> MachineSnapshot {
             MachineSnapshot(
-                id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+                id: id, provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
                 activity: .ready, createdAt: createdAt, label: nil
             )
         }
@@ -332,8 +336,8 @@ final class MachinesPanelModelTests: XCTestCase {
     func testSnapshotPrefersServerFreeAccessExpiry() {
         let now = Date(timeIntervalSince1970: 1_787_400_000)
         var summary = VMSummary(
-            id: "noble-wren", provider: "blaxel", status: "running",
-            image: "blaxel/xfce-vnc:latest", createdAt: Int64(now.timeIntervalSince1970 * 1000), base: nil
+            id: "noble-wren", provider: "freestyle", status: "running",
+            image: "cmux-xfce-vnc:latest", createdAt: Int64(now.timeIntervalSince1970 * 1000), base: nil
         )
         summary.freeAccessExpiresAt = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000)
         // Local window math would say 7 days left; the server says it already closed.
@@ -341,9 +345,9 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     // MARK: - Cloud tree
-    private func machineSnapshot(id: String, image: String = "blaxel/xfce-vnc:latest") -> MachineSnapshot {
+    private func machineSnapshot(id: String, image: String = "cmux-xfce-vnc:latest") -> MachineSnapshot {
         MachineSnapshotBuilder.snapshot(from: VMSummary(
-            id: id, provider: "blaxel", status: "running", image: image, createdAt: 0, base: nil
+            id: id, provider: "freestyle", status: "running", image: image, createdAt: 0, base: nil
         ))
     }
 
@@ -356,7 +360,7 @@ final class MachinesPanelModelTests: XCTestCase {
         remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
     ) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
-            id: id, name: name ?? id.rawValue, status: "running", image: hasDesktop ? "blaxel/xfce-vnc:latest" : "blaxel/base-image:latest",
+            id: id, name: name ?? id.rawValue, status: "running", image: hasDesktop ? "cmux-xfce-vnc:latest" : "cmuxd-ws:tooling-20260509f",
             hasDesktop: hasDesktop, memoryMb: nil, diskMb: nil, linkState: linkState, linkError: linkError,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: remoteWorkspaces
         )
@@ -539,7 +543,7 @@ final class MachinesPanelModelTests: XCTestCase {
 
     func testCloudTreeSleepingAndBrokenMachinesShowOnePlaceholder() {
         let asleep = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "quiet-owl", image: "blaxel/base-image:latest")],
+            machines: [machineSnapshot(id: "quiet-owl", image: "cmuxd-ws:tooling-20260509f")],
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("quiet-owl"), linkState: .asleep, hasDesktop: false)], resources: [], projections: []),
             localWorkspaces: []
         )
@@ -606,7 +610,7 @@ final class MachinesPanelModelTests: XCTestCase {
             ]
         )
         let nodes = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "m", image: "blaxel/base-image:latest")],
+            machines: [machineSnapshot(id: "m", image: "cmuxd-ws:tooling-20260509f")],
             snapshot: snapshot,
             localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true), CloudTreeLocalWorkspace(id: other, title: "notes", isSelected: false)],
             includeLocalMachine: true
@@ -715,14 +719,14 @@ final class MachinesPanelModelTests: XCTestCase {
 
     func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
         let active = MachineSnapshot(
-            id: "warm-owl", provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+            id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
         XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
         XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active, style: .compact))
 
         let expired = MachineSnapshot(
-            id: "warm-owl", provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+            id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
         )
         XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
@@ -773,7 +777,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
         XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
                        VMCapabilities(snapshot: false, restore: true, fork: true))
-        let summary = VMSummary(id: "m", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil)
+        let summary = VMSummary(id: "m", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil)
         XCTAssertEqual(summary.capabilities, .all)
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
@@ -785,11 +789,11 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 
     private func info(_ machine: SurfaceMachineID) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "blaxel/xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "cmux-xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
     }
 
     private func machine(_ id: String) -> MachineSnapshot {
-        MachineSnapshot(id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+        MachineSnapshot(id: id, provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
     }
 
     func testTreeShowsThisMacByDefaultAndCloudOnlyStaysOneFlipAway() {
@@ -846,7 +850,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
 /// `nodes` actually renders.
 @Suite struct CloudTreeEmptyDecisionTests {
     private func info(_ machine: SurfaceMachineID) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "blaxel/xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "cmux-xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String) -> SurfaceResource {
@@ -854,7 +858,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 
     private func machine(_ id: String) -> MachineSnapshot {
-        MachineSnapshot(id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+        MachineSnapshot(id: id, provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
     }
 
     @Test func emptyDecisionMatchesWhatTheTreeRenders() {
@@ -890,7 +894,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
         var machine = MachineSnapshotBuilder.snapshot(from: VMSummary(
-            id: "troll", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil
+            id: "troll", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
         ))
         machine.stats = stats
         return machine
@@ -996,5 +1000,131 @@ struct MachinesPanelPaidPlanTests {
         let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
         #expect(error.description.contains("https://cmux.com/pricing"))
         #expect(error.description.contains("Upgrade to cmux Pro"))
+    }
+}
+
+/// Pins the coderouter spend readout: the wire payload decodes into typed
+/// totals, rows key on the machine id the list already uses (`vmId` echoes
+/// `GET /api/vm` `id`), and an unavailable or empty readout renders nothing.
+@Suite("Cloud machines coderouter usage")
+struct MachineUsageReadoutTests {
+    private let payload = Data("""
+    {
+      "teamId": "team_1",
+      "periodDays": 30,
+      "kind": "ready",
+      "asOf": "2026-09-02T00:00:00Z",
+      "machines": [
+        {
+          "vmId": "noble-wren",
+          "displayName": "wren",
+          "totals": { "inputTokens": 30000, "cachedInputTokens": 5000, "outputTokens": 6000, "totalTokens": 41000, "apiEquivalentUsd": 1.234 }
+        },
+        {
+          "vmId": "idle-owl",
+          "displayName": null,
+          "totals": { "inputTokens": 0, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 0, "apiEquivalentUsd": 0.0 }
+        },
+        {
+          "vmId": "5f0f7d0e-1b2c-4d3e-8f90-123456789abc",
+          "providerVmId": "brave-fox",
+          "displayName": "fox",
+          "totals": { "inputTokens": 10, "cachedInputTokens": 0, "outputTokens": 5, "totalTokens": 15, "apiEquivalentUsd": 0.01 }
+        },
+        {
+          "vmId": "noble-wren",
+          "displayName": "duplicate",
+          "totals": { "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 1, "apiEquivalentUsd": 0.5 }
+        }
+      ]
+    }
+    """.utf8)
+
+    private func machine(_ id: String) -> MachineSnapshot {
+        MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: id, provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
+        ))
+    }
+
+    @Test("The team payload decodes into typed totals")
+    func payloadDecodes() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        #expect(usage.teamID == "team_1")
+        #expect(usage.kind == .ready)
+        #expect(usage.periodDays == 30)
+        #expect(usage.asOf == Date(timeIntervalSince1970: 1_788_307_200))
+        #expect(usage.machines.count == 4)
+        let wren = try #require(usage.machines.first)
+        #expect(wren.vmID == "noble-wren")
+        #expect(wren.displayName == "wren")
+        #expect(wren.periodDays == 30)
+        #expect(wren.totals == MachineUsageTotals(
+            inputTokens: 30000, cachedInputTokens: 5000, outputTokens: 6000, totalTokens: 41000, apiEquivalentUsd: 1.234
+        ))
+        #expect(usage.machines[1].displayName == nil, "JSON null reads as no label")
+    }
+
+    @Test("Rows key on the machine id; blanks and repeats collapse to one entry")
+    func lookupKeysOnMachineID() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        #expect(Set(byID.keys) == ["noble-wren", "idle-owl", "brave-fox", "5f0f7d0e-1b2c-4d3e-8f90-123456789abc"])
+        #expect(byID["noble-wren"]?.displayName == "wren", "the first entry wins on a repeated vmId")
+        #expect(byID["brave-fox"]?.displayName == "fox", "the provider id keys the row, since GET /api/vm lists it as the machine id")
+
+        let stamped = MachineSnapshotBuilder.applyingUsage(
+            to: [machine("noble-wren"), machine("idle-owl"), machine("unknown-fox")],
+            usage: byID
+        )
+        #expect(stamped[0].usage?.totals.totalTokens == 41000)
+        #expect(stamped[1].usage?.totals.isEmpty == true)
+        #expect(stamped[2].usage == nil, "a machine the payload never names carries no readout")
+
+        let cleared = MachineSnapshotBuilder.applyingUsage(to: stamped, usage: [:])
+        #expect(cleared.allSatisfy { $0.usage == nil }, "a later payload without the machine drops the stale readout")
+    }
+
+    @Test("An unavailable payload yields no rows, and malformed payloads throw")
+    func unavailableAndMalformed() throws {
+        let unavailable = try MachineUsageClient.decodeTeamUsage(Data("""
+        {"teamId":"team_1","periodDays":30,"kind":"unavailable","asOf":null,"machines":[]}
+        """.utf8))
+        #expect(unavailable.kind == .unavailable)
+        #expect(unavailable.asOf == nil)
+        #expect(unavailable.byMachineID.isEmpty)
+
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"weird","machines":[]}"#.utf8))
+        }
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"ready","machines":[{"totals":{}}]}"#.utf8))
+        }
+    }
+
+    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    func rowLine() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        let wren = try #require(byID["noble-wren"])
+        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
+        #expect(line.contains("41K"), "compact token count: \(line)")
+        #expect(line.hasSuffix("30d"), "window label: \(line)")
+        let owl = try #require(byID["idle-owl"])
+        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+
+        var withUsage = machine("noble-wren")
+        withUsage.usage = byID["noble-wren"]
+        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
+        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
+        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+    }
+
+    @Test("Two-line rows grow by one line for the spend readout")
+    func twoLineHeightGrows() {
+        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
+        guard let twoLine else { return }
+        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 }

@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -21,13 +22,19 @@ import {
   loadCoderouterTeamMetrics,
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
+import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
 import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
 import {
+  describeClaudeUpstream,
+  type ClaudeUpstreamDescription,
+} from "@/services/coderouter/claudeUpstream";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
+import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
 
 // Account authorization and the hosted account list must stay fresh for each
 // request. Keep the current tab visible while this page resolves instead of
@@ -74,6 +81,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function CoderouterOverviewPage({ params, searchParams }: PageProps) {
+  // Everything below depends on the live session. With cacheComponents, Next
+  // also runs this page during a prerender and a runtime prefetch, where
+  // headers() resolves but the Stack SDK's sync UUID generation aborts the
+  // render with blocking-prerender-crypto. Leave both before any of that work.
+  await connection();
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 
@@ -166,9 +178,10 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
-  const [accountState, metrics] = await Promise.all([
+  const [accountState, metrics, claudeUpstream] = await Promise.all([
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
+    loadClaudeUpstream(selectedTeam.id),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -208,6 +221,29 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         teamName={selectedTeam.name}
       />
 
+      <ClaudeUpstreamSection
+        teamId={selectedTeam.id}
+        current={claudeUpstream.kind === "ok" ? claudeUpstream.upstream : null}
+        canManage={selectedTeam.manageAccounts}
+        loadFailed={claudeUpstream.kind === "error"}
+      />
+
+      <MachineUsageSection
+        locale={locale}
+        t={tPage}
+        teamName={selectedTeam.name}
+        usage={await loadMachineUsage(selectedTeam.id)}
+      />
+
+      {selectedTeam.manageAccounts ? (
+        <section className="mb-4">
+          <div className="mb-2">
+            <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+          </div>
+          <AddAiAccountForms />
+        </section>
+      ) : null}
+
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : accountState.kind === "migrationPending" ? (
@@ -216,15 +252,6 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
         <div>
-          {selectedTeam.manageAccounts ? (
-            <section className="mb-4">
-              <div className="mb-2">
-                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-              </div>
-              <AddAiAccountForms />
-            </section>
-          ) : null}
-
           <section>
             <div className="mb-2">
               <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
@@ -509,6 +536,18 @@ async function loadAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+type ClaudeUpstreamState =
+  | { readonly kind: "ok"; readonly upstream: ClaudeUpstreamDescription | null }
+  | { readonly kind: "error" };
+
+async function loadClaudeUpstream(teamId: string): Promise<ClaudeUpstreamState> {
+  try {
+    return { kind: "ok", upstream: await describeClaudeUpstream(teamId) };
   } catch {
     return { kind: "error" };
   }

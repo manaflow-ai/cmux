@@ -2407,17 +2407,25 @@ public final class MobileIrohRuntimeComposition:
         bundleIdentifier: String? = nil,
         allowsLoopback: Bool = true
     ) -> URL? {
+        // Official/TestFlight bundles are always production artifacts. Their
+        // Info.plist must not be able to route Iroh to staging, even when a
+        // stale CMUXIrohBrokerBaseURL or CMUXDevTag was accidentally carried
+        // into the archive. Keep this defense in the runtime as well as the
+        // release-build gate, because an already-installed artifact cannot be
+        // repaired by changing the launch environment.
+        let authEnvironment = (infoDictionary?["CMUXAuthEnvironment"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if authEnvironment == "production"
+            || isOfficialReleaseBundle(bundleIdentifier) {
+            return URL(string: "https://cmux.com")
+        }
+
         if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
             let trimmed = baked.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return validatedBrokerBaseURL(trimmed, allowsLoopback: allowsLoopback)
             }
-        }
-        let authEnvironment = (infoDictionary?["CMUXAuthEnvironment"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if authEnvironment == "production" {
-            return URL(string: "https://cmux.com")
         }
         if MobileIOSBuildScope.current(
             infoDictionary: infoDictionary,
@@ -2426,6 +2434,13 @@ public final class MobileIrohRuntimeComposition:
             return URL(string: "https://cmux-staging.vercel.app")
         }
         return validatedBrokerBaseURL(apiBaseURL, allowsLoopback: allowsLoopback)
+    }
+
+    private static func isOfficialReleaseBundle(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmux.app"
+            || bundleIdentifier == "com.cmuxterm.app.nightly"
+            || bundleIdentifier.hasPrefix("dev.cmux.app.")
     }
 
     private static func validatedBrokerBaseURL(

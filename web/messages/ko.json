@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
       "title": "coderouter",
-      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다."
+      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "machines": {
+        "title": "머신",
+        "description": "최근 {days}일 동안 {team}의 머신별 coderouter 사용량입니다.",
+        "machineColumn": "머신",
+        "tokensColumn": "총 토큰",
+        "apiEquivalentColumn": "API 환산 금액",
+        "unnamed": "이름 없는 머신",
+        "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
+        "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
+        "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      }
     },
     "accountMenu": {
       "label": "계정 메뉴",
@@ -1851,6 +1862,8 @@
     "metaDescription": "cmux NIGHTLY를 다운로드하세요. main의 최신 커밋에서 자동으로 빌드되는 독립 앱입니다. 안정 버전과 나란히 실행되며 독자적인 자동 업데이트를 제공합니다.",
     "description": "cmux NIGHTLY는 main의 최신 커밋에서 자동으로 빌드됩니다. 자체 번들 ID를 가지고 있어 안정 버전과 충돌 없이 나란히 실행됩니다. 출시 전에 새로운 기능을 테스트할 수 있습니다.",
     "download": "Mac용 NIGHTLY 다운로드",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "나이틀리 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에서 보고하고 안정 버전으로 전환하세요."
   },
   "languageSwitcher": {
