@@ -3760,7 +3760,7 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
         {
             continue;
         }
-        let Some(name) = name.to_str() else { continue };
+        let Ok(name) = name.to_str() else { continue };
         let Some((_, suffix)) = name.rsplit_once(".tmp-") else { continue };
         let Some(pid) = suffix.split('-').next().and_then(|pid| pid.parse().ok()) else {
             continue;
