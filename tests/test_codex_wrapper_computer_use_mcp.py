@@ -19,6 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
 SOURCE_CLAUDE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+SOURCE_CUA_OPENAI_METADATA = ROOT / "skills" / "cmux-cua" / "agents" / "openai.yaml"
+BUNDLED_CUA_DISPLAY_NAME = "cmux-cua (macOS driver)"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -49,6 +51,60 @@ def read_lines(path: Path) -> list[str]:
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def _frontmatter_value(skill_file: Path, key: str) -> str | None:
+    """Read one value from a generated SKILL.md fixture's frontmatter."""
+    in_frontmatter = False
+    for line in skill_file.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "---":
+            if in_frontmatter:
+                break
+            in_frontmatter = True
+            continue
+        if in_frontmatter and line.startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    return None
+
+
+def _openai_display_name(skill_dir: Path, fallback: str) -> str:
+    """Resolve the picker label from the generated skill artifact."""
+    metadata = skill_dir / "agents" / "openai.yaml"
+    if metadata.is_file():
+        for line in metadata.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("display_name:"):
+                return line.split(":", 1)[1].strip().strip("\"'")
+    return fallback
+
+
+def discover_picker_entries(project_root: Path, global_skill: Path) -> list[dict[str, str]]:
+    """Model the product boundary Codex receives from its filesystem roots.
+
+    Codex owns the final picker UI. This fixture-level discovery keeps the
+    observed root precedence (project, then user) explicit while exercising
+    the actual generated skill files and wrapper-installed link.
+    """
+    candidates = [
+        ("project", project_root / ".agents" / "skills" / "cmux-cua"),
+        ("global", global_skill),
+    ]
+    entries: list[dict[str, str]] = []
+    for scope, skill_dir in candidates:
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        name = _frontmatter_value(skill_file, "name")
+        if not name:
+            continue
+        entries.append(
+            {
+                "scope": scope,
+                "name": name,
+                "display_name": _openai_display_name(skill_dir, name),
+                "path": str(skill_file.resolve()),
+            }
+        )
+    return entries
 
 
 def arg_value(args: list[str], prefix: str) -> str | None:
@@ -159,6 +215,7 @@ def run_wrapper(
     global_skill_opt_out: bool = False,
     preexisting_legacy_link: bool = False,
     preexisting_skill_directory: bool = False,
+    project_skill_collision: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -181,6 +238,23 @@ def run_wrapper(
             "Use the bundled Computer Use tools.\n",
             encoding="utf-8",
         )
+        # The app bundle carries the picker-facing role label. Copy it into
+        # the generated bundle so the test observes the same artifact Codex
+        # reads after the wrapper creates its global link.
+        bundled_metadata = bundled_skill / "agents" / "openai.yaml"
+        bundled_metadata.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SOURCE_CUA_OPENAI_METADATA, bundled_metadata)
+        if project_skill_collision:
+            project_skill = tmp / ".agents" / "skills" / "cmux-cua"
+            project_skill.mkdir(parents=True)
+            (project_skill / "SKILL.md").write_text(
+                "---\n"
+                "name: cmux-cua\n"
+                "description: Project build and E2E skill.\n"
+                "---\n\n"
+                "Build the CUA implementation from the project checkout.\n",
+                encoding="utf-8",
+            )
 
         args_log = tmp / "codex-args.log"
         socket_path = tmp / "cmux.sock"
@@ -375,7 +449,26 @@ exit 1
                     else None
                 ),
                 "legacy_present": legacy_skill.exists() or legacy_skill.is_symlink(),
+                "project_content": (
+                    (
+                        tmp / ".agents" / "skills" / "cmux-cua" / "SKILL.md"
+                    ).read_text(encoding="utf-8")
+                    if (
+                        tmp / ".agents" / "skills" / "cmux-cua" / "SKILL.md"
+                    ).is_file()
+                    else None
+                ),
             }
+            picker_entries = discover_picker_entries(tmp, installed_skill)
+            skill_probe["picker_entries"] = picker_entries
+            skill_probe["selected_picker_path"] = next(
+                (
+                    entry["path"]
+                    for entry in picker_entries
+                    if entry["name"] == "cmux-cua"
+                ),
+                None,
+            )
         finally:
             if test_socket is not None:
                 test_socket.close()
@@ -411,8 +504,8 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
-    # skills.config alongside the installed link would render the skill twice
-    # and dir-qualified (cmux-cua:cmux-cua) in Codex's picker.
+    # skills.config alongside the installed link would expose a second path in
+    # Codex's picker, so the durable link is the only normal delivery path.
     expect(
         configured_skill_path(args) is None,
         f"expected no invocation-scoped skill config when the link installs, got {args}",
@@ -487,6 +580,117 @@ def test_codex_skill_is_global_without_config_duplicate_by_default(failures: lis
     expect(
         configured_skill_path(args) is None,
         f"expected no invocation-scoped duplicate of the installed skill, got {args}",
+        failures,
+    )
+
+
+def test_codex_skill_picker_reconciles_project_collision(failures: list[str]) -> None:
+    """A same-name project skill stays owned by the project, while the
+    bundled driving row remains selectable by an explicit stable label.
+
+    The final picker is rendered by Codex, outside this repository. The
+    generated filesystem roots below are the contract cmux controls: project
+    precedence is deterministic, and the app-bundled metadata disambiguates
+    the global driving path without rewriting either skill.
+    """
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        project_skill_collision=True,
+    )
+    expect(code == 0, f"collision wrapper exited {code}: {stderr}", failures)
+    entries = skill.get("picker_entries")
+    expect(
+        isinstance(entries, list) and len(entries) == 2,
+        f"expected project and bundled picker entries, got {entries}",
+        failures,
+    )
+    if isinstance(entries, list) and len(entries) == 2:
+        names = [entry.get("name") for entry in entries]
+        labels = [entry.get("display_name") for entry in entries]
+        scopes = [entry.get("scope") for entry in entries]
+        expect(
+            names == ["cmux-cua", "cmux-cua"],
+            f"same canonical names should remain path-scoped, got {names}",
+            failures,
+        )
+        expect(
+            labels == ["cmux-cua", BUNDLED_CUA_DISPLAY_NAME],
+            f"expected an explicit bundled driving label, got {labels}",
+            failures,
+        )
+        expect(
+            scopes == ["project", "global"],
+            f"expected deterministic project-before-global order, got {scopes}",
+            failures,
+        )
+        expect(
+            len({entry.get("path") for entry in entries}) == 2,
+            f"collision entries must retain distinct paths, got {entries}",
+            failures,
+        )
+        driver = entries[1]
+        expect(
+            driver.get("display_name") == BUNDLED_CUA_DISPLAY_NAME
+            and str(driver.get("path", "")).endswith(
+                "/Contents/Resources/cmux-cua/SKILL.md"
+            ),
+            f"bundled driver must remain explicitly selectable, got {driver}",
+            failures,
+        )
+        expect(
+            skill.get("selected_picker_path") == entries[0].get("path"),
+            "bare $cmux-cua selection must follow the documented project-first order",
+            failures,
+        )
+    expect(
+        isinstance(skill.get("project_content"), str)
+        and "Build the CUA implementation" in skill["project_content"],
+        f"project-owned skill must remain untouched, got {skill}",
+        failures,
+    )
+    expect(
+        skill["is_symlink"] is True
+        and isinstance(skill.get("target"), str)
+        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
+        f"bundled global link must remain available, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is None,
+        f"a durable link must not add a second invocation path, got {args}",
+        failures,
+    )
+
+
+def test_codex_skill_picker_fallback_without_collision(failures: list[str]) -> None:
+    """The session fallback remains non-destructive when no global link is
+    requested; Codex owns whether that invocation-only path is shown in its
+    picker, while cmux still supplies the current bundled artifact."""
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        global_skill_opt_out=True,
+    )
+    expect(code == 0, f"fallback wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill.get("picker_entries") == [],
+        f"without a filesystem collision the opt-out must not create a global row, got {skill}",
+        failures,
+    )
+    fallback_path = configured_skill_path(args)
+    expect(
+        fallback_path is not None
+        and fallback_path.parts[-4:] == (
+            "Contents",
+            "Resources",
+            "cmux-cua",
+            "SKILL.md",
+        ),
+        f"expected the bundled skill session fallback, got {args}",
+        failures,
+    )
+    expect(
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"explicit opt-out must leave the global root untouched, got {skill}",
         failures,
     )
 
@@ -781,6 +985,8 @@ def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua(failures)
     test_codex_skill_is_global_without_config_duplicate_by_default(failures)
+    test_codex_skill_picker_reconciles_project_collision(failures)
+    test_codex_skill_picker_fallback_without_collision(failures)
     test_codex_migrates_legacy_computer_use_link(failures)
     test_codex_falls_back_to_config_for_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
