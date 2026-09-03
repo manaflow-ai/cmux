@@ -10364,7 +10364,8 @@ impl App {
         let revision = ProjectionRevision {
             tree_workspace: self.tree.workspace_revision,
             tree_pane: self.tree.pane_revision,
-            agents: spec.includes(SidebarResourceKind::Agents)
+            agents: spec
+                .includes(SidebarResourceKind::Agents)
                 .then_some(self.projection_agents_generation),
             selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
                 .then_some(self.sidebar_workspace_selection)
