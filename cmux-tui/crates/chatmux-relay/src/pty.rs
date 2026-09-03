@@ -2100,6 +2100,28 @@ impl Inner {
         self.close_exact_authorized_async(pty_id, &attachment, context).await;
     }
 
+    fn force_retire(
+        &self,
+        pty_id: &str,
+        generation: Option<u64>,
+        publication_gate: Option<&Arc<RouteGate>>,
+    ) {
+        let removed = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || publication_gate
+                    .is_some_and(|expected| !Arc::ptr_eq(&current.publication_gate, expected))
+            {
+                return;
+            }
+            let removed = attachments.remove(pty_id).expect("attachment still present");
+            removed.closing.store(true, Ordering::SeqCst);
+            removed
+        };
+        removed.control.kill();
+    }
+
     async fn close_if_transport_async(
         self: &Arc<Self>,
         pty_id: &str,
@@ -2142,30 +2164,7 @@ impl Inner {
             )
             .await;
             if drained.is_err() {
-                let manager = Arc::clone(self);
-                let pty_id = pty_id.to_owned();
-                let publication_gate = Arc::clone(&publication_gate);
-                tokio::spawn(async move {
-                    attachment.control_ops.wait_async().await;
-                    let _publication = publication_gate.lock_async().await;
-                    let removed = {
-                        let mut attachments = manager.attachments.lock().expect("attach lock");
-                        let Some(current) = attachments.get(&pty_id) else { return };
-                        if generation.is_some_and(|expected| current.generation != expected)
-                            || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
-                            || !current.close_pending.load(Ordering::SeqCst)
-                            || current.closing.load(Ordering::SeqCst)
-                        {
-                            return;
-                        }
-                        let removed =
-                            attachments.remove(&pty_id).expect("attachment still present");
-                        removed.closing.store(true, Ordering::SeqCst);
-                        removed
-                    };
-                    drop(_publication);
-                    removed.control.kill();
-                });
+                self.force_retire(pty_id, generation, Some(&publication_gate));
                 return;
             }
             let _publication = publication_gate.lock_async().await;
@@ -2289,11 +2288,15 @@ impl Inner {
         }
         current.close_pending.store(true, Ordering::SeqCst);
         drop(_publication);
-        // Keep the generation reserved until every in-flight control call
-        // completes. The transport teardown owns a separate cleanup task, so
-        // cancellation cannot create a retry loop or expose a replacement ID
-        // while the old operation is still running.
-        attachment.control_ops.wait_async().await;
+        let drained = tokio::time::timeout(
+            CONTROL_OPERATION_DRAIN_TIMEOUT,
+            attachment.control_ops.wait_async(),
+        )
+        .await;
+        if drained.is_err() {
+            self.force_retire(pty_id, Some(attachment.generation), Some(&gate));
+            return;
+        }
         let _publication = gate.lock_async().await;
         let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
@@ -2429,8 +2432,8 @@ struct OpenedCleanup {
 }
 
 /// Own the attachment until the start thread proves that both output sinks
-/// are installed. Cancellation while waiting for readiness releases the slot
-/// from a detached cleanup thread, so the async runtime is never blocked.
+/// are installed. Cancellation while waiting for readiness retires the exact
+/// generation without waiting for a blocked output callback.
 struct StartCleanup {
     inner: Arc<Inner>,
     pty_id: String,
@@ -2448,38 +2451,10 @@ impl StartCleanup {
         if self.state.compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
-        let inner = Arc::clone(&self.inner);
-        let pty_id = self.pty_id.clone();
-        let generation = self.generation;
-        let publication_gate = Arc::clone(&self.publication_gate);
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            // Keep the cleanup task owned by Tokio. The blocking section uses
-            // its bounded executor, so repeated cancelled starts cannot spawn
-            // one untracked OS thread each.
-            handle.spawn(async move {
-                let _ = tokio::task::spawn_blocking(move || {
-                    inner.close_exact(&pty_id, Some(generation), Some(&publication_gate));
-                })
-                .await;
-            });
-        } else {
-            // StartOwner normally drops on a Tokio worker. Keep a fallback for
-            // teardown paths that run after the runtime has shut down.
-            let fallback_inner = Arc::clone(&self.inner);
-            let fallback_gate = Arc::clone(&self.publication_gate);
-            let fallback_pty_id = self.pty_id.clone();
-            let fallback_generation = self.generation;
-            let cleanup = std::thread::Builder::new().name("chatmux-relay-pty-cleanup".to_owned());
-            if let Err(error) = cleanup.spawn(move || {
-                fallback_inner.close_exact(
-                    &fallback_pty_id,
-                    Some(fallback_generation),
-                    Some(&fallback_gate),
-                );
-            }) {
-                eprintln!("PTY cleanup thread could not be created: {error}");
-            }
-        }
+        // Retire without waiting for the publication gate. The start task may
+        // be blocked in subscribe, but generation checks reject its late
+        // callbacks once this map entry is removed.
+        self.inner.force_retire(&self.pty_id, Some(self.generation), Some(&self.publication_gate));
     }
 }
 
