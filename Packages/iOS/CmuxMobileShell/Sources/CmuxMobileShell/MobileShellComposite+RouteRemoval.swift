@@ -32,12 +32,10 @@ extension MobileShellComposite {
                     teamID: mac.teamID
                 )
             } else {
-                let wrote = try await pairedMacStore.upsertRoutesIfAuthorized(
+                let wrote = try await pairedMacStore.removeRouteIfAuthorized(
                     macDeviceID: mac.macDeviceID,
-                    displayName: mac.displayName,
-                    routes: routes,
+                    route: route,
                     condition: .matchingInstanceTag(mac.instanceTag),
-                    markActive: nil,
                     stackUserID: mac.stackUserID ?? scope.userID,
                     teamID: mac.teamID,
                     now: Date()

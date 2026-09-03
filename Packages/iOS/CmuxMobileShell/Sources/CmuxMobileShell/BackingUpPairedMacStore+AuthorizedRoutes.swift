@@ -4,6 +4,43 @@ public import Foundation
 
 extension BackingUpPairedMacStore {
     @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let wrote = try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: stackUserID,
+            teamID: team,
+            now: now
+        )
+        guard wrote, let account = stackUserID, !account.isEmpty else { return wrote }
+        lastSignedInAccount = account
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            account: account,
+            teamID: team,
+            includesCustomizations: false,
+            instanceAuthority: .compareAndSet
+        )
+        return true
+    }
+
+    @discardableResult
     public func upsertRoutesIfAuthorized(
         macDeviceID: String,
         displayName: String?,

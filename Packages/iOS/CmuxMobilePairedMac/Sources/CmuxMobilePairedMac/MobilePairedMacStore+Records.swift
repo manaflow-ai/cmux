@@ -317,6 +317,35 @@ extension MobilePairedMacStore {
     }
 
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
+        var removedStatement: OpaquePointer?
+        defer { sqlite3_finalize(removedStatement) }
+        let removedRC = sqlite3_prepare_v2(
+            db,
+            """
+            SELECT kind, endpoint_json
+            FROM mac_route_removals
+            WHERE mac_device_id = ? AND owner_key = ?;
+            """,
+            -1,
+            &removedStatement,
+            nil
+        )
+        guard removedRC == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(removedRC, lastErrorMessage())
+        }
+        try bind(
+            statement: removedStatement,
+            parameters: [.text(macDeviceID), .text(ownerKey)]
+        )
+        var removedKeys: Set<String> = []
+        while sqlite3_step(removedStatement) == SQLITE_ROW {
+            guard let kind = Self.readNullableText(removedStatement, column: 0),
+                  let endpoint = Self.readNullableText(removedStatement, column: 1) else {
+                continue
+            }
+            removedKeys.insert("\(kind)\u{1F}\(endpoint)")
+        }
+
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
@@ -339,6 +368,10 @@ extension MobilePairedMacStore {
             guard let data = json.data(using: .utf8),
                   let route = try? decoder.decode(CmxAttachRoute.self, from: data) else {
                 pairedMacStoreLog.warning("dropping unparsable route row")
+                continue
+            }
+            if let endpoint = try? Self.encodeRouteEndpoint(route),
+               removedKeys.contains("\(route.kind.rawValue)\u{1F}\(endpoint)") {
                 continue
             }
             routes.append(route)
@@ -387,6 +420,16 @@ extension MobilePairedMacStore {
     static func encodeRoute(_ route: CmxAttachRoute) throws -> String {
         let encoder = JSONEncoder()
         let data = try encoder.encode(route)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw MobilePairedMacStoreError.decodeFailed
+        }
+        return string
+    }
+
+    static func encodeRouteEndpoint(_ route: CmxAttachRoute) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(route.endpoint)
         guard let string = String(data: data, encoding: .utf8) else {
             throw MobilePairedMacStoreError.decodeFailed
         }

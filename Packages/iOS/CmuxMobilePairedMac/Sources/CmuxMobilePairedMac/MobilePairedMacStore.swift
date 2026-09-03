@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 11
+    public static let currentSchemaVersion: Int32 = 12
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -231,6 +231,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             pairedMacStoreLog.warning(
                 "paired-mac store schema v\(version) is newer than this build (v\(Self.currentSchemaVersion)); reading known columns only"
             )
+        }
+        if version < 12 {
+            try transaction {
+                try migrateToV12()
+                try setUserVersion(12)
+            }
         }
     }
 
@@ -537,6 +543,31 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("ALTER TABLE paired_macs ADD COLUMN direct_addresses TEXT;")
     }
 
+    /// v12: device-local route tombstones. A paired Mac can keep advertising a
+    /// route after the user removes it on this iPhone, so route refreshes must
+    /// remember the endpoint suppression independently of the host snapshot.
+    /// The table is intentionally not part of the backup record and is removed
+    /// with its paired-Mac row on forget/re-pair.
+    private func migrateToV12() throws {
+        try exec("""
+            CREATE TABLE IF NOT EXISTS mac_route_removals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                UNIQUE (mac_device_id, owner_key, kind, endpoint_json),
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+        """)
+        try exec("""
+            CREATE INDEX IF NOT EXISTS idx_route_removals_device
+            ON mac_route_removals(mac_device_id, owner_key);
+        """)
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -642,6 +673,114 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             routeWriteCondition: condition,
             revokeMigrationTailscaleGrants: false
         )
+    }
+
+    /// Remove one route from a scoped pairing and persist an endpoint tombstone
+    /// so later registry/presence refreshes cannot resurrect it on this device.
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        guard route.kind != .iroh else { return false }
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let ownerKey = Self.ownerKey(
+            stackUserID: stackUserID,
+            teamID: teamID,
+            instanceTag: instanceTag
+        )
+        var didWrite = false
+        try transaction {
+            guard let current = try fetchMacRow(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            ) else { return }
+            switch condition {
+            case .matchingInstanceTag(let expected):
+                guard CmxMacAppInstanceIdentity(
+                    macDeviceID: current.macDeviceID,
+                    instanceTag: current.instanceTag
+                ).id == CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: expected
+                ).id else { return }
+            case .unclaimed:
+                guard current.instanceTag == nil,
+                      !(try hasClaimedSibling(
+                          macDeviceID: macDeviceID,
+                          stackUserID: stackUserID,
+                          teamID: teamID
+                      )) else { return }
+            }
+
+            let currentRoutes = try fetchRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
+            guard let removed = currentRoutes.first(where: { $0.id == route.id })
+                    ?? currentRoutes.first(where: {
+                        $0.kind == route.kind && $0.endpoint == route.endpoint
+                    }) else { return }
+            let remaining = currentRoutes.filter { $0.id != removed.id }
+            guard !remaining.isEmpty else { return }
+
+            let encoded = try Self.encodeRouteEndpoint(removed)
+            try exec("""
+                INSERT OR IGNORE INTO mac_route_removals (
+                    mac_device_id, owner_key, kind, endpoint_json
+                ) VALUES (?, ?, ?, ?);
+            """, binding: [
+                .text(macDeviceID),
+                .text(ownerKey),
+                .text(removed.kind.rawValue),
+                .text(encoded),
+            ])
+            try upsertMacRow(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
+                displayName: current.displayName,
+                instanceTag: current.instanceTag,
+                stackUserID: current.stackUserID,
+                teamID: current.teamID,
+                createdAt: current.createdAt,
+                lastSeenAt: now,
+                isActive: current.isActive
+            )
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
+            for remainingRoute in remaining {
+                guard let disclosed = remainingRoute.disclosed(
+                    for: .authenticated,
+                    at: now
+                ) else { continue }
+                try exec("""
+                    INSERT INTO mac_routes (
+                        mac_device_id, owner_key, route_id, kind, endpoint_json, priority
+                    ) VALUES (?, ?, ?, ?, ?, ?);
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(remainingRoute.id),
+                    .text(remainingRoute.kind.rawValue),
+                    .text(try Self.encodeRoute(disclosed)),
+                    .int(Int64(remainingRoute.priority)),
+                ])
+            }
+            didWrite = true
+        }
+        return didWrite
     }
 
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
@@ -1131,6 +1270,35 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     /// Remove one tagged paired Mac in a specific owner scope.
     public func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) async throws {
+        try removeExactSync(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Remove one tagged paired Mac in a specific owner scope.
+    public func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try removeExactSync(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    private func removeExactSync(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String? = nil,
