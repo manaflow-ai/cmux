@@ -867,6 +867,41 @@ mod tests {
     }
 
     #[test]
+    fn stderr_gate_waits_for_in_flight_diagnostic_before_closing() {
+        let gate = Arc::new(StderrGate::default());
+        let (entered_sender, entered_receiver) = std::sync::mpsc::sync_channel(0);
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let writer_gate = gate.clone();
+        let writer_lines = lines.clone();
+        let writer = std::thread::spawn(move || {
+            writer_gate.emit_with("in-flight".to_string(), |line| {
+                entered_sender.send(()).unwrap();
+                release_receiver.recv().unwrap();
+                writer_lines.lock().unwrap().push(line.to_string());
+            });
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (closed_sender, closed_receiver) = std::sync::mpsc::channel();
+        let close_gate = gate.clone();
+        let closer = std::thread::spawn(move || {
+            close_gate.close();
+            closed_sender.send(()).unwrap();
+        });
+        assert!(closed_receiver.recv_timeout(Duration::from_millis(50)).is_err());
+
+        release_sender.send(()).unwrap();
+        writer.join().unwrap();
+        closer.join().unwrap();
+        closed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        gate.emit_with("late".to_string(), |line| lines.lock().unwrap().push(line.to_string()));
+        assert_eq!(lines.lock().unwrap().as_slice(), ["in-flight"]);
+    }
+
+    #[test]
     fn stdin_pump_emits_structured_resize_and_claim_diagnostics() {
         let mut input = Cursor::new(
             b"{\"resize\":{\"cols\":100,\"rows\":30}}\n\
