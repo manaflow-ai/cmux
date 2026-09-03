@@ -146,6 +146,24 @@ describe("CodeRouter ClickHouse client", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
+  test("honors a caller abort signal", async () => {
+    const controller = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const pending = query("SELECT 1", {}, {
+      config: () => config,
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+        markStarted();
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      }) as typeof fetch,
+    }, { signal: controller.signal, timeoutMs: 1_000 });
+    await started;
+    controller.abort();
+    await expect(pending).resolves.toEqual({ ok: false, reason: "request_failed" });
+  });
+
   test("disabled mode is a silent no-op reported once", async () => {
     const report = spyOn(observability, "reportCoderouterFailure");
     const fetchSpy = mock(async () => new Response(""));

@@ -3,9 +3,7 @@
 // never a value: no connection string, key id, or host name leaves the
 // process. `degraded` means the data plane still routes but the usage ledger
 // is dark; `down` means requests would fail.
-import { sql } from "drizzle-orm";
-
-import { cloudDb } from "../../db/client";
+import { pingCloudDb } from "../../db/client";
 import { clickHouseConfig, query as clickHouseQuery } from "./clickhouse";
 
 export type HealthStatus = "ok" | "degraded" | "down";
@@ -27,8 +25,10 @@ export type CoderouterHealth = {
 };
 
 export type HealthDependencies = {
-  readonly pingPostgres: () => Promise<void>;
-  readonly pingClickHouse: () => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** Implementations must honor the signal and settle within timeoutMs. */
+  readonly pingPostgres: (signal: AbortSignal, timeoutMs: number) => Promise<void>;
+  /** Implementations must honor the signal and settle within timeoutMs. */
+  readonly pingClickHouse: (signal: AbortSignal, timeoutMs: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
   readonly env: Record<string, string | undefined>;
   readonly timeoutMs: number;
 };
@@ -36,12 +36,13 @@ export type HealthDependencies = {
 export const HEALTH_CHECK_TIMEOUT_MS = 4_000;
 
 export const defaultHealthDependencies: HealthDependencies = {
-  pingPostgres: async () => {
-    await cloudDb().execute(sql`select 1`);
-  },
-  pingClickHouse: async () => {
+  pingPostgres: (signal, timeoutMs) => pingCloudDb(signal, timeoutMs),
+  pingClickHouse: async (signal, timeoutMs) => {
     if (!clickHouseConfig()) return { ok: false, reason: "not_configured" };
-    const result = await clickHouseQuery<{ one: number }>("SELECT 1 AS one", {});
+    const result = await clickHouseQuery<{ one: number }>("SELECT 1 AS one", {}, undefined, {
+      signal,
+      timeoutMs,
+    });
     if (result.ok) return { ok: true };
     return { ok: false, reason: result.reason === "status" ? `http_${result.status}` : result.reason };
   },
@@ -53,8 +54,8 @@ export async function coderouterHealth(
   dependencies: HealthDependencies = defaultHealthDependencies,
 ): Promise<CoderouterHealth> {
   const [postgres, clickhouse] = await Promise.all([
-    timed("postgres", true, dependencies.timeoutMs, async () => {
-      await dependencies.pingPostgres();
+    timed("postgres", true, dependencies.timeoutMs, async (signal, timeoutMs) => {
+      await dependencies.pingPostgres(signal, timeoutMs);
       return { ok: true as const };
     }),
     timed("clickhouse", false, dependencies.timeoutMs, dependencies.pingClickHouse),
@@ -83,24 +84,32 @@ async function timed(
   name: HealthCheck["name"],
   critical: boolean,
   timeoutMs: number,
-  run: () => Promise<{ ok: true } | { ok: false; reason: string }>,
+  run: (signal: AbortSignal, timeoutMs: number) => Promise<{ ok: true } | { ok: false; reason: string }>,
 ): Promise<HealthCheck> {
   const startedAt = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let didTimeout = false;
+  const controller = new AbortController();
   const timeout = new Promise<{ ok: false; reason: string }>((resolve) => {
-    timer = setTimeout(() => resolve({ ok: false, reason: "timeout" }), timeoutMs);
+    timer = setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+      resolve({ ok: false, reason: "timeout" });
+    }, timeoutMs);
   });
+  const operation = Promise.resolve()
+    .then(() => run(controller.signal, timeoutMs))
+    .catch((error: unknown) => ({ ok: false as const, reason: reasonOf(error) }));
   try {
-    const result = await Promise.race([
-      run().catch((error: unknown) => ({ ok: false as const, reason: reasonOf(error) })),
-      timeout,
-    ]);
+    const raced = await Promise.race([operation, timeout]);
+    const result = didTimeout ? { ok: false as const, reason: "timeout" } : raced;
     const latencyMs = Math.round(performance.now() - startedAt);
     return result.ok
       ? { name, ok: true, critical, latencyMs }
       : { name, ok: false, critical, latencyMs, reason: result.reason };
   } finally {
     if (timer) clearTimeout(timer);
+    controller.abort();
   }
 }
 

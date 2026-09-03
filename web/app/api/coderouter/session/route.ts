@@ -1,4 +1,7 @@
-import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import {
+  coderouterControlRoute,
+  recordCoderouterIdentity,
+} from "@/services/coderouter/requestTelemetry";
 import {
   authenticateRouteToken,
   issueRouteToken,
@@ -57,6 +60,11 @@ export function makeCoderouterSessionGetHandler(
         { status: 401, headers: { "cache-control": "no-store" } },
       );
     }
+    recordCoderouterIdentity({
+      teamId: identity.teamId,
+      stackUserId: identity.stackUserId,
+      vmId: identity.vmId ?? null,
+    });
     return new Response(null, {
       status: 204,
       headers: { "cache-control": "no-store" },

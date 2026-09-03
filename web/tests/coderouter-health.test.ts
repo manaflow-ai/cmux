@@ -55,6 +55,21 @@ describe("coderouterHealth", () => {
     expect(health.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "timeout" });
   });
 
+  test("aborts a dependency when its health budget expires", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const health = await coderouterHealth(dependencies({
+      pingPostgres: (signal) => {
+        observedSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("probe aborted")), { once: true });
+        });
+      },
+      timeoutMs: 20,
+    }));
+    expect(health.checks[0]).toMatchObject({ name: "postgres", ok: false, reason: "timeout" });
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
   test("missing KMS configuration is critical", async () => {
     const health = await coderouterHealth(dependencies({ env: { ...configured, AWS_REGION: "" } }));
     expect(health.status).toBe("down");
