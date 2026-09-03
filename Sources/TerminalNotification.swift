@@ -80,3 +80,104 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         return retargetsToLiveSurfaceOwner || tabId == targetTabId
     }
 }
+
+/// Shared presentation helpers for notifications, used by every notification
+/// surface (menu-bar dropdown, titlebar popover, in-app page) so the icon and
+/// timestamp treatment stay identical across them (cmux shared-behavior policy).
+/// Pure and Foundation-only so it is unit-testable without a UI or a live clock.
+enum NotificationPresentation {
+    /// SF Symbol name for a notification's leading icon chip. Reply-capable
+    /// notifications read as a reply glyph; everything else uses the bell.
+    static func symbolName(for notification: TerminalNotification) -> String {
+        switch notification.replyShape {
+        case .text:
+            return "arrowshape.turn.up.left.fill"
+        case .none:
+            return "bell.fill"
+        }
+    }
+
+    /// Time bucket a notification belongs to when the list is grouped by
+    /// recency. Cases are ordered newest-first for display.
+    enum TimeBucket: Int, CaseIterable, Sendable {
+        case today
+        case yesterday
+        case earlier
+
+        /// Localized section-header title.
+        var title: String {
+            switch self {
+            case .today:
+                return String(localized: "notifications.group.today", defaultValue: "Today")
+            case .yesterday:
+                return String(localized: "notifications.group.yesterday", defaultValue: "Yesterday")
+            case .earlier:
+                return String(localized: "notifications.group.earlier", defaultValue: "Earlier")
+            }
+        }
+    }
+
+    /// A run of notifications sharing one time bucket, for grouped rendering.
+    struct Group: Identifiable, Sendable {
+        let bucket: TimeBucket
+        let notifications: [TerminalNotification]
+        var id: Int { bucket.rawValue }
+        var title: String { bucket.title }
+    }
+
+    /// Short, localized relative timestamp (e.g. "now", "2 min. ago",
+    /// "yesterday"). More scannable than an absolute clock time; the absolute
+    /// time stays available in each surface's tooltip.
+    ///
+    /// `dateTimeStyle = .named` returns a localized "now" for near-zero
+    /// differences, so no custom string is needed. The date is clamped to
+    /// `now` first so minor clock skew (a notification stamped a beat in the
+    /// future) reads as "now" rather than "in 3 seconds".
+    static func relativeTimeString(for date: Date, relativeTo now: Date = Date()) -> String {
+        let clamped = min(date, now)
+        // RelativeDateTimeFormatter is a non-Sendable class; build a fresh one
+        // per call rather than sharing mutable global state across actors.
+        // Call sites are infrequent (menu rebuild, popover open), so the cost
+        // is immaterial.
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.dateTimeStyle = .named
+        return formatter.localizedString(for: clamped, relativeTo: now)
+    }
+
+    /// The recency bucket for a single notification, computed relative to the
+    /// supplied `now` (injectable so it is testable without the live clock).
+    static func timeBucket(
+        for date: Date,
+        now: Date,
+        calendar: Calendar
+    ) -> TimeBucket {
+        let startOfToday = calendar.startOfDay(for: now)
+        // Any time today — or a slightly-future timestamp from clock skew —
+        // counts as "today".
+        if date >= startOfToday { return .today }
+        guard let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) else {
+            return .earlier
+        }
+        return date >= startOfYesterday ? .yesterday : .earlier
+    }
+
+    /// Groups notifications into ordered `Today / Yesterday / Earlier` sections,
+    /// preserving the input order (newest-first) within each section and
+    /// omitting empty sections.
+    static func grouped(
+        _ notifications: [TerminalNotification],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [Group] {
+        var byBucket: [TimeBucket: [TerminalNotification]] = [:]
+        for notification in notifications {
+            let bucket = timeBucket(for: notification.createdAt, now: now, calendar: calendar)
+            byBucket[bucket, default: []].append(notification)
+        }
+        return TimeBucket.allCases.compactMap { bucket in
+            guard let items = byBucket[bucket], !items.isEmpty else { return nil }
+            return Group(bucket: bucket, notifications: items)
+        }
+    }
+}

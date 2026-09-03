@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import CmuxSettings
+import CmuxNotifications
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -2091,6 +2092,150 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
         )
 
         XCTAssertFalse(title.hasSuffix("…"))
+    }
+}
+
+final class NotificationPresentationTests: XCTestCase {
+    private func makeNotification(
+        replyShape: TerminalNotificationReplyShape = .none,
+        createdAt: Date = Date(timeIntervalSince1970: 0)
+    ) -> TerminalNotification {
+        TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            createdAt: createdAt,
+            isRead: false,
+            replyShape: replyShape
+        )
+    }
+
+    func testSymbolNameUsesReplyGlyphForTextReply() {
+        XCTAssertEqual(
+            NotificationPresentation.symbolName(for: makeNotification(replyShape: .text)),
+            "arrowshape.turn.up.left.fill"
+        )
+    }
+
+    func testSymbolNameUsesBellForNonReply() {
+        XCTAssertEqual(
+            NotificationPresentation.symbolName(for: makeNotification(replyShape: .none)),
+            "bell.fill"
+        )
+    }
+
+    func testRelativeTimeStringClampsFutureSkewToNow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let nowResult = NotificationPresentation.relativeTimeString(for: now, relativeTo: now)
+        XCTAssertFalse(nowResult.isEmpty)
+        // Minor future clock skew must not read as "in N seconds"; clamping
+        // makes it produce the same string as an exactly-now notification.
+        XCTAssertEqual(
+            NotificationPresentation.relativeTimeString(for: now.addingTimeInterval(5), relativeTo: now),
+            nowResult
+        )
+    }
+
+    func testRelativeTimeStringReportsElapsedForOlderNotifications() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let nowResult = NotificationPresentation.relativeTimeString(for: now, relativeTo: now)
+        let anHourAgo = now.addingTimeInterval(-3600)
+        let result = NotificationPresentation.relativeTimeString(for: anHourAgo, relativeTo: now)
+        XCTAssertFalse(result.isEmpty)
+        XCTAssertNotEqual(result, nowResult)
+    }
+}
+
+
+final class NotificationGroupingTests: XCTestCase {
+    private var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+
+    private func fixedNow(_ cal: Calendar) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 3, day: 15, hour: 12))!
+    }
+
+    private func makeNotification(createdAt: Date, id: UUID = UUID()) -> TerminalNotification {
+        TerminalNotification(
+            id: id,
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "t",
+            subtitle: "",
+            body: "b",
+            createdAt: createdAt,
+            isRead: false
+        )
+    }
+
+    func testGroupsOrderedTodayYesterdayEarlier() {
+        let cal = calendar
+        let now = fixedNow(cal)
+        let groups = NotificationPresentation.grouped(
+            [
+                makeNotification(createdAt: now.addingTimeInterval(-3600)),      // today
+                makeNotification(createdAt: now.addingTimeInterval(-26 * 3600)), // yesterday
+                makeNotification(createdAt: now.addingTimeInterval(-72 * 3600)), // earlier
+            ],
+            now: now,
+            calendar: cal
+        )
+        XCTAssertEqual(groups.map(\.bucket), [.today, .yesterday, .earlier])
+        XCTAssertEqual(groups.map { $0.notifications.count }, [1, 1, 1])
+    }
+
+    func testEmptyBucketsAreOmitted() {
+        let cal = calendar
+        let now = fixedNow(cal)
+        let groups = NotificationPresentation.grouped(
+            [
+                makeNotification(createdAt: now.addingTimeInterval(-60)),
+                makeNotification(createdAt: now.addingTimeInterval(-120)),
+            ],
+            now: now,
+            calendar: cal
+        )
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.bucket, .today)
+        XCTAssertEqual(groups.first?.notifications.count, 2)
+    }
+
+    func testMidnightBoundarySplitsTodayAndYesterday() {
+        let cal = calendar
+        let now = fixedNow(cal)
+        let startOfToday = cal.startOfDay(for: now)
+        XCTAssertEqual(
+            NotificationPresentation.timeBucket(for: startOfToday, now: now, calendar: cal),
+            .today
+        )
+        XCTAssertEqual(
+            NotificationPresentation.timeBucket(for: startOfToday.addingTimeInterval(-1), now: now, calendar: cal),
+            .yesterday
+        )
+    }
+
+    func testOrderPreservedWithinBucket() {
+        let cal = calendar
+        let now = fixedNow(cal)
+        let first = makeNotification(createdAt: now.addingTimeInterval(-60))
+        let second = makeNotification(createdAt: now.addingTimeInterval(-120))
+        let groups = NotificationPresentation.grouped([first, second], now: now, calendar: cal)
+        XCTAssertEqual(groups.first?.notifications.map(\.id), [first.id, second.id])
+    }
+
+    func testFutureSkewCountsAsToday() {
+        let cal = calendar
+        let now = fixedNow(cal)
+        XCTAssertEqual(
+            NotificationPresentation.timeBucket(for: now.addingTimeInterval(30), now: now, calendar: cal),
+            .today
+        )
     }
 }
 

@@ -65,6 +65,12 @@ public struct SettingsWindowRoot: View {
     // seeds the row's `TimelineView` fade. Read by every
     // `SettingsCardRow` through `\.settingsSearchHighlightState`.
     @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
+    // Scroll-spy suppression window. A sidebar click drives an animated
+    // programmatic scroll; while that animation runs, scroll-spy must not
+    // override the clicked selection with intermediate sections it passes over.
+    // `applyScrollNavigation` arms this; `handleScrollSpy` ignores updates until
+    // it elapses.
+    @State private var programmaticScrollUntil: Date = .distantPast
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
@@ -346,6 +352,12 @@ public struct SettingsWindowRoot: View {
                     .padding(.bottom, 20)
                 }
                 .toggleStyle(.switch)
+                // Scroll-spy: sections report their top offset in this space and
+                // the sidebar highlight follows the section at the top.
+                .coordinateSpace(name: SettingsScrollSpy.coordinateSpace)
+                .onPreferenceChange(SettingsSectionOffsetKey.self) { offsets in
+                    handleScrollSpy(offsets)
+                }
                 .onAppear {
                     // Legacy SettingsView.onAppear scrolls to the restored
                     // section so reopening the Settings window lands on
@@ -394,6 +406,9 @@ public struct SettingsWindowRoot: View {
         let anchorID = (notification.userInfo?["anchor"] as? String) ?? self.anchorID(for: target)
         let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
         let sectionID = self.anchorID(for: target)
+        // Suppress scroll-spy for the duration of the programmatic scroll so it
+        // doesn't fight the animation or land on a section passed en route.
+        programmaticScrollUntil = Date().addingTimeInterval(0.45)
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
         // Arm (or clear) the highlight before the scroll so the pulse is
@@ -429,6 +444,30 @@ public struct SettingsWindowRoot: View {
         }
     }
 
+    /// Scroll-spy entry point: given the sections' reported top offsets, moves
+    /// the sidebar highlight to the section at the top of the viewport.
+    ///
+    /// Disabled while searching (the sidebar is a filtered result list, not a
+    /// continuous section map) and while a click-driven programmatic scroll is
+    /// still animating (so a click's target isn't overridden mid-scroll).
+    private func handleScrollSpy(_ offsets: [SettingsSectionID: CGFloat]) {
+        guard !isSearching else { return }
+        guard Date() >= programmaticScrollUntil else { return }
+        guard let active = SettingsScrollSpy.activeSection(offsets: offsets) else { return }
+        highlightSectionFromScroll(active)
+    }
+
+    /// Updates the sidebar highlight and section pane to `section` *directly*,
+    /// bypassing `selectSidebarEntry`/the navigation post — otherwise scroll-spy
+    /// would trigger a scroll and fight the user. Guarded so it only writes on a
+    /// real change, which also throttles the `@AppStorage` (UserDefaults) writes
+    /// to once per section boundary crossing.
+    private func highlightSectionFromScroll(_ section: SettingsSectionID) {
+        let entryID = sectionEntryID(for: section)
+        if selectedSidebarEntryID != entryID { selectedSidebarEntryID = entryID }
+        if selectedSectionRaw != section.rawValue { selectedSectionRaw = section.rawValue }
+    }
+
     @ViewBuilder
     private var sectionStack: some View {
         // Order matches the legacy in-app SettingsView scroll order:
@@ -440,14 +479,14 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             accountFlow: accountFlow
         )
-        .id(anchorID(for: .account))
+        .settingsSectionAnchor(.account)
 
         AppSection(
             defaultsStore: defaultsStore,
             catalog: catalog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .app))
+        .settingsSectionAnchor(.app)
 
         TerminalSection(
             defaultsStore: defaultsStore,
@@ -455,25 +494,25 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .terminal))
+        .settingsSectionAnchor(.terminal)
 
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
-            .id(anchorID(for: .textBox))
+            .settingsSectionAnchor(.textBox)
 
         SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
-            .id(anchorID(for: .sleepyMode))
+            .settingsSectionAnchor(.sleepyMode)
 
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
-            .id(anchorID(for: .mobile))
+            .settingsSectionAnchor(.mobile)
 
         CloudMachinesSection(hostActions: hostActions)
-            .id(anchorID(for: .cloudMachines))
+            .settingsSectionAnchor(.cloudMachines)
 
         IrohNetworkingSection(hostActions: hostActions)
-            .id(anchorID(for: .networking))
+            .settingsSectionAnchor(.networking)
 
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
-            .id(anchorID(for: .sidebarAppearance))
+            .settingsSectionAnchor(.sidebarAppearance)
 
         CustomSidebarsSection(
             defaultsStore: defaultsStore,
@@ -481,10 +520,10 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             errorLog: runtime.errorLog
         )
-        .id(anchorID(for: .customSidebars))
+        .settingsSectionAnchor(.customSidebars)
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
-            .id(anchorID(for: .betaFeatures))
+            .settingsSectionAnchor(.betaFeatures)
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
@@ -493,7 +532,7 @@ public struct SettingsWindowRoot: View {
             errorLog: runtime.errorLog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .automation))
+        .settingsSectionAnchor(.automation)
 
         ComputerUseSection(
             jsonStore: jsonStore,
@@ -501,7 +540,7 @@ public struct SettingsWindowRoot: View {
             errorLog: runtime.errorLog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .computerUse))
+        .settingsSectionAnchor(.computerUse)
 
         BrowserSection(
             defaultsStore: defaultsStore,
@@ -509,7 +548,7 @@ public struct SettingsWindowRoot: View {
             hostActions: hostActions,
             importAnchorID: anchorID(for: .browserImport)
         )
-        .id(anchorID(for: .browser))
+        .settingsSectionAnchor(.browser)
 
         GlobalHotkeySection(
             defaultsStore: defaultsStore,
@@ -517,7 +556,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog, errorLog: runtime.errorLog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .globalHotkey))
+        .settingsSectionAnchor(.globalHotkey)
 
         KeyboardShortcutsSection(
             jsonStore: jsonStore, userDefaultsStore: defaultsStore,
@@ -525,7 +564,7 @@ public struct SettingsWindowRoot: View {
             errorLog: runtime.errorLog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .keyboardShortcuts))
+        .settingsSectionAnchor(.keyboardShortcuts)
 
         WorkspaceColorsSection(
             defaultsStore: defaultsStore,
@@ -533,10 +572,10 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             errorLog: runtime.errorLog
         )
-        .id(anchorID(for: .workspaceColors))
+        .settingsSectionAnchor(.workspaceColors)
 
         SettingsJSONSection(jsonStore: jsonStore, hostActions: hostActions)
-            .id(anchorID(for: .settingsJSON))
+            .settingsSectionAnchor(.settingsJSON)
 
         ResetSection(
             defaultsStore: defaultsStore,
@@ -544,7 +583,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             hostActions: hostActions
         )
-        .id(anchorID(for: .reset))
+        .settingsSectionAnchor(.reset)
     }
 
     private func anchorID(for section: SettingsSectionID) -> String {
