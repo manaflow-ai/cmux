@@ -417,6 +417,18 @@ struct CodexTabTitlePresentationTests {
         #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
         #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
 
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .idle
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "✳ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
         let persisted = try #require(
             dock.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == panelId }
