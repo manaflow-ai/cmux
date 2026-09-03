@@ -790,6 +790,7 @@ impl PtyManager {
                 if retired {
                     eprintln!("retire worker retired {}", request.pty_id);
                     if let Some(completion) = request.completion {
+                        eprintln!("retire worker completion {}", request.pty_id);
                         completion();
                     }
                 }
