@@ -280,11 +280,12 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   const now = dependencies.now ?? (() => new Date());
   const newId = dependencies.newId ?? randomUUID;
 
-  async function decrypt(row: ClaudeAccountRow): Promise<ClaudeUpstream> {
+  async function decrypt(row: ClaudeAccountRow, signal?: AbortSignal): Promise<ClaudeUpstream> {
     const value = await decryptSecretEnvelope(row, {
       aad: accountAad(row),
       encryptionContext: accountEncryptionContext(row),
       keys: dependencies.keys,
+      signal,
     });
     const secret = parseSecret(value, row.kind);
     if (!secret) throw new Error("decrypted coderouter claude account is invalid");
@@ -391,7 +392,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const chosen = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    const upstream = await decrypt(chosen);
+    const upstream = await decrypt(chosen, input.signal);
     throwIfAborted(input.signal);
     return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }

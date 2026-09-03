@@ -64,10 +64,10 @@ export function createCredentialRefresher(
       before = input.known
         ? {
           envelope: input.known,
-          credential: await dependencies.decrypt(input.known),
+          credential: await dependencies.decrypt(input.known, undefined, input.signal),
         }
         :
-        await dependencies.read(input.teamId, input.accountId);
+        await dependencies.read(input.teamId, input.accountId, input.signal);
       throwIfAborted(input.signal);
     } catch (error) {
       if (!input.signal?.aborted) reportCoderouterFailure("credential_decrypt", error);
@@ -93,7 +93,7 @@ export function createCredentialRefresher(
       throwIfAborted(input.signal);
       // The lease winner must re-read after claiming. Another request may have
       // refreshed and rotated the token immediately before this lease.
-      const current = await dependencies.read(input.teamId, input.accountId);
+      const current = await dependencies.read(input.teamId, input.accountId, input.signal);
       throwIfAborted(input.signal);
       if (
         !input.force &&
@@ -112,6 +112,7 @@ export function createCredentialRefresher(
         provider: refreshed.provider,
         credentialRevision: current.envelope.credentialRevision + 1,
         credential: refreshed,
+        signal: input.signal,
       });
       throwIfAborted(input.signal);
       await dependencies.complete({
@@ -167,14 +168,14 @@ export const freshCredential = createCredentialRefresher({
   failureCode: refreshFailureCode,
 });
 
-async function readCredential(teamId: string, accountId: string) {
+async function readCredential(teamId: string, accountId: string, signal?: AbortSignal) {
   const envelope = await encryptedCredentialForAccount(teamId, accountId);
   if (!envelope) {
     throw new CodeRouterCredentialBroken("encrypted credential not found");
   }
   return {
     envelope,
-    credential: await decryptCredential(envelope),
+    credential: await decryptCredential(envelope, undefined, signal),
   };
 }
 
