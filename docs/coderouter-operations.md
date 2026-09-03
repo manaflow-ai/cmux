@@ -182,3 +182,51 @@ Hexclave Analytics remains the authorization system around this data, but is
 not the metrics store today: its hosted custom-event ingestion currently
 accepts only `$page-view` and `$click`. Reconsider it when Hexclave exposes a
 server-authenticated, team-scoped custom-event ingestion API.
+
+## Team Claude upstream from the CLI
+
+Cloud machines send `claude` traffic to `https://coderouter.dev/v1/messages`, and coderouter
+forwards it to exactly one per-team upstream (`coderouter_claude_upstreams`). The cmux CLI
+manages it through the app's session, so no credential is typed into a browser or argv:
+
+```bash
+claude setup-token                              # mints a long-lived sk-ant-oat01-... token
+cmux coderouter claude set oauth-token          # hidden prompt; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
+cmux coderouter claude show                     # kind + masked identifier, never the secret
+cmux coderouter machines                        # 30-day spend per Cloud machine
+cmux coderouter claude clear
+```
+
+`set api-key` takes `ANTHROPIC_API_KEY`; `set bedrock` takes `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`, `--region`, and `--model
+<claude-id>=<bedrock-id>`. The CLI is presentation only: it calls
+`coderouter.claude_upstream.{get,set,clear}` and `coderouter.machines` on the app socket,
+and `Sources/Cloud/CoderouterClient.swift` performs the `GET/PUT/DELETE
+/api/coderouter/claude-upstream` request with the Stack session and team header. Other
+`cmux coderouter` verbs, and all of `cmux cr`, still exec the installed CodeRouter CLI.
+
+## Verifying the edge model plane locally
+
+`web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
+private CA, TLS termination on `127.0.0.1:8443`, the two edge headers overwritten on every
+request (the real edge does the same), and re-origination to any coderouter origin. Real
+agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
+`bun dev` with a scratch Postgres and the `coderouter_dev` ClickHouse database:
+
+```bash
+# origin: cd web && bun dev on <port> with a local DB (docs/cloud-vm-local-dev.md)
+node scripts/coderouter/local-edge.mjs --origin http://127.0.0.1:<port> \
+  --route-token <crt_ bound to a cloud_vms.id> --vm-id <cloud_vms.id>
+eval "$(...)"                                   # the exports it prints: CA bundle + base URLs
+curl -sS "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self" -H "authorization: Bearer $OPENAI_API_KEY"
+codex exec 'Reply with exactly pong.'           # rustls trusts SSL_CERT_FILE
+claude -p 'Reply with exactly pong.'            # Node trusts NODE_EXTRA_CA_CERTS
+```
+
+What to check: `--no-inject` (or a raw request with the placeholder) returns 401, a token
+bound to another `cloud_vms.id` returns 403 `vm_mismatch`, a forged `x-cmux-vm-id` from the
+client is overwritten and logged by the edge, `usage_events` rows in ClickHouse carry the
+`vm_id`, `agent`, `upstream_kind`, and cost, and `vm-usage/self` reflects them. For the real
+edge against local code, expose the dev server through a quick tunnel, set
+`CMUX_CODEROUTER_EDGE_ORIGIN` to it, and run `scripts/cloud-vm/smoke-vm-api.mjs --create
+--paid --edge-check`, which creates a Freestyle VM whose inline rule points at the tunnel.

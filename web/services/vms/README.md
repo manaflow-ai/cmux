@@ -292,6 +292,18 @@ bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
 
+## Telemetry
+
+Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
+
+- Axiom (`cmux-prod-otel-traces`, 100% of VM traces): route span with `cmux.vm.timing.<stage>_ms`, `cmux.vm.request_duration_ms`, `cmux.vm.request_success`, `cmux.vm.error_*` (code, phase, provider, image, env var, reason), `cmux.client.*`, `cmux.user_id`, `cmux.vercel.request_id`; provider spans under it record the wrapped cause chain (`cmux.error_cause_chain`, `cmux.error_cause_http_status`, `cmux.error_cause_code`). Error and non-polled responses force a bounded span flush in `after()` so an error-heavy instance cannot drop the trace.
+- PostHog (production, or `CMUX_VM_ANALYTICS_FORCE=1`): `cloud_vm_request` for every failure and for the successes a user waits on (create, attach, base open, restore, fork, ...) with `duration_ms`, `status`, `error_code`, `error_phase`, `operator_fault`, `trace_id`, `client_*`; polled reads (`list`, `status`, `stats`, `list_sessions`, `get_tunnel`) succeed silently. Every failure also emits a `$exception` (Error Tracking) fingerprinted by error code. `cloud_vm_provision` (schema 2, failures of create-like operations, feeds the alert) now also carries `trace_id`, `duration_ms`, `error_phase` and client fields.
+- Sentry (shared project, `subsystem: cloud_vm_api`): every VM error, `error` level for operator faults and `warning` for user faults, fingerprint `["cmux-vm-error", code, provider]`, tags `vm.error_code`, `vm.phase`, `vm.operation`, `vm.provider`, `client.*`, `trace_id`, and a trace context holding the same ids.
+
+Client side, `VMClientTelemetry` (`Sources/Cloud/VMClientTelemetry.swift`) measures every request: `os.log` category `CloudVM` for all of them, a Sentry breadcrumb for all, PostHog `cmux_cloud_vm_request` for failures plus non-polled successes, and a Sentry event for failures (5xx and transport failures `error`, 4xx `warning`). Client failures are throttled per operation and code (60 s PostHog, 300 s Sentry) so a polling loop during an outage produces one event per window.
+
+To investigate one failure: take the reference id, query Axiom `['cmux-prod-otel-traces'] | where trace_id == '<id>'`, open the PostHog `$exception` or `cloud_vm_request` row with `trace_id = <id>`, and search Sentry for `trace_id:<id>`.
+
 ## GitHub operations
 
 Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:

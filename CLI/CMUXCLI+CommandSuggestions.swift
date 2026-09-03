@@ -79,6 +79,8 @@ extension CMUXCLI {
         "close-window",
         "close-workspace",
         "cloud",
+        "coderouter",
+        "cr",
         "codex",
         "codex-hook",
         "codex-teams",
