@@ -428,7 +428,7 @@ test_lsof_mode=partial
 test_active_commit="$active_commit"
 expect_success
 assert_exists "$active_commit"
-assert_exists "$old_commit"
+assert_missing "$old_commit"
 
 # Cleanup also fails closed when the activity tool is not available.
 make_baseline
@@ -617,8 +617,8 @@ test_dry_run=0
 test_confirm=1
 test_lsof_mode=active
 test_active_commit="$active_commit"
-expect_success
-assert_missing "$old_commit"
+expect_failure 2
+assert_exists "$old_commit"
 assert_exists "$active_commit"
 
 # The candidate scan has a hard upper bound, so sorting cannot grow without
