@@ -31,10 +31,20 @@ export function routeTokenHash(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
+const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
+
+export type RouteTokenPrincipal = {
+  readonly teamId: string;
+  readonly stackUserId: string;
+  /** Cloud VM the token is bound to, or null for an unbound (CLI) token. */
+  readonly vmId: string | null;
+};
+
 export async function issueRouteToken(
   teamId: string,
   stackUserId: string,
   label = "cli",
+  options?: { readonly vmId?: string },
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = `crt_${randomBytes(32).toString("base64url")}`;
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
@@ -43,9 +53,47 @@ export async function issueRouteToken(
     stackUserId,
     tokenHash: routeTokenHash(token),
     label,
+    vmId: options?.vmId ?? null,
     expiresAt,
   });
   return { token, expiresAt };
+}
+
+/**
+ * Binds a live, still-unbound token of this team to one Cloud VM. Binding is
+ * one-way: a token already bound (to any VM) is left untouched and reported
+ * as not bound, so a later caller cannot move a credential between machines.
+ */
+export async function bindRouteTokenToVm(
+  teamId: string,
+  token: string,
+  vmId: string,
+): Promise<boolean> {
+  if (!ROUTE_TOKEN_PATTERN.test(token)) return false;
+  const [row] = await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ vmId })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, teamId),
+      eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      isNull(coderouterRouteTokens.vmId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ))
+    .returning({ id: coderouterRouteTokens.id });
+  return row !== undefined;
+}
+
+export async function revokeRouteTokensForVm(
+  vmId: string,
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.vmId, vmId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
 }
 
 export async function revokeRouteTokensForUser(
@@ -77,8 +125,8 @@ export async function revokeRouteTokensForTeam(
 export async function authenticateRouteToken(
   token: string,
   now = new Date(),
-): Promise<{ teamId: string; stackUserId: string } | null> {
-  if (!/^crt_[A-Za-z0-9_-]{40,}$/.test(token)) return null;
+): Promise<RouteTokenPrincipal | null> {
+  if (!ROUTE_TOKEN_PATTERN.test(token)) return null;
   const [row] = await cloudDb()
     .update(coderouterRouteTokens)
     .set({ lastUsedAt: now })
@@ -91,6 +139,7 @@ export async function authenticateRouteToken(
     .returning({
       teamId: coderouterRouteTokens.teamId,
       stackUserId: coderouterRouteTokens.stackUserId,
+      vmId: coderouterRouteTokens.vmId,
     });
   return row ?? null;
 }
@@ -100,7 +149,7 @@ export async function revokeRouteToken(
   token: string,
   now = new Date(),
 ): Promise<void> {
-  if (!/^crt_[A-Za-z0-9_-]{40,}$/.test(token)) return;
+  if (!ROUTE_TOKEN_PATTERN.test(token)) return;
   await cloudDb()
     .update(coderouterRouteTokens)
     .set({ revokedAt: now })
@@ -419,19 +468,6 @@ export async function upsertAccountMetadata(input: {
         updatedAt: new Date(),
       },
     });
-}
-
-/**
- * Counts every provider account the team has connected, in any state.
- * Broken and cooling-down accounts still occupy a slot: the team controls
- * them and can remove them; only removal frees the slot.
- */
-export async function countAccountsForTeam(teamId: string): Promise<number> {
-  const [row] = await cloudDb()
-    .select({ count: sql<number>`count(*)::int` })
-    .from(coderouterAccounts)
-    .where(eq(coderouterAccounts.teamId, teamId));
-  return Number(row?.count ?? 0);
 }
 
 export async function findAccountByProviderIdentity(

@@ -24,7 +24,7 @@ export async function GET(request: Request): Promise<Response> {
       });
       if (!user) return unauthorized();
 
-      const authorized = await authorizedSubrouterTeams(user);
+      const authorized = authorizedSubrouterTeams(user);
       const scopedTeamId = coderouterOrganizationFromCookieHeader(
         request.headers.get("cookie"),
         user.id,

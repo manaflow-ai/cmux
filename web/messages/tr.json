@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
       "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "machines": {
+        "title": "Makineler",
+        "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
+        "machineColumn": "Makine",
+        "tokensColumn": "Toplam token",
+        "apiEquivalentColumn": "API eşdeğer değeri",
+        "unnamed": "Adsız makine",
+        "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
+        "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
+        "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      }
     },
     "accountMenu": {
       "label": "Hesap menüsü",

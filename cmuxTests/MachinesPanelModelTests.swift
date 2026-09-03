@@ -1002,3 +1002,129 @@ struct MachinesPanelPaidPlanTests {
         #expect(error.description.contains("Upgrade to cmux Pro"))
     }
 }
+
+/// Pins the coderouter spend readout: the wire payload decodes into typed
+/// totals, rows key on the machine id the list already uses (`vmId` echoes
+/// `GET /api/vm` `id`), and an unavailable or empty readout renders nothing.
+@Suite("Cloud machines coderouter usage")
+struct MachineUsageReadoutTests {
+    private let payload = Data("""
+    {
+      "teamId": "team_1",
+      "periodDays": 30,
+      "kind": "ready",
+      "asOf": "2026-09-02T00:00:00Z",
+      "machines": [
+        {
+          "vmId": "noble-wren",
+          "displayName": "wren",
+          "totals": { "inputTokens": 30000, "cachedInputTokens": 5000, "outputTokens": 6000, "totalTokens": 41000, "apiEquivalentUsd": 1.234 }
+        },
+        {
+          "vmId": "idle-owl",
+          "displayName": null,
+          "totals": { "inputTokens": 0, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 0, "apiEquivalentUsd": 0.0 }
+        },
+        {
+          "vmId": "5f0f7d0e-1b2c-4d3e-8f90-123456789abc",
+          "providerVmId": "brave-fox",
+          "displayName": "fox",
+          "totals": { "inputTokens": 10, "cachedInputTokens": 0, "outputTokens": 5, "totalTokens": 15, "apiEquivalentUsd": 0.01 }
+        },
+        {
+          "vmId": "noble-wren",
+          "displayName": "duplicate",
+          "totals": { "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 1, "apiEquivalentUsd": 0.5 }
+        }
+      ]
+    }
+    """.utf8)
+
+    private func machine(_ id: String) -> MachineSnapshot {
+        MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: id, provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
+        ))
+    }
+
+    @Test("The team payload decodes into typed totals")
+    func payloadDecodes() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        #expect(usage.teamID == "team_1")
+        #expect(usage.kind == .ready)
+        #expect(usage.periodDays == 30)
+        #expect(usage.asOf == Date(timeIntervalSince1970: 1_788_307_200))
+        #expect(usage.machines.count == 4)
+        let wren = try #require(usage.machines.first)
+        #expect(wren.vmID == "noble-wren")
+        #expect(wren.displayName == "wren")
+        #expect(wren.periodDays == 30)
+        #expect(wren.totals == MachineUsageTotals(
+            inputTokens: 30000, cachedInputTokens: 5000, outputTokens: 6000, totalTokens: 41000, apiEquivalentUsd: 1.234
+        ))
+        #expect(usage.machines[1].displayName == nil, "JSON null reads as no label")
+    }
+
+    @Test("Rows key on the machine id; blanks and repeats collapse to one entry")
+    func lookupKeysOnMachineID() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        #expect(Set(byID.keys) == ["noble-wren", "idle-owl", "brave-fox", "5f0f7d0e-1b2c-4d3e-8f90-123456789abc"])
+        #expect(byID["noble-wren"]?.displayName == "wren", "the first entry wins on a repeated vmId")
+        #expect(byID["brave-fox"]?.displayName == "fox", "the provider id keys the row, since GET /api/vm lists it as the machine id")
+
+        let stamped = MachineSnapshotBuilder.applyingUsage(
+            to: [machine("noble-wren"), machine("idle-owl"), machine("unknown-fox")],
+            usage: byID
+        )
+        #expect(stamped[0].usage?.totals.totalTokens == 41000)
+        #expect(stamped[1].usage?.totals.isEmpty == true)
+        #expect(stamped[2].usage == nil, "a machine the payload never names carries no readout")
+
+        let cleared = MachineSnapshotBuilder.applyingUsage(to: stamped, usage: [:])
+        #expect(cleared.allSatisfy { $0.usage == nil }, "a later payload without the machine drops the stale readout")
+    }
+
+    @Test("An unavailable payload yields no rows, and malformed payloads throw")
+    func unavailableAndMalformed() throws {
+        let unavailable = try MachineUsageClient.decodeTeamUsage(Data("""
+        {"teamId":"team_1","periodDays":30,"kind":"unavailable","asOf":null,"machines":[]}
+        """.utf8))
+        #expect(unavailable.kind == .unavailable)
+        #expect(unavailable.asOf == nil)
+        #expect(unavailable.byMachineID.isEmpty)
+
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"weird","machines":[]}"#.utf8))
+        }
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"ready","machines":[{"totals":{}}]}"#.utf8))
+        }
+    }
+
+    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    func rowLine() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        let wren = try #require(byID["noble-wren"])
+        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
+        #expect(line.contains("41K"), "compact token count: \(line)")
+        #expect(line.hasSuffix("30d"), "window label: \(line)")
+        let owl = try #require(byID["idle-owl"])
+        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+
+        var withUsage = machine("noble-wren")
+        withUsage.usage = byID["noble-wren"]
+        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
+        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
+        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+    }
+
+    @Test("Two-line rows grow by one line for the spend readout")
+    func twoLineHeightGrows() {
+        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
+        guard let twoLine else { return }
+        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+    }
+}
