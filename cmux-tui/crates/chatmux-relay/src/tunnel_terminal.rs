@@ -408,6 +408,19 @@ impl Connection {
     }
 
     fn publish_flow(&self, pause: bool) {
+        let _gate = self.queue_gate.lock().expect("writer queue lock");
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        let changed = if pause {
+            self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
+                && !self.paused.swap(true, Ordering::SeqCst)
+        } else {
+            self.paused.swap(false, Ordering::SeqCst)
+        };
+        if !changed {
+            return;
+        }
         self.flow_tx.send_if_modified(|current| {
             if *current == pause {
                 false
@@ -455,6 +468,7 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.paused.store(false, Ordering::SeqCst);
         // Stop admitting output before resuming a paused source. The writer
         // drains only frames already admitted, so this transition cannot add
         // new bytes to the queue during shutdown.
@@ -519,9 +533,7 @@ impl Connection {
                 // Socket-side congestion: pause the source through the
                 // manager's own flow verb; the writer resumes it below the
                 // low-water mark.
-                if self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
-                    && !self.paused.swap(true, Ordering::SeqCst)
-                {
+                if self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES {
                     self.publish_flow(true);
                 }
             }
@@ -722,9 +734,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             connection.finish();
                             break;
                         }
-                        if previous.saturating_sub(length) < FLOW_RESUME_BYTES
-                            && connection.paused.swap(false, Ordering::SeqCst)
-                        {
+                        if previous.saturating_sub(length) < FLOW_RESUME_BYTES {
                             connection.publish_flow(false);
                         }
                     }
