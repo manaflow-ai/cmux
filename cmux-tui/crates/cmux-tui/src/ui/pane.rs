@@ -467,9 +467,17 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         return DrawCursors::default();
     }
     let Some(surface) = app.session.surface(area.surface) else {
-        // The tree lists the tab but no mirror exists yet: the attach has not
-        // started. Say so rather than leaving the grid blank.
-        if app.tree.surface_kind(area.surface) != SurfaceKind::Browser {
+        // The tree lists the tab but no mirror exists yet: either a client
+        // placeholder for a create still in flight (or refused), or an attach
+        // that has not started. Say so rather than leaving the grid blank.
+        if let Some(cause) = app.create_placeholder_failure(area.surface) {
+            draw_lifecycle_line(
+                frame,
+                rect,
+                PaneLifecycleText::Failed(cause),
+                app.chrome.browser_message_fg,
+            );
+        } else if app.tree.surface_kind(area.surface) != SurfaceKind::Browser {
             draw_lifecycle_line(
                 frame,
                 rect,
@@ -570,17 +578,22 @@ pub(crate) fn pane_lifecycle_text(dead: bool, ready_for_input: bool) -> Option<P
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PaneLifecycleText {
     Starting,
     Exited,
+    /// A create the daemon refused; carries the daemon's cause.
+    Failed(String),
 }
 
 impl PaneLifecycleText {
-    fn message(self) -> &'static str {
+    fn message(&self) -> String {
         match self {
-            Self::Starting => localization::catalog().terminal.pane_starting,
-            Self::Exited => localization::catalog().terminal.pane_exited,
+            Self::Starting => localization::catalog().terminal.pane_starting.to_string(),
+            Self::Exited => localization::catalog().terminal.pane_exited.to_string(),
+            Self::Failed(cause) => {
+                localization::catalog().terminal.pane_create_failed.replace("{cause}", cause)
+            }
         }
     }
 }
@@ -594,10 +607,10 @@ fn draw_lifecycle_line(frame: &mut Frame, rect: Rect, lifecycle: PaneLifecycleTe
     if max_cols == 0 || max_rows == 0 {
         return;
     }
-    let text = truncate(lifecycle.message(), max_cols as usize);
+    let text = truncate(&lifecycle.message(), max_cols as usize);
     let text_w = text.width() as u16;
     let (x, y) = match lifecycle {
-        PaneLifecycleText::Starting => {
+        PaneLifecycleText::Starting | PaneLifecycleText::Failed(_) => {
             (rect.x + max_cols.saturating_sub(text_w) / 2, rect.y + max_rows / 2)
         }
         PaneLifecycleText::Exited => (rect.x, rect.y + max_rows - 1),

@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -79,7 +79,7 @@ use crate::pty_input::{
     PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
     TERMINAL_EXITED_LABEL, mark_operation_known_not_delivered,
 };
-use crate::session::tree::{PaneView, ScreenView};
+use crate::session::tree::{PaneView, ScreenView, WorkspaceView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
     Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
@@ -5829,6 +5829,133 @@ enum PendingRenameTarget {
     Surface(SurfaceId),
 }
 
+/// Ids above this value belong to client placeholders, never to the daemon.
+const PLACEHOLDER_ID_BASE: u64 = u64::MAX - (1 << 32);
+
+fn placeholder_id(intent: u64) -> u64 {
+    u64::MAX - (intent & 0xffff_ffff)
+}
+
+pub(crate) fn is_placeholder_id(id: u64) -> bool {
+    id > PLACEHOLDER_ID_BASE
+}
+
+/// Where a create placeholder goes in the tree; mirrors the slot the daemon
+/// will produce so the real entity replaces it without a visual jump.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CreatePlaceholderKind {
+    /// Alt-n: the daemon reapplies the Zellij default distribution.
+    Pane {
+        anchor: PaneId,
+    },
+    Split {
+        anchor: PaneId,
+        dir: SplitDir,
+    },
+    Tab {
+        pane: PaneId,
+    },
+    Workspace,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CreatePlaceholderState {
+    Pending,
+    /// The daemon refused; the cause is shown where the pane would have been
+    /// for `DURABLE_NOTICE_DISPLAY_DURATION`, then the placeholder dissolves.
+    Failed {
+        cause: String,
+        since: Instant,
+    },
+}
+
+/// A client-local stand-in for a create the daemon has not answered. It is
+/// presentation only: never sent to the daemon, never in a projection, keyed by
+/// the mutation's semantic intent, cleared on session generation change.
+#[derive(Clone, Debug)]
+struct CreatePlaceholder {
+    intent: u64,
+    kind: CreatePlaceholderKind,
+    workspace: Option<WorkspaceId>,
+    screen: Option<ScreenId>,
+    prior_focus: Option<PaneId>,
+    state: CreatePlaceholderState,
+    /// A timeout's error text, used as the cause if the refetch settles the
+    /// intent as failed.
+    timed_out_cause: Option<String>,
+}
+
+impl CreatePlaceholder {
+    fn surface(&self) -> SurfaceId {
+        placeholder_id(self.intent)
+    }
+
+    fn pane(&self) -> PaneId {
+        placeholder_id(self.intent)
+    }
+}
+
+fn placeholder_tab(surface: SurfaceId) -> crate::session::tree::TabView {
+    crate::session::tree::TabView {
+        surface,
+        public_id: None,
+        content_id: None,
+        terminal_id: None,
+        short_id: String::new(),
+        name: None,
+        title: localization::catalog().terminal.pane_starting.to_string(),
+        kind: SurfaceKind::Pty,
+        browser_source: None,
+        browser_frames_stalled: false,
+        supports_clear_history_key_fallback: false,
+        notification: None,
+    }
+}
+
+fn placeholder_pane(pane: PaneId, surface: SurfaceId) -> PaneView {
+    PaneView {
+        id: pane,
+        resource_id: None,
+        short_id: String::new(),
+        name: None,
+        tabs: vec![placeholder_tab(surface)],
+        active_tab: 0,
+        focused_at: 0,
+    }
+}
+
+/// Replace the leaf `anchor` with a split whose second child is `pane`.
+fn split_leaf_for_placeholder(
+    node: &mut Node,
+    anchor: PaneId,
+    dir: SplitDir,
+    split: SplitId,
+    pane: PaneId,
+) -> bool {
+    match node {
+        Node::Leaf(leaf) if *leaf == anchor => {
+            *node = Node::Split {
+                id: split,
+                dir,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(anchor)),
+                b: Box::new(Node::Leaf(pane)),
+            };
+            true
+        }
+        Node::Split { a, b, .. } => {
+            split_leaf_for_placeholder(a, anchor, dir, split, pane)
+                || split_leaf_for_placeholder(b, anchor, dir, split, pane)
+        }
+        _ => false,
+    }
+}
+
+/// The daemon's reason for a refused mutation, without the transport prefix.
+fn mutation_failure_cause(error: &str) -> String {
+    error.strip_prefix("remote command rejected: ").unwrap_or(error).trim().to_string()
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a tab chip; becomes `Tab` after moving cells.
@@ -7348,6 +7475,7 @@ pub struct App {
     client_focus_epoch: u64,
     split_drag_preview: Option<SplitDragPreview>,
     pending_renames: HashMap<PendingRenameTarget, Option<String>>,
+    create_placeholders: Vec<CreatePlaceholder>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -9633,6 +9761,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         client_focus_epoch: 0,
         split_drag_preview: None,
         pending_renames: HashMap::new(),
+        create_placeholders: Vec::new(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -10904,6 +11033,7 @@ impl App {
             } else if self.shake_frames > 0
                 || self.selection_auto_scroll_active()
                 || self.toast.is_some()
+                || self.has_failed_create_placeholder()
             {
                 Duration::from_millis(30)
             } else {
@@ -10922,6 +11052,9 @@ impl App {
                     }
                     if self.expire_toast() {
                         toast_expired_on_timeout = true;
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.expire_failed_create_placeholders() {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -12082,6 +12215,7 @@ impl App {
         // value arrives from its background refresh.
         self.machine_usage = None;
         self.tab_locations.clear();
+        self.create_placeholders.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
         self.pane_areas.clear();
@@ -13131,10 +13265,12 @@ impl App {
         let semantic_intent = completion.semantic_intent;
         match completion.action {
             SessionCompletionAction::SurfaceCreated { surface } => {
+                self.resolve_create_placeholder(semantic_intent);
                 self.resolve_semantic_destination(semantic_intent, surface);
                 self.select_created_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
+                self.resolve_create_placeholder(semantic_intent);
                 self.resolve_semantic_destination(semantic_intent, surface);
                 self.select_created_surface(surface);
                 let pane = self
@@ -13245,6 +13381,7 @@ impl App {
     }
 
     fn apply_session_cancellation(&mut self) {
+        self.create_placeholders.clear();
         self.deferred_input.clear();
         self.latest_semantic_destination_intent = None;
         self.semantic_destination_outcomes.clear();
@@ -14774,6 +14911,7 @@ impl App {
         self.pane_areas.clear();
         self.reconcile_split_drag_preview();
         self.apply_pending_renames();
+        self.apply_create_placeholders();
         let Some(mut screen) = self.tree.active_screen().cloned() else {
             self.viewport_projection.clear();
             self.viewport_layout.clear();
@@ -14937,7 +15075,8 @@ impl App {
                 let size = (tab.surface == lease.surface)
                     .then_some(content_size)
                     .filter(|(cols, rows)| *cols > 0 && *rows > 0);
-                if self.session.can_attach_surface(tab.surface)
+                if !is_placeholder_id(tab.surface)
+                    && self.session.can_attach_surface(tab.surface)
                     && self.prepare_pty_input_before_mutation()
                 {
                     self.session.attach_surface(tab.surface, size);
@@ -15871,6 +16010,7 @@ impl App {
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
                         self.apply_session_completions_through(authoritative_generation);
+                        self.settle_orphaned_create_placeholders();
                         self.complete_remote_tree_refresh(true);
                         self.session.reconcile_ambiguous_creations();
                     }
@@ -15989,6 +16129,14 @@ impl App {
                             // Fail only that route so dependent input is never
                             // guessed onto whichever surface became active.
                             self.mark_semantic_destination_failed(intent);
+                            // The placeholder stays until the refetch decides.
+                            if let Some(placeholder) = self
+                                .create_placeholders
+                                .iter_mut()
+                                .find(|placeholder| placeholder.intent == intent)
+                            {
+                                placeholder.timed_out_cause = Some(mutation_failure_cause(&error));
+                            }
                         }
                         self.status_message =
                             Some(localization::catalog().session.operation_reconciling.to_string());
@@ -15998,26 +16146,28 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
+                        // The client log keeps the full daemon text; the status
+                        // line shows the cause, not just a label.
                         crate::client_log::stderr_log!(
                             "session",
                             "cmux-tui: session operation failed: {error}"
                         );
+                        let cause = mutation_failure_cause(&error);
+                        self.status_message = Some(self.operation_failed_message(&cause));
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
-                            self.status_message =
-                                Some(localization::catalog().session.operation_failed.to_string());
+                            self.fail_create_placeholder(intent, cause);
                             return Ok(RenderAction::Draw);
                         }
                         self.deferred_input.clear();
                         self.prefix_armed = false;
                         self.pending_session_completions.clear();
-                        self.status_message =
-                            Some(localization::catalog().session.operation_failed.to_string());
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Canceled => {
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
+                            self.resolve_create_placeholder(Some(intent));
                             self.status_message = Some(
                                 localization::catalog().session.operation_canceled.to_string(),
                             );
@@ -16997,6 +17147,9 @@ impl App {
 
     fn report_client_focus(&mut self) {
         let Some(focus) = self.current_client_focus() else { return };
+        if is_placeholder_id(focus.pane) {
+            return;
+        }
         match self.reported_focus {
             None => self.reported_focus = Some(focus),
             Some(previous) if previous == focus => {}
@@ -17020,6 +17173,10 @@ impl App {
             self.geometry_authority_surface = None;
             return;
         };
+        if is_placeholder_id(surface) {
+            // Keep the previous terminal authoritative until the create lands.
+            return;
+        }
         if !force && self.geometry_authority_surface == Some(surface) {
             return;
         }
@@ -17070,7 +17227,9 @@ impl App {
     }
 
     fn queue_surface_attach(&mut self, surface: SurfaceId) {
-        if !self.session.can_attach_surface(surface) {
+        // A placeholder has no daemon surface to attach; its input waits for
+        // the real one through the semantic destination.
+        if is_placeholder_id(surface) || !self.session.can_attach_surface(surface) {
             return;
         }
         let size = self
@@ -17191,7 +17350,8 @@ impl App {
                     }
                     SurfaceResizeDecision::NeedsQueue(_) => {}
                 }
-            } else if self.session.can_attach_surface(area.surface)
+            } else if !is_placeholder_id(area.surface)
+                && self.session.can_attach_surface(area.surface)
                 && self.prepare_pty_input_before_mutation()
             {
                 self.session.attach_surface(area.surface, Some(desired));
@@ -17915,7 +18075,12 @@ impl App {
             hint,
             selector_candidates,
             semantic_intent,
-        )
+        )?;
+        self.add_create_placeholder(
+            semantic_intent,
+            CreatePlaceholderKind::Split { anchor: pane, dir },
+        );
+        Ok(())
     }
 
     fn new_terminal_tab(
@@ -17934,7 +18099,11 @@ impl App {
             self.terminal_tab_size_hint(pane),
             selector_candidates,
             semantic_intent,
-        )
+        )?;
+        if let Some(pane) = pane {
+            self.add_create_placeholder(semantic_intent, CreatePlaceholderKind::Tab { pane });
+        }
+        Ok(())
     }
 
     /// Run one configured user command as a new PTY tab in the target pane.
@@ -18016,7 +18185,9 @@ impl App {
             Some(hint),
             selector_candidates,
             semantic_intent,
-        )
+        )?;
+        self.add_create_placeholder(semantic_intent, CreatePlaceholderKind::Pane { anchor: pane });
+        Ok(())
     }
 
     fn new_pane_right(
@@ -18082,7 +18253,9 @@ impl App {
         self.session.new_workspace_for_semantic_intent(
             self.size_of_rect(self.content_area),
             semantic_intent,
-        )
+        )?;
+        self.add_create_placeholder(semantic_intent, CreatePlaceholderKind::Workspace);
+        Ok(())
     }
 
     fn request_managed_workspace(&mut self, mode: WorkspaceCreationMode) {
@@ -23874,6 +24047,241 @@ impl App {
         }
     }
 
+    fn operation_failed_message(&self, cause: &str) -> String {
+        let catalog = &localization::catalog().session;
+        let message = catalog
+            .operation_failed_with_cause
+            .replace("{operation}", catalog.operation_failed)
+            .replace("{cause}", cause);
+        let width = usize::from(self.outer_size.0.saturating_sub(self.total_sidebar_width()));
+        if width == 0 { message } else { crate::ui::truncate(&message, width) }
+    }
+
+    /// Record a client placeholder for a create the daemon has not answered
+    /// and show it at once. `None` intent means the create carries no
+    /// semantic destination (a programmatic caller); nothing is drawn then.
+    fn add_create_placeholder(&mut self, intent: Option<u64>, kind: CreatePlaceholderKind) {
+        let Some(intent) = intent else { return };
+        if self.surface_only.is_some() {
+            return;
+        }
+        let workspace = self.tree.active_workspace().map(|workspace| workspace.id);
+        let screen = self.tree.active_screen().map(|screen| screen.id);
+        self.create_placeholders.push(CreatePlaceholder {
+            intent,
+            kind,
+            workspace,
+            screen,
+            prior_focus: self.active_pane(),
+            state: CreatePlaceholderState::Pending,
+            timed_out_cause: None,
+        });
+        self.apply_create_placeholders();
+        self.rebuild_tab_locations();
+    }
+
+    /// The daemon produced the real entity: drop the stand-in. The real pane
+    /// occupies the slot the placeholder held, so nothing moves.
+    fn resolve_create_placeholder(&mut self, intent: Option<u64>) {
+        let Some(intent) = intent else { return };
+        self.create_placeholders.retain(|placeholder| placeholder.intent != intent);
+    }
+
+    fn fail_create_placeholder(&mut self, intent: u64, cause: String) {
+        if let Some(placeholder) =
+            self.create_placeholders.iter_mut().find(|placeholder| placeholder.intent == intent)
+        {
+            placeholder.state = CreatePlaceholderState::Failed { cause, since: Instant::now() };
+        }
+    }
+
+    fn has_failed_create_placeholder(&self) -> bool {
+        self.create_placeholders
+            .iter()
+            .any(|placeholder| matches!(placeholder.state, CreatePlaceholderState::Failed { .. }))
+    }
+
+    /// The cause shown in a placeholder pane whose create was refused.
+    pub(crate) fn create_placeholder_failure(&self, surface: SurfaceId) -> Option<String> {
+        self.create_placeholders.iter().find_map(|placeholder| {
+            match (&placeholder.state, placeholder.surface() == surface) {
+                (CreatePlaceholderState::Failed { cause, .. }, true) => Some(cause.clone()),
+                _ => None,
+            }
+        })
+    }
+
+    /// Dissolve refused placeholders after their notice period and return
+    /// focus to the pane the user was in. Input deferred to them was already
+    /// retired through the failed semantic destination; it is never replayed
+    /// elsewhere.
+    fn expire_failed_create_placeholders(&mut self) -> bool {
+        let now = Instant::now();
+        let expired = self
+            .create_placeholders
+            .iter()
+            .filter(|placeholder| {
+                matches!(
+                    placeholder.state,
+                    CreatePlaceholderState::Failed { since, .. }
+                        if now.duration_since(since) >= DURABLE_NOTICE_DISPLAY_DURATION
+                )
+            })
+            .map(|placeholder| (placeholder.intent, placeholder.prior_focus))
+            .collect::<Vec<_>>();
+        if expired.is_empty() {
+            return false;
+        }
+        for (intent, prior_focus) in expired {
+            self.create_placeholders.retain(|placeholder| placeholder.intent != intent);
+            if let Some(prior) = prior_focus
+                && self.tree.set_active_pane_if_present(prior)
+            {
+                self.pane_focus_history.record(prior);
+            }
+        }
+        self.deferred_input
+            .retain(|input| !input.admission.destination.is_some_and(is_placeholder_id));
+        self.rebuild_tab_locations();
+        true
+    }
+
+    /// A refetch has settled with nothing pending: a placeholder whose intent
+    /// was marked failed (timeout) becomes a failure notice with its cause.
+    fn settle_orphaned_create_placeholders(&mut self) {
+        if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
+            return;
+        }
+        let reconciling = localization::catalog().session.operation_reconciling;
+        for placeholder in &mut self.create_placeholders {
+            if placeholder.state != CreatePlaceholderState::Pending {
+                continue;
+            }
+            if self.semantic_destination_outcomes.get(&placeholder.intent)
+                == Some(&SemanticDestinationOutcome::Failed)
+            {
+                let cause =
+                    placeholder.timed_out_cause.clone().unwrap_or_else(|| reconciling.to_string());
+                placeholder.state = CreatePlaceholderState::Failed { cause, since: Instant::now() };
+            }
+        }
+    }
+
+    /// Overlay every placeholder on the adopted tree in the slot the daemon
+    /// will produce, and give a fresh placeholder focus so focus-follow input
+    /// defers to it. Nothing here reaches the daemon.
+    fn apply_create_placeholders(&mut self) {
+        if self.create_placeholders.is_empty() {
+            return;
+        }
+        let placeholders = self.create_placeholders.clone();
+        for placeholder in placeholders {
+            let pane_id = placeholder.pane();
+            let surface = placeholder.surface();
+            let split_id: SplitId = placeholder_id(placeholder.intent);
+            let focus_follows = self.active_pane() == placeholder.prior_focus;
+            let mut placed = false;
+            match placeholder.kind {
+                CreatePlaceholderKind::Workspace => {
+                    let index = self.tree.workspaces().len();
+                    self.tree.workspaces_mut().push(WorkspaceView {
+                        id: placeholder_id(placeholder.intent),
+                        resource_id: None,
+                        key: String::new(),
+                        short_id: String::new(),
+                        name: String::new(),
+                        screens: vec![ScreenView {
+                            id: placeholder_id(placeholder.intent),
+                            resource_id: None,
+                            short_id: String::new(),
+                            name: None,
+                            layout: Node::Leaf(pane_id),
+                            active_pane: pane_id,
+                            zoomed_pane: None,
+                            viewport_base_width: None,
+                            viewport_splits: BTreeMap::new(),
+                            panes: vec![placeholder_pane(pane_id, surface)],
+                        }],
+                        active_screen: 0,
+                    });
+                    if focus_follows {
+                        self.tree.active_workspace = index;
+                    }
+                    placed = true;
+                }
+                CreatePlaceholderKind::Pane { anchor }
+                | CreatePlaceholderKind::Split { anchor, .. } => {
+                    let dir = match placeholder.kind {
+                        CreatePlaceholderKind::Split { dir, .. } => Some(dir),
+                        _ => None,
+                    };
+                    let Some(screen) = self
+                        .tree
+                        .workspaces_mut()
+                        .iter_mut()
+                        .filter(|workspace| Some(workspace.id) == placeholder.workspace)
+                        .flat_map(|workspace| workspace.screens.iter_mut())
+                        .find(|screen| Some(screen.id) == placeholder.screen)
+                    else {
+                        continue;
+                    };
+                    if !screen.panes.iter().any(|pane| pane.id == anchor) {
+                        continue;
+                    }
+                    let inserted = match dir {
+                        None if screen.viewport_splits.is_empty() => {
+                            let mut panes = Vec::new();
+                            screen.layout.pane_ids(&mut panes);
+                            panes.push(pane_id);
+                            match zellij_default_pane_layout(&panes) {
+                                Some(layout) => {
+                                    screen.layout = layout;
+                                    true
+                                }
+                                None => false,
+                            }
+                        }
+                        None => split_leaf_for_placeholder(
+                            &mut screen.layout,
+                            anchor,
+                            SplitDir::Down,
+                            split_id,
+                            pane_id,
+                        ),
+                        Some(dir) => split_leaf_for_placeholder(
+                            &mut screen.layout,
+                            anchor,
+                            dir,
+                            split_id,
+                            pane_id,
+                        ),
+                    };
+                    if inserted {
+                        screen.panes.push(placeholder_pane(pane_id, surface));
+                        placed = true;
+                    }
+                }
+                CreatePlaceholderKind::Tab { pane } => {
+                    if let Some(pane) = self
+                        .tree
+                        .workspaces_mut()
+                        .iter_mut()
+                        .flat_map(|workspace| workspace.screens.iter_mut())
+                        .flat_map(|screen| screen.panes.iter_mut())
+                        .find(|candidate| candidate.id == pane)
+                    {
+                        pane.tabs.push(placeholder_tab(surface));
+                        placed = true;
+                    }
+                }
+            }
+            // Focus follows the user's create unless they moved on since.
+            if placed && (focus_follows || placeholder.prior_focus.is_none()) {
+                self.tree.select_surface(surface);
+            }
+        }
+    }
+
     /// Escape during a split drag: drop the preview, send nothing.
     fn cancel_split_drag(&mut self) {
         self.drag = None;
@@ -25175,36 +25583,38 @@ mod tests {
 
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingRenameTarget,
-        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
-        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
-        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides, SplitDragPreview,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
-        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
-        initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
-        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
+        CreatePlaceholderState, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingRenameTarget, PendingSessionMutation, PendingSessionMutationState,
+        PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget,
+        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel,
+        RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
+        SplitDragPreview, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        initial_applied_outer_cursor, initial_host_mouse_capture, is_placeholder_id,
+        keyboard_protocol_accepts, layout_undo_error_completion,
+        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
+        record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
         should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
@@ -30252,6 +30662,189 @@ mod tests {
         assert_eq!(pane_lifecycle_text(false, false), Some(PaneLifecycleText::Starting));
         assert_eq!(pane_lifecycle_text(true, true), Some(PaneLifecycleText::Exited));
         assert_eq!(pane_lifecycle_text(true, false), Some(PaneLifecycleText::Exited));
+    }
+
+    const PTY_EXHAUSTED_REJECTION: &str = "remote command rejected: terminal launch failed: PTY capacity exhausted; close unused terminals or tmux sessions and retry: Device not configured (os error 6)";
+
+    #[test]
+    fn failed_mutation_status_shows_the_daemon_cause() {
+        let (mux, surface) = test_mux("failed-cause-status-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.outer_size = (200, 40);
+        app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        app.handle(AppEvent::SessionMutationSettled {
+            outcome: super::SessionMutationOutcome::Failed(PTY_EXHAUSTED_REJECTION.to_string()),
+            impact: MutationImpact::Ordered,
+        })
+        .unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "Session operation failed: terminal launch failed: PTY capacity exhausted; close unused terminals or tmux sessions and retry: Device not configured (os error 6)"
+            )
+        );
+
+        // A narrow status line keeps the head of the cause and marks the cut.
+        app.outer_size = (48, 10);
+        app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        app.handle(AppEvent::SessionMutationSettled {
+            outcome: super::SessionMutationOutcome::Failed(PTY_EXHAUSTED_REJECTION.to_string()),
+            impact: MutationImpact::Ordered,
+        })
+        .unwrap();
+        let status = app.status_message.clone().unwrap();
+        assert!(status.starts_with("Session operation failed: terminal launch"), "{status}");
+        assert!(status.ends_with('…'), "{status}");
+        assert!(status.chars().count() <= 48, "{status}");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_n_shows_a_placeholder_pane_before_the_daemon_answers_and_resolves_it() {
+        let (mux, _) = test_mux("alt-n-placeholder-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((200, 40));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        let original = app.active_pane().unwrap();
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::ALT,
+        ))))
+        .unwrap();
+        // Before any response: the placeholder is in the tree, has focus, and
+        // occupies the second Zellij slot.
+        assert_eq!(app.create_placeholders.len(), 1);
+        let placeholder = app.active_pane().expect("placeholder takes focus");
+        assert!(is_placeholder_id(placeholder));
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+        app.sync_layout((200, 40));
+        assert!(app.pane_areas.iter().any(|area| area.pane == placeholder));
+        assert_eq!(app.pane_areas.len(), 2);
+
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        app.sync_layout((200, 40));
+        assert!(app.create_placeholders.is_empty(), "the real pane resolves the placeholder");
+        let active = app.active_pane().unwrap();
+        assert!(!is_placeholder_id(active));
+        assert_ne!(active, original, "focus lands on the created pane");
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+        assert_eq!(app.pane_areas.len(), 2);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn refused_create_placeholder_shows_the_cause_then_dissolves_and_drops_typed_input() {
+        let tree_json = serde_json::json!({
+            "workspaces": [{
+                "id": 1, "name": "one", "active": true,
+                "resource_id": "ws_00000000000000000000000000000001",
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "resource_id": "screen_00000000000000000000000000000002",
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3,
+                        "resource_id": "pane_00000000000000000000000000000003",
+                        "tabs": [{"surface": 7, "title": "a", "kind": "pty"}]}]
+                }]
+            }]
+        });
+        let (session, requests) =
+            crate::session::test_remote_session_answering(Arc::new(move |request: &Value| {
+                match request.get("cmd").and_then(Value::as_str) {
+                    Some("list-workspaces") => tree_json.clone(),
+                    Some("list-agents") => serde_json::json!({"agents": []}),
+                    Some(
+                        "new-pane"
+                        | "new-tab"
+                        | "split"
+                        | "new-workspace"
+                        | "create-surface-with-receipt",
+                    ) => serde_json::json!({
+                        "__reject": PTY_EXHAUSTED_REJECTION
+                            .strip_prefix("remote command rejected: ")
+                            .unwrap()
+                    }),
+                    _ => serde_json::json!({}),
+                }
+            }));
+        session.refresh_tree().unwrap();
+        let (mut app, events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((200, 40));
+        for _ in requests.try_iter() {}
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::ALT,
+        ))))
+        .unwrap();
+        assert_eq!(app.create_placeholders.len(), 1);
+        let placeholder = app.active_pane().unwrap();
+        assert!(is_placeholder_id(placeholder));
+
+        // Typing while the placeholder is focused is deferred to it.
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(!app.deferred_input.is_empty(), "input to the placeholder must be deferred");
+
+        let mut failed = false;
+        while !failed {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let AppEvent::SessionMutationSettled { .. } = &event {
+                failed = true;
+            }
+            app.handle(event).unwrap();
+        }
+        let cause = match &app.create_placeholders[0].state {
+            CreatePlaceholderState::Failed { cause, .. } => cause.clone(),
+            other => panic!("placeholder should have failed, got {other:?}"),
+        };
+        assert!(cause.contains("PTY capacity exhausted"), "{cause}");
+        assert!(
+            app.status_message.as_deref().is_some_and(|status| status.contains("PTY capacity")),
+            "{:?}",
+            app.status_message
+        );
+        // The failure is shown where the pane would have been.
+        app.sync_layout((200, 40));
+        assert!(app.pane_areas.iter().any(|area| area.pane == placeholder));
+        assert_eq!(app.create_placeholder_failure(placeholder).as_deref(), Some(cause.as_str()));
+
+        // After the notice period it dissolves and focus returns.
+        if let CreatePlaceholderState::Failed { since, .. } = &mut app.create_placeholders[0].state
+        {
+            *since = Instant::now() - super::DURABLE_NOTICE_DISPLAY_DURATION;
+        }
+        assert!(app.expire_failed_create_placeholders());
+        assert!(app.create_placeholders.is_empty());
+        app.sync_layout((200, 40));
+        assert_eq!(app.active_pane(), Some(3));
+        assert_eq!(app.pane_areas.len(), 1);
+
+        // The deferred keystroke is dropped, never sent to the surviving pane.
+        app.replay_deferred_input().unwrap();
+        assert!(app.deferred_input.is_empty());
+        let later = requests.try_iter().collect::<Vec<_>>();
+        assert!(
+            later.iter().all(|request| request["cmd"] != "send"),
+            "typed input must not be replayed elsewhere: {later:?}"
+        );
     }
 
     #[test]
@@ -38417,9 +39010,17 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+        // The status line names the operation and carries the daemon's cause.
         assert_eq!(
             app.status_message.as_deref(),
-            Some(localization::catalog().session.operation_failed)
+            Some(
+                localization::catalog()
+                    .session
+                    .operation_failed_with_cause
+                    .replace("{operation}", localization::catalog().session.operation_failed)
+                    .replace("{cause}", "selection rejected")
+                    .as_str()
+            )
         );
 
         app.pointer_route_phase = PointerRoutePhase::Fresh;
@@ -42899,9 +43500,17 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
 
+        // The status line names the operation and carries the daemon's cause.
         assert_eq!(
             app.status_message.as_deref(),
-            Some(localization::catalog().session.operation_failed)
+            Some(
+                localization::catalog()
+                    .session
+                    .operation_failed_with_cause
+                    .replace("{operation}", localization::catalog().session.operation_failed)
+                    .replace("{cause}", "workspace id and key do not identify the same workspace")
+                    .as_str()
+            )
         );
         assert!(app.tree.workspaces().iter().any(|workspace| workspace.id == placement.workspace));
     }
@@ -46693,6 +47302,7 @@ mod tests {
             client_focus_epoch: 0,
             split_drag_preview: None,
             pending_renames: HashMap::new(),
+            create_placeholders: Vec::new(),
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),

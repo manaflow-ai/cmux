@@ -4521,7 +4521,9 @@ fn test_session_with_provider_context(
 }
 
 /// A remote session whose writer answers every request synchronously with
-/// `responder(&request)` as the `data` payload and records each request.
+/// `responder(&request)` as the `data` payload and records each request. A
+/// returned object with a string `__reject` field is sent as a rejection with
+/// that error text instead.
 #[cfg(test)]
 pub(super) fn test_session_answering(
     responder: Arc<dyn Fn(&Value) -> Value + Send + Sync>,
@@ -4551,9 +4553,13 @@ pub(super) fn test_session_answering(
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
             let data = (self.responder)(&request);
+            let response = match data.get("__reject").and_then(Value::as_str) {
+                Some(error) => json!({"id": id, "ok": false, "error": error}),
+                None => json!({"id": id, "ok": true, "data": data}),
+            };
             pending
                 .response
-                .send(json!({"id": id, "ok": true, "data": data}))
+                .send(response)
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
 
