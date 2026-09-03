@@ -8391,27 +8391,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exited_terminal_final_replay_publishes_state_for_already_dead_host() {
+    fn exited_terminal_final_replay_does_not_reclassify_prior_host_loss() {
         let mux = Mux::new_for_test("already-dead-host-attach", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(94, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let pty = surface.as_pty().unwrap();
 
-        // Another exit observer may enter after the first observer latched
-        // `dead`. It must still publish the final state for later attach.
+        // A prior host-loss path may latch `dead` before hosted exit
+        // finalization owns the terminal. It must not expose a replay that
+        // was never finalized or close streams owned by that loss path.
         pty.dead.store(true, Ordering::Release);
+        pty.host_connection_state
+            .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
         assert_eq!(
             TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
-            TerminalHostConnectionState::Connected
+            TerminalHostConnectionState::Failed
         );
 
         pty.finish_hosted_exit();
 
         assert_eq!(
             TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
-            TerminalHostConnectionState::Exited
+            TerminalHostConnectionState::Failed
         );
-        surface.attach_stream().expect("an already-dead exited host must serve final replay");
+        assert!(matches!(surface.attach_stream(), Err(ghostty_vt::Error::NoValue)));
+        assert!(matches!(surface.attach_render_stream(), Err(ghostty_vt::Error::NoValue)));
     }
 
     #[cfg(unix)]
