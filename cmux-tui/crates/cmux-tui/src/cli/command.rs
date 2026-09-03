@@ -3048,6 +3048,17 @@ mod tests {
     }
 
     #[test]
+    fn bench_rejects_zero_clients() {
+        let mut flags = Flags::default();
+        flags.values.insert("clients".into(), Some("0".into()));
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("zero clients must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("--clients must be at least 1"));
+    }
+
+    #[test]
     fn server_stats_typo_suggests_stats_action() {
         let error = match parse(&strings(&["server", "stat"])) {
             Err(error) => error,
