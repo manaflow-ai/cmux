@@ -18,13 +18,15 @@ struct MachineCreateCoordinatorTests {
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
+        var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
 
         var launch: MachineCreateCoordinator.Launch {
-            { [self] arguments, completion in
+            { [self] arguments, progress, completion in
                 self.arguments.append(arguments)
                 guard starts else { return false }
+                progressHandlers.append(progress)
                 completions.append(completion)
                 return true
             }
@@ -148,7 +150,7 @@ struct MachineCreateCoordinatorTests {
     /// it, and notify — never leave a phantom pending row behind.
     @Test func synchronousCompletionStillResolvesTheOperation() {
         let (coordinator, _, notices, changes, _) = makeCoordinator()
-        let immediate: MachineCreateCoordinator.Launch = { _, completion in
+        let immediate: MachineCreateCoordinator.Launch = { _, _, completion in
             completion(CloudVMActionLauncher.Completion(
                 terminationStatus: 0,
                 output: "",
@@ -161,6 +163,19 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.isEmpty, "the synchronous completion resolved the row")
         #expect(changes.finished.count == 1)
         #expect(notices.notices.first?.title == "calm-petrel is ready")
+    }
+
+    @Test func emittedMachineMarkerCorrelatesPendingRowBeforeCLIExits() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        #expect(coordinator.operations.first?.createdMachineID == nil)
+        launches.progressHandlers[0]("Created Cloud VM calm-petrel\nOK machine=calm-petrel\n")
+        #expect(coordinator.operations.first?.createdMachineID == "calm-petrel")
+        let machine = MachineSnapshot(
+            id: "calm-petrel", provider: "freestyle", image: "image", isDesktop: false,
+            activity: .ready, createdAt: nil, label: nil
+        )
+        #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []))
     }
 
     // MARK: Success
@@ -338,6 +353,7 @@ struct MachineCreateCoordinatorTests {
     }
 
     @Test func createdMachineIDIsParsedFromTheCLIsCreatedLine() {
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=calm-petrel") == "calm-petrel")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == "calm-petrel")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  ") == "noble_wren2")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
@@ -410,12 +426,14 @@ struct MachinesPanelPendingCreateTests {
         let named = MachineCreateOperation(
             id: UUID(),
             request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"),
-            startedAt: started
+            startedAt: started,
+            createdMachineID: "vm-e0382b"
         )
         let unnamed = MachineCreateOperation(
             id: UUID(),
             request: MachineCreateCoordinatorTests.newMachineRequest(name: nil),
-            startedAt: started
+            startedAt: started,
+            createdMachineID: "calm-petrel"
         )
         func machine(_ id: String, label: String?, createdAt: Date?) -> MachineSnapshot {
             MachineSnapshot(
@@ -453,6 +471,21 @@ struct MachinesPanelPendingCreateTests {
         var failed = named
         failed.phase = .failed(output: "Error: quota")
         #expect(rows(machines: [created], pending: [failed]) == ["pending-machine:\(failed.id.uuidString)", "machine:vm-e0382b"])
+
+        // A pending operation without its emitted machine id cannot safely be
+        // matched by a label or timestamp, especially with concurrent creates.
+        let uncorrelated = MachineCreateOperation(
+            id: UUID(), request: Self.newMachineRequest(name: "troll"), startedAt: started
+        )
+        #expect(rows(machines: [created], pending: [uncorrelated]).first?.hasPrefix("pending-machine:") == true)
+
+        // Two concurrent unnamed creates must not both disappear when one
+        // newly observed machine has no matching authoritative id.
+        let uncorrelatedOther = MachineCreateOperation(
+            id: UUID(), request: Self.newMachineRequest(name: nil), startedAt: started
+        )
+        let concurrentRows = rows(machines: [anonymous], pending: [uncorrelated, uncorrelatedOther])
+        #expect(concurrentRows.filter { $0.hasPrefix("pending-machine:") }.count == 2)
     }
 
     @Test func treeShowsPendingRowsFirstAndIsNotEmptyWhileOneRuns() {

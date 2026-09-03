@@ -40,7 +40,7 @@ struct VMTunnelStalenessTests {
         let staging = "[Interface]\nPrivateKey = k\nAddress = 100.64.0.1/32\n\n[Peer]\nEndpoint = tun-b.example:51820\n"
         try production.write(to: manager.configURL, atomically: true, encoding: .utf8)
         let applied = try #require(manager.configDigest())
-        try manager.recordApplied(true)
+        try manager.recordApplied(true, expectedDigest: applied)
         #expect(manager.appliedDigest() == applied)
         #expect(!VMTunnelManager.isStale(interfaceUp: true, appliedDigest: manager.appliedDigest(), configDigest: manager.configDigest()))
 
@@ -50,6 +50,10 @@ struct VMTunnelStalenessTests {
         #expect(VMTunnelManager.interfaceAddresses(in: staging) == VMTunnelManager.interfaceAddresses(in: production), "liveness by address cannot tell them apart")
         #expect(manager.configDigest() != applied)
         #expect(VMTunnelManager.isStale(interfaceUp: true, appliedDigest: manager.appliedDigest(), configDigest: manager.configDigest()))
+
+        #expect(throws: VMTunnelManager.TunnelError.self) {
+            try manager.recordApplied(true, expectedDigest: applied)
+        }
 
         try manager.recordApplied(false)
         #expect(manager.appliedDigest() == nil)
