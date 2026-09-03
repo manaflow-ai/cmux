@@ -191,14 +191,28 @@ impl Drop for ProviderMachineConnectionLease {
                 );
             }
         })) {
-            let reason = match error {
-                crossbeam_channel::TrySendError::Full(_) => "close queue is full",
-                crossbeam_channel::TrySendError::Disconnected(_) => "close worker disconnected",
-            };
-            crate::client_log::stderr_log!(
-                "provider",
-                "cmux-tui: failed to schedule provider machine close: {reason}"
-            );
+            match error {
+                crossbeam_channel::TrySendError::Full(task) => {
+                    // Preserve every close when the bounded queue is full by
+                    // handing it to a detached thread without blocking Drop.
+                    if std::thread::Builder::new()
+                        .name("provider-close-overflow".into())
+                        .spawn(task)
+                        .is_err()
+                    {
+                        crate::client_log::stderr_log!(
+                            "provider",
+                            "cmux-tui: failed to spawn provider machine close overflow task"
+                        );
+                    }
+                }
+                crossbeam_channel::TrySendError::Disconnected(_) => {
+                    crate::client_log::stderr_log!(
+                        "provider",
+                        "cmux-tui: failed to schedule provider machine close: close worker disconnected"
+                    );
+                }
+            }
         }
     }
 }
