@@ -1175,7 +1175,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       $current->[0] =~ /T/;
                   }
                 }
-                POSIX::close($pidfd);
               }
               close $input;
               close $output;

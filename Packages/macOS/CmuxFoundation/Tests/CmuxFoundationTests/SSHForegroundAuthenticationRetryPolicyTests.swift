@@ -883,7 +883,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         if Int(size) == expectedSize {
             return info.pbi_status == UInt32(SZOMB) ? false : true
         }
-        if size == 0 && errno == ESRCH {
+        // proc_pidinfo reports either zero or -1 with ESRCH after a process
+        // has been reaped. Both results mean the process is no longer live.
+        if (size == 0 || size < 0) && errno == ESRCH {
             return false
         }
         return nil
