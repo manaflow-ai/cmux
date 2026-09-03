@@ -147,6 +147,40 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func remoteCloseDoesNotWaitForPathEventObserverToFinish() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 17,
+            keepsPathEventStreamOpen: true
+        )
+        let secondSession = TestConnectivitySession(continuityID: 18)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, secondSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            diagnosticLog: DiagnosticLog(capacity: 16, role: .mobileClient)
+        )
+        let firstOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        try await Self.waitUntil { await firstSession.hasPathEventObserver() }
+        await firstSession.finishRemotely(failure: .connectionClosed)
+
+        let nextOwner = UUID()
+        let next = Task {
+            try await peer.acquireControl(for: request, ownerID: nextOwner)
+        }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        _ = try await next.value
+        await peer.releaseControl(ownerID: nextOwner)
+    }
+
+    @Test
     func cancelledControlWaiterCannotBlockTheNextOwner() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
