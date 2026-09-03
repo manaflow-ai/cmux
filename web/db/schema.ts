@@ -596,6 +596,12 @@ export const coderouterRouteTokens = pgTable(
     stackUserId: text("stack_user_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default("cli"),
+    /**
+     * Cloud VM this token is bound to. The Freestyle edge injects the token
+     * into that VM's sessions; requests must carry the matching x-cmux-vm-id.
+     * Null for an unbound (cr CLI) token.
+     */
+    vmId: text("vm_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -608,6 +614,7 @@ export const coderouterRouteTokens = pgTable(
       table.stackUserId,
       table.expiresAt,
     ),
+    index("coderouter_route_tokens_vm_idx").on(table.vmId),
   ],
 );
 
@@ -1336,5 +1343,43 @@ export const cloudVmNotificationDeliveries = pgTable(
       .on(table.userId, table.status, table.createdAt),
     index("cloud_vm_notification_deliveries_event_status_idx")
       .on(table.eventId, table.status),
+  ],
+);
+
+/**
+ * The one Claude upstream a team routes `/v1/messages` traffic to. A guest
+ * Claude Code process inside a Cloud VM only holds a placeholder API key; the
+ * edge injects the team's route token, and coderouter forwards to whichever
+ * upstream this row names. Secrets use the same KMS envelope as
+ * `coderouter_credentials`. `config` holds the non-secret part only
+ * (Bedrock region, optional model id overrides).
+ */
+export const coderouterClaudeUpstreams = pgTable(
+  "coderouter_claude_upstreams",
+  {
+    teamId: text("team_id").primaryKey(),
+    kind: text("kind")
+      .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_claude_upstreams_kind_check",
+      sql`${table.kind} IN ('anthropic_api_key', 'anthropic_oauth', 'bedrock')`,
+    ),
+    check(
+      "coderouter_claude_upstreams_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
   ],
 );

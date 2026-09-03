@@ -242,7 +242,7 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 
 ## ナイトリービルド
 
-[cmux NIGHTLYをダウンロード](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[cmux NIGHTLYをダウンロード](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLYは独自のバンドルIDを持つ別のアプリなので、安定版と並行して実行できます。最新の`main`コミットから自動的にビルドされ、独自のSparkleフィード経由で自動更新されます。
 

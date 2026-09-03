@@ -4,6 +4,8 @@ import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/erro
 import {
   buildConnectivityInvalidationRequest,
   handleIrohRoute,
+  requiresStackSession,
+  type IrohRouteOperation,
 } from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
@@ -21,10 +23,6 @@ const USER: AuthedUser = {
       userBillingPlanId: null,
       billingPlanId: null,
       billingSeats: null,
-      resolveSubrouterPermissions: async () => ({
-        use: false,
-        manageAccounts: false,
-      }),
 };
 
 describe("Iroh route boundary", () => {
@@ -191,6 +189,32 @@ describe("Iroh route boundary", () => {
     });
     expect(response.status).toBe(401);
     expect(called).toBe(false);
+  });
+
+  test("only high-volume operations use the local token fast path", async () => {
+    const seen: Array<[IrohRouteOperation, boolean]> = [];
+    for (const operation of [
+      "challenge", "register", "discover", "endpoint_attestation",
+      "revoke", "pair_grant", "relay_token",
+    ] as const) {
+      await handleIrohRoute(authedPost("/api/devices/iroh/x", {}), operation, {
+        verify: async (_request, options) => {
+          seen.push([operation, options.requireStackSession]);
+          return null;
+        },
+        broker: broker(),
+      });
+    }
+    expect(seen).toEqual([
+      ["challenge", false],
+      ["register", false],
+      ["discover", false],
+      ["endpoint_attestation", false],
+      ["revoke", true],
+      ["pair_grant", true],
+      ["relay_token", true],
+    ]);
+    expect(requiresStackSession("pair_grant")).toBe(true);
   });
 
   test("maps a Stack Auth throttle to 429 with Retry-After instead of 401", async () => {

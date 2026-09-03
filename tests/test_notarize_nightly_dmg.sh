@@ -50,6 +50,13 @@ cat > "$FAKE_BIN/hdiutil" <<'EOF'
 set -euo pipefail
 printf 'hdiutil %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
 case "${1:-}" in
+  convert)
+    # hdiutil convert <in> -quiet -format ULMO -ov -o <out>
+    printf 'dmg-fixture-ulmo\n' > "${@: -1}"
+    ;;
+  imageinfo)
+    printf 'Format: %s\n' "${CMUX_TEST_DMG_FORMAT:-ULMO}"
+    ;;
   attach)
     mount_dir="${@: -1}"
     cp -R "$CMUX_TEST_SOURCE_APP" "$mount_dir/cmux NIGHTLY.app"
@@ -126,6 +133,16 @@ line_of() {
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
 helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
 create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
+convert_line="$(line_of "hdiutil convert ")"
+dmg_sign_line="$(line_of "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $DMG")"
+if [ -z "$convert_line" ] || [ -z "$dmg_sign_line" ] || ! [ "$create_dmg_line" -lt "$convert_line" ] || ! [ "$convert_line" -lt "$dmg_sign_line" ]; then
+  echo "FAIL: DMG must be re-encoded to LZMA between create-dmg and DMG signing" >&2
+  exit 1
+fi
+if ! grep -Fq "hdiutil convert" "$LOG" || ! grep -Eq "hdiutil convert .* -format ULMO .* -o $DMG\$" "$LOG"; then
+  echo "FAIL: DMG was not converted to ULMO at $DMG" >&2
+  exit 1
+fi
 app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"

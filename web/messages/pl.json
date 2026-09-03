@@ -261,7 +261,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
       "title": "coderouter",
-      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "machines": {
+        "title": "Maszyny",
+        "description": "Użycie coderouter na maszynę dla {team} w ciągu ostatnich {days} dni.",
+        "machineColumn": "Maszyna",
+        "tokensColumn": "Łącznie tokenów",
+        "apiEquivalentColumn": "Wartość równoważna API",
+        "unnamed": "Maszyna bez nazwy",
+        "empty": "Żadna maszyna nie korzystała z coderouter w ciągu ostatnich {days} dni.",
+        "unavailable": "Użycie na maszynę jest tymczasowo niedostępne.",
+        "estimateNote": "Wartość równoważna API to szacunek oparty na publicznych cenach katalogowych, a nie rzeczywisty koszt."
+      }
     },
     "accountMenu": {
       "label": "Menu konta",
@@ -1854,6 +1865,8 @@
     "metaDescription": "Pobierz cmux NIGHTLY, osobną aplikację budowaną automatycznie z najnowszego commita na main. Działa obok wersji stabilnej z własnymi aktualizacjami automatycznymi.",
     "description": "cmux NIGHTLY jest budowany automatycznie z najnowszego commita na main. Ma własne bundle ID, więc działa obok wersji stabilnej bez konfliktów. Używaj go, aby testować nowe funkcje przed ich wydaniem.",
     "download": "Pobierz NIGHTLY na Maca",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Buildy nightly mogą zawierać błędy lub niekompletne funkcje. W razie problemów zgłoś je na <githubLink>GitHubie</githubLink> lub w <discordLink>#nightly-bugs na Discordzie</discordLink> i przełącz się na wersję stabilną."
   },
   "languageSwitcher": {

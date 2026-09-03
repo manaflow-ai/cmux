@@ -52,6 +52,10 @@ fs4.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 tokio.workspace = true
+# Machine spend readout: one small JSON GET every few minutes from inside a
+# Cloud VM. Both crates are already in the graph via chatmux-relay and iroh.
+reqwest.workspace = true
+rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
 
