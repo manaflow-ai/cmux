@@ -1336,28 +1336,49 @@ impl InteractiveWriter {
         Ok(Self { shared, abort })
     }
 
-    /// Queue admission is fail-fast. It never waits for the queue mutex or
-    /// for capacity, so a caller's request deadline remains authoritative even
-    /// when the remote writer is stalled.
+    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        self.enqueue_inner(message, measure_latency, false)
+    }
+
+    /// Bounded-probe admission is fail-fast. It never waits for the queue
+    /// mutex or for capacity, so a shared reconnect deadline remains
+    /// authoritative when the remote writer is stalled.
     fn try_enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        self.enqueue_inner(message, measure_latency, true)
+    }
+
+    fn enqueue_inner(
+        &self,
+        message: String,
+        measure_latency: bool,
+        nonblocking: bool,
+    ) -> io::Result<u64> {
         let mut write =
             InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
         let message_bytes = write.message.len();
-        let mut state = match self.shared.state.try_lock() {
-            Ok(state) => state,
-            Err(std::sync::TryLockError::Poisoned(_)) => {
-                return Err(io::Error::other("interactive writer queue is poisoned"));
-            }
-            Err(std::sync::TryLockError::WouldBlock) => {
-                if measure_latency {
-                    self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+        let state = if nonblocking {
+            match self.shared.state.try_lock() {
+                Ok(state) => Ok(state),
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    Err(io::Error::other("interactive writer queue is poisoned"))
                 }
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "interactive writer queue mutex is contended",
-                ));
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    if measure_latency {
+                        self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "interactive writer queue mutex is contended",
+                    ))
+                }
             }
+        } else {
+            self.shared
+                .state
+                .lock()
+                .map_err(|_| io::Error::other("interactive writer queue is poisoned"))
         };
+        let mut state = state?;
         if let Some(failure) = &state.failure {
             return Err(failure.to_error());
         }
@@ -1386,11 +1407,6 @@ impl InteractiveWriter {
         drop(state);
         self.shared.changed.notify_one();
         Ok(sequence)
-    }
-
-    #[cfg(test)]
-    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        self.try_enqueue(message, measure_latency)
     }
 
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
@@ -3125,7 +3141,14 @@ impl RemoteSession {
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
         );
-        let sequence = match self.interactive_writer.try_enqueue(message, false) {
+        // Reconnect probes share one absolute deadline. They must not wait on
+        // a queue mutex held by a stalled writer; normal control requests keep
+        // their existing short mutex critical section and preserve input FIFO.
+        let enqueue_result = match deadline {
+            RequestDeadline::Until(_) => self.interactive_writer.try_enqueue(message, false),
+            _ => self.interactive_writer.enqueue(message, false),
+        };
+        let sequence = match enqueue_result {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
@@ -3244,7 +3267,7 @@ impl RemoteSession {
             .map_err(anyhow::Error::new)?;
         let sequence = self
             .interactive_writer
-            .try_enqueue(message, true)
+            .enqueue(message, true)
             .map_err(RemoteRequestError::Transport)?;
         if self.shutdown.load(Ordering::Acquire) {
             self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
