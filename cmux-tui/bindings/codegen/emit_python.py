@@ -1024,6 +1024,14 @@ __all__ = [
             )
             request_name = self.models[f"commands/{wire_name}/request"].name
             conditional_stream = command.get("stream") is not None and command["stream"].get("mode_field") == "follow"
+            if conditional_stream:
+                mode_name = _snake(command["stream"]["mode_field"])
+                lines.extend(
+                    [
+                        f"        if {mode_name} is True:",
+                        f"            raise ValueError({_quote(f'{method_name}({mode_name}=True) requires {method_name}_follow()')})",
+                    ]
+                )
             arguments = []
             for name, _field in required + positional_optional + optional:
                 python_name = _snake(name)

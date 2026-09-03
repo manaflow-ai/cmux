@@ -145,6 +145,8 @@ class GeneratedClientMixin:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
 
     def machine_stats(self, *, follow: Union[bool, MissingType] = MISSING) -> MachineStatsResult:
+        if follow is True:
+            raise ValueError('machine_stats(follow=True) requires machine_stats_follow()')
         return self._invoke_command('machine-stats', MachineStatsRequest(follow=MISSING))
 
     def machine_stats_follow(self, *, follow: Union[bool, MissingType] = MISSING) -> Tuple[MachineStatsResult, EventStream]:
