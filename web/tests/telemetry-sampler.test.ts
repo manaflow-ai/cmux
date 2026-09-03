@@ -104,6 +104,8 @@ describe("buildCmuxTraceSampler", () => {
   test("isVmPrioritySpan does not match unrelated paths", () => {
     expect(isVmPrioritySpan("GET /api/vmstats-lookalike", {})).toBe(false);
     expect(isVmPrioritySpan("GET", { "url.path": "/api/devices" })).toBe(false);
+    expect(isVmPrioritySpan("POST /v1/responses", { "http.route": "/v1/responses" })).toBe(false);
+    expect(isVmPrioritySpan("anything", { "cmux.subsystem": "coderouter" })).toBe(false);
     // Prefix semantics are intentional: /api/vm/... and /api/vm itself.
     expect(isVmPrioritySpan("GET", { "url.path": "/api/vm" })).toBe(true);
   });
