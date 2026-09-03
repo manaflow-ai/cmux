@@ -587,9 +587,6 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private func observeMachineID(in data: Data) {
         guard observedMachineID == nil else { return }
         stdoutProtocolLine.append(data)
-        if stdoutProtocolLine.count > 4096 {
-            stdoutProtocolLine.removeSubrange(0..<(stdoutProtocolLine.count - 4096))
-        }
         while let newline = stdoutProtocolLine.firstIndex(of: 0x0A) {
             let line = stdoutProtocolLine.prefix(upTo: newline)
             stdoutProtocolLine.removeSubrange(...newline)
@@ -598,6 +595,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
                 observedMachineID = machineID
                 return
             }
+        }
+        // Scan complete lines before bounding the incomplete suffix. A single
+        // pipe read can contain the protocol line and much later output.
+        if stdoutProtocolLine.count > 4096 {
+            stdoutProtocolLine.removeSubrange(0..<(stdoutProtocolLine.count - 4096))
         }
     }
 
