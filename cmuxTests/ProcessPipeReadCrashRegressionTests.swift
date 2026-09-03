@@ -116,4 +116,30 @@ struct ProcessPipeReadCrashRegressionTests {
 
         #expect(chunks.contains("waiting for link\n"))
     }
+
+    @Test
+    func testProcessOutputCollectorWaitsForInFlightReadBeforeFinishing() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { _ in
+            entered.signal()
+            release.wait()
+        }
+        collector.start()
+        try? stdout.fileHandleForWriting.write(contentsOf: Data("progress\n".utf8))
+        #expect(entered.wait(timeout: .now() + 1) == .success)
+
+        DispatchQueue.global().async {
+            _ = collector.finishResult()
+            finished.signal()
+        }
+        #expect(finished.wait(timeout: .now() + 0.05) == .timedOut)
+        release.signal()
+        #expect(finished.wait(timeout: .now() + 1) == .success)
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+    }
 }
