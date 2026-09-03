@@ -1162,7 +1162,7 @@ extension CMUXCLI {
             for group in groups {
                 lines.append("    \(group.label)")
                 for terminal in group.items {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
                 }
             }
             if !browsers.isEmpty {
@@ -1232,6 +1232,9 @@ extension CMUXCLI {
                 // Only pre-multi-view payloads fall back to this field. An
                 // explicit empty `remote_views` is authoritative: the terminal
                 // has no workspace layout and belongs only in Terminals.
+                // Retained exited, launching, or unavailable records are not
+                // actionable workspace children.
+                guard Self.vmTreeTerminalIsRunning(terminal) else { continue }
                 workspacePayloads = [terminal["remote_workspace"] as? [String: Any]]
             }
             for workspace in workspacePayloads {
@@ -1285,7 +1288,11 @@ extension CMUXCLI {
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
             for terminal in workspace.terminals {
-                lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
+                lines.append("      " + vmTreeResourceCell(
+                    terminal,
+                    openHint: vmTreeTerminalOpenHint(terminal, "cmux vm open \(id)/\(workspaceId)"),
+                    addressKey: "key"
+                ))
             }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
@@ -1339,12 +1346,12 @@ extension CMUXCLI {
                 }
             }
             for terminal in attached {
-                lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                lines.append("    " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
             }
             if !detached.isEmpty {
                 lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
                 for terminal in detached {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
                 }
             }
         }
@@ -1365,13 +1372,29 @@ extension CMUXCLI {
         return terminal["remote_workspace"] == nil
     }
 
+    /// Legacy payloads expose `running` without a lifecycle string. Keep their
+    /// grouping semantics aligned with lifecycle-aware payloads.
+    private static func vmTreeTerminalIsRunning(_ terminal: [String: Any]) -> Bool {
+        if let lifecycle = terminal["lifecycle"] as? String {
+            return lifecycle == "running"
+        }
+        return (terminal["running"] as? Bool) == true
+    }
+
+    /// Returns an open command only for terminals that can still be projected.
+    /// Exited records remain visible for lifecycle inspection but cannot be reopened.
+    private static func vmTreeTerminalOpenHint(_ terminal: [String: Any], _ hint: String) -> String? {
+        guard (terminal["lifecycle"] as? String) != "exited" else { return nil }
+        return hint
+    }
+
     /// One resource line: lifecycle glyph, id, title, detail, agent badge, open marker,
     /// and the address to open it. `addressKey` picks the resource's `key` (cloud terminal
     /// workspace rows) or its full id (pool rows); display rows set `showFullKey` so each
     /// screen number remains visible instead of being truncated to the common prefix.
     private static func vmTreeResourceCell(
         _ terminal: [String: Any],
-        openHint: String,
+        openHint: String?,
         addressKey: String = "id",
         showFullKey: Bool = false
     ) -> String {
@@ -1397,8 +1420,10 @@ extension CMUXCLI {
         if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
             cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
         }
-        let address = addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)"
-        cell += "  (\(address))"
+        if let openHint {
+            let address = addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)"
+            cell += "  (\(address))"
+        }
         return cell
     }
 
