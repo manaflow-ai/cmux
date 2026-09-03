@@ -83,7 +83,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.route = route
         self.ticket = ticket
         let authorizationMode: CmxTransportAuthorizationMode
-        if route.kind == .iroh {
+        if route.kind == .iroh || route.kind == .websocket {
+            // Iroh admits at the transport handshake; the relay admits end to
+            // end via the transport's first-frame `mobile.session.admit`.
+            // Either way, requests carry no per-request credential.
             authorizationMode = .transportAdmission
         } else if route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint,

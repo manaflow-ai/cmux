@@ -35,6 +35,9 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxRelayTransport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef

@@ -133,6 +133,11 @@ extension MobileShellComposite {
             return Self.irohTailscaleDialCandidates(for: pairing)
         case .automatic:
             return nil
+        case .relay:
+            // The relay method never dials Iroh, so it pins nothing here; the
+            // route filter already restricts relay pairings to the WebSocket
+            // route.
+            return nil
         }
     }
 

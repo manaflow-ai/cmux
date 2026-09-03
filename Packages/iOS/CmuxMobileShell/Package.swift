@@ -29,6 +29,7 @@ let package = Package(
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTransport"),
+        .package(path: "../../Shared/CmuxRelayTransport"),
     ],
     targets: [
         .target(
@@ -44,6 +45,7 @@ let package = Package(
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
                 "CmuxMobileTransport",
+                "CmuxRelayTransport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

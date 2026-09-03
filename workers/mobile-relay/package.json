@@ -1,0 +1,24 @@
+{
+  "name": "cmux-mobile-relay-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
+    "generate": "bun tools/generate.ts --write",
+    "generate:check": "bun tools/generate.ts --check",
+    "check": "bun run generate:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
+  },
+  "dependencies": {
+    "effect": "^3.21.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260525.0",
+    "@types/bun": "^1.3.14",
+    "@typescript/native-preview": "7.0.0-dev.20260616.1",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.20.0"
+  }
+}

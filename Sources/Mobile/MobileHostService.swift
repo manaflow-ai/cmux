@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxGit
 import CmuxIrohTransport
 import CmuxMobileTransport
+import CmuxRelayTransport
 import CmuxSettings
 import CmuxTerminalCore
 import CryptoKit
@@ -483,6 +484,7 @@ final class MobileHostService {
         } else {
             MobileHostIrohRuntime.shared.configure(auth: auth)
         }
+        MobileHostRelayRuntime.shared.configure(auth: auth)
     }
 
     func updateIrohRoute(
@@ -1132,6 +1134,7 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostRelayRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1289,6 +1292,10 @@ final class MobileHostService {
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
         MobileHostIrohRuntime.shared.setDesiredActive(true)
+        // The relay host is opt-in per Mac: off means zero relay connections.
+        MobileHostRelayRuntime.shared.setDesiredActive(
+            MobileHostRelayRuntime.isEnabled(defaults: defaults)
+        )
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -1418,6 +1425,12 @@ final class MobileHostService {
                 return true
             },
             handleRequest: { request in
+                if request.method == RelayAdmission.method {
+                    // Authorization already verified the admission (or
+                    // rejected it before this handler ran); the result just
+                    // acknowledges. The client sends it fire-and-forget.
+                    return .ok(["admitted": true])
+                }
                 if request.method == "mobile.host.status" {
                     return await Self.connectionStatusResult(
                         for: request,
@@ -1487,7 +1500,66 @@ final class MobileHostService {
             return await stackAuthorization(request)
         case .irohAdmission:
             return nil
+        case let .relaySession(admission):
+            return await relaySessionAuthorizationError(
+                for: request,
+                admission: admission
+            )
         }
+    }
+
+    /// Relay-session authorization (auth-C): the first frame's
+    /// `mobile.session.admit` is verified END TO END against Stack and binds
+    /// the connection to the signed-in account; every later request checks
+    /// only that the binding still names the local user. A failed or missing
+    /// admission rejects with `unauthorized`, which drives the client's
+    /// normal re-auth path.
+    private nonisolated static func relaySessionAuthorizationError(
+        for request: MobileHostRPCRequest,
+        admission: MobileHostRelayAdmission
+    ) async -> MobileHostRPCResult? {
+        if request.method == RelayAdmission.method {
+            do {
+                try await Task.detached(priority: .utility) {
+                    try await MobileHostStackAuthVerifier.shared.verify(auth: request.auth)
+                }.value
+                guard let localUserID = await MobileHostService.shared.currentAuthenticatedLocalUserID() else {
+                    await admission.recordFailed()
+                    return .failure(MobileHostRPCError(
+                        code: "unauthorized",
+                        message: "No account is signed in on this Mac."
+                    ))
+                }
+                // verify() proved remote == local, so the local id IS the
+                // verified remote account at admission time.
+                await admission.recordAdmitted(userID: localUserID)
+                return nil
+            } catch MobileHostAuthorizationError.accountMismatch {
+                await admission.recordFailed()
+                mobileHostLog.error("relay admission rejected: account mismatch")
+                return .failure(MobileHostRPCError(
+                    code: "account_mismatch",
+                    message: "Sign in with the account that owns this Mac to continue."
+                ))
+            } catch {
+                await admission.recordFailed()
+                mobileHostLog.error("relay admission failed: \(String(describing: error), privacy: .public)")
+                return .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Mobile sync authorization failed."
+                ))
+            }
+        }
+        guard requiresAuthorization(method: request.method) else { return nil }
+        guard let admittedUserID = await admission.admittedUserID(),
+              let localUserID = await MobileHostService.shared.currentAuthenticatedLocalUserID(),
+              admittedUserID == localUserID else {
+            return .failure(MobileHostRPCError(
+                code: "unauthorized",
+                message: "Relay session is not admitted."
+            ))
+        }
+        return nil
     }
 
     nonisolated static func connectionStatusResult(
@@ -1497,7 +1569,7 @@ final class MobileHostService {
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
-        case .stackBearer:
+        case .stackBearer, .relaySession(_):
             return await stackStatus(request)
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {

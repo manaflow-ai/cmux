@@ -23,7 +23,7 @@ struct MacComputerListSection: Equatable, Identifiable {
         for snapshot in snapshots {
             byMethod[snapshot.connectionMethod ?? .automatic, default: []].append(snapshot)
         }
-        return [MobileConnectionMethod.automatic, .tailscale, .direct].compactMap { method in
+        return [MobileConnectionMethod.automatic, .tailscale, .direct, .relay].compactMap { method in
             byMethod[method].map { MacComputerListSection(method: method, computers: $0) }
         }
     }
@@ -39,6 +39,8 @@ extension MobileConnectionMethod {
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
         case .direct:
             L10n.string("mobile.connections.method.direct", defaultValue: "Direct")
+        case .relay:
+            L10n.string("mobile.connections.method.relay", defaultValue: "Relay")
         }
     }
 
@@ -49,6 +51,7 @@ extension MobileConnectionMethod {
         case .automatic: .iroh
         case .tailscale: .tailscale
         case .direct: nil
+        case .relay: .websocket
         }
     }
 }

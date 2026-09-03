@@ -22,6 +22,7 @@ actor RoutingTerminalInputRecorder {
     private var holdFirstInput = false
     private var holdAllInputs = false
     private var rejectInputAtIndex: Int?
+    private var rejectInputCode = "terminal_input_failed"
     private var firstInputHeld = false
     private var firstInputContinuation: CheckedContinuation<Void, Never>?
     private var firstInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
@@ -35,8 +36,9 @@ actor RoutingTerminalInputRecorder {
         holdAllInputs = hold
     }
 
-    func setRejectInput(at index: Int?) {
+    func setRejectInput(at index: Int?, code: String = "terminal_input_failed") {
         rejectInputAtIndex = index
+        rejectInputCode = code
     }
 
     func awaitFirstInputReached() async {
@@ -83,6 +85,7 @@ actor RoutingTerminalInputRecorder {
     func recordedInFlightCount() -> Int { inFlightCount }
     func recordedMaximumInFlightCount() -> Int { maximumInFlightCount }
     func shouldReject(index: Int) -> Bool { rejectInputAtIndex == index }
+    func rejectionCode() -> String { rejectInputCode }
 }
 
 extension RoutingHostRouter {
@@ -98,8 +101,11 @@ extension RoutingHostRouter {
         await terminalInputRecorder.setHoldAllInputs(hold)
     }
 
-    func setRejectTerminalInput(at index: Int?) async {
-        await terminalInputRecorder.setRejectInput(at: index)
+    func setRejectTerminalInput(
+        at index: Int?,
+        code: String = "terminal_input_failed"
+    ) async {
+        await terminalInputRecorder.setRejectInput(at: index, code: code)
     }
 
     func releaseFirstTerminalInput() async {
@@ -131,7 +137,7 @@ extension RoutingHostRouter {
         if await terminalInputRecorder.shouldReject(index: index) {
             return try? Self.errorFrame(
                 id: info.id,
-                code: "terminal_input_failed",
+                code: await terminalInputRecorder.rejectionCode(),
                 message: "terminal input rejected"
             )
         }

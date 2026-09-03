@@ -278,6 +278,80 @@ import Testing
     }
 
     @MainActor
+    @Test func orderedRelayRoutePipelinesAtMostFourRequests() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldAllTerminalInputs(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .websocket
+        )
+        let completionTracker = TerminalRawInputTaskCompletionTracker()
+
+        for character in ["a", "z", "i", "z"] {
+            await store.submitTerminalRawInput(
+                Data(character.utf8),
+                surfaceID: RoutingHostRouter.terminalA
+            )
+            await completionTracker.recordCompletion()
+        }
+        for character in ["!", "\n"] {
+            Task { @MainActor in
+                await store.submitTerminalRawInput(
+                    Data(character.utf8),
+                    surfaceID: RoutingHostRouter.terminalA
+                )
+                await completionTracker.recordCompletion()
+            }
+        }
+
+        #expect(await waitForTerminalInputCount(4, router: router))
+        #expect(await router.recordedTerminalInputInFlightCount() == 4)
+        #expect(
+            await router.recordedTerminalInputMaximumInFlightCount() == 4
+        )
+
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForTerminalInputCount(6, router: router))
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForProducerCompletion(
+            expectedCount: 6,
+            tracker: completionTracker
+        ))
+        #expect(await waitForTerminalInputQuiescence(router: router))
+        #expect(
+            await router.recordedTerminalInputs().map(\.text).joined()
+                == "aziz!\n"
+        )
+    }
+
+    /// Relay sessions are transport-admitted (the transport's first frame
+    /// proves the account end to end), so a host that rejects a pipelined
+    /// request with an auth-shaped error is un-admitting the session: the
+    /// same re-auth disconnect semantics as iroh apply.
+    @MainActor
+    @Test func relayPipelinedAuthRejectionKeepsDisconnectSemantics() async throws {
+        let router = RoutingHostRouter()
+        await router.setRejectTerminalInput(at: 0, code: "unauthorized")
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .websocket
+        )
+
+        await store.submitTerminalRawInput(
+            Data("x".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+
+        #expect(await waitForConnectionRequiresReauth(store: store))
+    }
+
+    @MainActor
     @Test func pipelinedFailureUsesOperationalErrorPath() async throws {
         let router = RoutingHostRouter()
         await router.setRejectTerminalInput(at: 0)
@@ -453,6 +527,22 @@ import Testing
 
         #expect(store.connectionError == nil)
         #expect(store.connectionState == .connected)
+    }
+
+    @MainActor
+    private func waitForConnectionRequiresReauth(
+        store: MobileShellComposite,
+        deadline deadlineDuration: Duration = .milliseconds(500)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: deadlineDuration)
+        while clock.now < deadline {
+            if store.connectionRequiresReauth {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 
     private func waitForTerminalInputCount(

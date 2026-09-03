@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": [
+    "test/**/*.ts",
+    "tools/**/*.ts",
+    "src/protocol.ts",
+    "src/ticket.ts"
+  ]
+}

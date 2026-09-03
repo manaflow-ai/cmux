@@ -7,6 +7,7 @@ public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import CmuxMobileTransport
+internal import CmuxRelayTransport
 public import Foundation
 import Observation
 internal import OSLog
@@ -10399,6 +10400,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if directOnly || ticketMethod == .direct {
             return supportedRoutes.filter { $0.kind == .iroh }
         }
+        // Relay is just as exclusive: one synthesized WebSocket route to the
+        // cmux relay, nothing else, and no other method ever adds it. The
+        // route is synthesized (never advertised by the Mac) because the dial
+        // target is a constant and the per-connect authority is the minted
+        // ticket, not the route.
+        if ticketMethod == .relay {
+            let advertised = supportedRoutes.filter { $0.kind == .websocket }
+            if !advertised.isEmpty { return advertised }
+            guard let relayRoute = Self.synthesizedRelayRoute() else { return [] }
+            return [relayRoute]
+        }
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
@@ -10420,6 +10432,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Iroh endpoint advertising no relays and no direct addresses must
         // not starve it or a dev simulator can never pair.
         return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+    }
+
+    /// The one WebSocket route the Relay method dials: the production relay
+    /// connect URL (a Debug env override supports dev relay workers). Returns
+    /// nil only if the constant ever fails validation, which fails the dial
+    /// closed instead of substituting another method.
+    static func synthesizedRelayRoute() -> CmxAttachRoute? {
+        var urlString = RelayProtocol.defaultRelayURL
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_MOBILE_RELAY_URL"],
+           !override.isEmpty {
+            urlString = override
+        }
+        #endif
+        return try? CmxAttachRoute(
+            id: "relay",
+            kind: .websocket,
+            endpoint: .url(urlString),
+            priority: 0
+        )
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.
@@ -12250,6 +12282,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Sends terminal input and stamps its eventual settlement outcome.
+    /// Whether ordered terminal input may skip the awaited round trip and
+    /// pipeline through ``terminalInputRPCPipeline`` (up to four unsettled
+    /// requests instead of one batch per RTT).
+    ///
+    /// Requires the host's ordered-input capability plus two route properties:
+    ///
+    /// - **Arrival order is preserved end to end.** Iroh provides one ordered
+    ///   control stream. The relay provides one WebSocket per leg: the
+    ///   Durable Object forwards data frames in arrival order and the Mac
+    ///   decodes the RPC stream sequentially into its per-surface FIFO.
+    ///   Tailscale TCP would also qualify but stays on the awaited path until
+    ///   it gets its own soak; this gate widens per route, deliberately.
+    /// - **Auth settles without an in-band retry.** Pipelined requests cannot
+    ///   retry a rejected bearer without reordering later input. Both kinds
+    ///   here are transport-admitted (iroh at the handshake, the relay via
+    ///   its end-to-end first-frame admission), so requests carry no
+    ///   per-request credential and there is nothing to retry.
+    private var pipelinedOrderedTerminalInputIsAvailable: Bool {
+        guard supportedHostCapabilities.contains(
+            Self.terminalInputOrderedCapability
+        ) else {
+            return false
+        }
+        switch activeRoute?.kind {
+        case .iroh, .websocket:
+            return true
+        case .tailscale, .debugLoopback, nil:
+            return false
+        }
+    }
+
     private func sendRemoteTerminalInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
@@ -12358,10 +12421,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: terminalID
         )
-        if activeRoute?.kind == .iroh,
-           supportedHostCapabilities.contains(
-               Self.terminalInputOrderedCapability
-           ) {
+        if pipelinedOrderedTerminalInputIsAvailable {
             do {
                 try await terminalInputRPCPipeline.enqueue(
                     surfaceID: terminalID.rawValue,
