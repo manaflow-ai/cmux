@@ -203,7 +203,6 @@ impl TerminalEffectExecutor {
     }
 }
 
-
 /// Upper bound the launch job waits for the topology gate before activating
 /// anyway. Mirrors the host's own `host.launch_owner` budget: after it the
 /// host releases its PTY reader itself, so waiting longer buys nothing.
@@ -225,5 +224,4 @@ mod tests {
         assert!(waiter.join().unwrap());
         assert!(gate.wait_until(Instant::now()));
     }
-
 }
