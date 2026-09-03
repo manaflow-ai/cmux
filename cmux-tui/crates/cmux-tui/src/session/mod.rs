@@ -718,6 +718,16 @@ impl Session {
         }
     }
 
+    /// Whether a remote surface was retired after its process exited while
+    /// the authoritative tree still lists its tab. Local surfaces retain the
+    /// handle until removal, so the missing-mirror fallback does not apply.
+    pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.surface_is_exited(id),
+        }
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         match self {
             Session::Local(_) => Ok(self.tree()),
