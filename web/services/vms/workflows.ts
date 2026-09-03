@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
+import type { CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -7,9 +9,11 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VmEdgeRule,
   VMHandle,
   VMStatus,
 } from "./drivers";
+import { isProviderId } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -27,17 +31,21 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
+  VmModelPlaneError,
   VmNotFoundError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
 import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import { resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -62,6 +70,18 @@ export {
   homeVolumeTemplateForUser,
   isMachineOwnedHomeVolumeName,
 } from "./volumeNaming";
+export {
+  deletePrivateNetworkingForAccountDeletion,
+  enrollVmTunnel,
+  isWireGuardPublicKey,
+  listVmTunnels,
+  networkSlugForUser,
+  readVmTunnel,
+  resolveOwnerNetwork,
+  revokeVmTunnel,
+  tunnelSlugForDevice,
+} from "./privateNetwork";
+export type { VmTunnelDescriptor } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -80,6 +100,9 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   readonly displayName: string | null;
+  /** The machine's address on its owner's private network, when it has one. */
+  readonly addressIpv4: string | null;
+  readonly addressIpv6: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -90,6 +113,29 @@ export type BaseVmEntry = VmEntry & {
 };
 
 export type CloudVmSessionEntry = CloudVmSessionRow;
+
+/**
+ * What the machine gets from the coderouter model plane: guest env (base
+ * URLs, placeholder keys, the VM id) and the edge rules that inject the real
+ * credential. Provisioned once the VM row exists, before the provider call.
+ */
+export type VmModelPlaneMaterials = {
+  readonly envs: Readonly<Record<string, string>>;
+  readonly edgeRules: readonly VmEdgeRule[];
+};
+
+/**
+ * The model-plane seam the routes inject (services/vms/modelPlaneGateway.ts).
+ * `provision` rejects with VmModelPlaneError to fail the create; `revoke` is
+ * idempotent and called best-effort on destroy and on every create rollback.
+ */
+export type VmModelPlaneProvisioner = {
+  readonly provision: (cloudVmId: string) => Promise<VmModelPlaneMaterials>;
+  readonly revoke: (cloudVmId: string) => Promise<void>;
+};
+
+/** The revoke half alone, for paths that only end a machine. */
+export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
@@ -129,11 +175,25 @@ export async function runVmWorkflow<A>(
   }
 }
 
+/**
+ * A row whose provider is no longer registered belongs to a retired driver.
+ * Drivers leave with a code deploy while the rows they wrote survive until an
+ * operator runs the matching migration, so every read path must treat such a
+ * row as unaddressable instead of asking the registry for a driver it no
+ * longer has. The registry throws for an unknown id, and one surviving row was
+ * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ */
+export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
+  return !isProviderId(row.provider);
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+    return rows
+      .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
+      .map(vmEntryFromRow);
   });
 }
 
@@ -192,6 +252,8 @@ export function renameVm(input: {
 
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
+  /** Revokes coderouter tokens for machines the provider reports gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -212,7 +274,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron"),
+      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     let updated = 0;
@@ -295,12 +357,11 @@ export function createVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -315,19 +376,53 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
+  readonly imageSize?: CreateOptions["imageSize"];
+  /** See CreateOptions.afterResponse: the edge probe runs here instead of inside the request. */
+  readonly afterResponse?: CreateOptions["afterResponse"];
   /**
-   * Machine-level env injected at provider create (e.g. the coderouter
-   * model-plane vars). May hold secrets: passed to the driver only, never
-   * persisted in the VM row or providerMetadata.
+   * Wires the machine to coderouter. Provisioned after the row exists (its id
+   * is the token binding) and before the provider call; a failure fails the
+   * create. Omitted only by the local-dev kill switch, which creates an
+   * unwired machine.
    */
-  readonly envs?: Readonly<Record<string, string>>;
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
+
+    // The owner's network row and the create row do not depend on each other,
+    // so the request pays the slower of the two reads, not their sum. A network
+    // failure after the row was inserted marks that row failed instead of
+    // leaving it "creating" forever; the network itself is an account-level
+    // resource, so nothing there needs unwinding.
+    const [networkResult, create] = yield* Effect.all(
+      [
+        Effect.either(
+          measureVmEffect(
+            input.timing,
+            "resolve_network",
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+          ),
+        ),
+        beginCreateWithLazyProviderRefresh(repo, providers, input),
+      ],
+      { concurrency: 2 },
+    );
+    if (Either.isLeft(networkResult)) {
+      if (create.inserted) {
+        yield* repo.markCreateFailed({
+          id: create.vm.id,
+          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+          message: errorMessage(networkResult.left),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+      return yield* Effect.fail(networkResult.left);
+    }
+    const network = networkResult.right;
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -351,24 +446,59 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
+    const materials = yield* measureVmEffect(
+      input.timing,
+      "model_plane_provision",
+      provisionModelPlane(input.modelPlane, create.vm.id),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
+            message: errorMessage(err.cause),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              operation: "model_plane_provision",
+              kind: err.kind,
+              message: errorMessage(err.cause),
+            },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
-        envs: input.envs,
+        imageSize: input.imageSize,
+        afterResponse: input.afterResponse,
+        envs: materials?.envs,
+        edgeRules: materials?.edgeRules,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
+          revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
@@ -407,6 +537,7 @@ export function createVm(input: {
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* rollbackProviderCreate(providers, input.provider, handle);
+          yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markCreateFailed({
             id: create.vm.id,
@@ -431,17 +562,51 @@ export function createVm(input: {
   });
 }
 
+/**
+ * Runs the injected model-plane provisioning for a row that now exists. The
+ * gateway rejects with VmModelPlaneError; anything else is treated as
+ * coderouter being unavailable so the row is marked with a retryable code.
+ */
+function provisionModelPlane(
+  modelPlane: VmModelPlaneProvisioner | undefined,
+  cloudVmId: string,
+): Effect.Effect<VmModelPlaneMaterials | null, VmModelPlaneError> {
+  if (!modelPlane) return Effect.succeed(null);
+  return Effect.tryPromise({
+    try: () => modelPlane.provision(cloudVmId),
+    catch: (cause) => (isVmModelPlaneError(cause) ? cause : new VmModelPlaneError({ kind: "unavailable", cause })),
+  });
+}
+
+/**
+ * Best-effort token revocation for a machine that is gone or never came up.
+ * A failed revoke is logged, never fails the caller: the token stays bound to
+ * a VM id no edge will ever inject again, so it is unusable anyway.
+ */
+function revokeModelPlane(
+  modelPlane: VmModelPlaneRevoker | undefined,
+  cloudVmId: string,
+): Effect.Effect<void> {
+  if (!modelPlane) return Effect.void;
+  return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+      })
+    ),
+  );
+}
+
 export function openBaseVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -462,13 +627,12 @@ export function resetBaseVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly reason?: string | null;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -493,13 +657,12 @@ function finishBaseCreate(
     readonly billingCustomerType: BillingCustomerType;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly baseName?: string;
-    readonly bakedFreestyleSignedAdmin?: boolean;
-    readonly timing?: VmTimingSink;
+      readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -544,13 +707,28 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
+    // Base machines join the owner's private network exactly as ad-hoc
+    // machines do — Base is the machine most users touch first, so leaving it
+    // publicly exposed would make the default machine the least private one.
+    // finishBaseCreate receives its services as parameters (it predates the
+    // context-based composition), so hand them to the context-reading resolver
+    // explicitly instead of widening this function's environment.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+        Effect.provideService(VmRepository, repo),
+        Effect.provideService(VmProviderGateway, providers),
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -731,10 +909,12 @@ export function restoreVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Same contract as createVm: the restored machine gets its own token and edge rule. */
+  readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -758,7 +938,7 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
-      bakedFreestyleSignedAdmin: false,
+      modelPlane: input.modelPlane,
       timing: input.timing,
     });
   });
@@ -770,7 +950,7 @@ export function forkVm(input: {
   readonly billingTeamId: string;
   readonly teamIds?: readonly string[];
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly providerVmId: string;
   readonly name?: string;
   readonly idempotencyKey?: string;
@@ -976,6 +1156,7 @@ function beginCreateWithLazyProviderRefresh(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
     readonly timing?: VmTimingSink;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
@@ -1001,6 +1182,7 @@ function refreshActiveLimitProviderStatuses(
   input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
   },
 ): Effect.Effect<void, VmDatabaseError, never> {
   return Effect.gen(function* () {
@@ -1023,11 +1205,11 @@ function refreshActiveLimitProviderStatuses(
       if (!providerVmId) return Effect.void;
       // Provider-agnostic on purpose: the cron reconcile path already refreshes
       // every provider, and this lazy refresh used to skip everything except
-      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // Freestyle, so a stale `running` row blocked creates for up to a
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
+      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -1059,10 +1241,11 @@ function reconcileObservedProviderStatus(
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
   usageEventSource: string,
+  modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderNotFoundError(err)
@@ -1080,6 +1263,7 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     if (dbStatus === "destroyed") {
+      yield* revokeModelPlane(modelPlane, vm.id);
       yield* repo.recordUsageEvent({
         userId: vm.userId,
         billingTeamId: vm.billingTeamId,
@@ -1423,6 +1607,8 @@ export function destroyVm(input: {
   readonly providerVmId: string;
   readonly provider?: ProviderId;
   readonly afterProviderDestroy?: () => void;
+  /** Revokes the machine's coderouter tokens once the provider machine is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1437,6 +1623,7 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    yield* revokeModelPlane(input.modelPlane, vm.id);
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
@@ -1633,6 +1820,7 @@ export function execVm(input: {
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
+      providerMetadata: vm.providerMetadata,
     });
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -1735,7 +1923,7 @@ export function openVmPort(input: {
 }
 
 /**
- * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * Attach through the cmux-tui remote daemon — the only session transport on
  * machines (other providers still serve the legacy websocket/SSH attach). The ingress
  * token lands in the same lease ledger as previews so sign-out revokes it; session
  * auth is the daemon's device enrollment, which the client completes with
@@ -1803,6 +1991,19 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // Backfill: machines created before address recording learn their private
+    // address on first attach, so "Copy IP Address" appears for them too.
+    const learned = endpoint.networkAddresses;
+    if (learned && repo.mergeProviderMetadata) {
+      const metadata = vm.providerMetadata ?? {};
+      const patch = {
+        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
+        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
+      };
+      if (Object.keys(patch).length) {
+        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }
     return endpoint;
   });
 }
@@ -1827,7 +2028,9 @@ export function approveVmCmuxRemoteEnrollment(input: {
         }),
       );
     }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+      providerMetadata: vm.providerMetadata,
+    });
   });
 }
 
@@ -1949,7 +2152,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
@@ -2019,49 +2222,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   });
 }
 
-export function openSshEndpoint(input: {
-  readonly userId: string;
-  readonly billingTeamId?: string | null;
-  readonly teamIds?: readonly string[];
-  readonly providerVmId: string;
-  /** Caller's CURRENT billing plan; used for the free access window. */
-  readonly callerPlanId?: string | null;
-}) {
-  return Effect.gen(function* () {
-    const repo = yield* VmRepository;
-    const providers = yield* VmProviderGateway;
-    const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "ssh",
-      providers.openSSH(vm.provider, input.providerVmId),
-    );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((err) =>
-        revokeEndpointIdentity(vm.provider, endpoint).pipe(
-          Effect.andThen(Effect.fail(err)),
-        ),
-      ),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.ssh_endpoint",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
-  });
-}
-
 /// Access-verb variant of requireUserVm: a free-plan machine older than the
 /// free access window is preserved but unreachable until the caller upgrades.
 /// List/status/rename/delete deliberately keep using requireUserVm so the
@@ -2088,7 +2248,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       providerVmId: input.providerVmId,
       provider: input.provider,
     });
-    if (!vm || !vm.providerVmId) {
+    if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (!callerStillOwnsBillingScope(input, vm)) {
@@ -2543,6 +2703,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   if (!row.providerVmId) {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
+  const metadata = row.providerMetadata ?? {};
+  const addressIpv4 = metadata["networkIpv4"];
+  const addressIpv6 = metadata["networkIpv6"];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -2551,6 +2714,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
+    addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
+    addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };
 }
 

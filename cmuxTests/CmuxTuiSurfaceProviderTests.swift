@@ -116,6 +116,82 @@ import Testing
         #expect(CmuxTuiSnapshotParser.workspaces(fromSnapshot: [:]).isEmpty)
     }
 
+    @Test func zeroViewTerminalGetsAStableFocusedProjectionTarget() throws {
+        let target = try #require(
+            CmuxTuiSnapshotParser.terminalProjectionTarget(from: Self.sessionSnapshot)
+        )
+        #expect(target == CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main",
+            screenID: "screen_1",
+            paneID: "pane_1",
+            index: 2
+        ))
+    }
+
+    @Test func projectionTargetSkipsAnEmptyFocusedWorkspace() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["screens"] = [
+            ["id": "screen_api", "workspace_id": "ws_api", "focused": true],
+        ]
+        snapshot["panes"] = [
+            ["id": "pane_api", "screen_id": "screen_api", "focused": true],
+        ]
+        snapshot["tabs"] = []
+        let target = try #require(
+            CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot)
+        )
+        #expect(target.workspaceID == "ws_api")
+        #expect(target.screenID == "screen_api")
+        #expect(target.paneID == "pane_api")
+        #expect(target.index == 0)
+    }
+
+    @Test func terminalProjectionArgvUsesTheRemoteDestination() {
+        let target = CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main", screenID: "screen_1", paneID: "pane_1", index: 2
+        )
+        #expect(
+            CloudTuiCommandLine.projectTerminalArguments(
+                socketPath: "/k.sock", terminalID: "term_detached", target: target
+            ) == [
+                "--socket", "/k.sock", "--json", "terminal", "term_detached", "project",
+                "--workspace", "ws_main", "--screen", "screen_1", "--pane", "pane_1",
+                "--index", "2",
+            ]
+        )
+    }
+
+    @Test func terminalProjectionArgvCanFenceAConcurrentSnapshotMutation() {
+        let target = CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main", screenID: "screen_1", paneID: "pane_1", index: 0
+        )
+        #expect(
+            CloudTuiCommandLine.projectTerminalArguments(
+                socketPath: "/k.sock",
+                terminalID: "term_detached",
+                target: target,
+                expectedRevision: "42",
+                idempotencyKey: "projection-1"
+            ).suffix(4).elementsEqual([
+                "--expected-revision", "42", "--idempotency-key", "projection-1"
+            ])
+        )
+    }
+
+    @Test func resourceRevisionAcceptsOnlyDecimalSnapshotCursors() {
+        #expect(
+            CmuxTuiSnapshotParser.resourceRevision(
+                from: ["cursor": ["revision": "42"]]
+            ) == "42"
+        )
+        #expect(
+            CmuxTuiSnapshotParser.resourceRevision(
+                from: ["cursor": ["revision": "1.0"]]
+            ) == nil
+        )
+        #expect(CmuxTuiSnapshotParser.resourceRevision(from: [:]) == nil)
+    }
+
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
         #expect(SurfaceResourceKind(wire: "display") == .display)
         #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")
@@ -227,8 +303,8 @@ import Testing
         """
         #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901])
         #expect(CmuxTuiSnapshotParser.internalPorts.isSuperset(of: [1337, 5901, 6901]))
-        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
-        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
+        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "cmux-xfce-vnc:latest"))
+        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "cmuxd-ws:tooling-20260509f"))
 
         let display = CmuxTuiSnapshotParser.display(machine: Self.machine)
         #expect(display.id == SurfaceResourceID(machine: Self.machine, kind: .display, key: "display:1"))

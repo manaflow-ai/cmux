@@ -16,12 +16,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`-, `remotes.`-, and
-    /// `aiAccounts.`-prefixed method and the fixed socket-worker set run on the
+    /// Classifies a method: every `vm.`-, `remotes.`-, `aiAccounts.`-, and
+    /// `coderouter.`-prefixed method and the fixed socket-worker set run on the
     /// worker; everything else runs on the main actor.
     ///
-    /// `remotes.*` (the `cmux remotes` device-registry verbs) and
-    /// `aiAccounts.*` (the team's subrouter AI-account verbs) make blocking,
+    /// `remotes.*` (the `cmux remotes` device-registry verbs), `aiAccounts.*`
+    /// (the team's subrouter AI-account verbs), and `coderouter.*` (the team's
+    /// coderouter Claude upstream and per-machine usage) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
     /// main actor; prefix matches keep each verb family in lockstep without
     /// listing each method.
@@ -38,7 +39,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
-            || Self.socketWorkerMethods.contains(method) {
+            || method.hasPrefix("coderouter.") || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )
@@ -120,6 +121,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
+        // vault.* scans agent transcript stores on disk (~/.claude/projects,
+        // ~/.codex/sessions, OpenCode SQLite). That is unbounded-latency file
+        // I/O; on the main actor it would stall the run loop, so the whole
+        // family runs on the socket worker. `vault.fork` streams a multi-MB
+        // transcript here and takes exactly one v2MainSync hop when asked to
+        // open the forked session. None are mainThreadCallable.
+        "vault.sessions",
+        "vault.search",
+        "vault.checkpoints",
+        "vault.checkpoint",
+        "vault.fork",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
@@ -134,6 +146,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // Selection providers own AppKit/WebKit state on the main actor, then
+        // return one immutable snapshot for response shaping on this worker.
+        // The async bridge must never be entered inline by a main-thread caller.
+        "surface.read_selection",
         // The surface catalog verbs await main-actor catalog work that can sit on the
         // network (a cloud provider materializing a pane); like `vm.*` they park the
         // worker instead of holding the main actor.

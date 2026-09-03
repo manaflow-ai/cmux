@@ -242,7 +242,7 @@ cmux — это примитив, а не решение. Он даёт вам �
 
 ## Ночные сборки
 
-[Скачать cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Скачать cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg) (Apple silicon) · [Intel](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg)
 
 cmux NIGHTLY — это отдельное приложение с собственным идентификатором пакета, поэтому оно работает параллельно со стабильной версией. Собирается автоматически из последнего коммита `main` и обновляется через собственный канал Sparkle.
 

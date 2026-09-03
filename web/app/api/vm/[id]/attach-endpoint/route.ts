@@ -1,3 +1,4 @@
+import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
@@ -17,6 +18,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -42,7 +45,7 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
-      // transport Blaxel machines serve. Clients that do not ask keep the legacy
+      // transport cmux Cloud machines serve. Clients that do not ask keep the legacy
       // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
       // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
