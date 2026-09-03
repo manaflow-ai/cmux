@@ -528,7 +528,8 @@ impl ReliableSession {
             progress.notify_waiters();
         }
         // Stop ACK production first. Lane writers keep an already admitted
-        // frame in flight, then observe cancellation after the link closes.
+        // frame in flight, then observe cancellation after link close completes
+        // or reaches its deadline.
         self.scheduler.request_shutdown();
         let link_result = match tokio::time::timeout(SESSION_CLOSE_TIMEOUT, self.link.close()).await
         {

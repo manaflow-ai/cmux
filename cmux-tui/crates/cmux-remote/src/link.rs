@@ -16,6 +16,7 @@ const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
+const PHYSICAL_LINK_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 // ReliableSession owns one physical send loop per lane, so at most one caller
 // per lane can wait for LaneMuxLink queue admission in production.
 const OUTBOUND_FRAMES_PER_LANE: usize = PRIORITY_BURST_FRAMES * PRIORITY_LANES.len();
@@ -649,7 +650,10 @@ impl fmt::Debug for LaneMuxLink {
             .debug_struct("LaneMuxLink")
             .field("description", &self.description)
             .field("maximum", &self.maximum)
-            .field("physical_links", &self.links.len())
+            .field(
+                "physical_links",
+                &self.links.lock().map(|links| links.len()).unwrap_or_default(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -783,7 +787,7 @@ impl LaneMuxLink {
             description: description.into(),
             maximum,
             routes,
-            links,
+            links: StdMutex::new(links),
             incoming: Arc::new(Mutex::new(Ingress {
                 frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
                 terminal: lifecycle.subscribe(),
@@ -867,7 +871,8 @@ impl FrameLink for LaneMuxLink {
         self.lifecycle.terminate(LinkError::Closed);
         let tasks = self.take_tasks();
         let incoming = self.incoming.clone();
-        let links = self.links.clone();
+        let links: Vec<_> =
+            self.links.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).drain(..).collect();
         let completion = LinkCloseCompletionGuard::new(self.close_state.clone());
         tokio::spawn(async move {
             let result: Result<(), LinkError> = async {
@@ -876,7 +881,16 @@ impl FrameLink for LaneMuxLink {
                 }
                 let _ = join_all(tasks).await;
                 incoming.lock().await.discard();
-                for result in join_all(links.iter().map(|link| link.close())).await {
+                for result in join_all(links.iter().map(|link| async {
+                    match tokio::time::timeout(PHYSICAL_LINK_CLOSE_TIMEOUT, link.close()).await {
+                        Ok(result) => result,
+                        Err(_) => {
+                            Err(LinkError::Transport("timed out closing physical link".into()))
+                        }
+                    }
+                }))
+                .await
+                {
                     result?;
                 }
                 Ok(())
@@ -1592,10 +1606,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn close_times_out_when_physical_link_close_stalls() {
         let (physical, handle) = gated_close_link();
+        let physical = Arc::new(physical);
+        let weak_physical = Arc::downgrade(&physical);
         let mux = Arc::new(
             LaneMuxLink::new(
                 "single-physical",
-                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical }],
             )
             .unwrap(),
         );
@@ -1615,6 +1631,8 @@ mod tests {
             result,
             Err(LinkError::Transport(message)) if message == "timed out closing physical link"
         ));
+        drop(mux);
+        assert!(weak_physical.upgrade().is_none(), "stalled physical link was retained");
     }
 
     #[tokio::test]
