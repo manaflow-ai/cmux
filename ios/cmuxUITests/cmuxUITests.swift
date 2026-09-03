@@ -1587,6 +1587,63 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    /// Regression: losing the foreground Mac's transport must preserve the
+    /// last-good workspace detail and selection while automatic recovery runs.
+    @MainActor
+    func testWorkspaceDetailSurvivesConnectionLossWithoutPopping() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        var serverIsRunning = true
+        defer {
+            if serverIsRunning { server.stop() }
+        }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+
+        try openSelectedWorkspaceIfNeeded(app)
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        XCTAssertTrue(terminalSurface.waitForExistence(timeout: 6))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
+
+        server.stop()
+        serverIsRunning = false
+
+        let connectionStatus = app.descendants(matching: .any)[
+            "MobileTerminalMacConnectionStatus"
+        ]
+        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 12))
+        let disconnected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+                "Reconnecting",
+                "Disconnected"
+            ),
+            object: connectionStatus
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [disconnected], timeout: 12),
+            .completed,
+            "The mock Mac must enter recovery after its transport closes."
+        )
+
+        XCTAssertTrue(
+            terminalSurface.exists,
+            "Transport recovery must keep the last-good terminal surface mounted."
+        )
+        XCTAssertTrue(
+            backButton.exists,
+            "Transport recovery must not pop the selected workspace detail."
+        )
+        XCTAssertTrue(
+            titleMenu.exists,
+            "Transport recovery must retain the selected workspace identity."
+        )
+    }
+
     @MainActor
     func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
